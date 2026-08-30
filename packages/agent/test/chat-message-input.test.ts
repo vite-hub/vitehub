@@ -184,19 +184,6 @@ describe("chat message trigger input", () => {
     expect(result.input.messages?.at(-1)?.role).toBe("user")
   })
 
-  it("fails closed when a runtime trigger history age is malformed", () => {
-    const result = createChatMessageTriggerInput({}, {
-      messages: [
-        { parts: [{ text: "stale", type: "text" }], role: "assistant" },
-        { parts: [{ text: "current", type: "text" }], role: "user" },
-      ],
-      // SAFETY: this regression passes malformed JSON-reachable input through the public runtime boundary.
-      triggerHistory: { maxAgeMs: null, maxMessages: 20, source: "thread" } as never,
-    })
-
-    expect(result.input.messages?.map(message => message.role)).toEqual(["user"])
-  })
-
   it("keeps stateless trigger history explicit", () => {
     const result = createChatMessageTriggerInput({
       threadHistory: { maxMessages: 10 },

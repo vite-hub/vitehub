@@ -20,7 +20,6 @@ import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import {
   chatTriggerHistoryLimit,
-  chatTriggerHistoryMaxAgeMs,
   createChatMessageTriggerInput,
   derivedChatTriggerInvoker,
   markDerivedChatTriggerInvoker,
@@ -3996,15 +3995,13 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { includeAttachments?: boolean; rejectOversizedTextAttachments?: boolean },
+  options?: { rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: options?.includeAttachments === false
-      ? message.text ? [{ id: "text-0", text: message.text, type: "text" }] : []
-      : await chatMessagePartsWithReply(message, options),
+    parts: await chatMessagePartsWithReply(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
@@ -4044,218 +4041,33 @@ async function durableChatThreadMessages(thread: Thread, limit: number): Promise
   }
 }
 
-const MAX_CHAT_TRIGGER_HISTORY_SCAN = 1_000
-
-function isCurrentChatSdkMessage(item: ChatSdkMessage, current: ChatSdkMessage): boolean {
-  if (item.id || current.id) return Boolean(item.id && current.id && item.id === current.id)
-  if (item === current) return true
-  return (
-    item.threadId === current.threadId &&
-    item.text === current.text &&
-    item.metadata.dateSent.getTime() === current.metadata.dateSent.getTime() &&
-    item.author.userId === current.author.userId &&
-    item.author.userName === current.author.userName
-  )
-}
-
-function chatRawDeliveryKey(message: ChatSdkMessage): string | undefined {
-  if (!isRuntimeObject(message.raw)) return
-  try {
-    return JSON.stringify(message.raw)
-  } catch {}
-}
-
-function isExactChatSdkDelivery(item: ChatSdkMessage, current: ChatSdkMessage): boolean {
-  return item === current || (isRuntimeObject(current.raw) && item.raw === current.raw)
-}
-
 async function chatTriggerMessages(
   thread: Thread,
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
-): Promise<{ materializeAttachments: () => Promise<UIMessageLike[]>; messages: UIMessageLike[] }> {
-  const currentMetadata = chatMessageMetadata(thread, message, messageContext)
-  const current = await chatSdkMessageToUiMessage(message, currentMetadata, { includeAttachments: false })
-  const triggerHistory = resolveChatTriggerHistory(options)
-  const triggerLimit = chatTriggerHistoryLimit(triggerHistory)
-  const configuredThreadLimit = isRuntimeObject(options?.threadHistory)
-    ? "maxMessages" in options.threadHistory
-      ? options.threadHistory.maxMessages
-      : 100
-    : undefined
-  const sessionHistoryLimit = options?.sessions && isRuntimeNumber(configuredThreadLimit) && Number.isFinite(configuredThreadLimit) && configuredThreadLimit > 0
-    ? Math.floor(configuredThreadLimit)
-    : undefined
-  const limit = Math.max(triggerLimit || 0, sessionHistoryLimit || 0)
-  if (!limit) {
-    return {
-      materializeAttachments: async () => [await chatSdkMessageToUiMessage(message, currentMetadata, {
-        rejectOversizedTextAttachments: true,
-      })],
-      messages: [current],
-    }
-  }
-  const maxAgeMs = chatTriggerHistoryMaxAgeMs(triggerHistory)
-  const currentTime = message.metadata.dateSent.getTime()
-  const historySource = new WeakMap<UIMessageLike, ChatSdkMessage>()
-  historySource.set(current, message)
-  const toHistoryUiMessage = async (item: ChatSdkMessage): Promise<UIMessageLike> => {
-    const converted = await chatSdkMessageToUiMessage(item, undefined, { includeAttachments: false })
-    historySource.set(converted, item)
-    return converted
-  }
+  historyThroughCurrent = false,
+): Promise<UIMessageLike[]> {
+  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
+    rejectOversizedTextAttachments: true,
+  })
+  const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
+  if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
-  const fetchedLimit = message.id ? limit : limit - 1
-  const currentRawKey = message.id ? undefined : chatRawDeliveryKey(message)
-  let durable = await durableChatThreadMessages(thread, limit)
-  const durableCurrentIndexBeforeBoundary = message.id
-    ? durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : [])).at(-1) ?? -1
-    : -1
-  const durableContainsCurrent = durableCurrentIndexBeforeBoundary >= 0
-  const fetchedAfterCurrent: ChatSdkMessage[] = []
-  const fetchedAfterIdLessCurrent: ChatSdkMessage[] = []
-  const fetchedBeforeCurrent: ChatSdkMessage[] = []
-  let foundCurrent = false
-  let scanned = 0
-  const scanLimit = Math.max(MAX_CHAT_TRIGGER_HISTORY_SCAN, limit)
   try {
-    const idLessCandidates: ChatSdkMessage[] = []
-    let exactIdLessCurrentIndex = -1
     for await (const item of thread.messages) {
-      if (++scanned > scanLimit + (message.id ? 0 : fetchedLimit) && !foundCurrent) break
-      if (!message.id) {
-        idLessCandidates.push(item)
-        if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message)) {
-          exactIdLessCurrentIndex = idLessCandidates.length - 1
-        }
-        if (exactIdLessCurrentIndex >= 0 && idLessCandidates.length > exactIdLessCurrentIndex + fetchedLimit) break
-        continue
-      }
-      if (fetchedNewestFirst.length >= fetchedLimit) break
-      const isCurrent = isCurrentChatSdkMessage(item, message)
-      if (!foundCurrent && isCurrent) {
-        foundCurrent = true
-        for (const future of fetchedBeforeCurrent) {
-          fetchedAfterCurrent.push(future)
-        }
-      }
-      if (foundCurrent) {
-        const itemTime = item.metadata.dateSent.getTime()
-        const outsideTriggerAge = maxAgeMs !== undefined && !isCurrent && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-        if (outsideTriggerAge && !sessionHistoryLimit) break
-        fetchedNewestFirst.push(isCurrent ? current : await toHistoryUiMessage(item))
-      } else {
-        fetchedBeforeCurrent.push(item)
-      }
-    }
-    if (!foundCurrent && durableContainsCurrent) {
-      for (const item of fetchedBeforeCurrent) {
-        if (item.id && item.metadata.dateSent.getTime() >= currentTime) fetchedAfterCurrent.push(item)
-      }
-      const predecessors = fetchedBeforeCurrent
-        .filter(item => item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime())
-        .slice(0, Math.max(0, limit - 1))
-      for (const item of predecessors) {
-        fetchedNewestFirst.push(await toHistoryUiMessage(item))
-      }
-    }
-    if (!message.id) {
-      const rawCurrentIndices = currentRawKey === undefined
-        ? []
-        : idLessCandidates.flatMap((item, index) => (chatRawDeliveryKey(item) === currentRawKey ? [index] : []))
-      const structuralCurrentIndices = idLessCandidates.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : []))
-      const currentIndex = exactIdLessCurrentIndex >= 0
-        ? exactIdLessCurrentIndex
-        : rawCurrentIndices.length === 1
-          ? rawCurrentIndices[0] ?? -1
-          : structuralCurrentIndices.length === 1
-            ? structuralCurrentIndices[0] ?? -1
-            : -1
-      if (currentIndex >= 0) {
-        fetchedAfterIdLessCurrent.push(...idLessCandidates.slice(0, currentIndex))
-        for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
-          fetchedNewestFirst.push(await toHistoryUiMessage(item))
-        }
-      }
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
+      if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
-  if (message.id && durableContainsCurrent) {
-    const futureDurableIndices = new Set<number>()
-    for (const future of fetchedAfterCurrent) {
-      const idMatches = future.id
-        ? durable.flatMap((item, index) => (item.id === future.id ? [index] : []))
-        : []
-      if (idMatches.length === 1) {
-        futureDurableIndices.add(idMatches[0]!)
-        continue
-      }
-      const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
-      if (exactMatches.length === 1) {
-        futureDurableIndices.add(exactMatches[0]!)
-      }
-    }
-    durable = durable
-      .slice(0, durableCurrentIndexBeforeBoundary + 1)
-      .filter((_, index) => !futureDurableIndices.has(index))
-  } else if (message.id && foundCurrent) {
-    durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
-  }
-  if (!message.id && fetchedAfterIdLessCurrent.length > 0) {
-    const futureDurableIndices = new Set<number>()
-    for (const future of fetchedAfterIdLessCurrent) {
-      const idMatches = future.id
-        ? durable.flatMap((item, index) => (item.id === future.id ? [index] : []))
-        : []
-      if (idMatches.length === 1) {
-        futureDurableIndices.add(idMatches[0]!)
-        continue
-      }
-      const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
-      if (exactMatches.length === 1) {
-        futureDurableIndices.add(exactMatches[0]!)
-      }
-    }
-    durable = durable.filter((_, index) => !futureDurableIndices.has(index))
-  }
-  const exactDurableCurrentIndices = message.id
-    ? []
-    : durable.flatMap((item, index) => (isExactChatSdkDelivery(item, message) ? [index] : []))
-  const rawDurableCurrentIndices = message.id || currentRawKey === undefined
-    ? []
-    : durable.flatMap((item, index) => (chatRawDeliveryKey(item) === currentRawKey ? [index] : []))
-  const structuralDurableCurrentIndices = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : []))
-  const durableCurrentIndex = message.id
-    ? structuralDurableCurrentIndices.at(-1) ?? -1
-    : exactDurableCurrentIndices.length === 1
-      ? exactDurableCurrentIndices[0] ?? -1
-      : exactDurableCurrentIndices.length === 0 && rawDurableCurrentIndices.length === 1
-        ? rawDurableCurrentIndices[0] ?? -1
-        : exactDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
-          ? structuralDurableCurrentIndices[0] ?? -1
-        : -1
-  if (!message.id) {
-    durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
-  }
+  const durable = await durableChatThreadMessages(thread, limit)
   let messages = [
-    ...(await Promise.all(durable.map((item, index) => {
-      if (index === durableCurrentIndex) return current
-      return toHistoryUiMessage(item)
-    }))),
+    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
-      const source = historySource.get(item)
-      const existing = source && deduped.findIndex((candidate) => {
-        const candidateSource = historySource.get(candidate)
-        return candidateSource && isExactChatSdkDelivery(candidateSource, source)
-      })
-      if (existing !== undefined && existing >= 0) {
-        deduped[existing] = item
-        return deduped
-      }
       deduped.push(item)
       return deduped
     }
@@ -4263,34 +4075,15 @@ async function chatTriggerMessages(
     if (existing === -1) deduped.push(item)
     else deduped[existing] = item
     return deduped
-  }, []).sort((left, right) => {
-    const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0
-    const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0
-    return leftTime - rightTime
-  })
+  }, [])
 
-  if (current.id) {
+  if (historyThroughCurrent && current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
     messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [current]
-  } else {
-    const currentIndex = messages.findIndex((item) => item === current)
-    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [...messages, current]
+  } else if (!current.id || !messages.some((item) => item.id === current.id)) {
+    messages.push(current)
   }
-  messages = messages.slice(-limit)
-  const triggerBoundary = messages.length - (triggerLimit ?? 1)
-  return {
-    materializeAttachments: async () => await Promise.all(messages.map(async (item, index) => {
-      const source = historySource.get(item)
-      if (!source || index < triggerBoundary) return item
-      if (source === message) {
-        return await chatSdkMessageToUiMessage(source, currentMetadata, { rejectOversizedTextAttachments: true })
-      }
-      const itemTime = source.metadata.dateSent.getTime()
-      const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-      return outsideTriggerAge ? item : await chatSdkMessageToUiMessage(source)
-    })),
-    messages,
-  }
+  return messages.slice(-limit)
 }
 
 function createChatTriggerInput(
@@ -4879,6 +4672,7 @@ async function handleChatSdkMessage(
   state: { keyPrefix: string; state: StateAdapter; workflowCustodySupported?: boolean },
   messageContext?: MessageContext,
   maximumInvocationDeadline?: number,
+  historyThroughCurrent = false,
   durableSteerScope?: string,
 ): Promise<void> {
   const delivery =
@@ -4917,13 +4711,6 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const collectedMessages = await chatTriggerMessages(thread, message, options, messageContext)
-    let messages = scopeCurrentChatUiMessage(
-      collectedMessages.messages,
-      message.id,
-      input.run?.runId || delivery.delivery.id,
-    )
-    input = { ...input, messages }
     const authorizationInput = await withParsedAgentMessageMeta(
       // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
       agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
@@ -4935,11 +4722,6 @@ async function handleChatSdkMessage(
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
-    messages = scopeCurrentChatUiMessage(
-      await collectedMessages.materializeAttachments(),
-      message.id,
-      input.run?.runId || delivery.delivery.id,
-    )
     const parsedChannelContext = authorizationInput.context?.channel
     input = withAgentInvokerRunAnnotation({
       ...input,
@@ -4947,6 +4729,11 @@ async function handleChatSdkMessage(
       ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
     }, invoker)
 
+    const messages = scopeCurrentChatUiMessage(
+      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+      message.id,
+      input.run?.runId || delivery.delivery.id,
+    )
     const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
@@ -5860,6 +5647,7 @@ async function handleChatSdkMessages(
           state,
           serial ? undefined : messageContext,
           maximumInvocationDeadline,
+          serial,
           durableSteerScope,
         )
       } catch (error) {

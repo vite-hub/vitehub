@@ -107,7 +107,6 @@ function createTestChatAdapter(
     isDM?: boolean
     bypassIdLessMessageDedupe?: boolean
     missingIncomingMessageId?: boolean
-    onInitialize?: (chat: ChatInstance) => void
     persistThreadHistory?: boolean
     photoData?: Blob
     rawMessageValue?: unknown
@@ -117,14 +116,12 @@ function createTestChatAdapter(
 ) {
   let chatInstance: ChatInstance | undefined
   let idLessMessageSequence = 0
-  let latestIncomingDate = new Date("2026-06-10T12:00:00.000Z")
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
   const cacheMessage = (message: Message) => {
     cachedMessages.set(message.threadId, [...(cachedMessages.get(message.threadId) ?? []), message])
   }
   const adapter = {
-    _cachedMessages: (threadId: string) => cachedMessages.get(threadId) ?? [],
     _chatInstance: () => chatInstance,
     channelIdFromThreadId: vi.fn((threadId: string) => threadId),
     handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
@@ -174,7 +171,6 @@ function createTestChatAdapter(
         | undefined
       const photo = photos?.at(-1)
       const date = isRuntimeNumber(rawMessage.date) ? new Date(rawMessage.date * 1000) : new Date("2026-06-10T12:00:00.000Z")
-      latestIncomingDate = date
       const message = new Message({
         attachments: rawMessage.audio
           ? [
@@ -270,7 +266,6 @@ function createTestChatAdapter(
     deleteMessage: vi.fn(async () => {}),
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
-      options.onInitialize?.(chat)
     }),
     isDM: vi.fn(() => options.isDM ?? true),
     editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({
@@ -297,7 +292,7 @@ function createTestChatAdapter(
           },
           formatted: { children: [], type: "root" },
           id,
-          metadata: { dateSent: latestIncomingDate, edited: false },
+          metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
           raw: { message },
           text: isRuntimeString(message)
             ? message
@@ -315,7 +310,6 @@ function createTestChatAdapter(
   const adapterBoundary: unknown = adapter
   // SAFETY: the returned intersection lists methods defined on the object above.
   return adapterBoundary as Adapter & {
-    _cachedMessages: (threadId: string) => Message[]
     _chatInstance: () => ChatInstance | undefined
     deleteMessage: ReturnType<typeof vi.fn>
     handleWebhook: ReturnType<typeof vi.fn>
@@ -330,12 +324,11 @@ function createTitleChatAdapter(setThreadTitle: (threadId: string, title: string
   return Object.assign(createTestChatAdapter(), { setThreadTitle })
 }
 
-function chatWebhookRequest(messageId: number, threadId = 456, text = "hello", date?: number) {
+function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
   return new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
     body: JSON.stringify({
       message: {
         chat: { id: threadId, type: "private" },
-        ...(date === undefined ? {} : { date }),
         from: { id: 123, username: "maxi" },
         message_id: messageId,
         text,
@@ -11748,7 +11741,7 @@ describe("server helpers", () => {
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
       expect(order).toEqual(["A", "B", "C", "D"])
       expect(run).toHaveBeenCalledTimes(4)
-      expect(histories).toEqual([["A"], ["A", "B"], ["B", "C"], ["C", "D"]])
+      expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
       const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", {
         agentName: "support",
       })
@@ -12911,11 +12904,7 @@ describe("server helpers", () => {
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-idless-steer-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
-    const adapter = createTestChatAdapter({
-      bypassIdLessMessageDedupe: true,
-      missingIncomingMessageId: true,
-      persistThreadHistory: true,
-    })
+    const adapter = createTestChatAdapter({ bypassIdLessMessageDedupe: true, missingIncomingMessageId: true })
     const sharedHistory = new Message({
       attachments: [],
       author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
@@ -17406,11 +17395,8 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const attachmentFetchData = vi.fn(async () => Buffer.from("session-only attachment"))
-    const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
+    const adapter = createTestChatAdapter({ persistThreadHistory: true })
     const runs: string[][] = []
-    const sessionIds: Array<string | undefined> = []
-    const invokerSessionIds: Array<string | undefined> = []
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
@@ -17419,31 +17405,22 @@ describe("server helpers", () => {
             telegram: () => adapter as never,
           },
           stream: false,
-          sessions: { idleTimeoutMs: 60_000, strategy: "idle-timeout" },
-          threadHistory: {},
+          threadHistory: { maxMessages: 25 },
           webhooks: {
             telegram: {},
           },
         }),
       ],
-      invoker: {
-        resolve: ({ context, defaultInvoker }) => {
-          invokerSessionIds.push(context.get("chat.sessionId"))
-          return defaultInvoker
-        },
-      },
       driver: {
-        run: ({ input, messages }) => {
+        run: ({ messages }) => {
           runs.push(messages.map(getMessageText))
-          // SAFETY: The Chat runtime stores its resolved session identifier as a string in this context field.
-          sessionIds.push(input.context?.["chat.sessionId"] as string | undefined)
           return `reply ${runs.length}`
         },
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (messageId: number, text: string, withAttachment = false) =>
+    const request = (messageId: number, text: string) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
@@ -17453,132 +17430,15 @@ describe("server helpers", () => {
             from: { first_name: "Maxi", id: 123, username: "maxi" },
             message_id: messageId,
             text,
-            ...(withAttachment
-              ? { document: { content: "session-only attachment", file_name: "context.txt", mime_type: "text/plain" } }
-              : {}),
           },
         }),
         method: "POST",
       })
 
-    await expect(handler(request(20, "remember BROWSER-HISTORY", true), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(20, "remember BROWSER-HISTORY"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs[0]?.[0]).toContain("remember BROWSER-HISTORY")
-    expect(runs[1]).toEqual(["what marker did I ask you to remember?"])
-    expect(attachmentFetchData).toHaveBeenCalledOnce()
-    expect(sessionIds[1]).toBe(sessionIds[0])
-    expect(invokerSessionIds).toEqual(sessionIds)
-  })
-
-  it("ends explicit trigger history at the webhook message", async () => {
-    const { defineChatCapability } = await import("../src/chat-trigger.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { getMessageText } = await import("../src/messages.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const message = (id: string, text: string, date: string, attachments: Message["attachments"] = []) => new Message({
-      attachments,
-      author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
-      formatted: { children: [], type: "root" },
-      id,
-      metadata: { dateSent: new Date(date), edited: false },
-      raw: {},
-      text,
-      threadId: "telegram:456",
-    })
-    const oldAttachmentFetch = vi.fn(async () => Buffer.from("old context"))
-    const idLessMessage = (text: string, date: string) => {
-      const result = message("id-less", text, date)
-      Reflect.deleteProperty(result, "id")
-      return result
-    }
-    const sharedIdLessMessage = idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z")
-    let initializedChats = 0
-    const adapter = createTestChatAdapter({
-      onInitialize: (chat) => {
-        if (++initializedChats !== 2) return
-        const unknownChat: unknown = chat
-        // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
-        const chatBoundary = unknownChat as {
-          createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
-        }
-        const createThread = chatBoundary.createThread.bind(chatBoundary)
-        vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
-          const thread = createThread(...arguments_)
-          // SAFETY: createThread returns Chat SDK's internal ThreadImpl, which owns this history cache.
-          const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
-          vi.spyOn(history, "getMessages").mockResolvedValue([
-            sharedIdLessMessage,
-            message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-            message("20", "current", "2026-06-10T12:00:20.000Z"),
-          ])
-          return thread
-        })
-      },
-      persistThreadHistory: true,
-    })
-    adapter.fetchMessages.mockResolvedValue({
-      messages: [
-        message("19", "previous", "2026-06-10T12:00:19.000Z"),
-        message("20", "current", "2026-06-10T12:00:20.000Z"),
-        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        sharedIdLessMessage,
-        message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
-      ],
-    })
-    const runs: string[][] = []
-    // SAFETY: createTestChatAdapter implements the adapter methods exercised by this webhook fixture.
-    const platformAdapter = adapter as never
-    const agent = defineAgent({
-      capabilities: [
-        defineChatCapability({
-          platforms: { telegram: () => platformAdapter },
-          sessions: { idleTimeoutMs: 60_000, strategy: "idle-timeout" },
-          stream: false,
-          threadHistory: {},
-          triggerHistory: { maxMessages: 3, source: "thread" },
-          webhooks: { telegram: {} },
-        }),
-      ],
-      driver: {
-        run: ({ messages }) => {
-          runs.push(messages.map(getMessageText))
-          return "ok"
-        },
-      },
-    })
-    // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
-    const handler = createChannelWebhookRouteHandler(agent as never)
-
-    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
-    adapter.fetchMessages.mockResolvedValue({
-      messages: [
-        ...Array.from({ length: 10 }, (_, index) =>
-          message(String(index + 100), `old ${index}`, `2026-06-10T11:00:${String(index).padStart(2, "0")}.000Z`, [
-            {
-              fetchData: oldAttachmentFetch,
-              mimeType: "text/plain",
-              name: `old-${index}.txt`,
-              size: 11,
-              type: "file",
-            },
-          ]),
-        ),
-        message("19", "previous", "2026-06-10T12:00:19.000Z"),
-        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        sharedIdLessMessage,
-        ...Array.from({ length: 987 }, (_, index) =>
-          message(String(index + 100), `newer cached ${index}`, "2026-06-10T12:01:00.000Z"),
-        ),
-      ],
-    })
-    await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
-
-    expect(runs).toEqual([
-      ["previous", "current", "newer cached"],
-      ["previous", "newer id-less cached", "current"],
-    ])
-    expect(oldAttachmentFetch).not.toHaveBeenCalled()
+    expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
@@ -17837,17 +17697,13 @@ describe("server helpers", () => {
     await rm(stateDir, { force: true, recursive: true })
   }, 15_000)
 
-  it("bounds fetched thread history when the current chat message has no id", async () => {
+  it("keeps fetched thread history when the current chat message has no id", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter({
-      bypassIdLessMessageDedupe: true,
-      missingIncomingMessageId: true,
-      persistThreadHistory: true,
-    })
-    const historicalMessage = (text: string) => new Message({
+    const adapter = createTestChatAdapter({ missingIncomingMessageId: true })
+    const historicalMessage = new Message({
       attachments: [],
       author: {
         fullName: "Maxi",
@@ -17860,24 +17716,12 @@ describe("server helpers", () => {
       id: "missing-id",
       metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
       raw: {},
-      text,
+      text: "previous id-less",
       threadId: "telegram:456",
     })
-    const previous = historicalMessage("previous id-less")
-    const nearest = historicalMessage("nearest id-less")
-    Reflect.deleteProperty(previous, "id")
-    Reflect.deleteProperty(nearest, "id")
-    const newer = historicalMessage("current id-less")
-    newer.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
-    Reflect.deleteProperty(newer, "id")
-    adapter.fetchMessages.mockImplementation(async () => {
-      const deserializedCurrent = historicalMessage("current id-less")
-      deserializedCurrent.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
-      Reflect.deleteProperty(deserializedCurrent, "id")
-      newer.text = "newer id-less"
-      const future = Array.from({ length: 998 }, (_, index) => historicalMessage(`future id-less ${index}`))
-      for (const item of [previous, nearest, deserializedCurrent, newer, ...future]) item.raw = { delivery: "same" }
-      return { messages: [previous, nearest, deserializedCurrent, newer, ...future] }
+    Reflect.deleteProperty(historicalMessage, "id")
+    adapter.fetchMessages.mockResolvedValue({
+      messages: [historicalMessage],
     })
     const runs: string[][] = []
     const agent = defineAgent({
@@ -17893,79 +17737,31 @@ describe("server helpers", () => {
       },
       messages: {
         stream: false,
-        triggerHistory: { maxMessages: 2, source: "thread" },
+        triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (updateId: number, text: string, date: number) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-        body: JSON.stringify({
-          update_id: updateId,
-          message: {
-            chat: { id: 456, type: "private" },
-            date,
-            from: { first_name: "Maxi", id: 123, username: "maxi" },
-            text,
-          },
+
+    await expect(
+      handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 22,
+            message: {
+              chat: { id: 456, type: "private" },
+              date: 1781092822,
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              text: "current id-less",
+            },
+          }),
+          method: "POST",
         }),
-        method: "POST",
-      })
+        "telegram",
+      ),
+    ).resolves.toMatchObject({ status: 200 })
 
-    await expect(handler(request(23, "newer id-less", 1_781_092_823), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(request(22, "current id-less", 1_781_092_822), "telegram")).resolves.toMatchObject({ status: 200 })
-
-    expect(runs).toEqual([["newer id-less"], ["nearest id-less", "current id-less"]])
-  })
-
-  it("keeps distinct durable id-less messages with the current fingerprint", async () => {
-    const { telegram } = await import("../src/channels.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { getMessageText } = await import("../src/messages.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter({
-      bypassIdLessMessageDedupe: true,
-      missingIncomingMessageId: true,
-      persistThreadHistory: true,
-    })
-    const runs: string[][] = []
-    const agent = defineAgent({
-      channels: {
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
-      },
-      driver: {
-        run: ({ messages }) => {
-          runs.push(messages.map(getMessageText))
-          return "ok"
-        },
-      },
-      messages: {
-        stream: false,
-        triggerHistory: { maxMessages: 5, source: "thread" },
-      },
-    })
-    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (updateId: number, text: string) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-        body: JSON.stringify({
-          update_id: updateId,
-          message: {
-            chat: { id: 457, type: "private" },
-            date: 1_781_092_822,
-            from: { first_name: "Maxi", id: 123, username: "maxi" },
-            text,
-          },
-        }),
-        method: "POST",
-      })
-
-    await expect(handler(request(20, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(request(21, "intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(request(22, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
-
-    expect(runs.at(-1)).toEqual(["current id-less", "ok", "intervening id-less", "ok", "current id-less"])
+    expect(runs).toEqual([["previous id-less", "current id-less"]])
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {
@@ -18037,15 +17833,13 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-state-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
-    const currentMetadata: unknown[] = []
-    const nowSeconds = Math.floor(Date.now() / 1_000)
     const request = (messageId: number, text: string) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
             chat: { id: 456, type: "private" },
-            date: nowSeconds + (messageId - 30) * 2 - 1,
+            date: 1781092800 + messageId,
             from: { first_name: "Maxi", id: 123, username: "maxi" },
             message_id: messageId,
             text,
@@ -18062,7 +17856,6 @@ describe("server helpers", () => {
         driver: {
           run: ({ messages }) => {
             runs.push(messages.map(getMessageText))
-            currentMetadata.push(messages.at(-1)?.metadata)
             return `reply ${runs.length}`
           },
         },
@@ -18081,16 +17874,11 @@ describe("server helpers", () => {
       await expect(handler(createTestChatAdapter({ persistThreadHistory: true }))(request(30, "remember DEPLOY-HISTORY"), "telegram")).resolves.toMatchObject({
         status: 200,
       })
-      const resetAdapter = createTestChatAdapter({ persistThreadHistory: true })
-      await expect(handler(resetAdapter)(request(31, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
+      await expect(
+        handler(createTestChatAdapter({ persistThreadHistory: true }))(request(31, "what marker did I ask you to remember?"), "telegram"),
+      ).resolves.toMatchObject({ status: 200 })
 
       expect(runs).toEqual([["remember DEPLOY-HISTORY"], ["remember DEPLOY-HISTORY", "reply 1", "what marker did I ask you to remember?"]])
-      expect(currentMetadata.at(-1)).toMatchObject({
-        chat: {
-          messageId: "31",
-          platform: { channelId: "telegram:456", threadId: "telegram:456" },
-        },
-      })
     } finally {
       await rm(stateDir, { force: true, recursive: true })
     }
@@ -19274,8 +19062,7 @@ describe("server helpers", () => {
         }
       },
     })
-    const attachmentFetchData = vi.fn(async () => Buffer.from("secret"))
-    const adapter = createTestChatAdapter({ attachmentFetchData })
+    const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
       capabilities: [
@@ -19308,12 +19095,7 @@ describe("server helpers", () => {
               chat: { id: 456, type: "private" },
               from: { id: 999 },
               message_id: 7,
-              document: {
-                content: "secret",
-                file_id: "secret-file",
-                file_name: "secret.txt",
-                mime_type: "text/plain",
-              },
+              text: "hello",
             },
           }),
           method: "POST",
@@ -19325,7 +19107,6 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(eventAppends).toBe(3)
-      expect(attachmentFetchData).not.toHaveBeenCalled()
       expect(run).not.toHaveBeenCalled()
       expect(adapter.postMessage).not.toHaveBeenCalled()
     } finally {
