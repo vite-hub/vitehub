@@ -17441,6 +17441,53 @@ describe("server helpers", () => {
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
+  it("ends explicit trigger history at the webhook message", async () => {
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const message = (id: string, text: string, date: string) => new Message({
+      attachments: [],
+      author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+      formatted: { children: [], type: "root" },
+      id,
+      metadata: { dateSent: new Date(date), edited: false },
+      raw: {},
+      text,
+      threadId: "telegram:456",
+    })
+    adapter.fetchMessages.mockResolvedValue({
+      messages: [
+        message("19", "previous", "2026-06-10T12:00:19.000Z"),
+        message("20", "current", "2026-06-10T12:00:20.000Z"),
+        message("21", "newer cached", "2026-06-10T12:01:00.000Z"),
+      ],
+    })
+    const runs: string[][] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: { telegram: () => adapter as never },
+          stream: false,
+          triggerHistory: { maxAgeMs: 30_000, maxMessages: 10, source: "thread" },
+          webhooks: { telegram: {} },
+        }),
+      ],
+      driver: {
+        run: ({ messages }) => {
+          runs.push(messages.map(getMessageText))
+          return "ok"
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(20, 456, "current"), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    expect(runs).toEqual([["previous", "current"]])
+  })
+
   it("exports authenticated Channel history with attachment data", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")

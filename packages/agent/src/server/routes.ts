@@ -4046,7 +4046,6 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
-  historyThroughCurrent = false,
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
     rejectOversizedTextAttachments: true,
@@ -4077,7 +4076,7 @@ async function chatTriggerMessages(
     return deduped
   }, [])
 
-  if (historyThroughCurrent && current.id) {
+  if (current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
     messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [current]
   } else if (!current.id || !messages.some((item) => item.id === current.id)) {
@@ -4672,7 +4671,6 @@ async function handleChatSdkMessage(
   state: { keyPrefix: string; state: StateAdapter; workflowCustodySupported?: boolean },
   messageContext?: MessageContext,
   maximumInvocationDeadline?: number,
-  historyThroughCurrent = false,
   durableSteerScope?: string,
 ): Promise<void> {
   const delivery =
@@ -4730,7 +4728,7 @@ async function handleChatSdkMessage(
     }, invoker)
 
     const messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+      await chatTriggerMessages(thread, message, options, messageContext),
       message.id,
       input.run?.runId || delivery.delivery.id,
     )
@@ -5647,7 +5645,6 @@ async function handleChatSdkMessages(
           state,
           serial ? undefined : messageContext,
           maximumInvocationDeadline,
-          serial,
           durableSteerScope,
         )
       } catch (error) {
