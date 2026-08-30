@@ -2,17 +2,18 @@
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
+  correlatedLifecycleObservations,
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
-  standaloneSuccessfulLifecycleSequences,
-  isTerminalToolObservation,
   isTerminalTaskObservation,
+  isTerminalToolObservation,
   invocationTerminalNames,
   lifecycleTerminalNames,
   pairedLifecycleTerminal,
   pairedToolTerminal,
+  standaloneSuccessfulLifecycleSequences,
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
@@ -130,7 +131,9 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     finish: pairedTerminal(start, observations, invocation),
     start,
   }));
-  const result = pairs.map(({ start, finish }) => pairedSpan(start, finish, invocation));
+  const result = pairs.map(({ start, finish }) =>
+    pairedSpan(start, finish, observations, invocation),
+  );
   const representedSequences = new Set(
     pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
@@ -258,10 +261,12 @@ function traceStarts(observations: Observation[]): Observation[] {
 function pairedSpan(
   start: Observation,
   finish: Observation | undefined,
+  observations: Observation[],
   invocation: AgentInvocationView,
 ): TraceSpan {
   const id = eventId(start);
-  const attributes = { ...start.attributes, ...finish?.attributes };
+  const events = correlatedLifecycleObservations(start, finish, observations);
+  const attributes = Object.assign({}, ...events.map((event) => event.attributes ?? {}));
   const startMs = timestamp(start.timestamp);
   const observedEndMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
   const operation = operationName(start, attributes);
@@ -276,7 +281,7 @@ function pairedSpan(
     description: spanDescription(attributes),
     durationMs,
     endMs,
-    eventNames: [start.name, ...(finish ? [finish.name] : [])],
+    eventNames: events.map((event) => event.name),
     icon: spanIcon(operation),
     id: `${id}:${start.sequence}`,
     name: target ? `${operation} ${target}` : operation,

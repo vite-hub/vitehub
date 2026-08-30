@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  correlatedLifecycleObservations,
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
@@ -290,6 +291,30 @@ describe("Console session trace model", () => {
     expect(
       pairedLifecycleTerminal(observations[1]!, observations, ["agent.model.finish"])?.sequence,
     ).toBe(4);
+  });
+
+  it("collects correlated observations inside a paired lifecycle", () => {
+    const observations = [
+      { attributes: { "tool.id": "tool-1" }, name: "agent.tool.start", sequence: 1 },
+      {
+        attributes: { "tool.id": "tool-1", "tool.output": "working" },
+        name: "agent.tool.output",
+        sequence: 2,
+      },
+      {
+        attributes: { "step.id": "task-1", progress: 50 },
+        name: "agent.task.progress",
+        sequence: 3,
+      },
+      { attributes: { "tool.id": "tool-1" }, name: "agent.tool.finish", sequence: 4 },
+      { attributes: { "tool.id": "tool-1" }, name: "agent.tool.output", sequence: 5 },
+    ];
+
+    expect(
+      correlatedLifecycleObservations(observations[0]!, observations[3], observations).map(
+        (observation) => observation.sequence,
+      ),
+    ).toEqual([1, 2, 4]);
   });
 
   it("does not let an unrelated lifecycle with the same identity consume a terminal", () => {

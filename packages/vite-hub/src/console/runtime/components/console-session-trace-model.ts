@@ -147,6 +147,25 @@ export function pairedToolTerminal<Observation extends TraceObservationIdentity>
   );
 }
 
+export function correlatedLifecycleObservations<Observation extends TraceObservationIdentity>(
+  start: Observation,
+  finish: Observation | undefined,
+  observations: Observation[],
+): Observation[] {
+  const identity = traceEventId(start);
+  const endSequence = finish?.sequence ?? start.sequence;
+  return observations.filter(
+    (observation) =>
+      observation.sequence >= start.sequence &&
+      observation.sequence <= endSequence &&
+      traceEventId(observation) === identity &&
+      (!isLifecycleStartObservation(observation.name) ||
+        observation.sequence === start.sequence) &&
+      (!isLifecycleTerminalObservation(observation.name) ||
+        observation.sequence === finish?.sequence),
+  );
+}
+
 export function pairedLifecycleTerminal<Observation extends TraceObservationIdentity>(
   start: Observation,
   observations: Observation[],
