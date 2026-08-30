@@ -362,7 +362,7 @@ describe("hubKv", () => {
   it("contributes bindings to a resolved Nitro config supplied by ViteHub", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
-    const configure = testHook(plugin.config, (_value: object): void | Promise<void> => undefined)
+    const configure = testHook(plugin.config, (_value: Record<string, unknown>): void | Promise<void> => undefined)
     const configureResolved = testHook(plugin.configResolved, (_value: {
       kv?: unknown
       nitro: Record<string, unknown>
