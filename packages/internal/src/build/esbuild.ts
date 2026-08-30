@@ -135,7 +135,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           ? `${match.replacement}${matchedSpecifier.slice(matchedAlias!.length)}`
           : match?.replacement
         if (!target) return
-        return build.resolve(target, {
+        const resolvedTarget = /^\.\.?[\\/]/.test(target) ? resolve(aliasResolveDir, target) : target
+        return build.resolve(resolvedTarget, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,

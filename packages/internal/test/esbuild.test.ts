@@ -218,6 +218,31 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
+  it("resolves relative alias replacements from a stable base for nested importers", async () => {
+    const rootDir = await createTempDir()
+    const nestedDir = resolve(rootDir, "nested")
+    const entry = resolve(rootDir, "entry.mjs")
+    const importer = resolve(nestedDir, "importer.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(nestedDir, { recursive: true })
+    await Promise.all([
+      writeFile(entry, 'export { value } from "./nested/importer.mjs"\n', "utf8"),
+      writeFile(importer, 'export { value } from "alias-source"\n', "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "alias-source": "./replacement.mjs" },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+  })
+
   it("keeps explicit trailing-slash aliases exact", async () => {
     const rootDir = await createTempDir()
     const replacement = resolve(rootDir, "replacement.mjs")
