@@ -273,6 +273,11 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   const controller = new AbortController()
   navigationRequest = controller
   navigationLoading.value = true
+  if (discoverContent) {
+    definitionItems.value = []
+    kvItems.value = []
+    kvSearchTruncated.value = false
+  }
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase)
     if (!navigation) throw new Error("Could not load Console navigation.")

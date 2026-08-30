@@ -431,6 +431,10 @@ describe("framework package contract", () => {
     );
     expect(consoleSearch).not.toContain("prefix: debouncedSearchTerm.value");
     expect(consoleSearch).not.toContain("watch(debouncedSearchTerm");
+    expect(consoleSearch).toContain("if (discoverContent) {");
+    expect(consoleSearch).toContain("definitionItems.value = []");
+    expect(consoleSearch).toContain("kvItems.value = []");
+    expect(consoleSearch).toContain("kvSearchTruncated.value = false");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
