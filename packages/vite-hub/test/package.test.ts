@@ -410,6 +410,7 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/rate-limits.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/schedules.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/sandboxes.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workspaces.vue`)).toBe(true);
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`),
@@ -451,6 +452,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/queues");
     expect(consoleClient).toContain("/rate-limits");
     expect(consoleClient).toContain("/schedules");
+    expect(consoleClient).toContain("/sandboxes");
     expect(consoleClient).toContain("/workspaces");
     expect(consoleClient).toContain("currentRoute.value");
     expect(

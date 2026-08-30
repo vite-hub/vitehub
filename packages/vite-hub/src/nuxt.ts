@@ -483,6 +483,13 @@ async function installConsole(
             path: "/_vitehub/workspaces",
           }]
         : []),
+      ...(sections.includes("sandboxes")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/sandboxes.vue"),
+            name: "vitehub-console-sandboxes",
+            path: "/_vitehub/sandboxes",
+          }]
+        : []),
       ...(sections.includes("rate-limits")
         ? [{
             file: join(consoleRuntimeRoot, "pages/rate-limits.vue"),
@@ -912,7 +919,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
   const effectiveQueue = nuxt.options.vite?.queue ?? options.queue
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
-  const consoleSections = resolveConsoleSectionIds({ ...options, blob: consoleBlobEnabled, kv: effectiveKV, preset: plan.preset, queue: effectiveQueue, workflow: effectiveWorkflow })
+  const consoleSections = resolveConsoleSectionIds({
+    ...options,
+    blob: consoleBlobEnabled,
+    kv: effectiveKV,
+    preset: plan.preset,
+    queue: effectiveQueue,
+    sandbox: options.sandbox === true && plan.services.sandbox.supported,
+    workflow: effectiveWorkflow,
+  })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
