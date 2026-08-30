@@ -7,6 +7,7 @@ import {
   isStandaloneFailureObservation,
   isStandaloneSuccessfulLifecycleObservation,
   isTerminalToolObservation,
+  invocationTerminalNames,
   standaloneSuccessfulLifecycleSequences,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
@@ -62,6 +63,35 @@ describe("Console session trace model", () => {
       pairedLifecycleTerminal(observations[0]!, observations, ["agent.invocation.finish"])
         ?.sequence,
     ).toBe(3);
+  });
+
+  it("selects the terminal that matches the final Agent Invocation outcome", () => {
+    const observations = [
+      { name: "agent.invocation.start", sequence: 1 },
+      { name: "agent.invocation.error", sequence: 2 },
+      { name: "agent.invocation.finish", sequence: 3 },
+    ];
+
+    expect(invocationTerminalNames("completed")).toEqual([
+      "agent.invocation.finish",
+      "agent.invocation.completed",
+    ]);
+    expect(
+      pairedLifecycleTerminal(
+        observations[0]!,
+        observations,
+        invocationTerminalNames("completed"),
+      )?.sequence,
+    ).toBe(3);
+    expect(invocationTerminalNames("failed")).toEqual([
+      "agent.invocation.error",
+      "agent.invocation.failed",
+    ]);
+    expect(invocationTerminalNames("cancelled")).toEqual([
+      "agent.invocation.abort",
+      "agent.invocation.cancel",
+      "agent.invocation.cancelled",
+    ]);
   });
 
   it("uses recorded tool duration before observation timestamps", () => {

@@ -127,7 +127,9 @@ function isHealth(value: unknown): value is Health {
 
 onMounted(() => {
   void load();
-  poll = setInterval(() => void load(), 30_000);
+  poll = setInterval(() => {
+    if (!refreshing.value) void load();
+  }, 30_000);
 });
 
 onBeforeUnmount(() => {

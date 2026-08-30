@@ -115,6 +115,20 @@ export function lifecycleTerminalNames(startName: string): string[] {
   );
 }
 
+export function invocationTerminalNames(
+  status: "cancelled" | "completed" | "failed" | "running",
+): string[] {
+  if (status === "completed") return ["agent.invocation.finish", "agent.invocation.completed"];
+  if (status === "failed") return ["agent.invocation.error", "agent.invocation.failed"];
+  if (status === "cancelled")
+    return [
+      "agent.invocation.abort",
+      "agent.invocation.cancel",
+      "agent.invocation.cancelled",
+    ];
+  return lifecycleTerminalNames("agent.invocation.start");
+}
+
 export function pairedToolTerminal<Observation extends TraceObservationIdentity>(
   start: Observation,
   observations: Observation[],

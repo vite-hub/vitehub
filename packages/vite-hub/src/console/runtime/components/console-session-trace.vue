@@ -9,6 +9,7 @@ import {
   standaloneSuccessfulLifecycleSequences,
   isTerminalToolObservation,
   isTerminalTaskObservation,
+  invocationTerminalNames,
   lifecycleTerminalNames,
   pairedLifecycleTerminal,
   pairedToolTerminal,
@@ -126,7 +127,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   );
   const starts = traceStarts(observations);
   const pairs = starts.map((start) => ({
-    finish: pairedTerminal(start, observations),
+    finish: pairedTerminal(start, observations, invocation),
     start,
   }));
   const result = pairs.map(({ start, finish }) => pairedSpan(start, finish, invocation));
@@ -286,9 +287,12 @@ function pairedSpan(
 function pairedTerminal(
   start: Observation,
   observations: Observation[],
+  invocation: AgentInvocationView,
 ): Observation | undefined {
   const terminalNames =
-    start.name === "agent.task.started"
+    start.name === "agent.invocation.start"
+      ? invocationTerminalNames(invocation.status)
+      : start.name === "agent.task.started"
       ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
       : start.name === "agent.approval.request"
         ? ["agent.approval.decision"]
