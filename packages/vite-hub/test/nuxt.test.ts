@@ -641,8 +641,10 @@ describe("ViteHub Nuxt integration", () => {
     const pages: Array<{ file: string; name: string; path: string }> = []
     disabled.runPagesHook(pages)
     const disabledNitroConfig = nitroOptions(disabled.nuxt)
-    mocks.objectHook.mockImplementationOnce(config => config)
-    await disabled.runNitroConfigHook(disabledNitroConfig)
+    await mocks.objectHook.withImplementation(
+      config => config,
+      () => disabled.runNitroConfigHook(disabledNitroConfig),
+    )
 
     expect(pages).toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
     expect(disabledNitroConfig.handlers).toContain(applicationKVHandler)
@@ -652,9 +654,11 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, conflicting.nuxt)
 
-    mocks.objectHook.mockImplementationOnce(config => config)
-    await expect(conflicting.runNitroConfigHook(nitroOptions(conflicting.nuxt))).rejects.toThrow(
-      "[vitehub] Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /tmp/application-kv-handler.ts.",
+    await mocks.objectHook.withImplementation(
+      config => config,
+      () => expect(conflicting.runNitroConfigHook(nitroOptions(conflicting.nuxt))).rejects.toThrow(
+        "[vitehub] Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /tmp/application-kv-handler.ts.",
+      ),
     )
   })
 
