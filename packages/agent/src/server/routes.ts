@@ -4120,10 +4120,11 @@ async function chatTriggerMessages(
       }
     }
     if (!foundCurrent && durableContainsCurrent) {
-      for (const item of fetchedBeforeCurrent) {
-        if (item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime()) {
-          fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
-        }
+      const predecessors = fetchedBeforeCurrent
+        .filter(item => item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime())
+        .slice(0, Math.max(0, limit - 1))
+      for (const item of predecessors) {
+        fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
       }
     }
     if (!message.id) {

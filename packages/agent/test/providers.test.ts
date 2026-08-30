@@ -17453,8 +17453,8 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const message = (id: string, text: string, date: string) => new Message({
-      attachments: [],
+    const message = (id: string, text: string, date: string, attachments: Message["attachments"] = []) => new Message({
+      attachments,
       author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
       formatted: { children: [], type: "root" },
       id,
@@ -17463,6 +17463,7 @@ describe("server helpers", () => {
       text,
       threadId: "telegram:456",
     })
+    const oldAttachmentFetch = vi.fn(async () => Buffer.from("old context"))
     const idLessMessage = (text: string, date: string) => {
       const result = message("id-less", text, date)
       Reflect.deleteProperty(result, "id")
@@ -17525,11 +17526,21 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
     adapter.fetchMessages.mockResolvedValue({
       messages: [
+        ...Array.from({ length: 10 }, (_, index) =>
+          message(String(index + 100), `old ${index}`, `2026-06-10T12:00:${String(index).padStart(2, "0")}.000Z`, [
+            {
+              fetchData: oldAttachmentFetch,
+              mimeType: "text/plain",
+              name: `old-${index}.txt`,
+              size: 11,
+              type: "file",
+            },
+          ]),
+        ),
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
-        message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
         idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
-        ...Array.from({ length: 997 }, (_, index) =>
+        ...Array.from({ length: 987 }, (_, index) =>
           message(String(index + 100), `newer cached ${index}`, "2026-06-10T12:01:00.000Z"),
         ),
       ],
@@ -17537,6 +17548,7 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "newer id-less cached", "current"]])
+    expect(oldAttachmentFetch).toHaveBeenCalledOnce()
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
