@@ -2097,9 +2097,7 @@ async function createAgent(
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      stopWhen: (repairToolCall === builtInRepairToolCall
-        ? [() => toolRepairFailure !== undefined, ...[configuredStopWhen].flat()]
-        : configuredStopWhen) as never,
+      stopWhen: configuredStopWhen as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
