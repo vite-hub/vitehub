@@ -659,7 +659,7 @@ describe("ViteHub Nuxt integration", () => {
     const disabledNitroConfig = nitroOptions(disabled.nuxt)
     await disabled.runNitroConfigHook(disabledNitroConfig)
 
-    expect(pages).toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
+    expect(pages).not.toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
     expect(disabledNitroConfig.handlers).toContain(applicationKVHandler)
 
     const conflicting = createNuxt(true)
