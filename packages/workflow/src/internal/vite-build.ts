@@ -806,7 +806,6 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
 }
 
 function createVercelNativeWorkflowContents(
-  nativeFile: string,
   definition: DiscoveredWorkflowDefinition,
 ): string {
   const imports: string[] = []
@@ -817,7 +816,7 @@ function createVercelNativeWorkflowContents(
   const stepNames = steps.map((step, index) => {
     const implementation = `${workflowExport}Step${index}Implementation`
     const name = `${workflowExport}Step${index}`
-    imports.push(`import ${implementation} from ${JSON.stringify(createImportPath(nativeFile, step))}`)
+    imports.push(`import ${implementation} from ${JSON.stringify(pathToFileURL(step).href)}`)
     workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
     return name
   })
@@ -1078,7 +1077,7 @@ export async function writeProviderEntries(
   if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
   await Promise.all(nativeDefinitions.map(async definition => {
     const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, createVercelNativeWorkflowContents(nativeFile, definition), "utf8")
+    await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
   }))
   const registryContents = createWorkflowRegistryContents(
     registryFile,

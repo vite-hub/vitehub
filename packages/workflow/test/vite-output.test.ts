@@ -123,6 +123,8 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const registryContents = await readFile(artifacts.registryFile, "utf8")
   expect(registryContents).toContain(pathToFileURL(workflowFile).href)
   expect(registryContents).toContain(`import("./vercel-native/`)
+  const [vercelNativeFile] = artifacts.vercelNativeFiles
+  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(workflowFile).href)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
