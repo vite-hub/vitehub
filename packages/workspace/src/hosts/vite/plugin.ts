@@ -150,6 +150,31 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
   return false
 }
 
+function babelNamespaceMemberNames(
+  path: BabelNodePath,
+  reachesRequestedExport: (path: BabelNodePath) => boolean,
+  seen = new Set<BabelNodePath>(),
+): string[] {
+  if (seen.has(path)) return []
+  seen.add(path)
+  const parent = path.parentPath
+  if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
+    const name = parent.node.property?.name ?? parent.node.property?.value
+    return typeof name === "string" ? [name] : []
+  }
+  if (
+    parent?.node.type === "VariableDeclarator"
+    && parent.node.init === path.node
+    && parent.node.id?.type === "Identifier"
+    && parent.node.id.name
+  ) {
+    return parent.scope.getBinding(parent.node.id.name)?.referencePaths
+      ?.filter(reachesRequestedExport)
+      .flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport, seen)) ?? []
+  }
+  return []
+}
+
 function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boolean {
   for (let current = path.parentPath; current; current = current.parentPath) {
     if (
@@ -162,11 +187,7 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
       && current.node.id?.type === "Identifier"
       && (
         (current.node.id.name === "store" && babelPathOrBindingIsExported(current, current.node.id.name))
-        || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => (
-          reference.parentPath?.node.type === "ObjectProperty"
-          && babelPropertyName(reference.parentPath) === "store"
-          && babelPathReachesDefaultExport(reference.parentPath)
-        ))
+        || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
       )
     ) return true
     if (current.node.type === "ExportDefaultDeclaration") return true
@@ -351,15 +372,14 @@ function sourceImportsFeedingWorkspaceStore(
                       if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
                     }
                     return false
-                  })
+                  })()
               const references = binding?.referencePaths?.filter(referenceReachesRequestedExport) ?? []
               if (!references.length) continue
               if (imported.type === "ImportNamespaceSpecifier") {
                 for (const reference of references) {
-                  const member = reference.parentPath?.node
-                  if (member?.type !== "MemberExpression" || member.object !== reference.node) continue
-                  const importedName = member.property?.name ?? member.property?.value
-                  if (typeof importedName === "string") imports.push({ importedName, specifier })
+                  for (const importedName of babelNamespaceMemberNames(reference, referenceReachesRequestedExport)) {
+                    imports.push({ importedName, specifier })
+                  }
                 }
                 continue
               }
