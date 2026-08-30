@@ -100,23 +100,20 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   const observations = [...invocation.observations].sort(
     (left, right) => left.sequence - right.sequence,
   );
-  const seenStarts = new Set<string>();
-  const starts = observations.filter((observation) => {
-    if (!observation.name.endsWith(".start")) return false;
-    const identity = `${observation.name}:${eventId(observation)}`;
-    if (seenStarts.has(identity)) return false;
-    seenStarts.add(identity);
-    return true;
-  });
-  const result = starts.map((start) => pairedSpan(start, observations, invocation));
+  const starts = observations.filter((observation) => observation.name.endsWith(".start"));
+  const pairs = starts.map((start) => ({
+    finish: pairedTerminal(start, observations, invocation),
+    start,
+  }));
+  const result = pairs.map(({ start, finish }) => pairedSpan(start, finish, invocation));
   const representedSequences = new Set(
-    result.flatMap((span) => span.eventNames.map((name) => `${span.id}:${name}`)),
+    pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
 
   for (const observation of observations) {
     if (!observation.name.endsWith(".error")) continue;
     const id = eventId(observation);
-    if (representedSequences.has(`${id}:${observation.name}`)) continue;
+    if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
@@ -150,24 +147,10 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
 
 function pairedSpan(
   start: Observation,
-  observations: Observation[],
+  finish: Observation | undefined,
   invocation: AgentInvocationView,
 ): TraceSpan {
   const id = eventId(start);
-  const terminalNames = ["finish", "error", "abort", "cancel"].map((suffix) =>
-    start.name.replace(/\.start$/, `.${suffix}`),
-  );
-  const terminals = observations.filter(
-    (observation) =>
-      observation.sequence > start.sequence &&
-      terminalNames.includes(observation.name) &&
-      eventId(observation) === id,
-  );
-  const finish =
-    start.name === "agent.invocation.start" && invocation.status === "completed"
-      ? terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
-        terminals[0]
-      : terminals[0];
   const attributes = { ...start.attributes, ...finish?.attributes };
   const startMs = timestamp(start.timestamp);
   const endMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
@@ -183,13 +166,38 @@ function pairedSpan(
     endMs,
     eventNames: [start.name, ...(finish ? [finish.name] : [])],
     icon: spanIcon(operation),
-    id,
+    id: `${id}:${start.sequence}`,
     name: target ? `${operation} ${target}` : operation,
     operation,
     sequence: start.sequence,
     startMs,
     status,
   };
+}
+
+function pairedTerminal(
+  start: Observation,
+  observations: Observation[],
+  invocation: AgentInvocationView,
+): Observation | undefined {
+  const id = eventId(start);
+  const terminalNames = ["finish", "error", "abort", "cancel"].map((suffix) =>
+    start.name.replace(/\.start$/, `.${suffix}`),
+  );
+  const startIndex =
+    observations.filter(
+      (observation) =>
+        observation.sequence <= start.sequence &&
+        observation.name === start.name &&
+        eventId(observation) === id,
+    ).length - 1;
+  const terminals = observations.filter(
+    (observation) => terminalNames.includes(observation.name) && eventId(observation) === id,
+  );
+  return start.name === "agent.invocation.start" && invocation.status === "completed"
+    ? (terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
+        terminals[0])
+    : terminals[startIndex];
 }
 
 function invocationSpan(invocation: AgentInvocationView, observations: Observation[]): TraceSpan {
@@ -224,9 +232,9 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
         ? "failed"
         : invocation.status === "cancelled"
           ? "cancelled"
-        : invocation.status === "running" || invocation.status === "pending"
-          ? "running"
-          : "completed",
+          : invocation.status === "running" || invocation.status === "pending"
+            ? "running"
+            : "completed",
   };
 }
 
@@ -243,6 +251,7 @@ function eventId(observation: Observation) {
 
 function operationName(observation: Observation, attributes: Record<string, unknown>) {
   const explicit = attributes["gen_ai.operation.name"];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   if (typeof explicit === "string" && explicit) return explicit;
   if (observation.name.startsWith("agent.invocation.")) return "invoke_agent";
   if (observation.name.startsWith("agent.tool.")) return "execute_tool";
@@ -261,6 +270,7 @@ function operationTarget(
       : ["gen_ai.request.model", "model.id", "agent.name"];
   for (const key of keys) {
     const value = attributes[key];
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
     if (typeof value === "string" && value) return value;
   }
 }
@@ -285,6 +295,7 @@ function spanStatus(
   const rawOutput = record(attributes["tool.output"]);
   const output = record(rawOutput?.item) ?? rawOutput;
   const exitCode = numeric(output?.exitCode);
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate the error field before classifying the span.
   return (exitCode !== undefined && exitCode !== 0) ||
     typeof attributes["error.message"] === "string"
     ? "failed"
@@ -294,8 +305,10 @@ function spanStatus(
 function spanDescription(attributes: Record<string, unknown>) {
   const item = record(record(attributes["tool.input"])?.item);
   const command = item?.command;
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   if (typeof command === "string") return compact(command, 90);
   const path = attributes["tool.path"];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   return typeof path === "string" ? path : undefined;
 }
 
@@ -321,17 +334,19 @@ function spanSearchText(span: TraceSpan) {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value instanceof Object && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
     : undefined;
 }
 
 function stringAttribute(observation: Observation | undefined, key: string) {
   const value = observation?.attributes?.[key];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   return typeof value === "string" ? value : undefined;
 }
 
 function numeric(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate finite numbers at the display boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -384,6 +399,7 @@ function searchable(value: unknown) {
 }
 
 function displayValue(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so preserve string quoting in the inspector.
   if (typeof value === "string") return JSON.stringify(value);
   if (value === undefined) return "undefined";
   try {

@@ -14,6 +14,7 @@ watch(
   async ([content]) => {
     const id = ++renderId;
     loading.value = true;
+    html.value = "";
     try {
       const { codeToHtml } = await import("shiki/bundle/web");
       const rendered = await codeToHtml(content, {
@@ -35,31 +36,28 @@ function languageForPath(path: string): BundledLanguage | SpecialLanguage {
   if (name === "makefile") return "make";
   if (name === ".gitignore" || name === ".npmrc") return "shellscript";
   const extension = name.split(".").at(-1) || "";
-  return (
-    (
-      {
-        cjs: "javascript",
-        css: "css",
-        html: "html",
-        js: "javascript",
-        json: "json",
-        jsonc: "jsonc",
-        jsx: "jsx",
-        md: "markdown",
-        mdx: "mdx",
-        mjs: "javascript",
-        mts: "typescript",
-        scss: "scss",
-        sh: "shellscript",
-        sql: "sql",
-        ts: "typescript",
-        tsx: "tsx",
-        vue: "vue",
-        yaml: "yaml",
-        yml: "yaml",
-      } as Partial<Record<string, BundledLanguage>>
-    )[extension] || "text"
-  );
+  const languages: Partial<Record<string, BundledLanguage>> = {
+    cjs: "javascript",
+    css: "css",
+    html: "html",
+    js: "javascript",
+    json: "json",
+    jsonc: "jsonc",
+    jsx: "jsx",
+    md: "markdown",
+    mdx: "mdx",
+    mjs: "javascript",
+    mts: "typescript",
+    scss: "scss",
+    sh: "shellscript",
+    sql: "sql",
+    ts: "typescript",
+    tsx: "tsx",
+    vue: "vue",
+    yaml: "yaml",
+    yml: "yaml",
+  };
+  return languages[extension] || "text";
 }
 </script>
 

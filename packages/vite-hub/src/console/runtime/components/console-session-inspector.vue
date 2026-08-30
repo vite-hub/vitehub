@@ -29,6 +29,12 @@ const activeSurface = defineModel<string>("activeSurface", { default: "view:deta
 const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["details"] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
+const workspace = ref<WorkspaceDescriptor>();
+const workspaceError = ref<string>();
+const workspaceLoading = ref(false);
+const file = ref<WorkspaceFile>();
+const fileError = ref<string>();
+const fileLoading = ref(false);
 const viewMeta: Record<
   InspectorTab,
   { description: string; icon: string; label: string; shortcut: string }
@@ -55,14 +61,8 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(props.workspaceBase ? (["workspace"] as const) : []),
+  ...(workspace.value ? (["workspace"] as const) : []),
 ]);
-const workspace = ref<WorkspaceDescriptor>();
-const workspaceError = ref<string>();
-const workspaceLoading = ref(false);
-const file = ref<WorkspaceFile>();
-const fileError = ref<string>();
-const fileLoading = ref(false);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
@@ -82,13 +82,15 @@ type InspectorSurfaceItem = TabsItem & {
   view?: InspectorTab;
 };
 const surfaceItems = computed<InspectorSurfaceItem[]>(() => [
-  ...openViews.value.map((view) => ({
-    icon: viewMeta[view].icon,
-    kind: "view" as const,
-    label: viewMeta[view].label,
-    value: `view:${view}`,
-    view,
-  })),
+  ...openViews.value
+    .filter((view) => inspectorViews.value.includes(view))
+    .map((view) => ({
+      icon: viewMeta[view].icon,
+      kind: "view" as const,
+      label: viewMeta[view].label,
+      value: `view:${view}`,
+      view,
+    })),
   ...openPaths.value.map((path) => ({
     icon: "i-lucide-file-code-2",
     kind: "file" as const,
@@ -128,6 +130,7 @@ watch(
     openPaths.value = [];
     file.value = undefined;
     fileError.value = undefined;
+    fileLoading.value = false;
     void loadWorkspace();
   },
   { immediate: true },
@@ -243,7 +246,10 @@ function closeFile(path: string) {
 function activateSurface(value: string | number) {
   const id = String(value);
   if (id.startsWith("file:")) openFile(id.slice(5));
-  else if (id.startsWith("view:")) openView(id.slice(5) as InspectorTab);
+  else if (id.startsWith("view:")) {
+    const view = id.slice(5);
+    if (view === "details" || view === "trace" || view === "workspace") openView(view);
+  }
 }
 
 function closeSurface(item: InspectorSurfaceItem) {
@@ -280,9 +286,11 @@ async function loadWorkspace() {
   workspaceLoading.value = true;
   workspaceError.value = undefined;
   try {
-    workspace.value = await request<WorkspaceDescriptor>(
-      `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
-      controller.signal,
+    workspace.value = parseWorkspaceDescriptor(
+      await requestJson(
+        `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
+        controller.signal,
+      ),
     );
   } catch (error) {
     if (!controller.signal.aborted) workspaceError.value = message(error);
@@ -301,9 +309,11 @@ async function loadFile(path: string) {
   fileError.value = undefined;
   file.value = undefined;
   try {
-    file.value = await request<WorkspaceFile>(
-      `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}`,
-      controller.signal,
+    file.value = parseWorkspaceFile(
+      await requestJson(
+        `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}`,
+        controller.signal,
+      ),
     );
   } catch (error) {
     if (!controller.signal.aborted) fileError.value = message(error);
@@ -312,19 +322,63 @@ async function loadFile(path: string) {
   }
 }
 
-async function request<T>(path: string, signal: AbortSignal) {
+async function requestJson(path: string, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(path, { signal });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => undefined)) as
-      | { statusMessage?: string; statusText?: string }
-      | undefined;
+    const payload = record(await response.json().catch(() => undefined));
     throw new Error(
-      payload?.statusMessage ||
-        payload?.statusText ||
+      stringValue(payload?.statusMessage) ||
+        stringValue(payload?.statusText) ||
         `Request failed with status ${response.status}.`,
     );
   }
-  return (await response.json()) as T;
+  return response.json();
+}
+
+function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
+  const descriptor = record(value);
+  const paths = descriptor?.paths;
+  const pullRequest = numericValue(descriptor?.pullRequest);
+  const repository = stringValue(descriptor?.repository);
+  const revision = stringValue(descriptor?.revision);
+  if (
+    !Array.isArray(paths) ||
+    !paths.every((path) => stringValue(path) !== undefined) ||
+    pullRequest === undefined ||
+    !Number.isInteger(pullRequest) ||
+    !repository ||
+    !revision
+  )
+    throw new Error("The host returned an invalid Workspace descriptor.");
+  // SAFETY: Every path entry was validated as a string above.
+  return { paths: paths as string[], pullRequest, repository, revision };
+}
+
+function parseWorkspaceFile(value: unknown): WorkspaceFile {
+  const file = record(value);
+  const content = stringValue(file?.content);
+  const path = stringValue(file?.path);
+  const revision = stringValue(file?.revision);
+  const size = numericValue(file?.size);
+  if (content === undefined || !path || !revision || size === undefined)
+    throw new Error("The host returned an invalid Workspace file.");
+  return { content, path, revision, size };
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value instanceof Object && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so strings are validated at the host boundary.
+  return typeof value === "string" ? value : undefined;
+}
+
+function numericValue(value: unknown): number | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so numbers are validated at the host boundary.
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function message(error: unknown) {

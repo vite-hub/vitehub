@@ -229,13 +229,13 @@ function isHealth(value: unknown): boolean {
   const workload = record(health?.workload);
   return (
     (health?.status === "healthy" || health?.status === "degraded") &&
-    typeof health.checkedAt === "string" &&
-    Number.isFinite(Date.parse(health.checkedAt)) &&
-    typeof health.summary === "string" &&
+    stringValue(health.checkedAt) !== undefined &&
+    Number.isFinite(Date.parse(stringValue(health.checkedAt) || "")) &&
+    stringValue(health.summary) !== undefined &&
     Array.isArray(health.diagnostics) &&
     workload !== undefined &&
     ["active", "completed", "failed", "snapshots", "total"].every(
-      (key) => typeof workload[key] === "number",
+      (key) => numericValue(workload[key]) !== undefined,
     )
   );
 }
@@ -244,6 +244,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
+  return typeof value === "string" ? value : undefined;
+}
+
+function numericValue(value: unknown): number | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function invocationConfiguration(value: unknown): AgentInvocationConfiguration | undefined {
@@ -682,6 +692,7 @@ onBeforeUnmount(() => {
       :agents-base="agentsBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
+      @select-session="showSessions"
     />
 
     <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="sessionsOpen = true" />
