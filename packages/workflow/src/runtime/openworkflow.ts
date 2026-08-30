@@ -15,7 +15,8 @@ type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["Backen
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
-type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
+type OpenWorkflowImporter = (specifier: string) => Promise<unknown>
+// SAFETY: The generated function delegates directly to the platform import() expression.
 const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
 let openWorkflowImporter = defaultImporter
 const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
@@ -28,8 +29,8 @@ interface OpenWorkflowRuntime {
 
 let runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
 
-async function importOpenWorkflowModule<T>(specifier: string, importer: OpenWorkflowImporter): Promise<T> {
-  return await runWorkflowProviderOperation("openworkflow", "import", () => importer<T>(specifier))
+async function importOpenWorkflowModule(specifier: string, importer: OpenWorkflowImporter): Promise<unknown> {
+  return await runWorkflowProviderOperation("openworkflow", "import", () => importer(specifier))
 }
 
 function readEnv(name: string): string | undefined {
@@ -66,8 +67,10 @@ function normalizeSqlitePath(path: string): string {
 async function prepareSqlitePath(path: string, importer: OpenWorkflowImporter): Promise<string> {
   if (path !== ":memory:") {
     const [{ mkdirSync }, { dirname }] = await Promise.all([
-      importOpenWorkflowModule<NodeFsModule>("node:fs", importer),
-      importOpenWorkflowModule<NodePathModule>("node:path", importer),
+      // SAFETY: These fixed platform specifiers provide the asserted Node module contracts.
+      importOpenWorkflowModule("node:fs", importer) as Promise<NodeFsModule>,
+      // SAFETY: These fixed platform specifiers provide the asserted Node module contracts.
+      importOpenWorkflowModule("node:path", importer) as Promise<NodePathModule>,
     ])
     mkdirSync(dirname(path), { recursive: true })
   }
@@ -124,10 +127,13 @@ async function createOpenWorkflowRuntime(
 ): Promise<OpenWorkflowRuntime> {
   const options = getOpenWorkflowConfig(config)
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
-    importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
+    // SAFETY: This fixed package specifier provides the asserted OpenWorkflow module contract.
+    importOpenWorkflowModule("openworkflow", importer) as Promise<OpenWorkflowModule>,
     options.backend === "sqlite"
-      ? importOpenWorkflowModule<OpenWorkflowSqliteModule>("openworkflow/sqlite", importer)
-      : importOpenWorkflowModule<OpenWorkflowPostgresModule>("openworkflow/postgres", importer),
+      // SAFETY: This fixed package specifier provides the asserted SQLite module contract.
+      ? importOpenWorkflowModule("openworkflow/sqlite", importer) as Promise<OpenWorkflowSqliteModule>
+      // SAFETY: This fixed package specifier provides the asserted Postgres module contract.
+      : importOpenWorkflowModule("openworkflow/postgres", importer) as Promise<OpenWorkflowPostgresModule>,
   ])
   const { backend, client } = await runWorkflowProviderOperation("openworkflow", "connect", async () => {
     let backend: OpenWorkflowBackend
@@ -295,17 +301,17 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   })
 }
 
-export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
+export async function getOpenWorkflowRun(
   config: ResolvedWorkflowOptions,
   name: string,
   id: string,
-): Promise<WorkflowRun<TPayload, TResult>> {
+): Promise<WorkflowRun<unknown, unknown>> {
   const runtime = await getOpenWorkflowRuntime(config)
   return await runWorkflowProviderOperation("openworkflow", "get", async () => {
     const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
     const serialized = serializeOpenWorkflowRun(run, name)
     return serialized.id
-      ? serialized as WorkflowRun<TPayload, TResult>
+      ? serialized
       : {
           id,
           provider: "openworkflow" as const,

@@ -6650,7 +6650,11 @@ function createInlineAgentInvocationController<
       if (outcome.status === "completed") {
         if (materializedStreamResult) {
           const { raw: _raw, ...materialized } = materializedStreamResult
-          return materialized
+          const completed = outcome.output !== null && typeof outcome.output === "object" && !(outcome.output instanceof Response)
+            ? toAgentRunResult(outcome.output)
+            : undefined
+          const { raw: _completedRaw, ...completedPublicResult } = completed ?? {}
+          return { ...completedPublicResult, ...materialized }
         }
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
       }

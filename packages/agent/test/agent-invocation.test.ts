@@ -160,7 +160,7 @@ describe("Agent Invocation controllers", () => {
     const controller = await startAgentInvocation(agent, runtime(), {})
 
     const result = await controller.result
-    expect(result).toMatchObject({ text: "ui message" })
+    expect(result).toMatchObject({ finishReason: "stop", text: "ui message" })
     expect(result).not.toHaveProperty("toUIMessageStream")
     expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
