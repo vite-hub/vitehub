@@ -350,7 +350,7 @@ async function installConsole(
   installInvocations = true,
   writeGeneratedPlugin = true,
   invocationRootState?: ConsoleInvocationRootState,
-): Promise<void> {
+): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
     const module = Array.isArray(entry) ? entry[0] : entry
@@ -486,6 +486,7 @@ async function installConsole(
     })
   }
   if (!plugins.includes(plugin)) plugins.push(plugin)
+  return plugin
 }
 
 function isEnvDeclarationNamespace(value: unknown): value is Record<string, unknown> {
@@ -762,6 +763,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     : []
   const consoleInvocationRootState = createConsoleInvocationRootState()
   let resolvedConsoleFixture: string | undefined
+  let generatedConsolePluginPath: string | undefined
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -786,7 +788,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
     resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
-    await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, resolvedConsoleFixture, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined, true, true, consoleInvocationRootState)
+    generatedConsolePluginPath = await installConsole(nuxt, projectRoot, viteRoot, consoleSections, consoleKVStores, resolvedConsoleFixture, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined, true, true, consoleInvocationRootState)
   }
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -981,7 +983,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       installConsoleSections(projectRoot, consoleSections)
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       await writeConsoleNitroPlugin(
-        join(projectRoot, ".vitehub/nitro/console/plugin.mjs"),
+        generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
         projectRoot,
         consoleSections,
         consoleSections.includes("agents") ? discoverAgentDefinitionEntries(viteRoot, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined) : [],

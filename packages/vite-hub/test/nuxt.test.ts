@@ -703,6 +703,17 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain("JSON.parse(")
       expect(development.nuxt.options.watch).toContain(fixture)
 
+      development.nuxt.options.vite.kv = {
+        stores: {
+          cache: { driver: "fs-lite" },
+          default: { driver: "fs-lite" },
+        },
+      }
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain(
+        `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`,
+      )
+
       await writeFile(fixture, JSON.stringify(fixtureDocument("vite-startup")))
       // SAFETY: Nuxt stores Vite plugin options in the nested array shape flattened and guarded below.
       const invocationRootPlugin = (development.nuxt.options.vite.plugins as unknown[])

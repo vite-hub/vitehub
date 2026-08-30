@@ -146,6 +146,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     for (const key in object) {
       if (!Object.prototype.hasOwnProperty.call(object, key)) continue
       let item: unknown = Reflect.get(object, key)
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify consults toJSON only for object and BigInt property values, so this reproduces that serialization boundary.
       if (item !== null && (typeof item === "object" || typeof item === "bigint")) {
         const toJSON: unknown = Reflect.get(Object(item), "toJSON")
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
