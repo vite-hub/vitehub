@@ -6325,17 +6325,7 @@ async function executeAgentInvocationWithCapacityLease<
           : driverUsageFallback
         const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
         if (!outcome.failed && !outcome.completed) {
-          const usage = finishResult && hasRuntimeType(finishResult, "object")
-            ? toAgentRunResult(finishResult).usageRecord
-            : undefined
-          await lifecycle.finish({
-            result: finishResult,
-            status: "success",
-            ...(usage
-              ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, invocation.run) }
-              : {}),
-            usageResolved: true,
-          })
+          await lifecycle.finish(finishOutcomeFromCleanup(outcome))
         }
         else {
           const finishOutcome = finishOutcomeFromCleanup(outcome)
@@ -6441,14 +6431,7 @@ async function executeAgentInvocationWithCapacityLease<
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = await streamed.finishResult(rendered, !outcome.failed && outcome.completed === true)
           if (!outcome.failed && !outcome.completed) {
-            await lifecycle.finish({
-              result: finishResult,
-              status: "success",
-              ...(streamed.finishUsage()
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
-                : {}),
-              usageResolved: true,
-            })
+            await lifecycle.finish(finishOutcomeFromCleanup(outcome))
           }
           else {
             const finishOutcome = finishOutcomeFromCleanup(outcome)
@@ -6486,14 +6469,7 @@ async function executeAgentInvocationWithCapacityLease<
           const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
           const finalized = await finalizeUiMessageStreamOutput(tracedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
-              await lifecycle.finish({
-                result: await resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
-                status: "success",
-                ...(streamedUsageRecord
-                  ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                  : {}),
-                usageResolved: true,
-              })
+              await lifecycle.finish(finishOutcomeFromCleanup(outcome))
             }
             else {
               const finishOutcome = finishOutcomeFromCleanup(outcome)
