@@ -2172,6 +2172,7 @@ export interface StartAgentInvocationOptions {
 
 function portableChildInvocationInvoker(invoker: AgentInvoker): AgentInvoker {
   try {
+    // SAFETY: strict Workflow cloning preserves the validated AgentInvoker object's fields and JSON value types.
     return cloneWorkflowJsonValue(invoker, { omitUndefinedObjectProperties: false }) as AgentInvoker
   }
   catch (cause) {
@@ -6572,10 +6573,14 @@ async function awaitWorkflowAgentInvocationResult<CALL_OPTIONS, TOutput>(
   // SAFETY: a completed Agent Workflow stores the Agent output in its result field.
   if (current.status === "completed") return current.result as TOutput
   if (current.status === "cancelled") throw new DOMException("Agent invocation was cancelled.", "AbortError")
-  throw current.metadata instanceof Error
+  const error = current.metadata instanceof Error
     ? current.metadata
     : new Error("Agent invocation Workflow failed.", { cause: current.metadata })
+  terminalWorkflowAgentInvocationErrors.add(error)
+  throw error
 }
+
+const terminalWorkflowAgentInvocationErrors = new WeakSet<object>()
 
 function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
@@ -6601,6 +6606,9 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
     result: () => awaitWorkflowAgentInvocationResult(started),
+    resultErrorStatus: error => isRuntimeRecord(error) && terminalWorkflowAgentInvocationErrors.has(error)
+      ? "failed"
+      : undefined,
     startResult: Promise.resolve(run),
   }
   if (settled) {
@@ -6669,6 +6677,7 @@ function createInlineAgentInvocationController<
       let materializedStreamResult: AgentRunResult | undefined
       let materializedRaw: unknown
       let hasExplicitRaw = false
+      let hasSanitizedRawCandidate = false
       if (isAsyncIterable(started)) {
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
@@ -6677,6 +6686,7 @@ function createInlineAgentInvocationController<
         await started.arrayBuffer()
       }
       else if (started !== null && hasRuntimeType(started, "object") && hasTraceableStreamResult(started)) {
+        hasSanitizedRawCandidate = true
         hasExplicitRaw = Object.hasOwn(started, "raw")
         materializedRaw = cloneableAgentResultRaw(
           hasExplicitRaw ? Reflect.get(started, "raw") : started,
@@ -6684,6 +6694,7 @@ function createInlineAgentInvocationController<
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
+        hasSanitizedRawCandidate = true
         hasExplicitRaw = Object.hasOwn(started, "raw")
         materializedRaw = cloneableAgentResultRaw(
           hasExplicitRaw ? Reflect.get(started, "raw") : started,
@@ -6717,7 +6728,8 @@ function createInlineAgentInvocationController<
           const definedMaterializedResult = Object.fromEntries(
             Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
           )
-          if (hasExplicitRaw) Reflect.deleteProperty(definedMaterializedResult, "raw")
+          if (hasExplicitRaw || (hasSanitizedRawCandidate && materializedRaw === undefined))
+            Reflect.deleteProperty(definedMaterializedResult, "raw")
           return {
             ...completedPublicResult,
             ...definedMaterializedResult,

@@ -144,6 +144,7 @@ describe("Agent Invocation controllers", () => {
 
     const result = await controller.result
     expect(result).toMatchObject({ text: "first second" })
+    // SAFETY: the preceding result assertion establishes an object-shaped Agent result.
     expect(Reflect.get(result as object, Symbol.asyncIterator)).toBeUndefined()
     expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
@@ -241,6 +242,7 @@ describe("Agent Invocation controllers", () => {
       text: "nested",
     })
     expect(result).not.toHaveProperty("fullStream")
+    // SAFETY: the preceding result assertion establishes the expected raw result shape.
     expect((result as { raw: object }).raw).not.toHaveProperty("fullStream")
     expect(() => structuredClone(result)).not.toThrow()
   })
@@ -287,7 +289,9 @@ describe("Agent Invocation controllers", () => {
     })
 
     const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    // SAFETY: this fixture defines raw as a string Map and exercises preservation of that exact value.
     expect((result as { raw: Map<string, string> }).raw).toEqual(raw)
+    // SAFETY: this fixture defines an own raw property on the Agent result.
     expect((result as { raw: unknown }).raw).toBeInstanceOf(Map)
     expect(() => structuredClone(result)).not.toThrow()
   })
@@ -310,6 +314,28 @@ describe("Agent Invocation controllers", () => {
     const result = await (await startAgentInvocation(agent, runtime(), {})).result
     expect(result).not.toHaveProperty("raw")
     expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it("omits inferred raw child results when sanitization fails", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            callback: () => undefined,
+            fullStream: (async function* () {
+              yield { delta: "streamed", type: "text-delta" }
+            })(),
+            text: "existing text",
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toMatchObject({ text: "existing text" })
+    expect(result).not.toHaveProperty("fullStream")
+    expect(result).not.toHaveProperty("raw")
   })
 
   it("settles inline UI-message streams before resolving the public result", async () => {
@@ -548,6 +574,56 @@ describe("Agent Invocation controllers", () => {
     })
     expect(inspect).not.toHaveBeenCalled()
     expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it("does not cache transient backed result errors as terminal failures", async () => {
+    const inspect = vi.fn(async () => ({ id: "child", status: "running" as const }))
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => undefined,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect,
+      result: async () => { throw new Error("inspection unavailable") },
+      startResult: Promise.resolve(),
+    })
+
+    await expect(controller.result).rejects.toThrow("inspection unavailable")
+    await expect(controller.inspect()).resolves.toEqual({
+      invocation: { id: "child", status: "running" },
+      outcome: "available",
+    })
+    expect(inspect).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the first observed backed terminal state during cancellation overlap", async () => {
+    let releaseCancellation!: () => void
+    const cancellationReleased = new Promise<void>((resolve) => {
+      releaseCancellation = resolve
+    })
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => {
+        await cancellationReleased
+        return { id: "child", status: "cancelled" }
+      },
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      result: () => Promise.resolve("done"),
+      startResult: Promise.resolve(),
+    })
+
+    const cancellation = controller.cancel()
+    await expect(controller.result).resolves.toBe("done")
+    releaseCancellation()
+    await expect(cancellation).resolves.toEqual({
+      id: "child",
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "invalid-state",
+    })
+    await expect(controller.inspect()).resolves.toEqual({
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "available",
+    })
   })
 
   it("stops observing parent cancellation after a backed invocation reaches a terminal state", async () => {

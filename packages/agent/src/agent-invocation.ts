@@ -82,13 +82,14 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
-export interface BackedAgentInvocationOptions<TOutput = unknown, TResult = unknown> {
+export interface BackedAgentInvocationOptions<TOutput = unknown, TResult extends TOutput = TOutput> {
   cancel: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   errorOutcome: (error: unknown) => "unsupported" | "unavailable"
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
   result: () => Promise<TResult>
+  resultErrorStatus?: (error: unknown) => "failed" | undefined
   startResult: Promise<unknown>
   settled?: Promise<unknown>
 }
@@ -218,7 +219,7 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
   }, options.result ? () => options.result!({ finished, startResult }) : startResult, startResult)
 }
 
-export function createBackedAgentInvocationController<TOutput = unknown, TResult = unknown>(
+export function createBackedAgentInvocationController<TOutput = unknown, TResult extends TOutput = TOutput>(
   options: BackedAgentInvocationOptions<TOutput, TResult>,
 ): AgentInvocationController<TOutput, unknown, TResult> {
   let removeParentAbortListener: (() => void) | undefined
@@ -229,8 +230,9 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
   }
   const observeTerminalSnapshot = (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot && isTerminalAgentInvocationStatus(snapshot.status)) {
-      terminalSnapshot = snapshot
+      terminalSnapshot ??= snapshot
       stopObservingParent()
+      return terminalSnapshot
     }
     return snapshot
   }
@@ -274,14 +276,17 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     try {
       const output = await options.result()
       const snapshot: AgentInvocationSnapshot<TOutput> = { id: options.id, status: "completed" }
-      if (output !== undefined) snapshot.output = output as unknown as TOutput
+      if (output !== undefined) snapshot.output = output
       observeTerminalSnapshot(snapshot)
       return output
     }
     catch (error) {
-      observeTerminalSnapshot(error instanceof DOMException && error.name === "AbortError"
-        ? { id: options.id, status: "cancelled" }
-        : { error, id: options.id, status: "failed" })
+      if (error instanceof DOMException && error.name === "AbortError") {
+        observeTerminalSnapshot({ id: options.id, status: "cancelled" })
+      }
+      else if (options.resultErrorStatus?.(error) === "failed") {
+        observeTerminalSnapshot({ error, id: options.id, status: "failed" })
+      }
       throw error
     }
   }, options.startResult)
