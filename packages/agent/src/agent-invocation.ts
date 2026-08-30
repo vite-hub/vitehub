@@ -262,7 +262,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     async sendInput() {
       return { id: options.id, outcome: "unsupported" }
     },
-  }, options.result, options.startResult)
+  }, () => options.result().finally(stopObservingParent), options.startResult)
   if (options.parentAbortSignal) {
     const parentAbortSignal = options.parentAbortSignal
     const cancel = () => void controller.cancel(parentAbortSignal.reason)

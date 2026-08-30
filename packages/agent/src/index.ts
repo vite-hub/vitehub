@@ -6628,7 +6628,7 @@ function createInlineAgentInvocationController<
     async result({ finished, startResult }) {
       const started = await startResult
       let settledResponse: Response | undefined
-      let materializedStreamResult = false
+      let materializedStreamResult: AgentRunResult | undefined
       if (isAsyncIterable(started)) {
         for await (const _chunk of started) {}
       }
@@ -6637,24 +6637,15 @@ function createInlineAgentInvocationController<
         await started.arrayBuffer()
       }
       else if (started !== null && typeof started === "object" && hasTraceableStreamResult(started)) {
-        for (const property of ["stream", "fullStream", "textStream"] as const) {
-          const candidate = Reflect.get(started, property)
-          if (!isAsyncIterable(candidate)) continue
-          const stream: AsyncIterable<unknown> = candidate
-          for await (const _chunk of stream) {}
-          materializedStreamResult = true
-          break
-        }
+        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started !== null && typeof started === "object" && isUIMessageStreamResult(started)) {
-        const stream: AsyncIterable<unknown> = started.toUIMessageStream()
-        for await (const _chunk of stream) {}
-        materializedStreamResult = true
+        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       const outcome = await finished
       if (outcome.status === "completed") {
         if (materializedStreamResult) {
-          const { raw: _raw, ...materialized } = toAgentRunResult(outcome.output)
+          const { raw: _raw, ...materialized } = materializedStreamResult
           return materialized
         }
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
