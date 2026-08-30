@@ -462,6 +462,13 @@ async function installConsole(
             path: "/_vitehub/kv",
           }]
         : []),
+      ...(sections.includes("databases")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/databases.vue"),
+            name: "vitehub-console-databases",
+            path: "/_vitehub/databases",
+          }]
+        : []),
       ...(sections.includes("workflows")
         ? [{
             file: join(consoleRuntimeRoot, "pages/workflows.vue"),

@@ -397,6 +397,7 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain(":sections-base=");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/databases.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true);
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8");
     expect(consoleKVRoute).toContain(`sections.includes("kv")`);
@@ -442,6 +443,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");
+    expect(consoleClient).toContain("/databases");
     expect(consoleClient).toContain("/kv");
     expect(consoleClient).toContain("/workflows");
     expect(consoleClient).toContain("/queues");

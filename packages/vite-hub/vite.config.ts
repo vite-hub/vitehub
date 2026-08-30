@@ -124,6 +124,7 @@ export default defineConfig({
       },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/blob.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/databases.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
@@ -177,6 +178,7 @@ export default defineConfig({
         delete exports["./console/runtime/sections"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
+        delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocations.get"];
