@@ -279,7 +279,7 @@ describe("Provider Agent Driver", () => {
     expect(calls[0]?.[0]).toMatchObject({
       settings: {
         homePath: homes[0],
-        launchArgs: '-c "model_reasoning_effort=\\"high\\"" -c "model_reasoning_summary=\\"detailed\\""',
+        launchArgs: '-c "model_reasoning_effort=\\"high\\"" -c "model_reasoning_summary=\\"detailed\\"" -c "cli_auth_credentials_store=\\"file\\""',
       },
     })
     expect(calls[0]?.[0].environment).not.toHaveProperty("OPENAI_API_KEY")
@@ -304,6 +304,29 @@ describe("Provider Agent Driver", () => {
 
     await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
     await rm(homePath, { force: true, recursive: true })
+  })
+
+  it("repairs malformed persisted credentials when the external seed is unchanged", async () => {
+    const profile = `provider-malformed-auth-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    try {
+      runtime("thread-malformed-auth-first", [event("turn.completed", "thread-malformed-auth-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-malformed-auth-first") as never)
+      await writeFile(join(homePath, "auth.json"), "{", { mode: 0o600 })
+
+      runtime("thread-malformed-auth-repair", [event("turn.completed", "thread-malformed-auth-repair", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-malformed-auth-repair") as never)
+
+      await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
   })
 
   it("removes abandoned credential writes when reopening a named profile", async () => {

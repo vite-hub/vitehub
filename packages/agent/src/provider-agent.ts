@@ -388,8 +388,8 @@ async function processStartIdentity(pid: number): Promise<string | undefined> {
 async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, processNamespace?: string, startedAt: string }): Promise<boolean> {
   if (owner.hostname !== hostname()) return true
   const processNamespace = await codexCredentialProcessNamespace
+  if (processNamespace === undefined) return true
   if (processNamespace !== undefined && owner.processNamespace !== processNamespace) return true
-  if (processNamespace === undefined && owner.processNamespace !== undefined) return true
   if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
   try {
     process.kill(owner.pid, 0)
@@ -496,7 +496,15 @@ async function openCodexProfileHome(profile: string, credentials: string): Promi
   const authPath = join(homePath, "auth.json")
   const auth = await lstat(authPath).catch(() => undefined)
   if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}`)
-  if (seedHash === codexCredentialSeedHash(credentials) && auth?.isFile() && !auth.isSymbolicLink()) {
+  const persistedCredentialsAreValid = auth?.isFile() && !auth.isSymbolicLink()
+    ? await readFile(authPath, "utf8")
+        .then((value) => {
+          const parsed: unknown = JSON.parse(value)
+          return parsed !== null && hasRuntimeType(parsed, "object") && !Array.isArray(parsed)
+        })
+        .catch(() => false)
+    : false
+  if (seedHash === codexCredentialSeedHash(credentials) && persistedCredentialsAreValid) {
     await chmod(authPath, 0o600)
     return homePath
   }
@@ -1843,6 +1851,7 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
+        if (runtimeCleanupFailure !== undefined) cleanupErrors.push(runtimeCleanupFailure)
         try {
           await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : error))
         }
