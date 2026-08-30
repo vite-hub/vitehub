@@ -319,6 +319,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       resolveKVRegistration(viteConfig.kv)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
         agentsEnabled: sections.includes("agents"),

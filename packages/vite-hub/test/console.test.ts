@@ -49,6 +49,7 @@ import { createUsageSummary, invocationUsage } from "../src/console/runtime/serv
 
 import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -582,6 +583,38 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses configured server directories during initial Workflow discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-workflow-server-dirs-"))
+    try {
+      const customServerDir = join(root, "backend")
+      await writeFile(join(root, "package.json"), "{}\n")
+      await mkdir(join(root, "server", "workflows", "welcome"), { recursive: true })
+      await writeFile(join(root, "server", "workflows", "welcome.ts"), "export default null\n")
+      await writeFile(join(root, "server", "workflows", "welcome", "01.step.ts"), "export default null\n")
+      await mkdir(join(customServerDir, "workflows"), { recursive: true })
+      await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workflows"],
+      })
+      const config = {
+        [VITEHUB_SERVER_DIRS]: [customServerDir],
+        root,
+        workflow: true,
+      }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('"name":"custom"')
+      expect(generated).not.toContain('"name":"welcome"')
     }
     finally {
       await rm(root, { force: true, recursive: true })
