@@ -139,8 +139,15 @@ async function loadObjects(options: { append?: boolean; keepSelection?: boolean 
   request?.abort();
   const controller = new AbortController();
   request = controller;
+  const current = options.keepSelection ? selectedPath.value : undefined;
   if (options.append) loadingMore.value = true;
-  else loading.value = true;
+  else {
+    blobs.value = [];
+    cursor.value = undefined;
+    hasMore.value = false;
+    selectedPath.value = undefined;
+    loading.value = true;
+  }
   try {
     const page = parsePage(await requestConsole(props.blobBase, {
       query: {
@@ -159,7 +166,6 @@ async function loadObjects(options: { append?: boolean; keepSelection?: boolean 
     cursor.value = page.cursor;
     hasMore.value = page.hasMore;
     error.value = undefined;
-    const current = options.keepSelection ? selectedPath.value : undefined;
     selectedPath.value = current && next.some(object => object.pathname === current)
       ? current
       : next[0]?.pathname;
