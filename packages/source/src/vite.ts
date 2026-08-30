@@ -548,6 +548,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return transition
     },
     configureServer(server) {
+      // SAFETY: SourcePluginConfig only adds ViteHub's symbol-keyed metadata to Vite's resolved config.
       const viteConfig = server.config as SourcePluginConfig
       const root = viteConfig[VITEHUB_PROJECT_ROOT]
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
@@ -710,9 +711,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       server.watcher.on("unlink", refreshHost)
     },
     buildStart() {
+      // SAFETY: SourcePluginConfig only adds ViteHub's symbol-keyed metadata to the hook config.
       return refresh(this.environment?.config as SourcePluginConfig | undefined)
     },
     buildEnd() {
+      // SAFETY: SourcePluginConfig only adds ViteHub's symbol-keyed metadata to the hook config.
       return refresh(this.environment?.config as SourcePluginConfig | undefined)
     },
     closeBundle() {
