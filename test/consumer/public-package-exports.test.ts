@@ -17,6 +17,7 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -25,6 +26,7 @@ function isJavaScriptModule(target: string) {
 function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
   if (contract.packageName === "@vite-hub/auth") return false
   if (contract.subpath.endsWith("/client")) return false
+  if (["@vite-hub/ui", "@vite-hub/ui/headless", "vite-hub/ui", "vite-hub/ui/headless"].includes(contract.specifier)) return false
   return true
 }
 
@@ -103,8 +105,9 @@ async function packPublicPackages(packDir: string) {
 }
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
+  const peerSpecs = await requiredPeerSpecs()
   const requiredPeers = {
-    ...await requiredPeerSpecs(),
+    ...Object.fromEntries(Object.entries(peerSpecs).filter(([name]) => !optionalPeers.includes(name))),
     typescript: await installedVersion(join(repoRoot, "node_modules/typescript/package.json")),
   }
 
@@ -488,6 +491,7 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
+    typeRoots: [join(runnerDir, "node_modules/@types"), resolve(runnerDir, "../../node_modules/@types")],
     types: [...new Set([
       ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
@@ -542,30 +546,36 @@ describe("published declaration diagnostics", () => {
   it("reports diagnostics reached through dependency declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-declaration-diagnostics-"))
     const dependencyDir = join(root, "node_modules/@vite-hub/database/dist")
+    const nodeTypesDir = join(root, "node_modules/@types/node")
     const typesDir = join(root, "node_modules/@types/example")
 
     try {
       await Promise.all([
         mkdir(dependencyDir, { recursive: true }),
+        mkdir(nodeTypesDir, { recursive: true }),
         mkdir(typesDir, { recursive: true }),
       ])
       await Promise.all([
         writeFile(join(root, "node_modules/@vite-hub/database/package.json"), JSON.stringify({ name: "@vite-hub/database", types: "dist/index.d.ts" })),
         writeFile(join(dependencyDir, "index.d.ts"), 'import type { BrokenTypes } from "example"\nexport type BrokenDependency = MissingDependency | BrokenTypes\n'),
+        writeFile(join(nodeTypesDir, "package.json"), JSON.stringify({ name: "@types/node", types: "index.d.ts" })),
+        writeFile(join(nodeTypesDir, "index.d.ts"), "export {}\n"),
         writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/example", types: "index.d.ts" })),
         writeFile(join(typesDir, "index.d.ts"), "export type BrokenTypes = MissingTypes\n"),
       ])
 
       const contract = publicPackageExportContracts.find(item => item.specifier === "@vite-hub/database")
       expect(contract).toBeDefined()
-      const diagnosticFiles = (await packageModuleDiagnostics(
+      const diagnostics = await packageModuleDiagnostics(
         "@vite-hub/database",
         root,
         contract!,
         0,
         false,
         ["@types/example"],
-      ))
+      )
+      expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
+      const diagnosticFiles = diagnostics
         .filter(diagnostic => diagnostic.code === 2304)
         .map(diagnostic => diagnostic.file?.fileName)
 
@@ -607,7 +617,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
       await assertResolution(appDir, optionalPeers, false)
       await exercisePackagesWithoutOptionalPeers(root, specs)
 
