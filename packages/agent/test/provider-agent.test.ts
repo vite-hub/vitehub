@@ -202,6 +202,24 @@ describe("Provider Agent Driver", () => {
     }))
   })
 
+  it("forces file credential storage after explicit Codex launch arguments", async () => {
+    const threadId = "thread-provider-credential-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      providerSettings: { launchArgs: '-c "cli_auth_credentials_store=\\"keyring\\""' },
+      // SAFETY: This test fixture intentionally constructs the exact provider invocation contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({
+        launchArgs: '-c "cli_auth_credentials_store=\\"keyring\\"" -c "cli_auth_credentials_store=\\"file\\""',
+      }),
+    }))
+  })
+
   it("projects rotating Codex credentials into one protected profile Home", async () => {
     const profile = `provider-test-${crypto.randomUUID()}`
     let source = JSON.stringify({ OPENAI_API_KEY: "first" })

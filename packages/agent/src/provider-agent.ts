@@ -748,6 +748,7 @@ async function startToolServer(
   ])
   const token = crypto.randomUUID()
   const mcp = new McpServer({ name: "vitehub-agent", version: "1" }, { capabilities: { tools: {} } })
+  const activeExecutions = new Set<Promise<unknown>>()
   mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: Object.entries(tools).map(([name, tool]) => ({
       description: tool.description,
@@ -756,66 +757,71 @@ async function startToolServer(
       name,
     })),
   }))
-  mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const tool = tools[request.params.name]
-    if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
-    const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
-    try {
-      const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
-      executionSignal.throwIfAborted()
-      return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
-    }
-    catch (error) {
-      const shape = getViteHubErrorShape(error)
-      const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && hasRuntimeType(error.cause, "object")
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
-        : undefined
-      if (approvalRequest && hasRuntimeType(approvalRequest.id, "string")) {
-        capabilityApprovalIds.add(approvalRequest.id)
-        emit({
-          id: approvalRequest.id,
-          input: approvalRequest.input,
-          name: hasRuntimeType(approvalRequest.capability, "string") ? approvalRequest.capability : request.params.name,
-          reason: hasRuntimeType(approvalRequest.reason, "string") ? approvalRequest.reason : undefined,
-          type: "approval-request",
-        })
-        let abortApproval: (() => void) | undefined
-        const approved = await new Promise<boolean>((resolve) => {
-          abortApproval = () => resolve(false)
+  mcp.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+    const execution = (async () => {
+      const tool = tools[request.params.name]
+      if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
+      const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
+      try {
+        const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
+        executionSignal.throwIfAborted()
+        return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
+      }
+      catch (error) {
+        const shape = getViteHubErrorShape(error)
+        const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && hasRuntimeType(error.cause, "object")
           // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-          approvals.set(approvalRequest.id as string, (approved) => {
+          ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
+          : undefined
+        if (approvalRequest && hasRuntimeType(approvalRequest.id, "string")) {
+          capabilityApprovalIds.add(approvalRequest.id)
+          emit({
+            id: approvalRequest.id,
+            input: approvalRequest.input,
+            name: hasRuntimeType(approvalRequest.capability, "string") ? approvalRequest.capability : request.params.name,
+            reason: hasRuntimeType(approvalRequest.reason, "string") ? approvalRequest.reason : undefined,
+            type: "approval-request",
+          })
+          let abortApproval: (() => void) | undefined
+          const approved = await new Promise<boolean>((resolve) => {
+            abortApproval = () => resolve(false)
+            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+            approvals.set(approvalRequest.id as string, (approved) => {
+              // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+              approvals.delete(approvalRequest.id as string)
+              if (executionSignal.aborted) {
+                resolve(false)
+                return false
+              }
+              resolve(approved)
+              return true
+            })
+            executionSignal.addEventListener("abort", abortApproval, { once: true })
+            if (executionSignal.aborted) abortApproval()
+          }).finally(() => {
+            executionSignal.removeEventListener("abort", abortApproval!)
             // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
             approvals.delete(approvalRequest.id as string)
-            if (executionSignal.aborted) {
-              resolve(false)
-              return false
-            }
-            resolve(approved)
-            return true
           })
-          executionSignal.addEventListener("abort", abortApproval, { once: true })
-          if (executionSignal.aborted) abortApproval()
-        }).finally(() => {
-          executionSignal.removeEventListener("abort", abortApproval!)
-          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-          approvals.delete(approvalRequest.id as string)
-        })
-        if (approved) {
-          // Let an MCP cancellation already in transit settle before turning
-          // the user's approval into a side effect.
-          await new Promise<void>(resolve => setImmediate(resolve))
-          executionSignal.throwIfAborted()
-          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-          const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
-          if (approve) {
-            approve(approvalRequest.input)
-            return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
+          if (approved) {
+            // Let an MCP cancellation already in transit settle before turning
+            // the user's approval into a side effect.
+            await new Promise<void>(resolve => setImmediate(resolve))
+            executionSignal.throwIfAborted()
+            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+            const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
+            if (approve) {
+              approve(approvalRequest.input)
+              return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
+            }
           }
         }
+        return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
       }
-      return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
-    }
+    })()
+    activeExecutions.add(execution)
+    void execution.finally(() => activeExecutions.delete(execution)).catch(() => undefined)
+    return execution
   })
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() })
   await mcp.connect(transport)
@@ -840,6 +846,7 @@ async function startToolServer(
         mcp.close(),
         new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve())),
       ])
+      await Promise.allSettled(activeExecutions)
     },
     mcp: { authorizationHeader: `Bearer ${token}`, endpoint: `http://127.0.0.1:${address.port}/mcp` },
   }
@@ -1574,9 +1581,11 @@ async function* runProvider<
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
-    const launchArgs = generatedLaunchArgs === undefined
-      ? undefined
-      : [options.providerSettings?.launchArgs, generatedLaunchArgs].filter(Boolean).join(" ")
+    const launchArgs = [
+      options.providerSettings?.launchArgs,
+      generatedLaunchArgs,
+      ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
+    ].filter(Boolean).join(" ") || undefined
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerExecutable,
@@ -1837,7 +1846,7 @@ async function* runProvider<
         catch (releaseError) {
           cleanupErrors.push(releaseError)
         }
-        forcedRootCleanup = cleanupRoot()
+        forcedRootCleanup = cleanupTask.finally(cleanupRoot)
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)
       }
