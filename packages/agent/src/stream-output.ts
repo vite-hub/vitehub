@@ -170,7 +170,9 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, o
     if (completed) return
     cancelTask ||= settleStreamCancellation(stream, {
       next: (...args) => getIterator().next(...args),
-      return: cancelReason => getIterator().return?.(cancelReason),
+      async return(cancelReason) {
+        return await getIterator().return?.(cancelReason) ?? { done: true, value: undefined }
+      },
     }, directCancel, reason)
     await cancelTask
   }
