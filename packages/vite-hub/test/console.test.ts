@@ -580,7 +580,7 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleDefinitions")
     }
     finally {
