@@ -6543,7 +6543,7 @@ function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable"
 function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
-): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS, AgentWorkflowRun<TOutput>> {
   const { handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
@@ -6551,7 +6551,7 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
     }
     return snapshot
   }
-  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response, AgentWorkflowRun<TOutput>> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -6581,11 +6581,12 @@ function createInlineAgentInvocationController<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   runId?: string,
-): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS, TOutput | Response | AgentRunResult> {
+  return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS, TOutput | Response | AgentRunResult>({
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
-    start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
+    // SAFETY: renderOutput returns the same public result union as runAgentInline().
+    start: async ({ abortSignal, id, onFinish }) => await executeAgentInvocation(agent, {
       ...withAgentInvocationResponseOwner(context, id),
       run: { ...context.run, runId: runId || id },
     }, { ...input, abortSignal }, {
@@ -6597,7 +6598,7 @@ function createInlineAgentInvocationController<
           : { error: outcome.error, status: "failed" })
       },
       renderOutput: true,
-    }),
+    }) as TOutput | Response | AgentRunResult,
     support: id => agentInvocationInputSupport(id),
   })
 }
@@ -6611,7 +6612,7 @@ export async function startAgentInvocation<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   options: { runId?: string } = {},
-): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
+): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS, TOutput | Response | AgentRunResult>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,

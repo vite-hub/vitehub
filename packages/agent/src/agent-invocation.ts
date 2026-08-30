@@ -33,10 +33,12 @@ export interface AgentInvocationInputSupport {
 export interface AgentInvocationController<
   TOutput = unknown,
   CALL_OPTIONS = unknown,
+  TResult = TOutput,
 > {
   cancel: (reason?: unknown) => Promise<AgentInvocationControlResult<TOutput>>
   id: string
   inspect: () => Promise<AgentInvocationInspection<TOutput>>
+  result: Promise<TResult>
   sendInput: (
     input: AgentRunInput<CALL_OPTIONS>,
     options: { mode: AgentInvocationInputMode },
@@ -61,7 +63,7 @@ export type AgentInvocationFinishOutcome<TOutput = unknown> =
   | { output?: TOutput, status: "completed" }
   | { error: unknown, status: "failed" }
 
-export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown> {
+export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown, TResult = unknown> {
   parentAbortSignal?: AbortSignal
   sendInput?: (
     id: string,
@@ -72,34 +74,29 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
     abortSignal: AbortSignal
     id: string
     onFinish: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
-  }) => Promise<unknown>
+  }) => Promise<TResult>
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
-export interface BackedAgentInvocationOptions<TOutput = unknown> {
+export interface BackedAgentInvocationOptions<TOutput = unknown, TResult = unknown> {
   cancel: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   errorOutcome: (error: unknown) => "unsupported" | "unavailable"
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
-  result: Promise<unknown>
+  result: Promise<TResult>
   settled?: Promise<unknown>
-}
-
-const agentInvocationResult = Symbol.for("vitehub.agentInvocationResult")
-
-type InternalAgentInvocationController = AgentInvocationController & {
-  [agentInvocationResult]: Promise<unknown>
 }
 
 export function createAgentInvocationController<
   TOutput = unknown,
   CALL_OPTIONS = unknown,
+  TResult = unknown,
 >(
   id: string,
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
-  result: Promise<unknown>,
-): AgentInvocationController<TOutput, CALL_OPTIONS> {
+  result: Promise<TResult>,
+): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
   const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
     get followUp() {
@@ -116,6 +113,7 @@ export function createAgentInvocationController<
     cancel: adapter.cancel,
     id,
     inspect: adapter.inspect,
+    result,
     async sendInput(input: AgentRunInput<CALL_OPTIONS>, options: { mode: AgentInvocationInputMode }) {
       const supported = options.mode === "steer" ? support.steer : options.mode === "respond" ? support.respond : support.followUp
       if (!supported || !adapter.sendInput) return { id, outcome: "unsupported" as const }
@@ -123,13 +121,11 @@ export function createAgentInvocationController<
     },
     support,
   }
-  Object.defineProperty(controller, agentInvocationResult, { value: result })
   return Object.freeze(controller)
 }
 
-export function awaitAgentInvocationResult(controller: AgentInvocationController): Promise<unknown> {
-  // SAFETY: createAgentInvocationController attaches this private result symbol to every controller it returns.
-  return (controller as InternalAgentInvocationController)[agentInvocationResult]
+export function awaitAgentInvocationResult<TResult>(controller: AgentInvocationController<unknown, unknown, TResult>): Promise<TResult> {
+  return controller.result
 }
 
 function randomAgentInvocationId(): string {
@@ -140,9 +136,9 @@ function isTerminalAgentInvocationStatus(status: AgentInvocationStatus): boolean
   return status === "completed" || status === "failed" || status === "cancelled"
 }
 
-export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unknown>(
-  options: LiveAgentInvocationOptions<TOutput, CALL_OPTIONS>,
-): AgentInvocationController<TOutput, CALL_OPTIONS> {
+export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unknown, TResult = unknown>(
+  options: LiveAgentInvocationOptions<TOutput, CALL_OPTIONS, TResult>,
+): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
   const id = randomAgentInvocationId()
   const abortController = new AbortController()
   const abortSignal = options.parentAbortSignal
@@ -172,7 +168,7 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       ? { id, status: "cancelled" }
       : { error, id, status: "failed" }
   })
-  return createAgentInvocationController<TOutput, CALL_OPTIONS>(id, {
+  return createAgentInvocationController<TOutput, CALL_OPTIONS, TResult>(id, {
     async cancel(reason) {
       if (isTerminalAgentInvocationStatus(snapshot.status)) {
         return { id, invocation: { ...snapshot }, outcome: "invalid-state" }
@@ -193,9 +189,9 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
   }, result)
 }
 
-export function createBackedAgentInvocationController<TOutput = unknown>(
-  options: BackedAgentInvocationOptions<TOutput>,
-): AgentInvocationController<TOutput> {
+export function createBackedAgentInvocationController<TOutput = unknown, TResult = unknown>(
+  options: BackedAgentInvocationOptions<TOutput, TResult>,
+): AgentInvocationController<TOutput, unknown, TResult> {
   let removeParentAbortListener: (() => void) | undefined
   const stopObservingParent = () => {
     removeParentAbortListener?.()
@@ -218,7 +214,7 @@ export function createBackedAgentInvocationController<TOutput = unknown>(
       return { id: options.id, outcome: "unavailable" }
     }
   }
-  const controller = createAgentInvocationController<TOutput>(options.id, {
+  const controller = createAgentInvocationController<TOutput, unknown, TResult>(options.id, {
     async cancel() {
       try {
         const snapshot = observeTerminalSnapshot(await options.cancel())

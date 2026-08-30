@@ -6,7 +6,7 @@ navigation.group: Advanced execution
 icon: i-lucide-workflow
 ---
 
-Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API while keeping child selection in application code.
+Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API, await `result`, and keep child selection in application code.
 
 ## Start and inspect a child
 
@@ -25,6 +25,12 @@ if (current.outcome === 'available') {
 ```
 
 Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
+
+Await `child.result` when the caller needs the completed Agent result. This works for inline and Workflow-backed invocations, including application Capability tools that return delegated work to a model.
+
+```ts
+return await child.result
+```
 
 Inline and serverless runtimes may become unavailable after their process ends. Workflow-backed children delegate inspection to their Workflow Run while the returned controller remains available. ViteHub does not add a separate invocation registry or public lookup by id.
 

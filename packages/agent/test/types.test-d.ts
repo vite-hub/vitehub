@@ -388,6 +388,7 @@ describe("agent public types", () => {
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
+    expectTypeOf<Awaited<typeof controlled>["result"]>().toEqualTypeOf<Promise<AgentRunResult | Response | { summary: string, title: string }>>()
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 

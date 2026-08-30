@@ -80,6 +80,7 @@ describe("Agent Invocation controllers", () => {
 
     await vi.waitFor(() => expect(completions).toHaveLength(2))
     completions[1]!("done")
+    await expect(second.result).resolves.toBe("done")
     await vi.waitFor(async () => {
       await expect(second.inspect()).resolves.toEqual({
         invocation: { id: second.id, output: "done", status: "completed" },
