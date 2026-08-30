@@ -233,8 +233,16 @@ async function openWorkspaceInstructions() {
 function closeFile(path: string) {
   const index = openPaths.value.indexOf(path);
   if (index === -1) return;
+  const wasActive = activeSurface.value === `file:${path}`;
   openPaths.value = openPaths.value.filter((entry) => entry !== path);
   if (selectedPath.value !== path) return;
+  if (!wasActive) {
+    selectedPath.value = undefined;
+    fileRequest?.abort();
+    file.value = undefined;
+    fileError.value = undefined;
+    return;
+  }
   const next = openPaths.value[index] ?? openPaths.value[index - 1];
   selectedPath.value = next;
   const fallback = surfaceItems.value.at(-1)?.value;

@@ -10,6 +10,7 @@ import {
   standaloneSuccessfulToolSequences,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
+  pairedToolTerminal,
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
@@ -135,5 +136,17 @@ describe("Console session trace model", () => {
 
     expect(standaloneSequences).toEqual(new Set([1]));
     expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(new Set([1, 4, 7]));
+  });
+
+  it("pairs mixed tool start aliases with the next terminal for each lifecycle", () => {
+    const observations = [
+      { attributes: { "tool.id": "reused" }, name: "agent.tool.start", sequence: 1 },
+      { attributes: { "tool.id": "reused" }, name: "agent.tool.finish", sequence: 2 },
+      { attributes: { "tool.id": "reused" }, name: "agent.tool.started", sequence: 3 },
+      { attributes: { "tool.id": "reused" }, name: "agent.tool.finish", sequence: 4 },
+    ];
+
+    expect(pairedToolTerminal(observations[0]!, observations)?.sequence).toBe(2);
+    expect(pairedToolTerminal(observations[2]!, observations)?.sequence).toBe(4);
   });
 });

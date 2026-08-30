@@ -93,6 +93,20 @@ export function lifecycleTerminalNames(startName: string): string[] {
   );
 }
 
+export function pairedToolTerminal(
+  start: TraceObservationIdentity,
+  observations: TraceObservationIdentity[],
+): TraceObservationIdentity | undefined {
+  const identity = traceEventId(start);
+  const terminalNames = lifecycleTerminalNames(start.name);
+  return observations.find(
+    (observation) =>
+      observation.sequence > start.sequence &&
+      terminalNames.includes(observation.name) &&
+      traceEventId(observation) === identity,
+  );
+}
+
 export function standaloneSuccessfulToolSequences(
   observations: TraceObservationIdentity[],
   representedSequences: ReadonlySet<number>,

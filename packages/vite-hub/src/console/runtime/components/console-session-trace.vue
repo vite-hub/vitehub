@@ -10,6 +10,7 @@ import {
   isTerminalToolObservation,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
+  pairedToolTerminal,
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
@@ -139,14 +140,26 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   for (const observation of observations) {
     const failed = isStandaloneFailureObservation(observation.name);
     const successfulTool = standaloneSuccessfulTools.has(observation.sequence);
-    const terminalTool = failed && isTerminalToolObservation(observation.name);
-    if (!failed && !successfulTool) continue;
+    const cancelledTool =
+      isTerminalToolObservation(observation.name) &&
+      (observation.name.endsWith(".abort") ||
+        observation.name.endsWith(".cancel") ||
+        observation.name.endsWith(".cancelled"));
+    const terminalTool =
+      isTerminalToolObservation(observation.name) &&
+      (failed || cancelledTool) &&
+      isLifecycleTerminalObservation(observation.name);
+    if (!failed && !successfulTool && !terminalTool) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
-    const cancelled = observation.name === "agent.task.cancelled";
+    const cancelled =
+      observation.name === "agent.task.cancelled" ||
+      observation.name.endsWith(".abort") ||
+      observation.name.endsWith(".cancel") ||
+      observation.name.endsWith(".cancelled");
     const operation =
       successfulTool || terminalTool
         ? "execute_tool"
@@ -288,8 +301,8 @@ function pairedTerminal(
   const terminals = observations.filter(
     (observation) => terminalNames.includes(observation.name) && eventId(observation) === id,
   );
-  if (start.name === "agent.tool.start")
-    return terminals.find((observation) => observation.sequence > start.sequence);
+  if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
+    return pairedToolTerminal(start, observations) as Observation | undefined;
   return start.name === "agent.invocation.start" && invocation.status === "completed"
     ? (terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
         terminals[0])
