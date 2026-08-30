@@ -83,7 +83,8 @@ export function isStandaloneFailureObservation(name: string): boolean {
 
 export function isStandaloneCancellationObservation(name: string): boolean {
   return (
-    name.endsWith(".abort") || name.endsWith(".cancel") || name.endsWith(".cancelled")
+    !name.startsWith("agent.invocation.") &&
+    (name.endsWith(".abort") || name.endsWith(".cancel") || name.endsWith(".cancelled"))
   );
 }
 

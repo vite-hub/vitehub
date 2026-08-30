@@ -205,6 +205,7 @@ describe("Console session trace model", () => {
   it("recognizes standalone lifecycle cancellations", () => {
     for (const name of ["agent.model.abort", "agent.step.cancel", "agent.task.cancelled"])
       expect(isStandaloneCancellationObservation(name)).toBe(true);
+    expect(isStandaloneCancellationObservation("agent.invocation.cancelled")).toBe(false);
     expect(isStandaloneCancellationObservation("agent.model.finish")).toBe(false);
   });
 
