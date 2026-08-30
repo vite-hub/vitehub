@@ -38,7 +38,10 @@ const outputSchema = {
       }),
       output: () => ({ type: "object" }),
     },
-    validate: (value: unknown) => ({ value: value as { title: string } }),
+    validate: (value: unknown) => {
+      // SAFETY: This test schema receives the fixed JSON object returned by generateResult above.
+      return { value: value as { title: string } }
+    },
     vendor: "vitehub-test",
     version: 1 as const,
   },
@@ -110,6 +113,7 @@ async function modelCallFor(channel: "discord" | "telegram", messages = history)
     },
     driver: {
       instructions: agentInstructions,
+      // SAFETY: createModel implements the AI SDK methods exercised by this test.
       model: model as never,
       output: { schema: outputSchema },
     },
@@ -147,6 +151,7 @@ describe("Channel instructions", () => {
         discord: discord(),
         support: telegram(),
       },
+      // SAFETY: Inspection reads Agent metadata without invoking the placeholder model.
       driver: { model: {} as never },
     })
     const inspected = [`Channel "support" instructions:\n\n${telegramInstructions}`]
@@ -166,9 +171,11 @@ describe("Channel instructions", () => {
   })
 
   it("retains Channel guidance for opaque adapter definitions", async () => {
+    // SAFETY: createModel implements the AI SDK methods exercised by this test.
     const agent = {
       channels: { support: telegram() },
       async resolve() {
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
         return createAiSdkAdapter({ model: createModel() as never })
       },
     } as never
@@ -179,10 +186,13 @@ describe("Channel instructions", () => {
   })
 
   it("retains consumer classification when an opaque definition decorates an adapter", async () => {
+    // SAFETY: createModel implements the AI SDK methods exercised by this test.
     const agent = {
       channels: { support: telegram() },
       async resolve() {
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
         return {
+          // SAFETY: createModel implements the AI SDK methods exercised by this test.
           ...createAiSdkAdapter({ model: createModel() as never }),
           decorated: true,
         }
@@ -195,6 +205,7 @@ describe("Channel instructions", () => {
   })
 
   it("omits guidance for opaque custom adapters that do not consume it", async () => {
+    // SAFETY: Inspection treats this intentionally partial object as an opaque Agent definition.
     const agent = {
       channels: { support: telegram() },
       async resolve() {
@@ -212,6 +223,7 @@ describe("Channel instructions", () => {
       resolved = true
       throw new Error("resolver must not run")
     }
+    // SAFETY: Inspection does not resolve this intentionally opaque Agent definition.
     const agent = { channels: { discord: discord() }, resolve } as never
 
     expect(await resolveAgentInspectionMetadata(agent)).not.toHaveProperty("instructions")
@@ -279,6 +291,7 @@ describe("Channel instructions", () => {
 
   it("selects guidance from trusted trigger context when run metadata is omitted", async () => {
     const model = createModel()
+    // SAFETY: createModel implements the AI SDK methods exercised by this test.
     const agent = defineAgent({
       channels: {
         support: telegram({
@@ -295,6 +308,7 @@ describe("Channel instructions", () => {
       },
       driver: {
         instructions: agentInstructions,
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
         model: model as never,
       },
     })
@@ -310,10 +324,12 @@ describe("Channel instructions", () => {
     const model = createModel()
     const adapter = createAiSdkAdapter({
       instructions: "Configured Agent instructions.",
+      // SAFETY: createModel implements the AI SDK methods exercised by this test.
       model: model as never,
     })
     const invoker = { id: "channel-test", kind: "user" }
 
+    // SAFETY: The test supplies every invocation field read by the adapter path under test.
     await adapter.generate({
       actor: invoker,
       context: createAgentInvocationContextStore({
@@ -341,12 +357,14 @@ describe("Channel instructions", () => {
     const model = createModel()
     const adapter = createAiSdkAdapter({
       instructions: "Generate one short title.",
+      // SAFETY: createModel implements the AI SDK methods exercised by this test.
       model: model as never,
     })
     const context = createAgentInvocationContextStore()
     bindMessageChannelInstructions(context, telegram())
     const invoker = { id: "channel-test", kind: "user" }
 
+    // SAFETY: The test supplies every invocation field read by the auxiliary adapter path.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext({
       actor: invoker,
       context,
