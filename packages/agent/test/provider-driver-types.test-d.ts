@@ -38,6 +38,23 @@ describe("provider Agent Driver types", () => {
     defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
   })
 
+  it("types Codex credential profiles and invocation-time credential resolvers", () => {
+    const driver = codexDriver({
+      credentialProfile: "support",
+      credentials(context) {
+        expectTypeOf(context.abortSignal).toEqualTypeOf<AbortSignal | undefined>()
+        return { unseal: () => '{"OPENAI_API_KEY":"secret"}' }
+      },
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+
+    expectTypeOf(driver.credentialProfile).toEqualTypeOf<string | undefined>()
+    // @ts-expect-error Credential projection is currently Codex-specific.
+    claudeCodeDriver({ credentials: () => "{}" })
+    codexDriver({ reasoningEffort: "ultra" })
+  })
+
   it("preserves structured output inference while invocation input evidences its options", () => {
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const schema = {} as StandardSchemaV1<unknown, { summary: string }>
