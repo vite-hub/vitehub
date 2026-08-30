@@ -85,10 +85,13 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
       const iterator = (await open()).list({ prefix: [] }, { cursor, limit })
       const keys: string[] = []
+      let yielded = false
       for await (const entry of iterator) {
+        yielded = true
         const key = fromDenoKey(entry.key)
         if (key?.startsWith(prefix)) keys.push(key)
       }
+      if (!yielded) return { keys }
       return iterator.cursor ? { keys, cursor: iterator.cursor } : { keys }
     },
     async hasItem(key) {
