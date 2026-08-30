@@ -576,6 +576,32 @@ describe("Agent Invocation controllers", () => {
     expect(cancel).not.toHaveBeenCalled()
   })
 
+  it("prefers settled backed state over an overlapping inspection", async () => {
+    let releaseInspection!: () => void
+    const inspectionReleased = new Promise<void>((resolve) => {
+      releaseInspection = resolve
+    })
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => undefined,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => {
+        await inspectionReleased
+        return { id: "child", status: "running" }
+      },
+      result: () => Promise.resolve("done"),
+      startResult: Promise.resolve(),
+    })
+
+    const inspection = controller.inspect()
+    await expect(controller.result).resolves.toBe("done")
+    releaseInspection()
+    await expect(inspection).resolves.toEqual({
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "available",
+    })
+  })
+
   it("does not cache transient backed result errors as terminal failures", async () => {
     const inspect = vi.fn(async () => ({ id: "child", status: "running" as const }))
     const controller = createBackedAgentInvocationController({

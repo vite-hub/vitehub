@@ -240,6 +240,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     if (terminalSnapshot) return { invocation: { ...terminalSnapshot }, outcome: "available" }
     try {
       const snapshot = observeTerminalSnapshot(await options.inspect())
+      if (terminalSnapshot) return { invocation: { ...terminalSnapshot }, outcome: "available" }
       return snapshot
         ? { invocation: snapshot, outcome: "available" }
         : { id: options.id, outcome: "unavailable" }
