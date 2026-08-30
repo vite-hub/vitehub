@@ -261,11 +261,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   })
 
   function resolveKVRegistration(kv: unknown): void {
-    if (!options.resolveKVStores) {
-      sections = options.sections ?? []
-      kvStores = options.kvStores ?? []
-      return
-    }
     const resolvedKVStores = options.resolveKVStores?.(kv)
     sections = (options.sections ?? []).filter(section => section !== "kv")
     if (resolvedKVStores !== false) sections = [...sections, "kv"]

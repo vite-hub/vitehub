@@ -634,6 +634,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
         preset: "cloudflare",
+        resolveKVStores: () => false,
         sections: ["queues"],
       })
       const configHook = plugin.config
@@ -648,9 +649,9 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/api/_vitehub/console/sections",
-        "/api/_vitehub/console/definitions",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
