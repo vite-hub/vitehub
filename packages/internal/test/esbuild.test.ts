@@ -132,7 +132,7 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
-  it("matches absolute aliases after resolving bare package imports", async () => {
+  it("matches bare package aliases after relative imports become absolute", async () => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/@vite-hub/kv")
     const original = resolve(packageDir, "dist/vite.mjs")
@@ -144,18 +144,45 @@ describe("bundleEsmEntry", () => {
       writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./vite": "./dist/vite.mjs" }, name: "@vite-hub/kv", type: "module" })}\n`, "utf8"),
       writeFile(original, 'import "node:os"\nexport const value = "config-only"\n', "utf8"),
       writeFile(replacement, 'export const value = "runtime-guard"\n', "utf8"),
-      writeFile(entry, 'export { value } from "@vite-hub/kv/vite"\n', "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, {
-      alias: { [original]: replacement },
+      alias: { "@vite-hub/kv/vite": replacement },
       format: "esm",
       platform: "neutral",
     })
 
     expect(await readFile(outfile, "utf8")).toContain("runtime-guard")
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
+  })
+
+  it("keeps explicit trailing-slash aliases exact", async () => {
+    const rootDir = await createTempDir()
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(replacement, "export const value = 'exact'\n", "utf8"),
+      writeFile(entry, 'export { value } from "@/"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "@/": replacement, "@//": `${dirname(replacement)}/` },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("exact")
+
+    await writeFile(entry, 'export { value } from "@/jobs"\n', "utf8")
+    await expect(bundleEsmEntry(entry, outfile, {
+      alias: { "@/": replacement, "@//": `${dirname(replacement)}/` },
+      format: "esm",
+      platform: "node",
+    })).rejects.toThrow('Could not resolve "@/jobs"')
   })
 
   it("preserves declaration order for overlapping prefix aliases", async () => {
