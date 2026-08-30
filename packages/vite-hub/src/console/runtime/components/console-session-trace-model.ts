@@ -75,8 +75,11 @@ export function isStandaloneFailureObservation(name: string): boolean {
   return name.endsWith(".error") || name.endsWith(".failed") || isTerminalTaskObservation(name);
 }
 
-export function isStandaloneSuccessfulToolObservation(name: string): boolean {
-  return name === "agent.tool.finish";
+export function isStandaloneSuccessfulLifecycleObservation(name: string): boolean {
+  return (
+    !name.startsWith("agent.invocation.") &&
+    (name.endsWith(".finish") || name.endsWith(".completed"))
+  );
 }
 
 export function isTerminalToolObservation(name: string): boolean {
@@ -93,10 +96,10 @@ export function lifecycleTerminalNames(startName: string): string[] {
   );
 }
 
-export function pairedToolTerminal(
-  start: TraceObservationIdentity,
-  observations: TraceObservationIdentity[],
-): TraceObservationIdentity | undefined {
+export function pairedToolTerminal<Observation extends TraceObservationIdentity>(
+  start: Observation,
+  observations: Observation[],
+): Observation | undefined {
   const identity = traceEventId(start);
   const terminalNames = lifecycleTerminalNames(start.name);
   return observations.find(
@@ -107,7 +110,7 @@ export function pairedToolTerminal(
   );
 }
 
-export function standaloneSuccessfulToolSequences(
+export function standaloneSuccessfulLifecycleSequences(
   observations: TraceObservationIdentity[],
   representedSequences: ReadonlySet<number>,
 ): Set<number> {
@@ -116,14 +119,11 @@ export function standaloneSuccessfulToolSequences(
 
   for (const observation of observations) {
     const identity = traceEventId(observation);
-    if (
-      observation.name.startsWith("agent.tool.") &&
-      isLifecycleStartObservation(observation.name)
-    ) {
+    if (isLifecycleStartObservation(observation.name)) {
       representedIdentities.delete(identity);
       continue;
     }
-    if (!isStandaloneSuccessfulToolObservation(observation.name)) continue;
+    if (!isStandaloneSuccessfulLifecycleObservation(observation.name)) continue;
     if (representedSequences.has(observation.sequence)) {
       representedIdentities.add(identity);
       continue;

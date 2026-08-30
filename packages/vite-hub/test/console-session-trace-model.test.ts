@@ -5,9 +5,9 @@ import {
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
-  isStandaloneSuccessfulToolObservation,
+  isStandaloneSuccessfulLifecycleObservation,
   isTerminalToolObservation,
-  standaloneSuccessfulToolSequences,
+  standaloneSuccessfulLifecycleSequences,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
   pairedToolTerminal,
@@ -78,10 +78,12 @@ describe("Console session trace model", () => {
     expect(isStandaloneFailureObservation("agent.model.completed")).toBe(false);
   });
 
-  it("recognizes successful tool terminals without a start", () => {
-    expect(isStandaloneSuccessfulToolObservation("agent.tool.finish")).toBe(true);
-    expect(isStandaloneSuccessfulToolObservation("agent.tool.start")).toBe(false);
-    expect(isStandaloneSuccessfulToolObservation("agent.model.finish")).toBe(false);
+  it("recognizes successful lifecycle terminals without a start", () => {
+    expect(isStandaloneSuccessfulLifecycleObservation("agent.tool.finish")).toBe(true);
+    expect(isStandaloneSuccessfulLifecycleObservation("agent.model.finish")).toBe(true);
+    expect(isStandaloneSuccessfulLifecycleObservation("agent.task.completed")).toBe(true);
+    expect(isStandaloneSuccessfulLifecycleObservation("agent.invocation.finish")).toBe(false);
+    expect(isStandaloneSuccessfulLifecycleObservation("agent.tool.start")).toBe(false);
   });
 
   it("recognizes failed tool terminals without a start", () => {
@@ -117,7 +119,7 @@ describe("Console session trace model", () => {
     ]);
   });
 
-  it("deduplicates successful terminals within each tool lifecycle", () => {
+  it("deduplicates successful terminals within each lifecycle", () => {
     const observations = [
       { attributes: { "tool.id": "standalone" }, name: "agent.tool.finish", sequence: 1 },
       { attributes: { "tool.id": "standalone" }, name: "agent.tool.finish", sequence: 2 },
@@ -126,16 +128,20 @@ describe("Console session trace model", () => {
       { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 5 },
       { attributes: { "tool.id": "paired" }, name: "agent.tool.start", sequence: 6 },
       { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 7 },
+      { attributes: { "step.id": "model" }, name: "agent.model.finish", sequence: 8 },
+      { attributes: { "step.id": "task" }, name: "agent.task.completed", sequence: 9 },
     ];
 
     const representedSequences = new Set([4, 7]);
-    const standaloneSequences = standaloneSuccessfulToolSequences(
+    const standaloneSequences = standaloneSuccessfulLifecycleSequences(
       observations,
       representedSequences,
     );
 
-    expect(standaloneSequences).toEqual(new Set([1]));
-    expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(new Set([1, 4, 7]));
+    expect(standaloneSequences).toEqual(new Set([1, 8, 9]));
+    expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(
+      new Set([1, 4, 7, 8, 9]),
+    );
   });
 
   it("pairs mixed tool start aliases with the next terminal for each lifecycle", () => {

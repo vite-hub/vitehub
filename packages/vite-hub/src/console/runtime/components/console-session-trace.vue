@@ -6,7 +6,7 @@ import {
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
-  standaloneSuccessfulToolSequences,
+  standaloneSuccessfulLifecycleSequences,
   isTerminalToolObservation,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
@@ -132,14 +132,15 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   const representedSequences = new Set(
     pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
-  const standaloneSuccessfulTools = standaloneSuccessfulToolSequences(
+  const standaloneSuccessfulTerminals = standaloneSuccessfulLifecycleSequences(
     observations,
     representedSequences,
   );
 
   for (const observation of observations) {
     const failed = isStandaloneFailureObservation(observation.name);
-    const successfulTool = standaloneSuccessfulTools.has(observation.sequence);
+    const successfulTerminal = standaloneSuccessfulTerminals.has(observation.sequence);
+    const successfulTool = successfulTerminal && isTerminalToolObservation(observation.name);
     const cancelledTool =
       isTerminalToolObservation(observation.name) &&
       (observation.name.endsWith(".abort") ||
@@ -149,7 +150,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       isTerminalToolObservation(observation.name) &&
       (failed || cancelledTool) &&
       isLifecycleTerminalObservation(observation.name);
-    if (!failed && !successfulTool && !terminalTool) continue;
+    if (!failed && !successfulTerminal && !terminalTool) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
@@ -165,7 +166,9 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
         ? "execute_tool"
         : isTerminalTaskObservation(observation.name)
           ? "run_task"
-          : "error";
+          : successfulTerminal
+            ? operationName(observation, observation.attributes ?? {})
+            : "error";
     const target = operationTarget(operation, observation.attributes ?? {}, invocation);
     const durationMs =
       successfulTool || terminalTool
@@ -178,14 +181,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       durationMs,
       endMs: at,
       eventNames: [observation.name],
-      icon: successfulTool
+      icon: successfulTerminal
         ? spanIcon(operation)
         : cancelled
           ? "i-lucide-ban"
           : recovered
             ? "i-lucide-circle-check"
             : "i-lucide-circle-alert",
-      id: `${id}:${successfulTool ? "terminal" : "error"}:${observation.sequence}`,
+      id: `${id}:${successfulTerminal ? "terminal" : "error"}:${observation.sequence}`,
       name: target
         ? `${operation} ${target}`
         : recovered && observation.name === "agent.stream.error"
@@ -194,7 +197,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       operation: recovered ? "recovery" : operation,
       sequence: observation.sequence,
       startMs: at - durationMs,
-      status: successfulTool
+      status: successfulTerminal
         ? "completed"
         : cancelled
           ? "cancelled"
@@ -302,7 +305,7 @@ function pairedTerminal(
     (observation) => terminalNames.includes(observation.name) && eventId(observation) === id,
   );
   if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
-    return pairedToolTerminal(start, observations) as Observation | undefined;
+    return pairedToolTerminal(start, observations);
   return start.name === "agent.invocation.start" && invocation.status === "completed"
     ? (terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
         terminals[0])
