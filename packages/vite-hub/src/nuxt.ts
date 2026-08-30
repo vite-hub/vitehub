@@ -19,8 +19,10 @@ import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
+import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -260,6 +262,7 @@ function renderConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
+  catalog: ConsoleBuildCatalog,
   kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
@@ -267,6 +270,7 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const kvEnabled = sections.includes("kv")
+  const definitionsEnabled = sections.includes("workflows")
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -274,6 +278,7 @@ function renderConsoleNitroPlugin(
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -282,6 +287,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
           fixture
@@ -303,6 +309,7 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
+  catalog: ConsoleBuildCatalog,
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
@@ -316,7 +323,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -405,6 +412,13 @@ async function installConsole(
         name: "vitehub-console-kv",
         path: "/_vitehub/kv",
       },
+      ...(sections.includes("workflows")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/workflows.vue"),
+            name: "vitehub-console-workflows",
+            path: "/_vitehub/workflows",
+          }]
+        : []),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -421,6 +435,12 @@ async function installConsole(
       handler: join(consoleRuntimeRoot, "server/sections.get.js"),
       route: "/api/_vitehub/console/sections",
     },
+    ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
+          route: "/api/_vitehub/console/definitions",
+        }]
+      : []),
     ...(sections.includes("agents")
       ? [
           {
@@ -457,11 +477,13 @@ async function installConsole(
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
+    const catalog = discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs })
     const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
       sections,
-      sections.includes("agents") ? discoverAgentDefinitionEntries(discoveryRoot, serverDirs) : [],
+      catalog.agents,
+      catalog,
       kvStores,
       fixture,
       invocationRootState?.binding,
@@ -1045,11 +1067,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
+      const consoleCatalog = discoverConsoleBuildCatalog({
+        discoveryRoot: viteRoot,
+        projectRoot,
+        sections: consoleSections,
+        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      })
       await writeConsoleNitroPlugin(
         generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
         projectRoot,
         consoleSections,
-        consoleSections.includes("agents") ? discoverAgentDefinitionEntries(viteRoot, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined) : [],
+        consoleCatalog.agents,
+        consoleCatalog,
         consoleKVStores,
         resolvedConsoleFixture,
         consoleInvocationRootState.binding,
