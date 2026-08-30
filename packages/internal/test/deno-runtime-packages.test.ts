@@ -1325,7 +1325,7 @@ import "z-peer-consumer"
     await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
   })
 
-  it("accepts compatible protocol peer ranges", async () => {
+  it("rejects distinct peer installations when protocol ranges cannot be resolved", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-protocol-peers-"))
     await writeJson(join(root, "package.json"), {})
     for (const [name, peerRange, version] of [["peer-consumer-a", "workspace:^", "1.1.0"], ["peer-consumer-b", "catalog:database", "1.2.0"]]) {
@@ -1336,9 +1336,7 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
   })
 
   it("does not replace an explicitly imported root package with a peer", async () => {
