@@ -125,7 +125,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, resolved.root)
+      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
     const retainedAliases = Object.fromEntries(Object.entries(aliases)
@@ -247,7 +247,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           workflow: internalOptions?.importBase,
           workspace: internalOptions?.workspaceImportBase,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
-        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), config.root)
+        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"))
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {

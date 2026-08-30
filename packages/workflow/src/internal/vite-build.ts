@@ -1033,19 +1033,11 @@ export async function writeProviderEntries(
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
-  sourceRootDir = rootDir,
 ) {
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const discoveredDefinitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
-  const definitions = definitionRootDir === sourceRootDir
-    ? discoveredDefinitions
-    : discoveredDefinitions.map(definition => ({
-        ...definition,
-        handler: resolve(sourceRootDir, relative(definitionRootDir, definition.handler)),
-        steps: definition.steps?.map(step => resolve(sourceRootDir, relative(definitionRootDir, step))),
-      }))
+  const definitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
   const definitionNames = new Set(definitions.map(definition => definition.name))
   for (const definition of definitions) {
     if (definition.source !== "agent-workflow") continue

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -112,19 +112,16 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
-  const workflowFile = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
   const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup", "01-cleanup.ts")
-  await mkdir(join(rootDir, "server", "workflows", "cleanup"), { recursive: true })
   await mkdir(join(retainedRoot, "server", "workflows", "cleanup"), { recursive: true })
-  await writeFile(workflowFile, "export default async function cleanup() {}\n")
   await writeFile(retainedWorkflowFile, "export default async function cleanup() {}\n")
-  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir, rootDir)
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
 
   const registryContents = await readFile(artifacts.registryFile, "utf8")
-  expect(registryContents).toContain(pathToFileURL(workflowFile).href)
+  expect(registryContents).toContain(pathToFileURL(retainedWorkflowFile).href)
   expect(registryContents).toContain(`import("./vercel-native/`)
   const [vercelNativeFile] = artifacts.vercelNativeFiles
-  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(workflowFile).href)
+  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(retainedWorkflowFile).href)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
@@ -140,6 +137,29 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   await expect(readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8"))
     .resolves.toBe(await readFile(join(artifactDir, "registry.mjs"), "utf8"))
   await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))).resolves.toHaveLength(1)
+})
+
+it("preserves staged Workflow imports from configured external server directories", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-external-")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  const externalServerDir = join(rootDir, "..", `${basename(rootDir)}-external-server`)
+  const externalWorkflowDir = join(externalServerDir, "workflows", "external")
+  const externalHandler = join(externalWorkflowDir, "index.ts")
+  const externalStep = join(externalWorkflowDir, "01-external.ts")
+  tempDirs.push(externalServerDir)
+  await mkdir(retainedRoot, { recursive: true })
+  await mkdir(externalWorkflowDir, { recursive: true })
+  await writeFile(externalHandler, "export default async function external() {}\n")
+  await writeFile(externalStep, "export default async function externalStep() {}\n")
+
+  const artifacts = await writeProviderEntries(rootDir, false, {}, [externalServerDir], false, undefined, retainedRoot, artifactDir)
+
+  const registryContents = await readFile(artifacts.registryFile, "utf8")
+  expect(registryContents).toContain(pathToFileURL(externalHandler).href)
+  expect(registryContents).toContain(pathToFileURL(externalStep).href)
+  const [vercelNativeFile] = artifacts.vercelNativeFiles
+  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(pathToFileURL(externalStep).href)
 })
 
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
