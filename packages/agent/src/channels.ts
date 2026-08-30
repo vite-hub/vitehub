@@ -1143,6 +1143,8 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
 
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
+const githubActivityLinkLimit = 3
+const githubActivityTaskLimit = 25
 const githubActivityUpdates = new Map<string, Promise<void>>()
 
 interface GitHubActivityTarget {
@@ -1167,20 +1169,42 @@ interface GitHubActivityIdentity {
   login?: string
 }
 
-async function githubActivityIdentity(fetcher: typeof fetch, apiBaseUrl: string, headers: Record<string, string>): Promise<GitHubActivityIdentity> {
+async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig>,
+  context: GitHubAppContext<TRuntimeConfig>,
+): Promise<GitHubActivityIdentity> {
+  const options = githubAppOptions(app) || {}
+  const env = await githubEnv(context)
+  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
+  const headers = githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent)
+  const appMetadata = await githubApiJson(options.fetch || fetch, `${options.apiBaseUrl || "https://api.github.com"}/app`, headers)
+  const slug = isRecord(appMetadata) ? maybeString(appMetadata.slug) : undefined
+  if (!slug) throw new Error("[vitehub] GitHub App metadata did not include a slug.")
+  return { app: slug }
+}
+
+async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
+  fetcher: typeof fetch,
+  apiBaseUrl: string,
+  headers: Record<string, string>,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: GitHubAppContext<TRuntimeConfig>,
+): Promise<GitHubActivityIdentity> {
   const userResponse = await fetcher(`${apiBaseUrl}/user`, { headers, method: "GET" })
   if (userResponse.ok) {
     const user = await userResponse.json().catch(() => undefined)
     const login = isRecord(user) ? maybeString(user.login) : undefined
     if (login) return { login }
   }
-  const installationResponse = await fetcher(`${apiBaseUrl}/installation`, { headers, method: "GET" })
-  if (installationResponse.ok) {
-    const installation = await installationResponse.json().catch(() => undefined)
-    const app = isRecord(installation) ? maybeString(installation.app_slug) : undefined
-    if (app) return { app }
-  }
+  if (app) return githubAppIdentity(app, context)
   throw new Error("[vitehub] GitHub Agent activity could not resolve the authenticated identity.")
+}
+
+function githubActivityLinksState(links: readonly { label: string, url: string }[]): { label: string, url: string }[] {
+  return links.slice(0, githubActivityLinkLimit).map(link => ({
+    label: link.label.slice(0, 80),
+    url: link.url.slice(0, 400),
+  }))
 }
 
 function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
@@ -1211,9 +1235,9 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
     const entries = (items: unknown): GitHubActivityHistoryEntry[] => Array.isArray(items)
       ? items.flatMap((item) => {
           if (!isRecord(item) || !maybeString(item.runId) || !Array.isArray(item.links)) return []
-          const links = item.links.flatMap(link => isRecord(link) && maybeString(link.label) && maybeString(link.url)
+          const links = githubActivityLinksState(item.links.flatMap(link => isRecord(link) && maybeString(link.label) && maybeString(link.url)
             ? [{ label: maybeString(link.label)!, url: maybeString(link.url)! }]
-            : [])
+            : []))
           const status = maybeString(item.status)
           return [{ links, runId: maybeString(item.runId)!, ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
         })
@@ -1246,9 +1270,10 @@ function githubActivityBadge(status: AgentActivityStatus): string {
 }
 
 function githubActivityTask(task: AgentActivityTask): string {
-  if (task.status === "completed") return `- [x] ${task.title}`
-  if (task.status === "in-progress") return `- [ ] ⏳ ${task.title}`
-  return `- [ ] ${task.title}`
+  const title = task.title.slice(0, 300)
+  if (task.status === "completed") return `- [x] ${title}`
+  if (task.status === "in-progress") return `- [ ] ⏳ ${title}`
+  return `- [ ] ${title}`
 }
 
 function githubActivityLinks(links: readonly { label: string, url: string }[]): string {
@@ -1263,8 +1288,9 @@ function renderGithubActivity(
     encodeGithubActivityState(state),
     githubActivityBadge(activity.status),
   ]
-  if (activity.links.length) sections.push(githubActivityLinks(activity.links))
-  if (activity.tasks.length) sections.push(activity.tasks.map(githubActivityTask).join("\n"))
+  const links = githubActivityLinksState(activity.links)
+  if (links.length) sections.push(githubActivityLinks(links))
+  if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
   if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
   if (state.history.length) {
@@ -1289,7 +1315,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
       const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
-      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers)
+      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, app, context)
       const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
@@ -1299,7 +1325,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           && isOwnedGithubActivityComment(comment, identity))
         const existing = owned[0]
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-        const current = { links: context.activity.links, runId: context.activity.runId, status: context.activity.status }
+        const current = { links: githubActivityLinksState(context.activity.links), runId: context.activity.runId, status: context.activity.status }
         const reconcileDuplicates = async () => {
           for (const duplicate of owned.slice(1)) {
             const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined

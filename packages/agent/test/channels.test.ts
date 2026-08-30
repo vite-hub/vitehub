@@ -91,11 +91,64 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("<summary>Previous sessions</summary>")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
+
+      const largeActivity = context("run-3", "running")
+      largeActivity.activity.tasks = Array.from({ length: 100 }, (_, index) => ({ status: "pending", title: `${index}: ${"x".repeat(1_000)}` }))
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(largeActivity as never)
+      expect(stored?.body.length).toBeLessThan(65_536)
+      expect(stored?.body).toContain("24:")
+      expect(stored?.body).not.toContain("25:")
     }
     finally {
       vi.unstubAllGlobals()
       vi.unstubAllEnvs()
     }
+  })
+
+  it("resolves GitHub App activity ownership with app JWT metadata", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/app/installations/987/access_tokens") {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (url.pathname === "/user") return Response.json({ message: "Requires authentication" }, { status: 401 })
+      if (url.pathname === "/app") return Response.json({ slug: "vitehub-app" })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") return Response.json([])
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "POST") return Response.json({ id: 7 }, { status: 201 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    const channel = github({
+      activity: true,
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "activity-app",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        fetch: fetcher as typeof fetch,
+        installationId: 987,
+        privateKey: privateKeyPem,
+      },
+    })
+    const update = channel.activity?.update
+    if (!update) throw new Error("Missing GitHub Agent activity updater.")
+    // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+    await update({
+      activity: { links: [], runId: "run-app", status: "running", tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId: "run-app" },
+      runtime: "unknown",
+      target: { installationId: 987, issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    } as never)
+
+    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/app", expect.objectContaining({
+      headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer .+\..+\..+$/) }),
+      method: "GET",
+    }))
   })
 
   it("uses normalized finish context text for default GitHub PR replies", async () => {
