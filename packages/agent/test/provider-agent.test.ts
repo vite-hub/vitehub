@@ -160,6 +160,22 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("preserves ambient CODEX_HOME for unprovisioned Codex runs", async () => {
+    const threadId = "thread-ambient-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CODEX_HOME", "/var/lib/ambient-codex")
+    try {
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+        environment: expect.objectContaining({ CODEX_HOME: "/var/lib/ambient-codex" }),
+      }))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("preserves explicit provider runtime settings until ViteHub owns them", async () => {
     const threadId = "thread-provider-settings"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

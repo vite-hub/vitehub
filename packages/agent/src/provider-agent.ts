@@ -1594,7 +1594,10 @@ async function* runProvider<
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
-      environment: providerEnvironment(providerEnvironmentOverrides),
+      environment: providerEnvironment({
+        ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+        ...providerEnvironmentOverrides,
+      }),
       provider: options.provider,
       ...(Object.keys(settings).length ? { settings } : {}),
     }
