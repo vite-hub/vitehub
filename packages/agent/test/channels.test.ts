@@ -36,6 +36,7 @@ describe("agent channels", () => {
   it("creates and updates one GitHub Agent activity comment with session history", async () => {
     const { github } = await import("../src/channels.ts")
     let stored: { body: string, id: number } | undefined
+    let failNextCommentsGet = false
     const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
@@ -43,6 +44,10 @@ describe("agent channels", () => {
       methods.push(method)
       if (url.pathname === "/user") return new Response(JSON.stringify({ login: "vitehub-bot" }), { headers: { "content-type": "application/json" } })
       if (method === "GET") {
+        if (failNextCommentsGet) {
+          failNextCommentsGet = false
+          throw new Error("GitHub unavailable")
+        }
         const comments = url.searchParams.get("page") === "2" || !stored
           ? []
           : [{ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } }]
@@ -60,8 +65,9 @@ describe("agent channels", () => {
       const channel = github({ activity: true })
       const update = channel.activity?.update
       if (!update) throw new Error("Missing GitHub Agent activity updater.")
-      const context = (runId: string, status: "completed" | "running") => ({
+      const context = (runId: string, status: "completed" | "running", agentName = "reviewer") => ({
         activity: {
+          agentName,
           links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }],
           runId,
           status,
@@ -92,6 +98,21 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
 
+      // Agent identity keeps equal provider run IDs as separate activity sessions.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "completed") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "running", "writer") as never)
+      expect(stored?.body).toContain("agent-running-0969da")
+
+      // A failed initial projection must not mark the run stale for its retry.
+      failNextCommentsGet = true
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await expect(update(context("retry-run", "running") as never)).rejects.toThrow("GitHub unavailable")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("retry-run", "running") as never)
+      expect(stored?.body).toContain("https://console.test/invocations/retry-run")
+
       const largeActivity = context("run-3", "running")
       largeActivity.activity.tasks = Array.from({ length: 100 }, (_, index) => ({ status: "pending", title: `${index}: ${"x".repeat(1_000)}` }))
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
@@ -111,6 +132,7 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("https://console.test/invocations/run-14")
 
       // Keep an active run stale even after bounded serialized tombstones evict it.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("long-running", "running") as never)
       for (let index = 0; index <= 100; index++) {
         // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.

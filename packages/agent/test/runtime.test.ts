@@ -5834,9 +5834,14 @@ describe("agent message protocol", () => {
   })
 
   it("bounds text retained from Response streams for Channel activity", async () => {
+    const { createBoundedTextAccumulator } = await import("../src/internal/bounded-text.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const updates: AgentActivityUpdate[] = []
+    const retained = createBoundedTextAccumulator(12_000)
+    retained.append("a".repeat(8_000))
+    retained.append("b".repeat(8_000))
+    expect(retained.value()).toBe(`${"a".repeat(4_000)}${"b".repeat(8_000)}`)
     const agent = defineAgent({
       channels: {
         work: defineChannel("work", {

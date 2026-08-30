@@ -5,6 +5,7 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
@@ -5243,14 +5244,12 @@ async function finalizeAgentInvocationResult<
         ? new TextDecoder()
         : undefined
       const responseTextLimit = context.context.get(responseTitleFallbackContextKey) === true ? Number.POSITIVE_INFINITY : 12_000
-      let responseText = ""
-      const appendResponseText = (text: string) => {
-        responseText = `${responseText}${text}`.slice(-responseTextLimit)
-      }
+      const responseText = createBoundedTextAccumulator(responseTextLimit)
       const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
-        appendResponseText(responseDecoder?.decode() ?? "")
-        const finishResult = responseText && !outcome.failed
-          ? { raw: result, text: responseText }
+        responseText.append(responseDecoder?.decode() ?? "")
+        const retainedResponseText = responseText.value()
+        const finishResult = retainedResponseText && !outcome.failed
+          ? { raw: result, text: retainedResponseText }
           : result
         if (!outcome.failed && !outcome.completed) {
           await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
@@ -5260,7 +5259,7 @@ async function finalizeAgentInvocationResult<
         }
       }, {
         abortSignal: context.input.abortSignal,
-        onChunk: chunk => appendResponseText(responseDecoder?.decode(chunk, { stream: true }) ?? ""),
+        onChunk: chunk => responseText.append(responseDecoder?.decode(chunk, { stream: true }) ?? ""),
       }) : result
       return response
     }

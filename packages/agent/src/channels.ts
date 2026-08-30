@@ -1224,8 +1224,8 @@ function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivity
   return Boolean(identity.appId ? appId === identity.appId : identity.login && user === identity.login)
 }
 
-function githubActivityRunId(runId: string): string {
-  return createHash("sha256").update(runId).digest("base64url")
+function githubActivityRunId(agentName: string, runId: string): string {
+  return createHash("sha256").update(`${agentName}\0${runId}`).digest("base64url")
 }
 
 function githubActivityTarget(value: unknown): GitHubActivityTarget {
@@ -1348,14 +1348,10 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
-        const runId = githubActivityRunId(context.activity.runId)
+        const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
         const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
         const knownActiveRun = activeRuns.has(runId)
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
-        if (!terminal) {
-          activeRuns.add(runId)
-          githubActivityActiveRuns.set(activityKey, activeRuns)
-        }
         const commentsUrl = `${activityKey}/comments?sort=created&direction=desc`
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
@@ -1412,6 +1408,10 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           headers,
           method: commentId ? "PATCH" : "POST",
         })
+        if (!terminal) {
+          activeRuns.add(runId)
+          githubActivityActiveRuns.set(activityKey, activeRuns)
+        }
         await reconcileDuplicates()
         if (terminal) activeRuns.delete(runId)
         if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
