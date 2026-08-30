@@ -1783,10 +1783,6 @@ async function* runProvider<
               throw error
             })
             .finally(() => runtimeCleanupSettled = true)
-      const deferredWorkspaceFinalization = runtimeCleanupDeferred
-        ? deferredRuntimeStopped.then(finalizeWorkspace)
-        : undefined
-      if (deferredWorkspaceFinalization) observeLateCleanup(deferredWorkspaceFinalization)
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanup,
         toolServer?.close(),
@@ -1809,7 +1805,7 @@ async function* runProvider<
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
       }
-      if (!runtimeCleanupDeferred) await finalizeWorkspace()
+      await finalizeWorkspace()
       if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
         try {
           await cleanupRoot()

@@ -2973,10 +2973,11 @@ cli_auth_credentials_store = "keyring"
       await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
       resolveTurn()
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
-      await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
+      expect(closeWorkspace).not.toHaveBeenCalled()
       resolveExecute?.()
       toolCallController.abort()
       await toolCall
+      await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
     }
     finally {
       toolCallController.abort()
