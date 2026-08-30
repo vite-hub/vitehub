@@ -611,7 +611,7 @@ describe("published declaration diagnostics", () => {
         writeFile(join(nodeTypesDir, "package.json"), JSON.stringify({ name: "@types/node", types: "index.d.ts" })),
         writeFile(join(nodeTypesDir, "index.d.ts"), "export {}\n"),
         writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/ws", types: "index.d.ts" })),
-        writeFile(join(typesDir, "index.d.ts"), 'declare module "ws" { export type WebSocket = MissingReadyState }\n'),
+        writeFile(join(typesDir, "index.d.ts"), "export type WebSocket = MissingReadyState\n"),
         symlink(packageRoot, packageLink, "dir"),
       ])
 
