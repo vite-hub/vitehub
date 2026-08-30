@@ -1296,7 +1296,8 @@ describe("workflow runtime", () => {
   it.each([
     { error: null, output: { text: "Already finished." }, status: "completed" as const },
     { error: new Error("Already failed."), output: null, status: "failed" as const },
-  ])("preserves details from an already-$status OpenWorkflow run", async ({ error, output, status }) => {
+    { error: null, output: null, providerStatus: "canceled", status: "cancelled" as const },
+  ])("preserves details from an already-$status OpenWorkflow run", async ({ error, output, providerStatus, status }) => {
     class SettledOpenWorkflow {
       defineWorkflow() {
         return {
@@ -1306,7 +1307,7 @@ describe("workflow runtime", () => {
               id: "existing-run",
               namespaceId: "production",
               output,
-              status,
+              status: providerStatus || status,
               version: null,
               workflowName: "welcome",
             },

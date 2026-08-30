@@ -1146,6 +1146,7 @@ const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
 const githubActivityLinkUrlLimit = 1_000
 const githubActivityBodyLimit = 65_000
+const githubActivityStateLimit = 50_000
 const githubActivityCommentLookupLimit = 100
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
@@ -1275,7 +1276,26 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
 }
 
 function encodeGithubActivityState(state: GitHubActivityCommentState): string {
-  return `${githubActivityMarker}${Buffer.from(JSON.stringify(state)).toString("base64url")} -->`
+  const bounded: GitHubActivityCommentState = {
+    current: state.current && { ...state.current, links: [...state.current.links] },
+    history: state.history.map(entry => ({ ...entry, links: [...entry.links] })),
+    previousRunIds: [...state.previousRunIds],
+  }
+  const encode = () => `${githubActivityMarker}${Buffer.from(JSON.stringify(bounded)).toString("base64url")} -->`
+  let marker = encode()
+  while (Buffer.byteLength(marker) > githubActivityStateLimit && bounded.history.length) {
+    bounded.history = bounded.history.slice(0, -1)
+    marker = encode()
+  }
+  while (Buffer.byteLength(marker) > githubActivityStateLimit && bounded.previousRunIds.length) {
+    bounded.previousRunIds = bounded.previousRunIds.slice(0, -1)
+    marker = encode()
+  }
+  while (Buffer.byteLength(marker) > githubActivityStateLimit && bounded.current?.links.length) {
+    bounded.current = { ...bounded.current, links: bounded.current.links.slice(0, -1) }
+    marker = encode()
+  }
+  return marker
 }
 
 function githubActivityBadge(status: AgentActivityStatus): string {
@@ -1323,8 +1343,9 @@ function renderGithubActivity(
   }
   const body = sections.join("\n\n")
   if (Buffer.byteLength(body) <= githubActivityBodyLimit) return body
-  let bounded = ""
-  for (const section of sections) {
+  const stateMarker = sections[0]!
+  let bounded = stateMarker
+  for (const section of sections.slice(1)) {
     const separator = bounded ? "\n\n" : ""
     const remaining = githubActivityBodyLimit - Buffer.byteLength(bounded) - Buffer.byteLength(separator)
     if (remaining <= 0) break
@@ -1365,7 +1386,18 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, githubActivityCommentLookupLimit)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
-        const existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId) || owned[0]
+        let existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId)
+        if (knownCommentId && !existing) {
+          const response = await fetcher(`${apiBaseUrl}/repos/${target.repository}/issues/comments/${knownCommentId}`, { headers, method: "GET" })
+          if (response.ok) {
+            const known = await response.json().catch(() => undefined)
+            if (isOwnedGithubActivityComment(known, identity)) existing = known
+          }
+          else if (response.status !== 404) {
+            throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+          }
+        }
+        existing ||= owned[0]
         if (knownCommentId && !existing) commentIds.delete(activityKey)
         if (mode === "initialize" && existing) return
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)

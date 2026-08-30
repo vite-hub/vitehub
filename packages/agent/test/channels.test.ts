@@ -48,6 +48,7 @@ describe("agent channels", () => {
     let stored: { body: string, id: number } | undefined
     const deleteStored = () => { stored = undefined }
     let failNextCommentsGet = false
+    let hideStoredFromList = false
     const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
@@ -59,7 +60,12 @@ describe("agent channels", () => {
           failNextCommentsGet = false
           throw new Error("GitHub unavailable")
         }
-        const comments = url.searchParams.get("page") === "2" || !stored
+        if (url.pathname === "/repos/acme/app/issues/comments/7") {
+          return stored
+            ? Response.json({ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } })
+            : Response.json({ message: "Not Found" }, { status: 404 })
+        }
+        const comments = url.searchParams.get("page") === "2" || !stored || hideStoredFromList
           ? []
           : [{ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } }]
         return new Response(JSON.stringify(comments), { headers: { "content-type": "application/json" } })
@@ -124,6 +130,14 @@ describe("agent channels", () => {
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("retry-run", "running") as never)
       expect(stored?.body).toContain("https://console.test/invocations/retry-run")
+
+      // A cached managed comment remains reusable after newer replies push it outside the listing window.
+      hideStoredFromList = true
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("cached-run", "running") as never)
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(stored?.body).toContain("https://console.test/invocations/cached-run")
+      hideStoredFromList = false
 
       // A deleted cached comment must be rediscovered as missing and recreated.
       deleteStored()
@@ -533,6 +547,7 @@ describe("agent channels", () => {
         waitUntil: vi.fn(),
       } as never)
       expect(Buffer.byteLength(storedBody)).toBeLessThan(65_536)
+      expect(storedBody).toMatch(/^<!-- vitehub-agent-activity:[A-Za-z0-9_-]+ -->/)
       expect(storedBody).not.toContain("x".repeat(1_000))
       expect(storedBody).toContain("Agent stopped:")
       expect(storedBody).toContain(links[0]!.url)
