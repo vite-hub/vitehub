@@ -1524,11 +1524,17 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
       resolvedAlias = artifacts.alias
       return {
         resolve: {
-          alias: resolvedAlias,
+          alias: Object.entries(resolvedAlias)
+            .filter(([find]) => find !== "@vite-hub/kv/vite")
+            .map(([find, replacement]) => ({
+              find: find === "@vite-hub/kv" ? /^@vite-hub\/kv$/ : find,
+              replacement,
+            })),
         },
       }
     },
     resolveId(id) {
+      if (id === "@vite-hub/kv/vite") return
       return resolvedAlias?.[id]
     },
     async closeBundle() {
