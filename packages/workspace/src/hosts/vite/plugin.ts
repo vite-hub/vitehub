@@ -73,6 +73,7 @@ interface BabelNode {
   name?: string
   object?: BabelNode
   property?: BabelNode
+  properties?: BabelNode[]
   right?: BabelNode
   source?: BabelNode
   specifiers?: BabelNode[]
@@ -619,6 +620,38 @@ function sourceImportsFeedingWorkspaceStore(
   return imports
 }
 
+function sourceInlineWorkspaceStoreOverrides(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+): Record<string, string> {
+  const overrides: Record<string, string> = {}
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            const storeProperty = path.parentPath?.parentPath
+            if (
+              storeProperty?.node.type !== "ObjectProperty"
+              || babelPropertyName(storeProperty) !== "store"
+              || !babelPropertyIsTopLevelDefaultExport(storeProperty)
+            ) return
+            const name = babelPropertyName(path)
+            const value = babelStringValue(path.node.value as BabelNode | undefined, path)
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names and values cross the Babel boundary as unknown values.
+            if (typeof name === "string" && typeof value === "string") overrides[name] = value
+          },
+        },
+      })],
+    },
+  })
+  return overrides
+}
+
 async function loadFactoredCloudflareArtifactStore(
   definition: DiscoveredWorkspaceDefinition,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
@@ -626,6 +659,7 @@ async function loadFactoredCloudflareArtifactStore(
 ): Promise<WorkspaceDefinitionInput["store"] | undefined> {
   const loaded = await readSourceModule(definition.path)
   if (!loaded) return
+  const overrides = sourceInlineWorkspaceStoreOverrides(loaded, loader)
   for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
     if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
@@ -638,7 +672,9 @@ async function loadFactoredCloudflareArtifactStore(
       const sourceExport = importedName === "default" ? imported.default : imported[importedName]
       const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
-      if (isRecord(store) && store.provider === "cloudflare-artifacts") return store as WorkspaceDefinitionInput["store"]
+      if (isRecord(store) && store.provider === "cloudflare-artifacts") {
+        return { ...store, ...overrides } as WorkspaceDefinitionInput["store"]
+      }
     }
     catch {}
   }
