@@ -4084,12 +4084,13 @@ async function chatTriggerMessages(
   } catch {}
 
   let durable = await durableChatThreadMessages(thread, limit)
+  let durableCurrentIndex = -1
   if (!message.id) {
-    const currentIndex = durable.findIndex((item) => isCurrentChatSdkMessage(item, message))
-    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
+    durableCurrentIndex = durable.findLastIndex((item) => isCurrentChatSdkMessage(item, message))
+    durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }
   let messages = [
-    ...(await Promise.all(durable.map((item) => (isCurrentChatSdkMessage(item, message) ? current : chatSdkMessageToUiMessage(item))))),
+    ...(await Promise.all(durable.map((item, index) => (index === durableCurrentIndex ? current : chatSdkMessageToUiMessage(item))))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {

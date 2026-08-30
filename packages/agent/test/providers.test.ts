@@ -17825,6 +17825,56 @@ describe("server helpers", () => {
     expect(runs).toEqual([["nearest id-less", "current id-less"]])
   })
 
+  it("keeps distinct durable id-less messages with the current fingerprint", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({
+      bypassIdLessMessageDedupe: true,
+      missingIncomingMessageId: true,
+      persistThreadHistory: true,
+    })
+    const runs: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: {
+        run: ({ messages }) => {
+          runs.push(messages.map(getMessageText))
+          return "ok"
+        },
+      },
+      messages: {
+        stream: false,
+        triggerHistory: { maxMessages: 3, source: "thread" },
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (text: string) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 22,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1_781_092_822,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            text,
+          },
+        }),
+        method: "POST",
+      })
+
+    await expect(handler(request("current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request("intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request("current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    expect(runs.at(-1)).toEqual(["current id-less", "intervening id-less", "current id-less"])
+  })
+
   it("does not run id-less chat deliveries without current message parts", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
