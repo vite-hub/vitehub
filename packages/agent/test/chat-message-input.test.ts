@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
+import type { AgentChatMessageTriggerInput } from "../src/types.ts"
 
 describe("chat message trigger input", () => {
   it("keeps a fresh approval boundary stable for a new manual Chat Session", () => {
@@ -182,6 +183,21 @@ describe("chat message trigger input", () => {
       .map(part => part.text)
       .join(""))).toEqual(["recent", "latest"])
     expect(result.input.messages?.at(-1)?.role).toBe("user")
+  })
+
+  it("fails closed when a runtime trigger history age bound is malformed", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+      triggerHistory: { maxAgeMs: null, maxMessages: 20, source: "thread" } as unknown as AgentChatMessageTriggerInput["triggerHistory"],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two"])
   })
 
   it("keeps stateless trigger history explicit", () => {

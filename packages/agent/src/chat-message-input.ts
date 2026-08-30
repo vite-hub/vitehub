@@ -369,6 +369,10 @@ export function resolveChatTriggerHistory(
 export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
   if (triggerHistory === "none") return
   if (!triggerHistory || triggerHistory.source !== "thread") return
+  if (
+    Object.prototype.hasOwnProperty.call(triggerHistory, "maxAgeMs") &&
+    normalizedMaxAgeMs(triggerHistory.maxAgeMs) === undefined
+  ) return
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
