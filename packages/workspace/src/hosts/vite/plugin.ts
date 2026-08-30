@@ -66,6 +66,7 @@ interface BabelNode {
   elements?: Array<BabelNode | null>
   expression?: BabelNode
   init?: BabelNode
+  id?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
   name?: string
   object?: BabelNode
@@ -80,6 +81,8 @@ interface BabelObjectPropertyPath {
   scope: BabelScope
 }
 
+type BabelNodePath = BabelObjectPropertyPath
+
 interface BabelBindingPath {
   node: { init?: BabelNode }
   scope: BabelScope
@@ -93,6 +96,13 @@ type SourceModuleResolver = (id: string, importer: string) => Promise<string | u
 
 function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
+}
+
+function babelPathIsExported(path: BabelNodePath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ExportNamedDeclaration" || current.node.type === "ExportDefaultDeclaration") return true
+  }
+  return false
 }
 
 function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, seen = new Set<BabelBindingPath>()): unknown {
@@ -139,6 +149,16 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             if (
               babelPropertyName(path) === "provider"
               && babelStringValue(value, path) === "cloudflare-artifacts"
+            ) {
+              declaresCloudflareArtifacts = true
+            }
+          },
+          VariableDeclarator(path: BabelNodePath) {
+            if (
+              path.node.id?.type === "Identifier"
+              && path.node.id.name === "provider"
+              && babelPathIsExported(path)
+              && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
             }
