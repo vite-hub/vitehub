@@ -4114,7 +4114,7 @@ async function chatTriggerMessages(
     const idLessCandidates: ChatSdkMessage[] = []
     let exactIdLessCurrentIndex = -1
     for await (const item of thread.messages) {
-      if (++scanned > scanLimit && (!message.id || !foundCurrent)) break
+      if (++scanned > scanLimit + (message.id ? 0 : fetchedLimit) && !foundCurrent) break
       if (!message.id) {
         idLessCandidates.push(item)
         if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message)) {

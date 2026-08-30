@@ -17423,6 +17423,7 @@ describe("server helpers", () => {
       driver: {
         run: ({ input, messages }) => {
           runs.push(messages.map(getMessageText))
+          // SAFETY: The Chat runtime stores its resolved session identifier as a string in this context field.
           sessionIds.push(input.context?.["chat.sessionId"] as string | undefined)
           return `reply ${runs.length}`
         },
@@ -17849,8 +17850,9 @@ describe("server helpers", () => {
       deserializedCurrent.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
       Reflect.deleteProperty(deserializedCurrent, "id")
       newer.text = "newer id-less"
-      for (const item of [previous, nearest, deserializedCurrent, newer]) item.raw = { delivery: "same" }
-      return { messages: [previous, nearest, deserializedCurrent, newer] }
+      const future = Array.from({ length: 998 }, (_, index) => historicalMessage(`future id-less ${index}`))
+      for (const item of [previous, nearest, deserializedCurrent, newer, ...future]) item.raw = { delivery: "same" }
+      return { messages: [previous, nearest, deserializedCurrent, newer, ...future] }
     })
     const runs: string[][] = []
     const agent = defineAgent({
