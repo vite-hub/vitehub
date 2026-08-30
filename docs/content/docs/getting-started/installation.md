@@ -26,7 +26,7 @@ register Nitro's Vite integration for framework preset builds. Nuxt provides its
 own Nitro integration.
 
 ```bash [Terminal]
-pnpm add vite-hub nitro
+pnpm add vite-hub nitro @vite-hub/schedule
 ```
 
 Register the framework integration in Vite.
