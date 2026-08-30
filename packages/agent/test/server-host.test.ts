@@ -224,7 +224,13 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "10"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), graphQLCheckTimeout: 20, reserve: 0 })
 
-    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).rejects.toMatchObject({ code: "ETIMEDOUT" })
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).rejects.toSatisfy((error: unknown) => {
+      return error instanceof Error && (
+        ("killed" in error && error.killed === true)
+        || ("code" in error && error.code === "ETIMEDOUT")
+        || error.name === "TimeoutError"
+      )
+    })
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = ""
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).resolves.toMatchObject({ remaining: 100 })
   })
@@ -242,6 +248,17 @@ describe("GitHub host", () => {
       failure = error
     }
     expect(host.isRateLimitError(failure)).toBe(true)
+  })
+
+  it("honors cancellation before using a cached GraphQL budget", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 0 })
+    await host.ensureGraphQLBudget("vite-hub/vitehub")
+    const controller = new AbortController()
+    controller.abort(new Error("cancelled before cached admission"))
+
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { signal: controller.signal }))
+      .rejects.toThrow("cancelled before cached admission")
   })
 
   it("cancels generic GitHub commands", async () => {

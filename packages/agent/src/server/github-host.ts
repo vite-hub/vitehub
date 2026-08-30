@@ -300,14 +300,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     args: string[],
     input: GitHubHostCommandOptions = {},
   ): Promise<{ stderr: string, stdout: string }> {
-    const auth = await access({ repository: input.repository, signal: input.signal, timeout: input.timeout })
+    const operation = controlledOperation(input)
     try {
+      const auth = await access({ repository: input.repository, signal: operation.signal })
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env },
         maxBuffer,
-        signal: input.signal,
-        timeout: input.timeout,
+        signal: operation.signal,
       }
       if (input.cwd) execOptions.cwd = input.cwd
       return await exec("gh", args, execOptions)
@@ -320,9 +320,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       }
       throw error
     }
+    finally {
+      operation.close()
+    }
   }
 
   async function ensureGraphQLBudget(repository: string, options: GitHubHostCheckoutOptions = {}): Promise<GitHubGraphQLRateLimit> {
+    if (options.signal?.aborted) throw abortError(options.signal.reason)
     const key = owner(repository)
     const now = Date.now()
     const cached = limits.get(key)
