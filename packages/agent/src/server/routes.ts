@@ -4096,7 +4096,7 @@ async function chatTriggerMessages(
     const idLessCandidates: ChatSdkMessage[] = []
     let exactIdLessCurrentIndex = -1
     for await (const item of thread.messages) {
-      if (++scanned > scanLimit) break
+      if (++scanned > scanLimit && (!message.id || !foundCurrent)) break
       if (!message.id) {
         idLessCandidates.push(item)
         if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message)) {
@@ -4160,14 +4160,7 @@ async function chatTriggerMessages(
       const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
       if (exactMatches.length === 1) {
         futureDurableIndices.add(exactMatches[0]!)
-        continue
       }
-      const futureRawKey = chatRawDeliveryKey(future)
-      const structuralMatches = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, future) ? [index] : []))
-      const rawAndStructuralMatches = futureRawKey === undefined
-        ? structuralMatches
-        : structuralMatches.filter((index) => chatRawDeliveryKey(durable[index]!) === futureRawKey)
-      if (rawAndStructuralMatches.length === 1) futureDurableIndices.add(rawAndStructuralMatches[0]!)
     }
     durable = durable
       .slice(0, durableCurrentIndexBeforeBoundary + 1)
@@ -4189,14 +4182,7 @@ async function chatTriggerMessages(
       const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
       if (exactMatches.length === 1) {
         futureDurableIndices.add(exactMatches[0]!)
-        continue
       }
-      const futureRawKey = chatRawDeliveryKey(future)
-      const structuralMatches = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, future) ? [index] : []))
-      const rawAndStructuralMatches = futureRawKey === undefined
-        ? structuralMatches
-        : structuralMatches.filter((index) => chatRawDeliveryKey(durable[index]!) === futureRawKey)
-      if (rawAndStructuralMatches.length === 1) futureDurableIndices.add(rawAndStructuralMatches[0]!)
     }
     durable = durable.filter((_, index) => !futureDurableIndices.has(index))
   }

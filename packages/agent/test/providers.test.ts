@@ -17482,7 +17482,7 @@ describe("server helpers", () => {
           // SAFETY: createThread returns Chat SDK's internal ThreadImpl, which owns this history cache.
           const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
           vi.spyOn(history, "getMessages").mockResolvedValue([
-            idLessMessage("same-time previous", "2026-06-10T12:00:20.000Z"),
+            idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
             message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
             message("20", "current", "2026-06-10T12:00:20.000Z"),
           ])
@@ -17529,11 +17529,14 @@ describe("server helpers", () => {
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
         idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
+        ...Array.from({ length: 997 }, (_, index) =>
+          message(String(index + 100), `newer cached ${index}`, "2026-06-10T12:01:00.000Z"),
+        ),
       ],
     })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["newer cached"], ["previous", "same-time previous", "current"]])
+    expect(runs).toEqual([["newer cached"], ["previous", "newer id-less cached", "current"]])
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
