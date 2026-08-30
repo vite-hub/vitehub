@@ -788,6 +788,7 @@ import "real"
         "native-lib-linuxmusl-x64": "9.9.9",
         "native-linux-arm": "9.9.9",
         "native-linux-arm64": "9.9.9",
+        "native-linux-scalar": "9.9.9",
         "native-linux-x64": "9.9.9",
         "native-linuxmusl-x64": "9.9.9",
         "native-not-darwin": "9.9.9",
@@ -823,6 +824,7 @@ import "real"
     })
     await writeRuntimePackage(root, "native-darwin-x64", { cpu: ["x64"], os: ["darwin"] })
     await writeRuntimePackage(root, "native-linux-arm", { cpu: ["arm"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-linux-scalar", { cpu: "x64", libc: "glibc", os: "linux" })
     await writeRuntimePackage(root, "native-not-darwin", { os: ["!darwin"] })
     await writeRuntimePackage(root, "native-wasm32", { cpu: ["wasm32"] })
     await writeRuntimePackage(root, "native-win32-x64", { cpu: ["x64"], os: ["win32"] })
@@ -839,6 +841,7 @@ import "real"
       "native-lib-linux-arm64",
       "native-lib-linux-x64",
       "native-linux-arm64",
+      "native-linux-scalar",
       "native-linux-x64",
       "native-not-darwin",
       "required-darwin",

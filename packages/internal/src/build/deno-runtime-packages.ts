@@ -575,9 +575,11 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected package.json to contain an object.")
   // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
   const record = value as Record<string, unknown>
-  const stringArray = (key: string): string[] | undefined => {
+  const stringList = (key: string): string[] | undefined => {
     const property = record[key]
     if (property === undefined) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package platform constraints accept either one string or an array of strings.
+    if (typeof property === "string") return [property]
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every unknown package.json array item before returning it.
     if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain strings.`)
     return property
@@ -596,12 +598,12 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown name field.
   if (record.name !== undefined && typeof record.name !== "string") throw new Error("Expected package.json name to contain a string.")
   return {
-    cpu: stringArray("cpu"),
+    cpu: stringList("cpu"),
     dependencies: stringRecord("dependencies"),
-    libc: stringArray("libc"),
+    libc: stringList("libc"),
     name: record.name,
     optionalDependencies: stringRecord("optionalDependencies"),
-    os: stringArray("os"),
+    os: stringList("os"),
     peerDependencies: stringRecord("peerDependencies"),
     // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
     peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
