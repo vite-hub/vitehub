@@ -453,6 +453,7 @@ async function packageModuleDiagnostics(
   index: number,
   withCloudflareHost: boolean,
   declaredTypes: readonly string[] = [],
+  includeDependencyDiagnostics = false,
 ) {
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
@@ -508,7 +509,7 @@ async function packageModuleDiagnostics(
     ])],
   }
   const program = ts.createProgram(rootNames, options)
-  return declarationDiagnostics(program, packageName)
+  return declarationDiagnostics(program, includeDependencyDiagnostics ? undefined : packageName)
 }
 
 async function packageTypeDependenciesFrom(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
@@ -546,6 +547,7 @@ describe("published declaration diagnostics", () => {
     const diagnosticAt = (fileName: string) => ({
       category: ts.DiagnosticCategory.Error,
       code: 2307,
+      // SAFETY: This fixture only supplies the SourceFile field read by the diagnostic filter.
       file: { fileName } as ts.SourceFile,
       length: 3,
       messageText: "Cannot find a declaration dependency.",
@@ -593,7 +595,7 @@ describe("published declaration diagnostics", () => {
 
       const contract = publicPackageExportContracts.find(item => item.specifier === "@vite-hub/queue")
       expect(contract).toBeDefined()
-      const diagnostics = await packageModuleDiagnostics("@vite-hub/queue", root, contract!, 0, false, dependencies)
+      const diagnostics = await packageModuleDiagnostics("@vite-hub/queue", root, contract!, 0, false, dependencies, true)
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
       expect(diagnostics.filter(diagnostic => diagnostic.code === 7016)).toEqual([])
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2304).map(diagnostic => diagnostic.file?.fileName)).toContain(
@@ -684,6 +686,7 @@ describe("published declaration diagnostics", () => {
         0,
         false,
         ["@types/example"],
+        true,
       )
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
       const diagnosticFiles = diagnostics
