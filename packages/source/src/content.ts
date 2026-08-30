@@ -15,7 +15,14 @@ import type { H3Event } from "h3"
 import type { SourceItem, SourceName, SourceReader } from "./core/types.ts"
 
 export interface ContentHandler {
-  (event: unknown): Promise<unknown>
+  (event: ContentHandlerEvent): Promise<unknown>
+  fetch(input: Request | URL | string): Promise<Response>
+}
+
+export interface ContentHandlerEvent {
+  method?: string
+  node?: { req: NodeContentRequest }
+  req: Request | NodeContentRequest
 }
 
 export interface ContentSourceOptions {
@@ -200,6 +207,7 @@ export function defineContent<
 export function defineContentHandler(
   content: Pick<ComarkContent, "handler">,
 ): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
     if (event.req instanceof Request) return await content.handler(event.req)
 

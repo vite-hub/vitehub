@@ -6,7 +6,12 @@ import type { H3Event } from "h3"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 
 export interface CollectionHandler {
-  (event: unknown): Promise<unknown>
+  (event: CollectionHandlerEvent): Promise<unknown>
+  fetch(input: Request | URL | string): Promise<Response>
+}
+
+export interface CollectionHandlerEvent {
+  req: { signal: AbortSignal }
 }
 
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
@@ -75,6 +80,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   collection: Collection<TItem, TQuery, TQueryInput>,
 ): CollectionHandler {
   assertCollection(collection)
+  // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
     const requestQuery = getQuery(event)
     let cursor: string | undefined

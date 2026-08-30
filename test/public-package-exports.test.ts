@@ -13,6 +13,10 @@ describe("public package export contracts", () => {
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")
+    expect(server).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(content).toContain("fetch(input: Request | URL | string): Promise<Response>")
+    expect(server).toContain("(event: CollectionHandlerEvent): Promise<unknown>")
+    expect(content).toContain("(event: ContentHandlerEvent): Promise<unknown>")
     expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
     expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
   })
