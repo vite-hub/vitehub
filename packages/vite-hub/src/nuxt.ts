@@ -331,13 +331,14 @@ function reconcileConsoleKVHandler(
   enabled: boolean,
 ): void {
   const route = "/api/_vitehub/console/kv"
+  const handler = join(consoleRuntimeRoot, "server/kv.get.js")
   const handlers = (nitro.handlers ??= [])
-  const index = handlers.findIndex(handler => handler.route === route)
+  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
   if (!enabled) {
     if (index !== -1) handlers.splice(index, 1)
     return
   }
-  if (index === -1) handlers.push({ handler: join(consoleRuntimeRoot, "server/kv.get.js"), route })
+  if (index === -1) handlers.push({ handler, route })
 }
 
 async function installConsole(

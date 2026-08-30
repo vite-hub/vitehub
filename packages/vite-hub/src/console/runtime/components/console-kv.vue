@@ -171,7 +171,7 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
-    const selection = options.keepSelection && selectedKey.value !== currentSelection
+    const selection = options.append && options.keepSelection && selectedKey.value !== currentSelection
       ? selectedKey.value
       : currentSelection;
     selectedKey.value = selection !== undefined && keys.value.includes(selection) ? selection : keys.value[0];
