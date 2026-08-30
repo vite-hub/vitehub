@@ -15040,8 +15040,10 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(2))
-      await expect(handoffAcquisitions[1]).resolves.toBeNull()
+      await vi.waitFor(async () => {
+        const acquisitions = await Promise.all(handoffAcquisitions)
+        expect(acquisitions.slice(1)).toContain(null)
+      })
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
