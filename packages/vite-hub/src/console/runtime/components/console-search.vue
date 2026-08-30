@@ -244,7 +244,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   )
 
   if (installed.includes("kv")) {
-    const query = { limit: 50, prefix: debouncedSearchTerm.value }
+    const query = { limit: 50 }
     const first = record(await requestConsole(props.kvBase, { query, signal }))
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const firstStore = typeof first?.store === "string" ? first.store : "default"
@@ -255,7 +255,6 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
       loadConsoleKVPages(props.kvBase, store, signal, index === 0 ? first : undefined, {
         limit: query.limit,
         maxPages: 10,
-        prefix: query.prefix,
       }),
     ))
     kvItems.value = results.flatMap(({ pages }, index) =>
