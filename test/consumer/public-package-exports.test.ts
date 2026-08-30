@@ -210,6 +210,10 @@ function packageTypeDependencies(manifest: { dependencies?: Record<string, strin
   return Object.keys(manifest.dependencies || {}).filter(name => name.startsWith("@types/"))
 }
 
+function typeDirectiveNames(typeDependencies: readonly string[]) {
+  return typeDependencies.map(name => name.slice("@types/".length).replace("__", "/"))
+}
+
 async function importPackagesWithoutDeclarationPeer(
   root: string,
   specs: Record<string, string>,
@@ -388,6 +392,8 @@ async function addOptionalPeers(appDir: string) {
 }
 
 async function typecheckPackageExports(packageName: string, runnerDir: string, includeOptionalPeers: boolean) {
+  const manifest = await readManifest(join(runnerDir, "node_modules", ...packageName.split("/"), "package.json"))
+  const declaredTypes = typeDirectiveNames(packageTypeDependencies(manifest))
   const modules = publicPackageExportContracts.filter(contract =>
     contract.packageName === packageName
     && isJavaScriptModule(contract.target)
@@ -400,6 +406,7 @@ async function typecheckPackageExports(packageName: string, runnerDir: string, i
       contract,
       index,
       contract.specifier.endsWith("/cloudflare/state"),
+      declaredTypes,
     )
   }
 }
@@ -410,6 +417,7 @@ async function typecheckPackageModule(
   contract: (typeof publicPackageExportContracts)[number],
   index: number,
   withCloudflareHost: boolean,
+  declaredTypes: readonly string[] = [],
 ) {
   const diagnostics = await packageModuleDiagnostics(
     packageName,
@@ -417,6 +425,7 @@ async function typecheckPackageModule(
     contract,
     index,
     withCloudflareHost,
+    declaredTypes,
   )
   expect(
     ts.formatDiagnosticsWithColorAndContext(diagnostics, {
@@ -434,6 +443,7 @@ async function packageModuleDiagnostics(
   contract: (typeof publicPackageExportContracts)[number],
   index: number,
   withCloudflareHost: boolean,
+  declaredTypes: readonly string[] = [],
 ) {
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
@@ -481,7 +491,10 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
+    types: [
+      ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
+      ...declaredTypes,
+    ],
   }
   const program = ts.createProgram(rootNames, options)
   return declarationDiagnostics(program, packageName)
@@ -506,9 +519,12 @@ function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
 
 describe("published declaration diagnostics", () => {
   it("keeps declared type dependencies visible to the package compiler", () => {
-    expect(packageTypeDependencies({
+    const dependencies = packageTypeDependencies({
       dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
-    })).toEqual(["@types/ws"])
+    })
+    expect(dependencies).toEqual(["@types/ws"])
+    expect(typeDirectiveNames(dependencies)).toEqual(["ws"])
+    expect(typeDirectiveNames(["@types/foo__bar"])).toEqual(["foo/bar"])
   })
 
   it("keeps other runtime peers while omitting a declaration-only peer", () => {
