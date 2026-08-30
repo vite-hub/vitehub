@@ -3,20 +3,7 @@ export {
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
-export { createGitHubHost, parseGraphQLRateLimit } from "./server/github-host.ts"
 export { failInterruptedAgentInvocations, summarizeAgentInvocationWorkload } from "./server/invocation-health.ts"
-
-export type {
-  GitHubGraphQLRateLimit,
-  GitHubHost,
-  GitHubHostAccess,
-  GitHubHostCheckoutOptions,
-  GitHubHostCredentialContext,
-  GitHubHostCredentials,
-  GitHubHostOptions,
-  GitHubHostPullRequest,
-  GitHubHostSecret,
-} from "./server/github-host.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
 export {

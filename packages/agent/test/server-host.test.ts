@@ -6,12 +6,11 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  createGitHubHost,
   createMemoryAgentInvocationStore,
   failInterruptedAgentInvocations,
-  parseGraphQLRateLimit,
   summarizeAgentInvocationWorkload,
 } from "../src/server.ts"
+import { createGitHubHost, parseGraphQLRateLimit } from "../src/server/github.ts"
 
 const originalPath = process.env.PATH
 const temporaryDirectories = new Set<string>()
