@@ -477,6 +477,9 @@ describe("kv runtime", () => {
     expect(setOptions).toEqual([undefined])
     expect(data.has("existing-zero:vitehub:increment-expiry")).toBe(false)
 
+    data.set("non-redis-integer", "1e3")
+    await expect(driver.incrementItem?.("non-redis-integer", 60)).rejects.toThrow("requires an integer value")
+
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
     const storage = createHostedKVStorage({ store: { driver: "deno-kv", path: ":memory:" } })
     await storage.setItem("json-string", "123")

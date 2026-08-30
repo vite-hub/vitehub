@@ -63,6 +63,7 @@ function normalizeTTL(ttl: number): number {
 
 function parseCounterValue(value: unknown): number {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV can contain native numbers or numeric strings written through unstorage.
+  if (typeof value === "string" && !/^-?(?:0|[1-9]\d*)$/.test(value)) return Number.NaN
   if (typeof value !== "number" && typeof value !== "string") return Number.NaN
   return Number(value)
 }
