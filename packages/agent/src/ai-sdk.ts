@@ -893,7 +893,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   if (hasStream || hasFullStream) {
     const sharedSynthesis: { task?: Promise<Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>> } = {}
     const descriptor = (property: "fullStream" | "stream"): PropertyDescriptor => {
-      let wrapped: PropertyDescriptor | undefined
+      let wrapped: AsyncIterable<unknown> | undefined
       return {
         configurable: true,
         enumerable: true,
@@ -901,7 +901,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
           if (!wrapped) {
             const source = Reflect.get(result, property)
             if (!isAsyncIterable(source)) return source
-            wrapped = teeingAsyncIterableStreamDescriptor(withWorkspaceFallbackFullStream(
+            wrapped = toReadableAsyncIterableStream(withWorkspaceFallbackFullStream(
               source,
               model,
               context,
@@ -912,9 +912,9 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
               onSynthesis,
               sharedSynthesis,
               fallbackCallInput,
-            ))
+            ), { highWaterMark: 0 })
           }
-          return wrapped.get?.call(this)
+          return wrapped
         },
       }
     }
