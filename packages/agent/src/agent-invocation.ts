@@ -75,6 +75,10 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
     id: string
     onFinish: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
   }) => Promise<TResult>
+  result?: (context: {
+    finished: Promise<AgentInvocationFinishOutcome<TOutput>>
+    startResult: Promise<TResult>
+  }) => Promise<TResult>
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
@@ -164,11 +168,16 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
     : abortController.signal
   let snapshot: AgentInvocationSnapshot<TOutput> = { id, status: "running" }
   let observedFinish = false
-  const result = options.start({
+  let resolveFinished!: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
+  const finished = new Promise<AgentInvocationFinishOutcome<TOutput>>((resolve) => {
+    resolveFinished = resolve
+  })
+  const startResult = options.start({
     abortSignal,
     id,
     onFinish(outcome) {
       observedFinish = true
+      resolveFinished(outcome)
       if (outcome.status === "completed") {
         snapshot = { id, status: "completed" }
         if (outcome.output !== undefined) snapshot.output = outcome.output
@@ -180,11 +189,11 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       }
     },
   })
-  void result.catch((error) => {
+  void startResult.catch((error) => {
     if (observedFinish) return
-    snapshot = abortSignal.aborted
-      ? { id, status: "cancelled" }
-      : { error, id, status: "failed" }
+    const outcome: AgentInvocationFinishOutcome<TOutput> = { error, status: "failed" }
+    resolveFinished(outcome)
+    snapshot = abortSignal.aborted ? { id, status: "cancelled" } : { error, id, status: "failed" }
   })
   return createAgentInvocationController<TOutput, CALL_OPTIONS, TResult>(id, {
     async cancel(reason) {
@@ -204,7 +213,7 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       return { id, invocation: { ...snapshot }, outcome }
     },
     support: options.support ? () => options.support!(id) : undefined,
-  }, result)
+  }, options.result ? () => options.result!({ finished, startResult }) : startResult, startResult)
 }
 
 export function createBackedAgentInvocationController<TOutput = unknown, TResult = unknown>(

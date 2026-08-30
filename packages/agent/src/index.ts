@@ -6625,6 +6625,18 @@ function createInlineAgentInvocationController<
       },
       renderOutput: true,
     }) as TOutput | Response | AgentRunResult,
+    async result({ finished, startResult }) {
+      const started = await startResult
+      if (isAsyncIterable(started)) {
+        for await (const _chunk of started) {}
+      }
+      else if (started instanceof Response && started.body && !started.bodyUsed) {
+        await started.arrayBuffer()
+      }
+      const outcome = await finished
+      if (outcome.status === "completed") return outcome.output as TOutput | Response | AgentRunResult
+      throw outcome.error
+    },
     support: id => agentInvocationInputSupport(id),
   })
 }

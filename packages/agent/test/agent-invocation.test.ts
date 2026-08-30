@@ -90,6 +90,26 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it("settles inline streams before resolving the public result", async () => {
+    const agent = defineAgent({
+      driver: {
+        async *run() {
+          yield "first"
+          yield " second"
+        },
+      },
+      runtime: false,
+    })
+
+    const controller = await startAgentInvocation(agent, runtime(), {})
+
+    await expect(controller.result).resolves.toMatchObject({ text: "first second" })
+    await expect(controller.inspect()).resolves.toMatchObject({
+      invocation: { status: "completed" },
+      outcome: "available",
+    })
+  })
+
   it("propagates controller and parent cancellation without claiming synchronous termination", async () => {
     const agent = defineAgent({
       driver: {
