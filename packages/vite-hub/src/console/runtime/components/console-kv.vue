@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TableColumn, TableRow } from "@nuxt/ui";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
@@ -45,6 +45,7 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
+const router = useRouter();
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
 const stores = ref<string[]>([]);
@@ -231,6 +232,7 @@ async function loadKeys(
 async function selectKey(key: string): Promise<void> {
   selectedKey.value = key;
   sidebarOpen.value = false;
+  syncRouteSelection();
   await loadValue(key);
 }
 
@@ -246,10 +248,22 @@ async function loadMore(): Promise<void> {
   await loadKeys({ append: true, keepSelection: true });
 }
 
-watch(selectedStore, () => {
+function syncRouteSelection(): void {
+  if (
+    selectedKey.value === undefined ||
+    (route.query.store === selectedStore.value && route.query.key === selectedKey.value)
+  )
+    return;
+  void router.replace({
+    query: { ...route.query, key: selectedKey.value, store: selectedStore.value },
+  });
+}
+
+watch(selectedStore, async () => {
   if (applyingRouteSelection) return;
   selectedKey.value = undefined;
-  void loadKeys();
+  await loadKeys();
+  syncRouteSelection();
 });
 
 async function applyRouteSelection(): Promise<void> {
@@ -257,6 +271,7 @@ async function applyRouteSelection(): Promise<void> {
   const key = route.query.key;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
   if (typeof store !== "string" || typeof key !== "string") return;
+  if (selectedStore.value === store && selectedKey.value === key) return;
   applyingRouteSelection = true;
   selectedStore.value = store;
   selectedKey.value = key;

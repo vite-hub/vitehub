@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleDefinitionSectionId, ConsoleDefinitionSummary } from "../definitions";
 import { requestConsole } from "../client/request";
@@ -20,6 +20,7 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
+const router = useRouter();
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
 const definitions = ref<ConsoleDefinitionSummary[]>([]);
@@ -139,6 +140,9 @@ async function loadDefinitions(): Promise<void> {
 function selectDefinition(name: string): void {
   selectedName.value = name;
   sidebarOpen.value = false;
+  if (route.query.definition !== name) {
+    void router.replace({ query: { ...route.query, definition: name } });
+  }
 }
 
 onMounted(() => {
