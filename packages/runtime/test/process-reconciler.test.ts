@@ -152,6 +152,77 @@ describe("createProcessReconciler", () => {
     expect(reconciler.status()).toBe("failed")
   })
 
+  it("settles admitted work after quiescing fails", async () => {
+    const work = deferred()
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onQuiesce: () => { throw new Error("quiescing failed") },
+      run() {},
+      signal: false,
+    })
+    reconciler.track(work.promise)
+
+    const draining = reconciler.drain()
+    await Promise.resolve()
+    expect(reconciler.status()).toBe("draining")
+    work.resolve()
+
+    await expect(draining).rejects.toThrow("quiescing failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
+  it("settles admitted work after reconciliation error reporting fails", async () => {
+    const runStarted = deferred()
+    const work = deferred()
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onError: () => { throw new Error("error reporting failed") },
+      run(_reason, context) {
+        context.track(work.promise)
+        runStarted.resolve()
+        throw new Error("reconciliation failed")
+      },
+      signal: false,
+    })
+    reconciler.wake("startup")
+    await runStarted.promise
+
+    const draining = reconciler.drain()
+    await Promise.resolve()
+    expect(reconciler.status()).toBe("draining")
+    work.resolve()
+
+    await expect(draining).rejects.toThrow("error reporting failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
+  it("retains nested microtask work at the final drain boundary", async () => {
+    const late = deferred()
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onDrained() {
+        queueMicrotask(() => queueMicrotask(() => {
+          reconciler.track(late.promise)
+          late.reject(new Error("final tracked work failed"))
+        }))
+      },
+      run() {},
+      signal: false,
+    })
+
+    await expect(reconciler.drain()).rejects.toThrow("final tracked work failed")
+    expect(reconciler.status()).toBe("failed")
+    expect(reconciler.track(Promise.resolve("terminal"))).resolves.toBe("terminal")
+  })
+
+  it("does not retain work tracked after a successful drain", async () => {
+    const reconciler = createProcessReconciler({ intervalMs: 60_000, run() {}, signal: false })
+    await reconciler.drain()
+
+    await expect(reconciler.track(Promise.resolve("terminal"))).resolves.toBe("terminal")
+    expect(reconciler.status()).toBe("drained")
+  })
+
   it("reports drained only after asynchronous cleanup completes", async () => {
     const cleanup = deferred()
     const reconciler = createProcessReconciler({

@@ -240,6 +240,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
 
   const track: ProcessReconcilerRunContext["track"] = (work) => {
     const promise = Promise.resolve(work)
+    if (status === "drained" || status === "failed") return promise
     const settlement = promise.then(
       (value): PromiseSettledResult<unknown> => ({ status: "fulfilled", value }),
       (reason): PromiseSettledResult<unknown> => ({ reason, status: "rejected" }),
@@ -303,36 +304,57 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   const drain = (): Promise<void> => {
     if (drainPromise) return drainPromise
     drainPromise = (async () => {
-      const settleTrackedWork = async (): Promise<void> => {
-        let failure: unknown
-        let hasFailure = false
-        while (settlements.size) {
+      let failure: unknown
+      let hasFailure = false
+      const retainFailure = (error: unknown) => {
+        if (hasFailure) return
+        failure = error
+        hasFailure = true
+      }
+      const settleTrackedWork = async (final: boolean): Promise<void> => {
+        while (true) {
+          if (settlements.size === 0) {
+            if (final) status = hasFailure ? "failed" : "drained"
+            return
+          }
           const batch = [...settlements.entries()]
           const results = await Promise.all(batch.map(([, settlement]) => settlement))
           for (const [promise] of batch) settlements.delete(promise)
           const rejected = results.find(result => result.status === "rejected")
-          if (!hasFailure && rejected) {
-            failure = rejected.reason
-            hasFailure = true
-          }
+          if (rejected) retainFailure(rejected.reason)
         }
-        if (hasFailure) throw failure
       }
 
       status = "draining"
       closed = true
+      const admittedRun = running
       if (timer) clearTimeout(timer)
       timer = undefined
-      await options.onQuiesce?.()
-      await running
-      await settleTrackedWork()
-      await options.onDrained?.()
-      await settleTrackedWork()
-      status = "drained"
-    })().catch((error) => {
-      status = "failed"
-      throw error
-    })
+      try {
+        await options.onQuiesce?.()
+      }
+      catch (error) {
+        retainFailure(error)
+      }
+      try {
+        await admittedRun
+      }
+      catch (error) {
+        retainFailure(error)
+      }
+      await settleTrackedWork(false)
+      if (!hasFailure && options.onDrained) {
+        try {
+          await options.onDrained()
+          await new Promise<void>(resolve => setImmediate(resolve))
+        }
+        catch (error) {
+          retainFailure(error)
+        }
+      }
+      await settleTrackedWork(true)
+      if (hasFailure) throw failure
+    })()
     return drainPromise
   }
 
