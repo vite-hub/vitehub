@@ -1184,10 +1184,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       tasks: [...state.tasks],
     }
     const fingerprint = JSON.stringify(snapshot)
-    if (fingerprint === lastSnapshot) {
-      await delivery
-      return
-    }
+    if (fingerprint === lastSnapshot) return
     lastSnapshot = fingerprint
     delivery = delivery.catch(() => {}).then(async () => {
       try {
@@ -1203,7 +1200,6 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         console.error(new Error("[vitehub] Agent activity delivery failed.", { cause: deliveryError }))
       }
     })
-    await delivery
   }
   return {
     async event(event) {
@@ -1222,7 +1218,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish("waiting")
       }
       else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested") {
-        const requestId = maybeString(event.data.requestId)
+        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
         if (requestId) pendingInputRequests.add(`input:${requestId}`)
         await publish("waiting")
       }
@@ -1231,7 +1227,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish(pendingInputRequests.size ? "waiting" : "running")
       }
       else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved") {
-        const requestId = maybeString(event.data.requestId)
+        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
         if (requestId) pendingInputRequests.delete(`input:${requestId}`)
         await publish(pendingInputRequests.size ? "waiting" : "running")
       }
@@ -5234,7 +5230,7 @@ async function finalizeAgentInvocationResult<
         || responseMediaType?.endsWith("+json")
         || responseMediaType === "application/xml"
         || responseMediaType?.endsWith("+xml"))
-      const responseDecoder = context.context.get(responseTitleFallbackContextKey) === true && responseIsText
+      const responseDecoder = (context.context.get(responseTitleFallbackContextKey) === true || Boolean(context.activity)) && responseIsText
         ? new TextDecoder()
         : undefined
       let responseText = ""
@@ -5748,7 +5744,7 @@ async function executeAgentInvocationWithCapacityLease<
                     invocation,
                     rendered,
                   )
-                  const renderedStream = invocation.runtimeContext.traceLog
+                  const renderedStream = invocation.runtimeContext.traceLog || invocation.activity
                     ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
                     : enrichedStream
                   return withReadableStreamCleanup(
@@ -6015,7 +6011,7 @@ async function executeAgentInvocationWithCapacityLease<
                   : withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
                 const tracedStream = existingStream
                   ? enrichedStream
-                  : invocation.runtimeContext.traceLog
+                  : invocation.runtimeContext.traceLog || invocation.activity
                   ? traceUiMessageStream(toReadableAsyncIterableStream(streamed!.stream), invocation)
                   : streamed!.stream
                 const source = existingSource
@@ -6517,22 +6513,29 @@ async function executeAgentInvocation<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
-  const invocationJournal = definition
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
-      ...context,
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
-        : {}),
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
-    : undefined
-  if (invocationJournal) context = invocationJournal.context
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   const activity = createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
+  let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
+  try {
+    invocationJournal = definition
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
+        ...context,
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
+          : {}),
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
+      : undefined
+  }
+  catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
+  if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
