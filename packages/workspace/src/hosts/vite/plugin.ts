@@ -701,6 +701,18 @@ type InlineWorkspaceStoreOperation =
   | { kind: "spread", localName: string, position: number }
   | { kind: "property", name: string, position: number, value?: string }
 
+function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
+  const bindingPath = path.scope.getBinding(name)?.path
+  if (!bindingPath || seen.has(bindingPath)) return name
+  seen.add(bindingPath)
+  if (
+    bindingPath.node.type !== "VariableDeclarator"
+    || bindingPath.node.init?.type !== "Identifier"
+    || !bindingPath.node.init.name
+  ) return name
+  return babelResolveIdentifierAlias(bindingPath, bindingPath.node.init.name, seen)
+}
+
 function sourceInlineWorkspaceStoreOperations(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
@@ -727,7 +739,7 @@ function sourceInlineWorkspaceStoreOperations(
             ) return
             operations.push({
               kind: "spread",
-              localName: argument.name,
+              localName: babelResolveIdentifierAlias(path, argument.name),
               position,
             })
           },
