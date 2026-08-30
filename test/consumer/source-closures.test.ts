@@ -53,6 +53,7 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "overrides:",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)

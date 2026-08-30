@@ -5,7 +5,11 @@ packages:
   - "packages/*/examples/*"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@1248f5ddb9319be23980bb04d5a51ab297c69eaa
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
+  remark-gfm: ^4.0.1
+  remark-mdc: ^3.11.1
+  remark-parse: ^11.0.0
+  unified: ^11.0.5
   vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
 
 catalogMode: prefer

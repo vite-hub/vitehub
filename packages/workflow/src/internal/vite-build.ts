@@ -1,7 +1,7 @@
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
@@ -21,7 +21,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as VitePlugin } from "vite"
 
 export const workflowPackageName = "@vite-hub/workflow"
@@ -575,6 +575,7 @@ interface GeneratedWorkflowArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  artifacts?: GeneratedWorkflowArtifacts
   agentImportBase?: string
   clientOutDir: string
   hosting?: string
@@ -1033,8 +1034,8 @@ export async function writeProviderEntries(
   includeUserAppEntry = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
+  generatedDir = ensureGeneratedDir(rootDir, productName),
 ) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -1348,7 +1349,7 @@ async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
+  const artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
@@ -1382,29 +1383,64 @@ async function generateProviderOutputsWithinLock(
         ...options.providerRuntimeImportAliases?.vercel,
       }, options.serverFunctionName)
     : undefined
-  const writeOutputs = async () => {
-    const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
-    const activeServerFunctionName = vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined
-    const activeFunctionRoot = activeServerFunctionName
-      ? resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", activeServerFunctionName)
-      : undefined
-    const previouslyOwnedActiveFunction = activeFunctionRoot
-      ? Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
-      : false
-    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
-      ...options.providerImportAliases,
-      ...options.providerRuntimeImportAliases?.vercel,
-    }, artifacts.vercelNativeFiles)) {
-      assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
-    }
+  const publishGeneratedArtifacts = async () => {
+    const generatedDir = resolve(options.rootDir, ".vitehub", productName)
+    if (resolve(artifacts.generatedDir) === generatedDir) return
+    const nextDir = `${generatedDir}.${randomUUID()}.next`
+    const previousDir = `${generatedDir}.${randomUUID()}.previous`
+    await cp(artifacts.generatedDir, nextDir, { recursive: true })
+    const hadPrevious = existsSync(generatedDir)
     try {
-      await writeProviderDeploymentOutputs({
+      if (hadPrevious) await rename(generatedDir, previousDir)
+      await rename(nextDir, generatedDir)
+    }
+    catch (error) {
+      await rm(nextDir, { force: true, recursive: true })
+      if (hadPrevious) {
+        try {
+          await rm(generatedDir, { force: true, recursive: true })
+          await rename(previousDir, generatedDir)
+        }
+        catch (restoreError) {
+          throw new AggregateError([error, restoreError], "Generated Workflow artifact rollback failed")
+        }
+      }
+      throw error
+    }
+    await rm(previousDir, { force: true, recursive: true })
+  }
+  const writeOutputs = async () => {
+    const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
+    const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
+    await rm(previousOutputRoot, { force: true, recursive: true })
+    let hadPreviousOutput = false
+    try {
+      await cp(outputRoot, previousOutputRoot, { recursive: true })
+      hadPreviousOutput = true
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    const previousNativeOutput = await readVercelNativeWorkflowState(options.rootDir)
+    let publicationSucceeded = false
+    let restorationSucceeded = false
+    try {
+      if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, artifacts.providerDefinitions, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, artifacts.vercelNativeFiles)) {
+        assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
+      }
+      const deploymentOutput: ProviderDeploymentOutputOptions = {
         clientOutDir: options.clientOutDir,
         cloudflare: cloudflareOutput,
         cleanup: {
           cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
         },
-        afterWrite: async () => {
+        afterWrite: async (signal) => {
+          signal?.throwIfAborted()
+          await publishGeneratedArtifacts()
+          signal?.throwIfAborted()
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
               ...options.providerImportAliases,
@@ -1414,20 +1450,28 @@ async function generateProviderOutputsWithinLock(
           else {
             await cleanVercelNativeWorkflowOutput(options.rootDir)
           }
+          signal?.throwIfAborted()
           await updateVercelWorkflowFunctionOwnership(options.rootDir, vercelOutput ? options.serverFunctionName ?? "__server.func" : undefined, Boolean(vercelOutput && !options.serverFunctionName))
+          signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
-        ...(vercelOutput ? { vercel: vercelOutput } : {}),
-      })
+      }
+      if (vercelOutput) deploymentOutput.vercel = vercelOutput
+      await writeProviderDeploymentOutputs(deploymentOutput)
+      publicationSucceeded = true
     }
     catch (error) {
-      if (activeFunctionRoot) {
-        const hasRecoverableActiveFunction = previouslyOwnedActiveFunction
-          && Boolean(await getVercelWorkflowFunctionOwnership(activeFunctionRoot))
-        if (!hasRecoverableActiveFunction) await rm(activeFunctionRoot, { force: true, recursive: true })
-        if (!hasRecoverableActiveFunction && !options.serverFunctionName) await cleanVercelWorkflowRootConfig(options.rootDir, vercelRootWorkflowRoutes)
+      await rm(outputRoot, { force: true, recursive: true })
+      if (hadPreviousOutput) {
+        await rename(previousOutputRoot, outputRoot)
+        restorationSucceeded = true
       }
       throw error
+    }
+    finally {
+      if (publicationSucceeded || restorationSucceeded || !hadPreviousOutput) {
+        await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
+      }
     }
   }
   if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
@@ -1435,6 +1479,10 @@ async function generateProviderOutputsWithinLock(
   return artifacts
 }
 
-export async function generateWorkflowProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
-  return await withProviderDeploymentOutputLock(options.rootDir, async write => await generateProviderOutputsWithinLock(options, write))
+export async function generateWorkflowProviderOutputs(
+  options: GenerateProviderOutputsOptions,
+  write?: ProviderDeploymentOutputWriter,
+): Promise<GeneratedWorkflowArtifacts> {
+  if (write) return await generateProviderOutputsWithinLock(options, write)
+  return await withProviderDeploymentOutputLock(options.rootDir, async lockedWrite => await generateProviderOutputsWithinLock(options, lockedWrite))
 }

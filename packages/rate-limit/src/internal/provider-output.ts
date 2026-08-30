@@ -7,6 +7,7 @@ import { getCloudflareRateLimitBindingName } from "../integrations/cloudflare.ts
 import { normalizeRateLimitPolicy } from "../policy.ts"
 import { writeRateLimitManifest } from "./manifest.ts"
 
+import type { ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { ProviderOutputConfigOwnership } from "@vite-hub/internal/build/provider-output-config"
 import type { RateLimitDeclaration } from "../types.ts"
 
@@ -31,16 +32,22 @@ function outputStateFile(rootDir: string): string {
 
 async function readOutputState(rootDir: string): Promise<CloudflareRateLimitOutputState> {
   try {
-    const parsed = JSON.parse(await readFile(outputStateFile(rootDir), "utf8")) as Partial<CloudflareRateLimitOutputState>
+    const parsed: unknown = JSON.parse(await readFile(outputStateFile(rootDir), "utf8"))
+    if (parsed === null || Object(parsed) !== parsed || Array.isArray(parsed)) {
+      throw new TypeError("[vitehub] Cloudflare Rate Limit output state must be a JSON object.")
+    }
+    // SAFETY: The object boundary above establishes that property reads are safe; each property is validated below before use.
+    const state = parsed as Record<string, unknown>
+    const bindings = Array.isArray(state.bindings)
+      ? state.bindings.filter((value): value is string => value?.constructor === String)
+      : []
     return {
-      bindings: Array.isArray(parsed.bindings)
-        ? parsed.bindings.filter((value): value is string => typeof value === "string")
-        : [],
-      standalone: parsed.standalone !== false && Array.isArray(parsed.bindings) && parsed.bindings.length > 0,
+      bindings,
+      standalone: state.standalone !== false && bindings.length > 0,
     }
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bindings: [], standalone: false }
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { bindings: [], standalone: false }
     throw error
   }
 }
@@ -97,8 +104,11 @@ export async function writeRateLimitProviderOutput(options: {
   previousDeclarations?: RateLimitDeclaration[]
   provider: "cloudflare" | "memory"
   rootDir: string
-}): Promise<void> {
+  signal?: AbortSignal
+}, write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs): Promise<void> {
+  options.signal?.throwIfAborted()
   const state = await readOutputState(options.rootDir)
+  options.signal?.throwIfAborted()
   const currentBindings = options.declarations.map(declaration => getCloudflareRateLimitBindingName(declaration.name))
   const previousBindings = options.previousDeclarations?.map(declaration => getCloudflareRateLimitBindingName(declaration.name)) ?? []
   const ownership = {
@@ -115,7 +125,7 @@ export async function writeRateLimitProviderOutput(options: {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
     if (state.standalone && state.bindings.length > 0) {
-      await writeProviderDeploymentOutputs({
+      await write({
         clientOutDir: options.clientOutDir,
         cleanup: {
           cloudflare: {
@@ -133,7 +143,9 @@ export async function writeRateLimitProviderOutput(options: {
         rootDir: options.rootDir,
       })
     }
+    options.signal?.throwIfAborted()
     await writeOutputState(options.rootDir, [])
+    options.signal?.throwIfAborted()
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
@@ -142,7 +154,7 @@ export async function writeRateLimitProviderOutput(options: {
     if (!options.namespace) {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cloudflare: {
         outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
@@ -153,12 +165,14 @@ export async function writeRateLimitProviderOutput(options: {
       },
       rootDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
     await writeOutputState(options.rootDir, currentBindings, true)
+    options.signal?.throwIfAborted()
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
 
-  await writeProviderDeploymentOutputs({
+  await write({
     clientOutDir: options.clientOutDir,
     cleanup: {
       cloudflare: {
@@ -168,6 +182,8 @@ export async function writeRateLimitProviderOutput(options: {
     },
     rootDir: options.rootDir,
   })
+  options.signal?.throwIfAborted()
   await writeOutputState(options.rootDir, [])
+  options.signal?.throwIfAborted()
   await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
 }

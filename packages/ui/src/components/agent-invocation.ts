@@ -1,6 +1,12 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
+  agentInvocationContext,
+  agentInvocationExternalUrl,
+  agentInvocationProject,
+  agentInvocationTitle,
+} from "../invocation-display.ts";
+import {
   agentConfigurationSummary,
   channelDeliverySummary,
   invocationActivities,
@@ -10,38 +16,9 @@ import {
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
-import { isSafeExternalUrl } from "../internal/url.ts";
+import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
-
-function invocationTitle(invocation: AgentInvocationView): string {
-  const annotated = invocation.annotations?.["github.title"];
-  return invocation.title
-    ?? (typeof annotated === "string" ? annotated : undefined)
-    ?? invocation.agentName
-    ?? "Agent invocation";
-}
-
-function invocationContext(invocation: AgentInvocationView): string {
-  const repository = invocation.annotations?.["github.repository"];
-  const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (typeof repository === "string" && (typeof pullRequest === "string" || typeof pullRequest === "number")) {
-    return `${repository} · PR #${pullRequest}`;
-  }
-  return invocation.threadId ?? invocation.origin ?? invocation.id;
-}
-
-function invocationRepository(invocation: AgentInvocationView): string | undefined {
-  const repository = invocation.annotations?.["github.repository"];
-  return typeof repository === "string" ? repository : undefined;
-}
-
-function invocationProject(invocation: AgentInvocationView): string {
-  return invocationRepository(invocation)?.split("/").at(-1)
-    ?? invocation.configuration?.workspace?.name
-    ?? invocation.agentName
-    ?? "Workspace";
-}
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -115,12 +92,12 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 
 function payloadText(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (hasRuntimeType(value, "string")) return value;
   const ancestors: object[] = [];
   try {
     return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
-      if (typeof item === "bigint") return `${item}n`;
-      if (typeof item !== "object" || item === null) return item;
+      if (hasRuntimeType(item, "bigint")) return `${item}n`;
+      if (!hasRuntimeType(item, "object") || item === null) return item;
       while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
       if (ancestors.includes(item)) return "[Circular]";
       ancestors.push(item);
@@ -132,15 +109,15 @@ function payloadText(value: unknown): string {
 }
 
 function payloadPreview(value: unknown, text: string): string {
-  const source = typeof value === "string" ? value : text.replaceAll(/\s+/g, " ");
+  const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
 function jsonValueLabel(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
+  if (hasRuntimeType(value, "string")) return JSON.stringify(value);
   if (value === null) return "null";
-  if (typeof value === "object") return Array.isArray(value) ? `Array(${value.length})` : "Object";
+  if (hasRuntimeType(value, "object")) return Array.isArray(value) ? `Array(${value.length})` : "Object";
   return String(value);
 }
 
@@ -159,7 +136,7 @@ function matchingPayloadRows(
     }
     result.rows.push({ path, value: label });
   }
-  if (typeof value !== "object" || value === null || depth >= 12) return result;
+  if (!hasRuntimeType(value, "object") || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
     if (result.truncated) break;
@@ -177,16 +154,16 @@ function renderPayloadTree(
   if (budget.remaining < 0) {
     return h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden");
   }
-  if (depth >= 12 && typeof value === "object" && value !== null) {
+  if (depth >= 12 && hasRuntimeType(value, "object") && value !== null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
       h("code", { class: "vh-invocation-payload__value" }, "Nested content hidden"),
     ]);
   }
-  if (typeof value !== "object" || value === null) {
+  if (!hasRuntimeType(value, "object") || value === null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
-      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : typeof value }, jsonValueLabel(value)),
+      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : runtimeType(value) }, jsonValueLabel(value)),
     ]);
   }
   const entries = Object.entries(value);
@@ -227,14 +204,14 @@ const InvocationPayload = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
-      if (typeof props.value !== "object" || props.value === null) return props.value;
+      if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
       try {
         return JSON.parse(text.value);
       } catch {
         return text.value;
       }
     });
-    const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
+    const structured = computed(() => hasRuntimeType(normalized.value, "object") && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
       : { rows: [], truncated: false });
@@ -264,8 +241,10 @@ const InvocationPayload = defineComponent({
       if (copyTimer) clearTimeout(copyTimer);
     });
 
+    // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
     return () => h("details", {
       class: "vh-invocation-event__payload",
+      // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
       onToggle: (event: Event) => { open.value = (event.currentTarget as HTMLDetailsElement).open; },
       open: open.value,
     }, [
@@ -284,6 +263,7 @@ const InvocationPayload = defineComponent({
             ? h("label", { class: "vh-invocation-payload__search" }, [
                 h("span", { class: "vh-visually-hidden" }, `Search ${props.label}`),
                 h("input", {
+                  // SAFETY: Input events for this rendered control expose HTMLInputElement as target.
                   onInput: (event: Event) => { query.value = (event.target as HTMLInputElement).value; },
                   placeholder: "Search payload",
                   type: "search",
@@ -453,7 +433,18 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     || activity.attributes["tool.output"] !== undefined
     || activity.attributes["tool.error"] !== undefined
   );
-  const hasDetails = activity.patches.length > 0 || Boolean(command || hasPayloads || activity.body || activity.truncated);
+  const capturedDeliveryBody = activity.kind === "delivery"
+    ? activity.attributes["channel.effect.content"]
+    : undefined;
+  const deliveryBody = hasRuntimeType(capturedDeliveryBody, "string") && capturedDeliveryBody.trim()
+    ? capturedDeliveryBody
+    : undefined;
+  const visibleDelivery = Boolean(deliveryBody);
+  const deliveryFailure = activity.kind === "delivery"
+    ? stringAttribute(activity.attributes, "error.message")
+    : undefined;
+  const hasDetails = Boolean(deliveryFailure || activity.truncated)
+    || (!visibleDelivery && (activity.patches.length > 0 || Boolean(command || hasPayloads || activity.body || activity.truncated)));
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
   const summaryContent = [
@@ -485,6 +476,9 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     }, [
       summary,
       hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
+        deliveryFailure
+          ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
+          : null,
         activity.truncated
           ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
           : null,
@@ -508,7 +502,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
                 renderEventPayload("Output", activity.attributes["tool.output"]),
                 renderEventPayload("Error", activity.attributes["tool.error"]),
               ].filter(Boolean))
-          : activity.body
+          : activity.kind !== "delivery" && activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
         inspectable
@@ -520,6 +514,9 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           : null,
       ]) : null,
     ]),
+    deliveryBody
+      ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(deliveryBody, "vh-invocation-event__markdown")])
+      : null,
   ]);
 }
 
@@ -541,11 +538,6 @@ function activityDetail(activity: InvocationActivity): string | undefined {
   return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
-function githubUrl(invocation: AgentInvocationView): string | undefined {
-  const value = stringAttribute(invocation.annotations ?? {}, "github.url");
-  return value && isSafeExternalUrl(value) ? value : undefined;
-}
-
 function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
   const target = activity.attributes["vitehub.inspect.target"];
   if (target !== "workspace" && target !== "agent") return;
@@ -560,8 +552,8 @@ function renderPreparationAction(activity: InvocationActivity, inspect: (target:
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
-    return h("code", invocationContext(invocation));
+  if (!hasRuntimeType(repository, "string") || (!hasRuntimeType(pullRequest, "number") && !hasRuntimeType(pullRequest, "string"))) {
+    return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
     h("code", repository),
@@ -604,7 +596,7 @@ function renderPreparationGroup(
   invocation: AgentInvocationView,
   inspect: (target: InspectTarget) => void,
 ) {
-  const url = githubUrl(invocation);
+  const url = agentInvocationExternalUrl(invocation);
   const failed = activities.some(activity => activity.status === "failed");
   return h("li", {
     class: "vh-invocation-preparation",
@@ -1078,28 +1070,28 @@ function renderInvocationActivities(
   const prefix = activities.slice(0, firstUser + 1);
   const tail = activities.slice(firstUser + 1);
   const terminal = tail.filter(activity => activity.name === "vitehub.observation.truncated");
-  const externalBeforeFinal = tail.filter((activity, offset) =>
+  const visibleBeforeFinal = tail.filter((activity, offset) =>
     activity.name !== "vitehub.observation.truncated"
-    && isExternalActivity(activity)
+    && (activity.kind === "message" || isExternalActivity(activity))
     && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
   );
-  const externalAfterFinal = tail.filter((activity, offset) =>
+  const visibleAfterFinal = tail.filter((activity, offset) =>
     activity.name !== "vitehub.observation.truncated"
-    && isExternalActivity(activity)
+    && (activity.kind === "message" || isExternalActivity(activity))
     && lastAssistant >= 0
     && firstUser + 1 + offset > lastAssistant,
   );
   const work = tail.filter((activity, offset) => {
     const index = firstUser + 1 + offset;
-    return index !== lastAssistant && !isExternalActivity(activity);
+    return activity.kind !== "message" && index !== lastAssistant && !isExternalActivity(activity);
   });
 
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(externalBeforeFinal, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
     renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
     ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
-    ...renderActivitySequence(externalAfterFinal, invocation, expanded, toggleExpanded, inspect),
+    ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
   ].filter(item => item !== null);
 }
@@ -1166,11 +1158,11 @@ export const AgentInvocation = defineComponent({
         ref: root,
       }, [
         props.header ? h("header", { class: "vh-invocation-header" }, [
-          h("div", { class: "vh-invocation-header__breadcrumb", title: `${invocationProject(props.invocation)} / ${invocationTitle(props.invocation)}` }, [
+          h("div", { class: "vh-invocation-header__breadcrumb", title: `${agentInvocationProject(props.invocation)} / ${agentInvocationTitle(props.invocation)}` }, [
             h("span", { class: "vh-invocation-header__project-icon" }, [renderFolderIcon()]),
-            h("span", { class: "vh-invocation-header__project" }, invocationProject(props.invocation)),
+            h("span", { class: "vh-invocation-header__project" }, agentInvocationProject(props.invocation)),
             h("span", { "aria-hidden": "true", class: "vh-invocation-header__separator" }, "/"),
-            h("h2", slots.title?.({ invocation: props.invocation }) ?? invocationTitle(props.invocation)),
+            h("h2", slots.title?.({ invocation: props.invocation }) ?? agentInvocationTitle(props.invocation)),
           ]),
           slots.actions?.({ invocation: props.invocation }),
         ]) : null,
@@ -1296,7 +1288,7 @@ export const AgentInvocationInspector = defineComponent({
         },
         [
           h("header", [
-            h("div", [h("p", invocationProject(props.invocation)), h("h3", "Invocation details")]),
+            h("div", [h("p", agentInvocationProject(props.invocation)), h("h3", "Invocation details")]),
             slots.actions?.({ invocation: props.invocation }),
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
@@ -1325,9 +1317,9 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ),
-              h("h4", invocationTitle(props.invocation)),
-              invocationContext(props.invocation) !== props.invocation.id
-                ? h("p", invocationContext(props.invocation))
+              h("h4", agentInvocationTitle(props.invocation)),
+              agentInvocationContext(props.invocation) !== props.invocation.id
+                ? h("p", agentInvocationContext(props.invocation))
                 : null,
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [

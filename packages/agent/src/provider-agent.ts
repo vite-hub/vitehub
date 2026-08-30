@@ -1,12 +1,12 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, copyFile, cp, link, mkdir, mkdtemp, lstat, readFile, readlink, readdir, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -25,12 +25,13 @@ import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } fro
 import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
-import { createAgentStreamEventTracer } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
   ProviderRuntime,
   ProviderRuntimeEvent,
+  ProviderRuntimeStartInput,
   ProviderUserInputAnswers,
   RuntimeMode,
   ThreadId,
@@ -42,6 +43,7 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
+  AgentProviderCredentialResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
   AgentToolDefinition,
@@ -56,18 +58,23 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
-import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { agentProviderCleanupTask, createAgentProviderCredentialCleanup, settleAgentProviderCleanups } from "./internal/provider-cleanup-task.ts"
+import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
   env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
+  providerSettings?: Record<string, unknown>
+  reasoningEffort?: string
+  reasoningSummary?: "auto" | "concise" | "detailed" | "none"
 }
 
 interface GeneratedProviderFile {
@@ -150,9 +157,82 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 
 const providerCleanupTimeoutMs = 10_000
 
+const codexSharedHomeDirectories = [
+  "sessions",
+  "archived_sessions",
+  "sqlite",
+  "shell_snapshots",
+  "worktrees",
+  "skills",
+  "plugins",
+  "cache",
+  "logs",
+  "mcp-oauth-locks",
+] as const
+const codexSharedHomeFiles = ["history.jsonl"] as const
+const codexPrivateHomeEntries = new Set(["auth.json", "models_cache.json"])
+const codexLocalHomeEntries = new Set(["log", "tmp"])
+interface CodexSharedHomeLockWaiter {
+  abort?: () => void
+  exclusive: boolean
+  reject: (reason: unknown) => void
+  resolve: (release: () => void) => void
+  signal?: AbortSignal
+}
+
+interface CodexSharedHomeLockState {
+  readers: number
+  waiters: CodexSharedHomeLockWaiter[]
+  writer: boolean
+}
+
+interface CodexCredentialOverlayEntry {
+  dev: number
+  ino: number
+  link?: string
+  name: string
+  target: string
+}
+
+interface CodexCredentialOverlay {
+  entries: CodexCredentialOverlayEntry[]
+  privateEntries: Array<{ dev: number, ino: number }>
+  sharedHomeCaseInsensitive: boolean
+}
+
+const codexSharedHomeLocks = new Map<string, CodexSharedHomeLockState>()
+const providerHostPlatform = process.platform
+const restrictWindowsCodexCredentialHomeScript = String.raw`
+$ErrorActionPreference = "Stop"
+$path = $env:VITEHUB_CODEX_CREDENTIAL_HOME
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$directory = [System.IO.DirectoryInfo]::new($path)
+$security = $directory.GetAccessControl()
+$security.SetAccessRuleProtection($true, $false)
+foreach ($existing in @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))) {
+  [void]$security.RemoveAccessRuleSpecific($existing)
+}
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+  $identity,
+  [System.Security.AccessControl.FileSystemRights]::FullControl,
+  [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit",
+  [System.Security.AccessControl.PropagationFlags]::None,
+  [System.Security.AccessControl.AccessControlType]::Allow
+)
+$security.AddAccessRule($rule)
+$directory.SetAccessControl($security)
+$applied = $directory.GetAccessControl()
+$owner = $applied.GetOwner([System.Security.Principal.SecurityIdentifier])
+$rules = @($applied.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+  throw "The credential home ACL is not restricted to the current principal."
+}
+`
+
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
+  "CODEX_HOME",
   "ComSpec",
   "HOME",
   "LANG",
@@ -176,6 +256,297 @@ const providerHostEnvironmentKeys = [
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+}
+
+function resolveCodexSharedHome(homePath: unknown, environment: NodeJS.ProcessEnv): string {
+  if (homePath !== undefined && !hasRuntimeType(homePath, "string")) {
+    throw new TypeError("[vitehub] Codex Driver provider setting homePath must be a string when credentials are configured.")
+  }
+  const configured = homePath?.trim()
+  if (!configured && environment.CODEX_HOME?.trim()) return resolve(environment.CODEX_HOME)
+  const base = environment.HOME || environment.USERPROFILE || homedir()
+  if (!configured) return resolve(base, ".codex")
+  if (configured === "~") return resolve(base)
+  if (configured.startsWith("~/") || configured.startsWith("~\\")) return resolve(base, configured.slice(2))
+  return resolve(configured)
+}
+
+export async function restrictWindowsCodexCredentialHome(home: string, signal?: AbortSignal): Promise<void> {
+  const command = Buffer.from(restrictWindowsCodexCredentialHomeScript, "utf16le").toString("base64")
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
+      env: providerEnvironment({ VITEHUB_CODEX_CREDENTIAL_HOME: home }),
+      signal,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    })
+    const output: Buffer[] = []
+    child.stdout.on("data", chunk => output.push(Buffer.from(chunk)))
+    child.stderr.on("data", chunk => output.push(Buffer.from(chunk)))
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      if (error) reject(error)
+      else resolve()
+    }
+    child.once("error", finish)
+    child.once("close", (code, childSignal) => {
+      if (code === 0) finish()
+      else {
+        const detail = Buffer.concat(output).toString("utf8").trim()
+        finish(new Error(`[vitehub] Restricting the Codex credential home exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}${detail ? `: ${detail}` : "."}`))
+      }
+    })
+  })
+}
+
+async function isCaseInsensitiveCodexHome(sharedHome: string): Promise<boolean> {
+  const probe = await mkdtemp(join(sharedHome, ".vitehub-case-probe-"))
+  const alternate = join(dirname(probe), basename(probe).toUpperCase())
+  try {
+    const [probeEntry, alternateEntry] = await Promise.all([
+      stat(probe),
+      stat(alternate).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      }),
+    ])
+    return alternateEntry?.dev === probeEntry.dev && alternateEntry.ino === probeEntry.ino
+  }
+  finally {
+    await rm(probe, { force: true, recursive: true })
+  }
+}
+
+async function materializeCodexCredentialOverlay(home: string, sharedHome: string, sharedHomeCaseInsensitive: boolean): Promise<CodexCredentialOverlay> {
+  await mkdir(sharedHome, { recursive: true })
+  const discoveredEntries = await readdir(sharedHome)
+  const privateEntries = await Promise.all([...codexPrivateHomeEntries].map(async (entry) => {
+    const privateEntry = await lstat(join(home, entry)).catch((error) => {
+      // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+      throw error
+    })
+    return privateEntry && { dev: privateEntry.dev, ino: privateEntry.ino }
+  }))
+  await Promise.all([
+    ...codexSharedHomeDirectories.map(async (directory) => {
+      const path = join(sharedHome, directory)
+      if (await lstat(path).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })) return
+      await mkdir(path, { recursive: true })
+    }),
+    ...codexSharedHomeFiles.map(async (file) => {
+      const path = join(sharedHome, file)
+      if (await lstat(path).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })) return
+      await writeFile(path, "", { flag: "a" })
+    }),
+  ])
+  const shadowHomeCaseInsensitive = await isCaseInsensitiveCodexHome(home)
+  const entries = sharedHomeCaseInsensitive || shadowHomeCaseInsensitive
+    ? new Map([...codexSharedHomeDirectories, ...codexSharedHomeFiles, ...discoveredEntries].map(entry => [entry.toLowerCase(), entry])).values()
+    : new Set([...discoveredEntries, ...codexSharedHomeDirectories, ...codexSharedHomeFiles])
+  const materializedEntries = new Set<string>()
+  const overlayEntries: CodexCredentialOverlayEntry[] = []
+  for (const entry of entries) {
+    const comparableEntry = entry.toLowerCase()
+    if (codexPrivateHomeEntries.has(comparableEntry) || codexLocalHomeEntries.has(comparableEntry)) continue
+    const source = join(sharedHome, entry)
+    const target = join(home, entry)
+    const sourceEntry = await lstat(source)
+    let linkedEntry = sourceEntry
+    if (sourceEntry.isSymbolicLink()) {
+      const resolvedEntry = await stat(source).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })
+      if (!resolvedEntry) continue
+      linkedEntry = resolvedEntry
+    }
+    try {
+      if (process.platform === "win32" && linkedEntry.isFile()) {
+        if (sourceEntry.isSymbolicLink()) {
+          await copyFile(source, target)
+        }
+        else await link(source, target).catch(async (error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== "EACCES" && code !== "EPERM" && code !== "EXDEV") throw error
+          await copyFile(source, target)
+        })
+      }
+      else {
+        await symlink(source, target, process.platform === "win32" && linkedEntry.isDirectory() ? "junction" : undefined)
+      }
+      materializedEntries.add(comparableEntry)
+      overlayEntries.push({
+        dev: sourceEntry.dev,
+        ino: sourceEntry.ino,
+        link: sourceEntry.isSymbolicLink() ? await readlink(source) : undefined,
+        name: entry,
+        target: source,
+      })
+    }
+    catch (error) {
+      // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !materializedEntries.has(comparableEntry)) throw error
+    }
+  }
+  return { entries: overlayEntries, privateEntries: privateEntries.filter(entry => entry !== undefined), sharedHomeCaseInsensitive }
+}
+
+async function codexCredentialOverlayOwnsTarget(entry: CodexCredentialOverlayEntry, targetEntry: Awaited<ReturnType<typeof lstat>>): Promise<boolean> {
+  if (targetEntry.dev !== entry.dev || targetEntry.ino !== entry.ino) return false
+  if (entry.link !== undefined) return targetEntry.isSymbolicLink() && await readlink(entry.target) === entry.link
+  return !targetEntry.isSymbolicLink()
+}
+
+async function persistCodexCredentialOverlay(home: string, sharedHome: string, overlay: CodexCredentialOverlay | undefined): Promise<void> {
+  const shadowEntries = await readdir(home)
+  const shadowEntryNames = new Set(shadowEntries)
+  const missingEntries = (overlay?.entries || []).filter(entry => !shadowEntryNames.has(entry.name))
+  const renamedEntries = new Set<CodexCredentialOverlayEntry>()
+  await settleAgentProviderCleanups(shadowEntries
+    .filter((entry) => {
+      const comparableEntry = entry.toLowerCase()
+      return !codexPrivateHomeEntries.has(comparableEntry) && !codexLocalHomeEntries.has(comparableEntry)
+    })
+    .map(async (entry) => {
+      const source = join(home, entry)
+      let sourceEntry = await lstat(source)
+      if (overlay?.privateEntries.some(privateEntry => privateEntry.dev === sourceEntry.dev && privateEntry.ino === sourceEntry.ino)) return
+      let sourcePath = source
+      if (sourceEntry.isSymbolicLink()) {
+        const linkedTarget = resolve(dirname(source), await readlink(source))
+        const renamedEntry = missingEntries.find(candidate => !renamedEntries.has(candidate) && candidate.target === linkedTarget)
+        if (!renamedEntry) return
+        const currentTarget = await lstat(renamedEntry.target).catch((error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+          throw error
+        })
+        if (!currentTarget || !await codexCredentialOverlayOwnsTarget(renamedEntry, currentTarget)) return
+        sourceEntry = await stat(source)
+        if (sourceEntry.isDirectory()) sourcePath = await realpath(renamedEntry.target)
+        renamedEntries.add(renamedEntry)
+      }
+      if (!sourceEntry.isFile() && !sourceEntry.isDirectory()) return
+      const target = join(sharedHome, entry)
+      const trackedTarget = overlay?.entries.find(candidate => overlay.sharedHomeCaseInsensitive
+        ? candidate.name.toLowerCase() === entry.toLowerCase()
+        : candidate.name === entry)
+      if (overlay?.sharedHomeCaseInsensitive && trackedTarget && renamedEntries.has(trackedTarget) && trackedTarget.name !== entry) {
+        const currentTarget = await lstat(trackedTarget.target)
+        if (!await codexCredentialOverlayOwnsTarget(trackedTarget, currentTarget)) return
+        const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.rename`)
+        await rename(trackedTarget.target, temporary)
+        try {
+          await rename(temporary, target)
+        }
+        catch (error) {
+          await rename(temporary, trackedTarget.target).catch(() => undefined)
+          throw error
+        }
+        return
+      }
+      const targetEntry = await lstat(target).catch((error) => {
+        // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+        throw error
+      })
+      if (targetEntry && sourceEntry.dev === targetEntry.dev && sourceEntry.ino === targetEntry.ino) return
+      if (targetEntry?.isSymbolicLink() && sourceEntry.isFile()) {
+        const targetContents = await readFile(target).catch((error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+          throw error
+        })
+        if (targetContents?.equals(await readFile(source))) return
+      }
+      const temporary = join(sharedHome, `.${entry}.${crypto.randomUUID()}.tmp`)
+      try {
+        if (sourceEntry.isDirectory()) await cp(sourcePath, temporary, { recursive: true })
+        else await copyFile(sourcePath, temporary)
+        await rename(temporary, target).catch(async (error) => {
+          // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM") throw error
+          const currentTarget = await lstat(target).catch((targetError) => {
+            // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+            if ((targetError as NodeJS.ErrnoException).code === "ENOENT") return undefined
+            throw targetError
+          })
+          if (!currentTarget) {
+            await rename(temporary, target)
+            return
+          }
+          if (!trackedTarget || !await codexCredentialOverlayOwnsTarget(trackedTarget, currentTarget)) throw error
+          await rm(target, { force: true, recursive: true })
+          await rename(temporary, target)
+        })
+      }
+      finally {
+        await rm(temporary, { force: true, recursive: true })
+      }
+    }))
+  await settleAgentProviderCleanups(missingEntries.map(async (entry) => {
+    if (overlay?.sharedHomeCaseInsensitive && renamedEntries.has(entry)) return
+    const targetEntry = await lstat(entry.target).catch((error) => {
+      // SAFETY: Node filesystem errors expose the stable ErrnoException code field.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+      throw error
+    })
+    if (!targetEntry || !await codexCredentialOverlayOwnsTarget(entry, targetEntry)) return
+    await rm(entry.target, { force: true, recursive: true })
+  }))
+}
+
+async function prepareCodexCredentialHome<TRuntimeConfig extends AgentRuntimeConfig>(
+  credentials: AgentProviderCredentialResolver<TRuntimeConfig>,
+  context: AgentAdapterRunContext<unknown, TRuntimeConfig>,
+  ownHome: (home: string) => void,
+): Promise<string> {
+  const resolved = await resolveRuntimeValue(credentials, providerAdapterMetadataContext(context))
+  const value = isRuntimeRecord(resolved) && hasRuntimeType(resolved.unseal, "function")
+    ? resolved.unseal()
+    : resolved
+  if (!hasRuntimeType(value, "string") || !value.trim()) {
+    throw new Error("[vitehub] Codex Driver credentials are missing.")
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  }
+  catch {
+    throw new Error("[vitehub] Codex Driver credentials must be valid JSON.")
+  }
+  if (!isRuntimeRecord(parsed) || Array.isArray(parsed)) {
+    throw new Error("[vitehub] Codex Driver credentials must contain a JSON object.")
+  }
+  const home = await mkdtemp(join(tmpdir(), "vitehub-codex-shadow-home-"))
+  ownHome(home)
+  try {
+    if (providerHostPlatform === "win32") await restrictWindowsCodexCredentialHome(home, context.input.abortSignal)
+    await chmod(home, 0o700)
+    const authPath = join(home, "auth.json")
+    await writeFile(authPath, `${JSON.stringify(parsed)}\n`, { mode: 0o600 })
+    await chmod(authPath, 0o600)
+    return home
+  }
+  catch (error) {
+    await rm(home, { force: true, recursive: true })
+    throw error
+  }
 }
 
 async function waitForProviderOperation<T>(
@@ -277,6 +648,52 @@ async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key
     throw error
   }
   return releaseLock
+}
+
+async function acquireCodexSharedHomeLock(key: string, exclusive: boolean, signal?: AbortSignal): Promise<() => void> {
+  signal?.throwIfAborted()
+  const state = codexSharedHomeLocks.get(key) || { readers: 0, waiters: [], writer: false }
+  codexSharedHomeLocks.set(key, state)
+  return await new Promise<() => void>((resolve, reject) => {
+    const waiter: CodexSharedHomeLockWaiter = { exclusive, reject, resolve, signal }
+    const drain = () => {
+      if (state.writer) return
+      if (!state.waiters.length) {
+        if (!state.readers && codexSharedHomeLocks.get(key) === state) codexSharedHomeLocks.delete(key)
+        return
+      }
+      if (state.waiters[0]!.exclusive) {
+        if (state.readers) return
+        grant(state.waiters.shift()!)
+        return
+      }
+      while (state.waiters.length && !state.waiters[0]!.exclusive) grant(state.waiters.shift()!)
+    }
+    const grant = (next: CodexSharedHomeLockWaiter) => {
+      if (next.abort) next.signal?.removeEventListener("abort", next.abort)
+      if (next.exclusive) state.writer = true
+      else state.readers += 1
+      let released = false
+      next.resolve(() => {
+        if (released) return
+        released = true
+        if (next.exclusive) state.writer = false
+        else state.readers -= 1
+        drain()
+      })
+    }
+    const abort = () => {
+      const index = state.waiters.indexOf(waiter)
+      if (index === -1) return
+      state.waiters.splice(index, 1)
+      reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+      drain()
+    }
+    waiter.abort = abort
+    signal?.addEventListener("abort", abort, { once: true })
+    state.waiters.push(waiter)
+    drain()
+  })
 }
 
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -593,15 +1010,36 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
   return paths.length ? paths : []
 }
 
+function workspaceSetupObserverOptions(context: AgentAdapterRunContext) {
+  // SAFETY: Agent invocation setup stores this context value as the invocation trace ID string.
+  const invocationId = context.context.get(agentInvocationTraceIdContextKey) as string | undefined
+  return {
+    invocationId,
+    runId: context.runtime.run?.runId,
+    trace: context.runtime.trace,
+    traceLog: context.runtime.traceLog,
+    workspace: context.workspaceDefinition?.name,
+  }
+}
+
 async function materializeWorkspaceSources(context: AgentAdapterRunContext, paths: readonly string[] | undefined) {
   const workspace = context.workspaceMaterializationSource || context.workspace
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return
+  if (!materialize || (paths && !paths.length)) return false
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
-  await Promise.all((paths || [""]).map(path => materialize.call(owner, { abortSignal: context.input.abortSignal, path })))
+  const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
+  const results = await Promise.allSettled((paths || [""]).map(path => materialize.call(owner, {
+    abortSignal: context.input.abortSignal,
+    onProgress: observers.materialization,
+    path,
+  })))
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  if (failure) throw failure.reason
+  return results.every(result => result.status === "fulfilled"
+    && result.value.sources.every(source => source.status === "ready"))
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
@@ -610,10 +1048,12 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
   }
   const paths = selectedWorkspacePaths(context)
-  await materializeWorkspaceSources(context, paths)
+  const materializedSources = await materializeWorkspaceSources(context, paths)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
+    ...(materializedSources ? { materializeSources: false } : {}),
+    onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
   }
@@ -643,17 +1083,7 @@ async function resolveInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
-  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  const metadataContext = {
-    ...agentInvocationCallbackContextValues(context.context),
-    ...runtime,
-    actor: context.actor,
-    context: context.context,
-    fs: context.workspace?.fs,
-    invoker: context.invoker,
-    workspace: context.workspace,
-  } as AgentAdapterMetadataContext
+  const metadataContext = providerAdapterMetadataContext(context)
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
   const content = [
@@ -666,6 +1096,23 @@ async function resolveInstructions<
     context: context.context.toJSON(),
     workspace: context.workspaceInstructionBindings,
   }) : undefined
+}
+
+function providerAdapterMetadataContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  return {
+    ...agentInvocationCallbackContextValues(context.context),
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    fs: context.workspace?.fs,
+    invoker: context.invoker,
+    workspace: context.workspace,
+  } as AgentAdapterMetadataContext
 }
 
 function latestUserMessages(messages: Message[]): Message[] {
@@ -1005,6 +1452,40 @@ async function* runProvider<
   })
   let rootCleanup: Promise<void> | undefined
   const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
+  let credentialHome: string | undefined
+  let credentialSharedHome: string | undefined
+  let credentialOverlay: CodexCredentialOverlay | undefined
+  let releaseCredentialHomeLock: (() => void) | undefined
+  let credentialOverlayRemoved = false
+  const credentialOverlayOwners = new Set<Promise<void>>()
+  const releaseCredentialOverlayLock = () => {
+    if (!credentialOverlayRemoved || credentialOverlayOwners.size) return
+    const release = releaseCredentialHomeLock
+    releaseCredentialHomeLock = undefined
+    release?.()
+  }
+  const releaseCredentialOverlayLockAfterRemoval = () => {
+    credentialOverlayRemoved = true
+    releaseCredentialOverlayLock()
+  }
+  const deferCredentialOverlayLockRelease = (cleanup: Promise<void>) => {
+    if (credentialOverlayOwners.has(cleanup)) return
+    credentialOverlayOwners.add(cleanup)
+    void cleanup.then(
+      () => credentialOverlayOwners.delete(cleanup),
+      () => credentialOverlayOwners.delete(cleanup),
+    ).then(releaseCredentialOverlayLock)
+  }
+  const persistCredentialOverlay = async () => {
+    if (credentialHome && credentialSharedHome) await persistCodexCredentialOverlay(credentialHome, credentialSharedHome, credentialOverlay)
+  }
+  const credentialCleanup = createAgentProviderCredentialCleanup(
+    persistCredentialOverlay,
+    async () => {
+      if (credentialHome) await rm(credentialHome, { force: true, recursive: true })
+    },
+    releaseCredentialOverlayLockAfterRemoval,
+  )
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1022,10 +1503,37 @@ async function* runProvider<
     }
     catch {}
   }
+  const observeBoundedLateCleanup = (cleanup: Promise<void>) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const boundedCleanup = Promise.race([
+      cleanup,
+      new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout)
+    })
+    void cleanup.catch(() => undefined)
+    observeLateCleanup(boundedCleanup)
+  }
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
-    observeLateCleanup(cleanup)
+    void cleanup.catch(() => undefined)
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+    const boundedCredentialCleanup = Promise.race([
+      cleanup,
+      new Promise<void>(resolve => timeout = setTimeout(() => {
+        timedOut = true
+        resolve()
+      }, providerCleanupTimeoutMs)),
+    ]).finally(async () => {
+      if (timeout) clearTimeout(timeout)
+      if (timedOut) {
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanup)
+        await credentialCleanup.forceRemove()
+      }
+    })
+    observeLateCleanup(boundedCredentialCleanup)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
     workspaceCleanupDeferred = true
@@ -1044,7 +1552,7 @@ async function* runProvider<
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await cleanupRoot()
+        await settleAgentProviderCleanups([credentialCleanup.cleanup(), cleanupRoot()])
       }
     }
   }
@@ -1123,19 +1631,68 @@ async function* runProvider<
     }
     effectiveSignal?.throwIfAborted()
     const { createProviderRuntime } = await import("@t3tools/provider-runtime")
+    if (options.provider === "codex" && options.credentials !== undefined) {
+      credentialHome = await waitForProviderOperation(
+        prepareCodexCredentialHome(options.credentials, context, (home) => {
+          credentialHome = home
+          if (effectiveSignal?.aborted) observeLateCleanup(rm(home, { force: true, recursive: true }))
+        }),
+        effectiveSignal,
+        home => rm(home, { force: true, recursive: true }),
+        observeLateCleanup,
+      )
+    }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await cleanupRoot()
+      await settleAgentProviderCleanups([credentialCleanup.cleanup(), cleanupRoot()])
     }
     const providerExecutable = resolveInstalledProviderExecutable(options.provider)
+    const runtimeEnvironment = providerEnvironment(providerEnvironmentOverrides)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
-      environment: providerEnvironment(providerEnvironmentOverrides),
+      environment: runtimeEnvironment,
       provider: options.provider,
     }
-    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = providerExecutable
-      ? { ...runtimeOptions, settings: { binaryPath: providerExecutable } }
+    const providerSettings: Record<string, unknown> = {}
+    if (providerExecutable) providerSettings.binaryPath = providerExecutable
+    for (const [key, value] of Object.entries(options.providerSettings || {})) {
+      if (value !== undefined) providerSettings[key] = value
+    }
+    if (options.provider === "codex") {
+      const configuredSharedHome = resolveCodexSharedHome(providerSettings.homePath, runtimeEnvironment)
+      const sharedHome = await waitForProviderOperation(
+        (async () => {
+          await mkdir(configuredSharedHome, { recursive: true })
+          const canonicalHome = await realpath(configuredSharedHome)
+          return { caseInsensitive: await isCaseInsensitiveCodexHome(canonicalHome), home: canonicalHome }
+        })(),
+        effectiveSignal,
+        () => undefined,
+        observeBoundedLateCleanup,
+      )
+      credentialSharedHome = sharedHome.home
+      const sharedHomeKey = sharedHome.caseInsensitive ? credentialSharedHome.toLowerCase() : credentialSharedHome
+      releaseCredentialHomeLock = await acquireCodexSharedHomeLock(sharedHomeKey, Boolean(credentialHome), effectiveSignal)
+      if (credentialHome) {
+        const materialization = materializeCodexCredentialOverlay(credentialHome, credentialSharedHome, sharedHome.caseInsensitive).then((overlay) => {
+          credentialOverlay = overlay
+        })
+        await waitForProviderOperation(
+          materialization,
+          effectiveSignal,
+          () => undefined,
+          (cleanup) => {
+            deferCredentialOverlayLockRelease(cleanup)
+            observeLateCleanup(cleanup)
+          },
+        )
+        providerSettings.homePath = credentialHome
+        delete providerSettings.shadowHomePath
+      }
+    }
+    const configuredRuntimeOptions: Parameters<typeof createProviderRuntime>[0] = Object.keys(providerSettings).length
+      ? { ...runtimeOptions, settings: providerSettings }
       : runtimeOptions
     runtime = await waitForProviderOperation(
       createProviderRuntime(configuredRuntimeOptions),
@@ -1152,21 +1709,34 @@ async function* runProvider<
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
+    if (Object.keys(context.tools || {}).length) {
+      toolServer = await waitForProviderOperation(
+        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        effectiveSignal,
+        lateToolServer => lateToolServer.close(),
+        observeLateCleanup,
+      )
+    }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
     // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
     const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
-    const session = await waitForProviderOperation(runtime.startSession({
+    const modelOptions = Object.fromEntries(Object.entries({
+      reasoningEffort: options.reasoningEffort,
+      reasoningSummary: options.reasoningSummary,
+    }).filter((entry): entry is [string, string] => entry[1] !== undefined))
+    let sessionOptions: ProviderRuntimeStartInput = {
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
       resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
-    }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
+    }
+    if (Object.keys(modelOptions).length) sessionOptions = { ...sessionOptions, modelOptions }
+    const session = await waitForProviderOperation(runtime.startSession(sessionOptions), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
@@ -1271,7 +1841,7 @@ async function* runProvider<
     const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
-    let forcedRootCleanup: Promise<void> | undefined
+    let forcedCleanup: Promise<void> | undefined
     const cleanupTask = (async () => {
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanupDeferred ? undefined : runtime?.close(),
@@ -1282,6 +1852,14 @@ async function* runProvider<
           && result.status === "rejected"
           && (result.reason === caught || result.reason === effectiveSignal?.reason)
         if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
+      }
+      if (!runtimeCleanupDeferred) {
+        try {
+          await credentialCleanup.cleanup()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+        }
       }
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
@@ -1327,18 +1905,35 @@ async function* runProvider<
       const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
       if (!repeatsInvocationFailure) cleanupErrors.push(error)
       if (cleanupTimedOut) {
-        forcedRootCleanup = cleanupRoot()
-        observeLateCleanup(forcedRootCleanup)
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
+        if (completed && credentialHome && credentialSharedHome) {
+          const persistence = credentialCleanup.cleanup()
+          if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(persistence)
+          const persistenceCleanup = createProviderCleanupSignal(undefined)
+          try {
+            await waitForProviderOperation(persistence, persistenceCleanup.signal)
+          }
+          catch (persistenceError) {
+            cleanupErrors.push(persistenceError)
+            void persistence.catch(() => undefined)
+          }
+          finally {
+            persistenceCleanup.dispose()
+          }
+        }
+        forcedCleanup = settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
+        observeLateCleanup(forcedCleanup)
         void cleanupTask.catch(() => undefined)
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+        if (releaseCredentialHomeLock) deferCredentialOverlayLockRelease(cleanupTask)
         let timeout: ReturnType<typeof setTimeout> | undefined
         invocationCleanupDeferred = Promise.race([
           cleanupTask,
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
         ]).finally(async () => {
           if (timeout) clearTimeout(timeout)
-          await cleanupRoot()
+          await settleAgentProviderCleanups([cleanupRoot(), credentialCleanup.forceRemove()])
         })
         observeLateCleanup(invocationCleanupDeferred)
         void cleanupTask.catch(() => undefined)
@@ -1347,8 +1942,10 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
-    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
+    const deferredSessionCleanup = cleanupTimedOut || invocationCleanupDeferred
+      ? cleanupTask
+      : deferredRuntimeCleanup || deferredWorkspaceCleanup
+    if (deferredSessionCleanup) void deferredSessionCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
     if (sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {

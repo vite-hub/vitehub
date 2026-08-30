@@ -137,6 +137,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
     },
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    name: "fetch",
     probeKeys: options.probeKeys || (key ? [key] : undefined),
     sync: options.sync,
     async getKeys() {
@@ -196,6 +197,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
       sourceResolution: "fetch",
     },
     materialize: "lazy",
+    name: "fetch",
     async getKeys() {
       return []
     },
@@ -297,7 +299,7 @@ function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: strin
 function concreteQueryFromOptions(options: Pick<FetchSourceOptions<any, any>, "query" | "url">): Record<string, unknown> | undefined {
   const parsed = options.url instanceof URL ? options.url : new URL(options.url)
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...parsed.searchParams.keys()])) {
+  for (const key of new Set(parsed.searchParams.keys())) {
     const values = parsed.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }
@@ -450,7 +452,7 @@ function requestBaseUrl(url: string | URL): URL {
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...url.searchParams.keys()])) {
+  for (const key of new Set(url.searchParams.keys())) {
     const values = url.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }

@@ -62,10 +62,21 @@ interface StaticSchedules {
   records: RuntimeScheduleRecord[]
 }
 
+interface SerializeOperationContext {
+  active: boolean
+  deferred: Array<() => Promise<void>>
+  depth: number
+  wakeReleases: Set<() => void>
+}
+
 const staticScheduleIdPrefix = "\0vitehub:static:"
 
+function isObject(value: unknown): value is object {
+  return Object(value) === value
+}
+
 function isScheduleRegistryDefinition(value: unknown): value is ScheduleRegistryDefinition {
-  return !!value && typeof value === "object" && "handler" in value
+  return isObject(value) && "handler" in value
 }
 
 function unwrapDefinition(loaded: ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }): ScheduleRegistryDefinition | undefined {
@@ -109,12 +120,7 @@ function createStaticSchedules(definitions: readonly StaticScheduleDefinitionEnt
 
 function createSerializer(): SerializeOperation {
   let tail = Promise.resolve()
-  const operationStorage = new AsyncLocalStorage<{
-    active: boolean
-    deferred: Array<() => Promise<void>>
-    depth: number
-    wakeReleases: Set<() => void>
-  }>()
+  const operationStorage = new AsyncLocalStorage<SerializeOperationContext>()
   const serialize = function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const activeOperation = operationStorage.getStore()
     if (activeOperation?.active) {
@@ -129,9 +135,9 @@ function createSerializer(): SerializeOperation {
       })()
     }
 
-    const operationContext = {
+    const operationContext: SerializeOperationContext = {
       active: true,
-      deferred: [] as Array<() => Promise<void>>,
+      deferred: [],
       depth: 0,
       wakeReleases: new Set<() => void>(),
     }
@@ -367,7 +373,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   }
   async function flushWaitUntil(): Promise<void> {
     while (pendingWork.size > 0) {
-      await Promise.allSettled([...pendingWork])
+      await Promise.allSettled(pendingWork)
     }
   }
   const serialize = createSerializer()
@@ -469,7 +475,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       closing = true
       return closePromise = (async () => {
         while (activeWakes.size > 0) {
-          await Promise.allSettled([...activeWakes])
+          await Promise.allSettled(activeWakes)
         }
         await serialize(async () => {})
         await flushWaitUntil()

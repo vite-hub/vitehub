@@ -27,6 +27,7 @@ export default defineConfig({
       "src/build/esbuild.ts",
       "src/build/mode.ts",
       "src/build/paths.ts",
+      "src/build/provider-output-sources.ts",
       "src/build/user-entry.ts",
       "src/build/vercel-config.ts",
       "src/build/vercel-runtime-package-copy.ts",

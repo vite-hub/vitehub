@@ -22,6 +22,22 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("creates nested output directories for cancellable bundles", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "workers", "schedule.mjs")
+    await writeFile(entry, "export default 'scheduled'\n", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      format: "esm",
+      platform: "node",
+      signal: new AbortController().signal,
+    })
+
+    await expect(readFile(outfile, "utf8")).resolves.toContain("scheduled")
+  })
+
   it("loads files as text only when imported with Vite's raw query", async () => {
     const rootDir = await createTempDir()
     const rawEntry = join(rootDir, "raw-entry.mjs")
@@ -35,8 +51,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(rawEntry, outfile, { format: "esm", platform: "node" })
 
-    // SAFETY: The fixture module exports the string imported from its Markdown source.
-    // SAFETY: The fixture module exports the string imported through its root-relative raw specifier.
+    // SAFETY: This bundle's entry module exports the string imported from context.md.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("# Repository context\n\nUse **trusted** Markdown.\n")
     await expect(bundleEsmEntry(plainEntry, outfile, { format: "esm", platform: "node" }))
@@ -65,7 +80,7 @@ describe("bundleEsmEntry", () => {
     })
     await Promise.all([rm(template), rm(partial)])
 
-    // SAFETY: The fixture module exports the async renderer defined in entry.mjs.
+    // SAFETY: This bundle's entry module exports an async Markdown template renderer.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
   })
@@ -94,7 +109,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
-    // SAFETY: The fixture module exports the string imported through its root-relative raw specifier.
+    // SAFETY: This bundle's entry module exports the root-relative raw file contents.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("# Root context\n")
   })
@@ -119,7 +134,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
-    // SAFETY: The fixture module exports the two raw text imports as its default object.
+    // SAFETY: This bundle's entry module exports the two raw file contents under these keys.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: { outside: string, robots: string } }
     expect(loaded.default).toEqual({ outside: "outside context\n", robots: "public robots\n" })
   })
@@ -146,7 +161,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", plugins: [callerPlugin] })
 
-    // SAFETY: The caller plugin defines the fixture module's default export as a string.
+    // SAFETY: The caller plugin defines this bundle's default export as a string.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("caller handled raw")
   })
@@ -163,8 +178,8 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
-    // SAFETY: The fixture module exports the Markdown template renderer defined in entry.mjs.
-    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: Record<string, unknown>) => Promise<string> }
+    // SAFETY: This bundle's entry module exports a renderer for the template's named input.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: { name: string }) => Promise<string> }
     await expect(loaded.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub!")
   })
 
@@ -237,7 +252,7 @@ describe("bundleEsmEntry", () => {
     expect(bundled).toContain("if (globalThis.process?.getBuiltinModule && import.meta.url) {")
     expect(bundled).toContain('globalThis.__filename = globalThis.process.getBuiltinModule("node:url").fileURLToPath(import.meta.url);')
     expect(bundled).not.toMatch(/(?:const|let|var|import).*__vitehub/)
-    // SAFETY: The fixture entry exports the function returning these three runtime fields.
+    // SAFETY: This entry exports a function returning the three tested CommonJS values.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => { dirname: string, filename: string, requireType: string } }
     expect(loaded.default()).toEqual({
       dirname: dirname(outfile),
@@ -263,7 +278,7 @@ describe("bundleEsmEntry", () => {
     expect(bundled).not.toContain("const __filename")
     await writeFile(outfile, `${bundled}\nconst __filename = "netlify-runtime";\n`, "utf8")
 
-    // SAFETY: The fixture entry exports the function returning these two runtime fields.
+    // SAFETY: This entry exports a function returning the two tested CommonJS values.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => { filename: string, requireType: string } }
     expect(loaded.default()).toEqual({
       filename: "netlify-runtime",
@@ -284,7 +299,7 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "neutral" })
 
-    // SAFETY: The fixture module exports the string selected by the package's import condition.
+    // SAFETY: This bundle's entry module exports the package's string default export.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("neutral-main")
   })
@@ -307,7 +322,7 @@ describe("bundleEsmEntry", () => {
       platform: "node",
     })
 
-    // SAFETY: The exact alias target exports a string literal as its default.
+    // SAFETY: This bundle's entry module exports the linked package's string default export.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("aliased")
   })
@@ -368,12 +383,12 @@ describe("bundleEsmEntry", () => {
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
 
-    // SAFETY: Every conditional-export fixture module exports a string literal as its default.
+    // SAFETY: This ESM bundle exports the selected conditional string.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("node")
 
     await bundleEsmEntry(requireEntry, requireOutfile, { format: "esm", platform: "node" })
-    // SAFETY: The fixture module exports the string selected by the package's require condition.
+    // SAFETY: This bundle's CommonJS entry exports the selected string condition.
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })

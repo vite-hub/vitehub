@@ -261,6 +261,40 @@ describe("remote Box providers", () => {
     expect(session.ports).toBeUndefined();
     await session.close();
   });
+
+  it("distinguishes missing Vercel files from filesystem failures", async () => {
+    const missing = Object.assign(new Error("missing"), { code: "ENOENT" });
+    let accessFailure = missing;
+    let readFailure = missing;
+    const access = vi.fn(async () => { throw accessFailure; });
+    const instance = vercelInstance();
+    instance.fs = {
+      access,
+      async mkdir() {},
+      async readFile() { throw readFailure; },
+      async readdir() { return []; },
+      async rename() {},
+      async rm() {},
+      async stat() { throw missing; },
+      async writeFile() {},
+    };
+    const box = await resolveBox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await box.open();
+
+    await expect(session.files.exists("/workspace/missing.txt")).resolves.toBe(false);
+    await expect(session.files.read("/workspace/missing.txt")).resolves.toBeNull();
+
+    const deniedAccess = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    accessFailure = deniedAccess;
+    await expect(session.files.exists("/workspace/private.txt")).rejects.toBe(deniedAccess);
+
+    const deniedRead = Object.assign(new Error("read denied"), { code: "EACCES" });
+    readFailure = deniedRead;
+    const accessCalls = access.mock.calls.length;
+    await expect(session.files.read("/workspace/private.txt")).rejects.toBe(deniedRead);
+    expect(access).toHaveBeenCalledTimes(accessCalls);
+    await session.close();
+  });
 });
 
 function namespace(stub: CloudflareSandboxStub) {

@@ -7,12 +7,14 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
-import { bindAgentInvocations } from "../src/invocations.ts"
+import { applyAgentInvocationStoreUpdate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
 import type { AgentInvocationStore } from "../src/server.ts"
 import type { Client } from "@libsql/client"
+
+const outcomeObservationNames = new Set(["agent.invocation.finish", "agent.stream.error"])
 
 function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
   return {
@@ -25,6 +27,421 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
 }
 
 describe("Agent Invocations", () => {
+  it("does not mark a full journal truncated when retrying an identified observation", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = Array.from({ length: 256 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:${index}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "duplicate-at-capacity",
+      observations,
+      status: "completed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: observations.at(-1),
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observationsTruncated).toBeUndefined()
+  })
+
+  it("keeps distinct observations that share a locally assigned sequence", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const first = {
+      attributes: { "vitehub.observation.id": "journal-a:1" },
+      name: "agent.channel.delivery.effect",
+      sequence: 1,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "concurrent-observations",
+      observations: [first],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal-b:1" },
+        name: "agent.channel.delivery.effect",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(2)
+  })
+
+  it("retains every identified priority outcome that fits before ordinary history", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const ordinary = Array.from({ length: 254 }, (_, index) => ({
+      name: `ordinary-${index}`,
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const streamError = {
+      attributes: { "error.message": "stream failed", "vitehub.observation.id": "journal:stream-error" },
+      name: "agent.stream.error",
+      sequence: 254,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const runError = {
+      attributes: { "error.message": "run failed", "vitehub.observation.id": "journal:run-error" },
+      name: "run.error",
+      sequence: 255,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const invocationError = {
+      attributes: { "vitehub.observation.id": "journal:invocation-error" },
+      name: "agent.invocation.error",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "error" as const,
+    }
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "priority-outcomes-at-capacity",
+      observations: [...ordinary, streamError, runError],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: invocationError,
+      timestamp: createdAt,
+    })
+
+    expect(record).toMatchObject({ observationsTruncated: true })
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.slice(-3).map(observation => observation.name)).toEqual([
+      "agent.stream.error",
+      "run.error",
+      "agent.invocation.error",
+    ])
+    expect(record.observations.slice(-3).every(observation => observation.attributes?.["vitehub.trace.truncated"] === true)).toBe(true)
+  })
+
+  it("reserves lifecycle evidence before recent delivery outcomes", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const lifecycle = [
+      {
+        attributes: { "error.message": "run failed", "vitehub.observation.id": "journal:run-error" },
+        name: "run.error",
+        sequence: 0,
+        timestamp: createdAt,
+        type: "error" as const,
+      },
+      {
+        attributes: { "vitehub.observation.id": "journal:invocation-finish" },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run" as const,
+      },
+    ]
+    const deliveries = Array.from({ length: 254 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:delivery:${index}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index + 2,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const latestDelivery = {
+      attributes: { "vitehub.observation.id": "journal:delivery:254" },
+      name: "agent.channel.delivery.effect",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "delivery-overflow-lifecycle",
+      observations: [...lifecycle, ...deliveries],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: latestDelivery,
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.slice(0, 2).map(observation => observation.name)).toEqual([
+      "run.error",
+      "agent.invocation.finish",
+    ])
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .not.toContain("journal:delivery:0")
+    expect(record.observations.at(-1)?.attributes?.["vitehub.observation.id"]).toBe("journal:delivery:254")
+    expect(record.observationsTruncated).toBe(true)
+  })
+
+  it("does not reserve lifecycle capacity for failure evidence alone", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const failures = Array.from({ length: 256 }, (_, index) => ({
+      attributes: {
+        "error.message": `failure ${index}`,
+        "vitehub.observation.id": `journal:failure:${index}`,
+      },
+      name: "run.error",
+      sequence: index,
+      timestamp: createdAt,
+      type: "error" as const,
+    }))
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "failure-evidence-at-capacity",
+      observations: failures,
+      status: "failed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:late-delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(failures.map(observation => observation.attributes["vitehub.observation.id"]))
+    expect(record.observationsTruncated).toBe(true)
+  })
+
+  it("restores recovered same-priority outcomes to trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "recovered-outcome-order",
+      observations: [{
+        attributes: { "error.message": "later fatal", "vitehub.observation.id": "journal:later" },
+        name: "agent.stream.error",
+        sequence: 2,
+        timestamp: createdAt,
+        type: "error",
+      }, {
+        attributes: { "vitehub.observation.id": "journal:terminal" },
+        name: "agent.invocation.finish",
+        sequence: 3,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "failed",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "error.message": "earliest fatal", "vitehub.observation.id": "journal:earliest" },
+        name: "agent.stream.error",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "error",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(["journal:earliest", "journal:later", "journal:terminal"])
+  })
+
+  it("keeps a reconstructed full journal in trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = Array.from({ length: 256 }, (_, sequence) => ({
+      ...(sequence === 2 ? { attributes: { "vitehub.observation.id": "journal:early-delivery" } } : {}),
+      name: sequence === 2 ? "agent.channel.delivery.effect" : `ordinary-${sequence}`,
+      sequence,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "full-journal-order",
+      observations,
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:late-delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.sequence))
+      .toEqual(Array.from({ length: 256 }, (_, index) => index === 255 ? 256 : index))
+  })
+
+  it("selects mixed-identity outcomes in trace order", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const observations = [{
+      name: "agent.channel.delivery.effect",
+      sequence: 0,
+      timestamp: createdAt,
+      type: "run" as const,
+    }, ...Array.from({ length: 255 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:delivery:${index + 1}` },
+      name: "agent.channel.delivery.effect",
+      sequence: index + 1,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))]
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "mixed-identity-order",
+      observations,
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:delivery:256" },
+        name: "agent.channel.delivery.effect",
+        sequence: 256,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.sequence)).toEqual(Array.from({ length: 256 }, (_, index) => index + 1))
+  })
+
+  it("keeps synchronous delivery before a later finish observation below capacity", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "delivery-before-finish",
+      observations: [{
+        attributes: { "vitehub.observation.id": "journal:delivery" },
+        name: "agent.channel.delivery.effect",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        attributes: { "vitehub.observation.id": "journal:finish" },
+        name: "agent.invocation.finish",
+        sequence: 2,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.attributes?.["vitehub.observation.id"]))
+      .toEqual(["journal:delivery", "journal:finish"])
+  })
+
+  it("keeps unidentified observations that share a locally assigned sequence", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "concurrent-unidentified-observations",
+      observations: [{
+        name: "first",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      }],
+      status: "running",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: {
+        name: "second",
+        sequence: 1,
+        timestamp: createdAt,
+        type: "run",
+      },
+      timestamp: createdAt,
+    })
+
+    expect(record.observations.map(observation => observation.name)).toEqual(["first", "second"])
+  })
+
+  it("preserves observation identities through attribute bounds in memory and SQLite stores", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-observation-identity-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    try {
+      for (const [index, store] of stores.entries()) {
+        const id = `bounded-identity-${index}`
+        const observation = {
+          attributes: {
+            ...Object.fromEntries(Array.from({ length: 32 }, (_, attribute) => [`attribute-${attribute}`, attribute])),
+            "vitehub.observation.id": "journal:1",
+          },
+          name: "agent.channel.delivery.effect",
+          sequence: 1,
+          timestamp: createdAt,
+          type: "run" as const,
+        }
+        await store.create({
+          createdAt,
+          id,
+          observations: [],
+          status: "running",
+          traceId: id,
+          updatedAt: createdAt,
+        })
+        await store.update(id, { observation, timestamp: createdAt })
+        await store.update(id, { observation, timestamp: createdAt })
+
+        const record = await store.get(id)
+        expect(record?.observations).toHaveLength(1)
+        expect(record?.observations[0]?.attributes).toMatchObject({ "vitehub.observation.id": "journal:1" })
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects reserved trace attributes in metadataContent", () => {
+    expect(() => defineAgentInvocations({
+      metadataContent: ["vitehub.payload.value"],
+      store: createMemoryAgentInvocationStore(),
+    })).toThrow("metadataContent cannot include reserved trace attributes")
+  })
+
   it("excludes generated cursors from memory-store search", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({
@@ -102,6 +519,347 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("stalled-observation")).resolves.toMatchObject({ status: "completed" })
   }, 5_000)
 
+  it("persists delivery observations emitted after terminal finalization", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("late-delivery-observation"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.finish("completed")
+
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Streamed reply" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("late-delivery-observation")
+      expect(record).toMatchObject({ status: "completed" })
+      expect(record?.observations).toEqual([
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "Streamed reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+      ])
+    })
+  })
+
+  it("retries late delivery observations after a transient store failure", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let observationAttempts = 0
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.observation && observationAttempts++ === 0) return undefined
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("retry-late-delivery"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Late reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      const record = await invocations.getByRunId("retry-late-delivery")
+      expect(observationAttempts).toBe(2)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "channel.effect.content": "Late reply" }),
+        name: "agent.channel.delivery.effect",
+      }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not duplicate a late delivery when the store commits before timing out", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            const updated = await memory.update(id, input, claimId)
+            if (input.observation) await new Promise(resolve => setTimeout(resolve, 1_500))
+            return updated
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("slow-late-delivery"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Late reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      const record = await invocations.getByRunId("slow-late-delivery")
+      expect(record?.observations.filter(observation =>
+        observation.name === "agent.channel.delivery.effect"
+        && observation.attributes?.["channel.effect.content"] === "Late reply",
+      )).toHaveLength(1)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("persists delivery observations emitted while terminal finalization retries", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let terminalAttempts = 0
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.status === "completed" && terminalAttempts++ === 0) return undefined
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("retrying-terminal-delivery"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Reply delivered during retry" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      await vi.waitFor(async () => {
+        const record = await invocations.getByRunId("retrying-terminal-delivery")
+        expect(record).toMatchObject({ status: "completed" })
+        expect(record?.observations).toContainEqual(expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "Reply delivered during retry" }),
+          name: "agent.channel.delivery.effect",
+        }))
+        expect(Date.parse(record!.updatedAt)).toBeGreaterThanOrEqual(Date.parse(record!.completedAt!))
+      })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps retry-exhaustion delivery persistence under runtime custody", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let releaseObservation!: () => void
+      const observationBlocked = new Promise<void>(resolve => releaseObservation = resolve)
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.status === "completed") return undefined
+            if (input.observation) await observationBlocked
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const context = {
+        ...runtime("exhausted-terminal-delivery"),
+        waitUntil: (task: Promise<unknown>) => { waitUntilTasks.push(task) },
+      }
+      const journal = await bindAgentInvocations(invocations, context)
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.finish("completed")
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Reply during exhausted retry" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(waitUntilTasks).toHaveLength(1)
+      let recoverySettled = false
+      void waitUntilTasks[0]!.then(() => recoverySettled = true)
+      await Promise.resolve()
+      expect(recoverySettled).toBe(false)
+
+      releaseObservation()
+      await vi.advanceTimersByTimeAsync(0)
+      await Promise.all(waitUntilTasks)
+      const record = await invocations.getByRunId("exhausted-terminal-delivery")
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "channel.effect.content": "Reply during exhausted retry" }),
+        name: "agent.channel.delivery.effect",
+      }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("recovers a delivery after its ordinary write and retry both fail", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    let deliveryAttempts = 0
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: {
+        ...memory,
+        update(id, input, claimId) {
+          if (input.observation?.name === "agent.channel.delivery.effect" && deliveryAttempts++ < 2) return undefined
+          return memory.update(id, input, claimId)
+        },
+      },
+    })
+    const journal = await bindAgentInvocations(invocations, {
+      ...runtime("twice-failed-delivery"),
+      waitUntil: (task: Promise<unknown>) => { waitUntilTasks.push(task) },
+    })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Reply recovered after retry" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+    await vi.waitFor(() => expect(deliveryAttempts).toBe(2))
+
+    await journal.finish("completed")
+    await Promise.all(waitUntilTasks)
+
+    const record = await invocations.getByRunId("twice-failed-delivery")
+    expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+    expect(record?.observations).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "channel.effect.content": "Reply recovered after retry" }),
+      name: "agent.channel.delivery.effect",
+    }))
+  })
+
+  it("recovers a delivery after its ordinary write and retry both time out", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      let deliveryAttempts = 0
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          update(id, input, claimId) {
+            if (input.observation?.name === "agent.channel.delivery.effect" && deliveryAttempts++ < 2) {
+              return new Promise(() => {})
+            }
+            return memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("twice-timed-out-delivery"),
+        waitUntil: (task: Promise<unknown>) => { waitUntilTasks.push(task) },
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Reply recovered after timeouts" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(deliveryAttempts).toBe(2)
+
+      await journal.finish("completed")
+      await vi.runAllTimersAsync()
+      await Promise.all(waitUntilTasks)
+
+      const record = await invocations.getByRunId("twice-timed-out-delivery")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "channel.effect.content": "Reply recovered after timeouts" }),
+        name: "agent.channel.delivery.effect",
+      }))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("retains late delivery outcomes when a completed journal is at capacity", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    for (let index = 0; index < 255; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+    await journal.finish("completed")
+
+    for (const content of ["First streamed reply", "Second streamed reply"]) {
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": content },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+    }
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("late-delivery-at-capacity")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations.slice(-3)).toMatchObject([
+        { name: "agent.invocation.finish" },
+        {
+          attributes: { "channel.effect.content": "First streamed reply" },
+          name: "agent.channel.delivery.effect",
+        },
+        {
+          attributes: { "channel.effect.content": "Second streamed reply" },
+          name: "agent.channel.delivery.effect",
+        },
+      ])
+    })
+  })
+
+  it("retains delivery outcomes when a running journal is at capacity", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("running-delivery-at-capacity"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    for (let index = 0; index < 256; index++) {
+      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+    }
+    await journal.context.traceLog?.append({
+      attributes: { "channel.effect.content": "Reply before finalization" },
+      name: "agent.channel.delivery.effect",
+      type: "run",
+    })
+
+    await vi.waitFor(async () => {
+      const record = await invocations.getByRunId("running-delivery-at-capacity")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "running" })
+      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations.at(-1)).toMatchObject({
+        attributes: { "channel.effect.content": "Reply before finalization" },
+        name: "agent.channel.delivery.effect",
+      })
+    })
+  })
+
   it("persists truncation when a running invocation reaches observation capacity", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
@@ -160,8 +918,44 @@ describe("Agent Invocations", () => {
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    // SAFETY: This fixture supplies the custom Trace Event Log shape accepted by the runtime boundary.
     await expect(runAgent(agent, { ...runtime("malformed-trace"), traceLog } as never, {})).resolves.toBe("done")
     await expect(invocations.getByRunId("malformed-trace")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it("handles journal normalization rejection while the wrapped trace log is pending", async () => {
+    let releaseAppend!: () => void
+    const appendPending = new Promise<void>(resolve => { releaseAppend = resolve })
+    const traceLog = {
+      append: vi.fn(async (event: Record<string, unknown>) => {
+        await appendPending
+        return { ...event, timestamp: new Date().toISOString() }
+      }),
+      entries: () => [],
+    }
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    // SAFETY: This fixture supplies a valid custom Trace Event Log with a deliberately pending append.
+    const journal = await bindAgentInvocations(invocations, { ...runtime("pending-malformed-trace"), traceLog } as never)
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+
+    try {
+      // SAFETY: This malformed event deliberately bypasses the Trace Event timestamp contract.
+      const appended = journal.context.traceLog?.append({
+        name: "malformed",
+        timestamp: new Date(Number.NaN),
+        type: "run",
+      } as never)
+      await new Promise(resolve => setImmediate(resolve))
+      expect(unhandled).not.toHaveBeenCalled()
+      releaseAppend()
+      await expect(appended).resolves.toMatchObject({ name: "malformed" })
+    }
+    finally {
+      releaseAppend()
+      process.off("unhandledRejection", unhandled)
+    }
   })
 
   it("isolates invocation persistence from a rejecting caller trace log", async () => {
@@ -188,6 +982,64 @@ describe("Agent Invocations", () => {
       "resolved.configuration",
       "agent.invocation.finish",
     ]))
+  })
+
+  it("guards metadata content inspection for custom trace attributes", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const append = vi.spyOn(traceLog, "append")
+    const journal = await bindAgentInvocations(invocations, { ...runtime("hostile-metadata-content"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = new Proxy({ "message.content": "persisted" }, {
+      has() {
+        throw new Error("membership unavailable")
+      },
+    })
+
+    await expect(journal.context.traceLog?.append({ attributes, name: "custom", type: "run" })).resolves.toBeDefined()
+    await journal.finish("completed")
+
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ name: "custom" }))
+    const observation = (await invocations.getByRunId("hostile-metadata-content"))?.observations
+      .find(entry => entry.name === "custom")
+    expect(observation?.attributes?.["message.content"]).toBe("persisted")
+  })
+
+  it("keeps omission markers when selected metadata content cannot be captured", async () => {
+    const invocations = defineAgentInvocations({
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const journal = await bindAgentInvocations(invocations, runtime("uncaptured-metadata-content"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const accessorAttributes: Record<string, unknown> = {}
+    Object.defineProperty(accessorAttributes, "message.content", {
+      enumerable: true,
+      get: () => "accessor content",
+    })
+
+    await journal.context.traceLog?.append({ attributes: accessorAttributes, name: "accessor", type: "run" })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": () => "uncloneable content" },
+      name: "uncloneable",
+      type: "run",
+    })
+    await journal.context.traceLog?.append({
+      attributes: { "message.content": undefined },
+      name: "undefined",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("uncaptured-metadata-content"))?.observations
+    for (const name of ["accessor", "uncloneable", "undefined"]) {
+      const observation = observations?.find(entry => entry.name === name)
+      expect(observation?.attributes?.["content.omitted"]).toEqual(["message.content"])
+      expect(observation?.attributes).not.toHaveProperty("message.content")
+    }
   })
 
   it("marks bounded Agent configuration as truncated", async () => {
@@ -222,6 +1074,364 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("reserves the observation attribute limit for the truncation marker", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-attribute-count"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const attributes = Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes, name: "tool.finish", type: "run" })
+    const exactLimitAttributes = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`exact-${index}`, index]))
+    await journal.context.traceLog?.append({ attributes: exactLimitAttributes, name: "tool.exact-limit", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("bounded-attribute-count"))?.observations
+    const observation = observations?.find(entry => entry.name === "tool.finish")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(Object.keys(observation?.attributes || {})).toHaveLength(32)
+    const exactLimitObservation = observations?.find(entry => entry.name === "tool.exact-limit")
+    expect(exactLimitObservation?.attributes).toEqual(exactLimitAttributes)
+  })
+
+  it("bounds public trace payloads before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: { value: { files: "x".repeat(100_000) }, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(100_000)
+  })
+
+  it("serializes structured public payload values before persisting invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          createdAt: new Date("2026-08-27T00:00:00.000Z"),
+          data: new Uint8Array([1, 2, 3]),
+          files: new Map([["README.md", 42]]),
+          invalidDate: new Date(Number.NaN),
+          paths: new Set(["README.md", "package.json"]),
+          pattern: /vitehub/gi,
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        createdAt: { type: "Date", value: "2026-08-27T00:00:00.000Z" },
+        data: { bytes: [1, 2, 3], type: "Uint8Array" },
+        files: [["README.md", 42]],
+        invalidDate: { type: "Date", value: "Invalid Date" },
+        paths: ["README.md", "package.json"],
+        pattern: { flags: "gi", lastIndex: 0, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("retains RegExp state and Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "built-in-details",
+      observations: [],
+      status: "running",
+      traceId: "built-in-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const pattern = /vitehub/gi
+    pattern.lastIndex = 3
+    const error = new AggregateError([new Error("first")], "outer", { cause: { code: "inner" } })
+    Object.assign(error, { code: "E_OUTER" })
+
+    await store.update("built-in-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error, pattern }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("built-in-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: { code: "inner" },
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
+        pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          blob: new Blob([new Uint8Array([1, 2])], { type: "application/octet-stream" }),
+          boxedBigInt: Object(9n),
+          boxedBoolean: new Boolean(false),
+          boxedNumber: new Number(5),
+          boxedString: new String("one"),
+          file: new File([new Uint8Array([3, 4])], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("remaining-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        blob: { bytes: [1, 2], mediaType: "application/octet-stream", size: 2, type: "Blob" },
+        boxedBigInt: { type: "BigInt", value: "9" },
+        boxedBoolean: { type: "Boolean", value: false },
+        boxedNumber: { type: "Number", value: 5 },
+        boxedString: { type: "String", value: "one" },
+        file: {
+          bytes: [3, 4],
+          lastModified: 1_768_435_200_000,
+          mediaType: "text/plain",
+          name: "report.txt",
+          size: 2,
+          type: "File",
+        },
+      },
+      visibility: "public",
+    })
+    expect(observation?.attributes?.["vitehub.payload.value"]).toEqual(observation?.payload?.visibility === "public"
+      ? observation.payload.value
+      : undefined)
+  })
+
+  it("marks undefined public payload values as truncated and preserves their positions", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("undefined-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          array: [undefined],
+          direct: undefined,
+          files: new Map([["README.md", undefined]]),
+          paths: new Set([undefined]),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined",
+      payload: { value: undefined, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.undefined-array",
+      payload: { value: [undefined], visibility: "public" },
+      type: "lifecycle",
+    })
+    Object.defineProperty(Array.prototype, "0", { configurable: true, value: "inherited-secret", writable: true })
+    try {
+      await journal.context.traceLog?.append({
+        name: "workspace.sparse-array",
+        payload: { value: Array(1), visibility: "public" },
+        type: "lifecycle",
+      })
+    }
+    finally {
+      delete Array.prototype[0]
+    }
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("undefined-public-payload"))?.observations
+    const observation = observations?.find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(observation?.payload).toEqual({
+      value: {
+        array: [null],
+        direct: null,
+        files: [["README.md", null]],
+        paths: [null],
+      },
+      visibility: "public",
+    })
+    expect(observations?.find(entry => entry.name === "workspace.undefined")?.payload).toEqual({
+      value: null,
+      visibility: "public",
+    })
+    for (const name of ["workspace.undefined-array", "workspace.sparse-array"]) {
+      const arrayObservation = observations?.find(entry => entry.name === name)
+      expect(arrayObservation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+      expect(arrayObservation?.payload).toEqual({ value: [null], visibility: "public" })
+    }
+  })
+
+  it("marks each lossy public payload scalar as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("lossy-public-payload-scalars"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.bigint",
+      payload: { value: 1n, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.nan",
+      payload: { value: Number.NaN, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.context.traceLog?.append({
+      name: "workspace.negative-zero",
+      payload: { value: -0, visibility: "public" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("lossy-public-payload-scalars"))?.observations
+    expect(observations?.find(entry => entry.name === "workspace.bigint")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: "1", visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.nan")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: null, visibility: "public" },
+    })
+    expect(observations?.find(entry => entry.name === "workspace.negative-zero")).toMatchObject({
+      attributes: { "vitehub.observation.truncated": true },
+      payload: { value: -0, visibility: "public" },
+    })
+  })
+
+  it("persists the base log payload snapshot", async () => {
+    let releaseEntry!: () => void
+    const entryReleased = new Promise<void>(resolve => {
+      releaseEntry = resolve
+    })
+    const onEntry = vi.fn(async () => {
+      await entryReleased
+    })
+    const traceLog = createTraceEventLog({ onEntry })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, { ...runtime("payload-snapshot"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const value = { message: "original" }
+
+    const appended = journal.context.traceLog?.append({
+      name: "workspace.snapshot",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+    await vi.waitFor(() => expect(onEntry).toHaveBeenCalledOnce())
+    value.message = "mutated"
+    releaseEntry()
+    await appended
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("payload-snapshot"))?.observations
+      .find(entry => entry.name === "workspace.snapshot")
+    expect(observation?.payload).toEqual({ value: { message: "original" }, visibility: "public" })
+  })
+
+  it("uses the wrapped trace log timestamp for the persisted observation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const wrappedTimestamp = "2000-01-01T00:00:00.000Z"
+    const traceLog = {
+      append: vi.fn(async event => ({ ...event, sequence: 1, timestamp: wrappedTimestamp })),
+      entries: () => [],
+    }
+    const journal = await bindAgentInvocations(invocations, { ...runtime("wrapped-timestamp"), traceLog })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+
+    const entry = await journal.context.traceLog?.append({ name: "custom.event", type: "run" })
+
+    expect(entry?.timestamp).toBe(wrappedTimestamp)
+    await vi.waitFor(async () => {
+      const observation = (await invocations.getByRunId("wrapped-timestamp"))?.observations
+        .find(item => item.name === "custom.event")
+      expect(observation?.timestamp).toBe(wrappedTimestamp)
+    })
+  })
+
+  it("bounds large structured public payload values before persistence", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-structured-public-payload"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      name: "workspace.materialized",
+      payload: {
+        value: {
+          bytes: new Uint8Array(100_000),
+          files: new Map(Array.from({ length: 100_000 }, (_, index) => [index, index])),
+          paths: new Set(Array.from({ length: 100_000 }, (_, index) => index)),
+          pattern: new RegExp("x".repeat(100_000)),
+        },
+        visibility: "public",
+      },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-structured-public-payload"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(JSON.stringify(observation?.payload).length).toBeLessThan(70_000)
+  })
+
+  it("preserves canonical trace attributes when bounding invocation observations", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-trace-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`ordinary.${index}`, index])),
+      name: "workspace.materialized",
+      payload: { summary: "Workspace ready", visibility: "summary" },
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("bounded-trace-attributes"))?.observations
+      .find(entry => entry.name === "workspace.materialized")
+    expect(observation?.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+      "vitehub.observation.truncated": true,
+      "vitehub.payload.summary": "Workspace ready",
+      "vitehub.payload.visibility": "summary",
+    })
+  })
+
   it("keeps resolved instructions out of metadata-only invocation journals", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -247,6 +1457,13 @@ describe("Agent Invocations", () => {
 
     const configured = (await invocations.getByRunId("metadata-only-instructions"))?.observations
       .findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured).toMatchObject({
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: {
+        "vitehub.activity.owner": "vitehub",
+        "vitehub.activity.phase": "setup",
+      },
+    })
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
   })
 
@@ -524,6 +1741,255 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("recovers every identified outcome missed before delivery terminalizes", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const attempts = new Map<string, number>()
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            const name = input.observation?.name
+            if (name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            if (name) {
+              const attempt = attempts.get(name) || 0
+              attempts.set(name, attempt + 1)
+              if ((name === "run.error" || name === "agent.invocation.finish") && attempt < 2) return
+              if (name === "agent.channel.delivery.effect" && attempt === 0) return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-mixed-outcomes"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "provider run failed" },
+        name: "run.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Failure notice" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("failed", new Error("provider run failed"))
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("finish-deadline-mixed-outcomes")
+      expect(record).toMatchObject({ status: "failed" })
+      expect(record?.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "run.error" }),
+        expect.objectContaining({ name: "agent.invocation.finish" }),
+        expect.objectContaining({ name: "agent.channel.delivery.effect" }),
+      ]))
+      expect(attempts).toEqual(new Map([
+        ["run.error", 3],
+        ["agent.invocation.finish", 3],
+        ["agent.channel.delivery.effect", 2],
+      ]))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("persists a queued delivery when its first write reaches the finish deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      let deliveryAttempts = 0
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            if (input.observation?.name === "agent.channel.delivery.effect" && deliveryAttempts++ === 0) {
+              return await new Promise(() => {})
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-delivery"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Reply before finalization" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("finish-deadline-delivery")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "channel.effect.content": "Reply before finalization" }),
+        name: "agent.channel.delivery.effect",
+      }))
+      expect(deliveryAttempts).toBe(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not duplicate a delivery committed before a terminal update returns", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      let deliveryUpdates = 0
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            const record = await memory.update(id, input, claimId)
+            if (input.observation?.name === "agent.channel.delivery.effect" && deliveryUpdates++ === 0) {
+              await new Promise<void>((resolve) => setTimeout(resolve, 1_500))
+            }
+            return record
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("terminal-delivery-ambiguous-success"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Committed reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("terminal-delivery-ambiguous-success")
+      expect(record?.observations.filter(observation => observation.name === "agent.channel.delivery.effect")).toHaveLength(1)
+      expect(deliveryUpdates).toBe(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("retries every queued delivery that misses terminal finalization", async () => {
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      let reportActiveStarted!: () => void
+      let firstDeliveryAttempts = 0
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const recoveryTasks: Array<Promise<unknown>> = []
+      const invocations = defineAgentInvocations({
+        content: "content",
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              return await new Promise(() => {})
+            }
+            if (input.observation?.attributes?.["channel.effect.content"] === "First reply") {
+              const attempt = firstDeliveryAttempts++
+              if (attempt === 0) return await new Promise(() => {})
+              if (attempt === 1) return undefined
+            }
+            return await memory.update(id, input, claimId)
+          },
+        },
+      })
+      const journal = await bindAgentInvocations(invocations, {
+        ...runtime("finish-deadline-deliveries"),
+        waitUntil: promise => recoveryTasks.push(promise),
+      })
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "First reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+      await journal.context.traceLog?.append({
+        attributes: { "channel.effect.content": "Second reply" },
+        name: "agent.channel.delivery.effect",
+        type: "run",
+      })
+
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(3_000)
+      await finishing
+      await Promise.all(recoveryTasks)
+
+      const record = await invocations.getByRunId("finish-deadline-deliveries")
+      expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+      expect(record?.observations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "First reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+        expect.objectContaining({
+          attributes: expect.objectContaining({ "channel.effect.content": "Second reply" }),
+          name: "agent.channel.delivery.effect",
+        }),
+      ]))
+      expect(firstDeliveryAttempts).toBe(3)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("marks truncation when a queued ordinary observation reaches the finish deadline", async () => {
     vi.useFakeTimers()
     try {
@@ -700,8 +2166,14 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("finish-deadline-active-fatal")
       expect(record).toMatchObject({ status: "failed" })
-      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "run.error" }))
-      expect(record?.observations).toContainEqual(expect.objectContaining({ name: "agent.invocation.finish" }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "vitehub.observation.id": expect.any(String) }),
+        name: "run.error",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "vitehub.observation.id": expect.any(String) }),
+        name: "agent.invocation.finish",
+      }))
     }
     finally {
       vi.useRealTimers()
@@ -750,13 +2222,19 @@ describe("Agent Invocations", () => {
     expect(observationWrites).toBeLessThanOrEqual(256)
     expect(record?.observations.length).toBeLessThanOrEqual(256)
     expect(record?.observations[1]).toMatchObject({
-      attributes: { "error.message": "provider stream failed 0" },
+      attributes: {
+        "error.message": "provider stream failed 258",
+        "vitehub.trace.truncated": true,
+      },
       name: "agent.stream.error",
     })
-    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
+    expect(record?.observations.at(-1)).toMatchObject({
+      attributes: { "vitehub.trace.truncated": true },
+      name: "agent.invocation.finish",
+    })
   })
 
-  it("keeps the earliest fatal evidence before the latest terminal outcome", async () => {
+  it("keeps every identified priority outcome that fits before ordinary history", async () => {
     let releaseActive!: () => void
     let reportActiveStarted!: () => void
     let observationWrites = 0
@@ -807,11 +2285,11 @@ describe("Agent Invocations", () => {
     const record = await invocations.getByRunId("ordered-outcome-observations")
     expect(observationWrites).toBeLessThanOrEqual(256)
     expect(record?.observations.length).toBeLessThanOrEqual(256)
-    expect(record?.observations.slice(-2)).toMatchObject([
+    expect(record?.observations.slice(-3)).toMatchObject([
+      { attributes: { generation: "older" }, name: "agent.invocation.finish" },
       { attributes: { "error.message": "fatal run error" }, name: "run.error" },
       { attributes: { generation: "latest" }, name: "agent.invocation.finish" },
     ])
-    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { generation: "older" } }))
   })
 
   it("requeues an in-flight earliest fatal observation when its write fails", async () => {
@@ -860,11 +2338,11 @@ describe("Agent Invocations", () => {
 
     const record = await invocations.getByRunId("retried-earliest-fatal")
     expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.slice(-2)).toMatchObject([
+    expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
       { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+      { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
       { name: "agent.invocation.finish" },
     ])
-    expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
   })
 
   it("requeues an in-flight earliest fatal observation after its write times out", async () => {
@@ -919,11 +2397,11 @@ describe("Agent Invocations", () => {
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
       expect(record?.observations).toHaveLength(256)
-      expect(record?.observations.slice(-2)).toMatchObject([
+      expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+        { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
         { name: "agent.invocation.finish" },
       ])
-      expect(record?.observations).not.toContainEqual(expect.objectContaining({ attributes: { "error.message": "later fatal" } }))
     }
     finally {
       vi.useRealTimers()
@@ -1565,6 +3043,11 @@ describe("Agent Invocations", () => {
       const agent = defineAgent({
         driver: { async run(context) {
           await context.traceLog?.append({ attributes: { nan: Number.NaN }, name: "numbers", type: "run" })
+          await context.traceLog?.append({
+            name: "negative-zero",
+            payload: { value: -0, visibility: "public" },
+            type: "run",
+          })
           return "persisted"
         } },
         invocations,
@@ -1594,9 +3077,14 @@ describe("Agent Invocations", () => {
         "vitehub.agent.configured",
         "agent.invocation.start",
         "numbers",
+        "negative-zero",
         "agent.invocation.finish",
       ])
       expect((await restored.getByRunId("durable-run"))?.observations[2]?.attributes).toMatchObject({ nan: null })
+      expect((await restored.getByRunId("durable-run"))?.observations[3]).toMatchObject({
+        attributes: { "vitehub.observation.truncated": true },
+        payload: { value: 0, visibility: "public" },
+      })
       await expect(restored.list({ search: "VITE-HUB/VITEHUB" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ status: "completed" })],
       })
