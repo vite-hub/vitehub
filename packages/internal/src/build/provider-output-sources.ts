@@ -135,7 +135,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
             .sort((left, right) => right.length - left.length)[0]
           const ignoredAncestor = ignoredSourceAncestor(containingConfiguredRoot ?? root, resolvedSource)
-          if (ignoredAncestor || (ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
+          if (ignoredAncestor || (!containingConfiguredRoot && ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
               || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
           }

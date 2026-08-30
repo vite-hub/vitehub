@@ -93,7 +93,7 @@ it("excludes nested generated output directories from retained workspaces", asyn
 it("retains configured roots beneath nested generated output directories", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-root-"))
   tempDirs.push(workspace)
-  const rootDir = join(workspace, "playground", "vite", ".vitest-tmp", "project")
+  const rootDir = join(workspace, ".vitest-tmp", "project")
   const handler = join(rootDir, "server", "workflows", "support.ts")
   const shared = join(rootDir, "server", "shared.ts")
   const nestedGenerated = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
@@ -120,7 +120,7 @@ it("retains configured roots beneath nested generated output directories", async
     paths: [handler],
     roots: [rootDir],
   })
-  const retainedWorkspace = join(retained.resolve(rootDir), "..", "..", "..", "..")
+  const retainedWorkspace = join(retained.resolve(rootDir), "..", "..")
 
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("../../shared")
   await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("retained")
