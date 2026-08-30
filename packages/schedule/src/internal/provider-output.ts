@@ -700,10 +700,11 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
-    await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp`
     const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
     try {
-      await bundleEsmEntry(artifacts.denoCronFile, stagedDenoCronFile, {
+      await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+      await bundleEsmEntry(stagedDenoCronInputFile, stagedDenoCronFile, {
         alias: options.bundleAlias,
         external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
         format: "esm",
@@ -716,7 +717,10 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       await rename(stagedDenoCronFile, artifacts.denoCronFile)
     }
     finally {
-      await rm(stagedDenoCronFile, { force: true })
+      await Promise.all([
+        rm(stagedDenoCronInputFile, { force: true }),
+        rm(stagedDenoCronFile, { force: true }),
+      ])
     }
     options.signal?.throwIfAborted()
     await writeCloudflareScheduleOutput({

@@ -277,6 +277,24 @@ describe("schedule provider output", () => {
     expect(source).toContain("handler: () => \"ok\"")
   })
 
+  it("preserves published Deno cron output when closure bundling fails", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-output-failure-")
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const publishedSource = await readFile(denoCron, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      runtimeImport: "./missing-runtime.mjs",
+    })).rejects.toThrow()
+
+    expect(await readFile(denoCron, "utf8")).toBe(publishedSource)
+    expect(existsSync(`${denoCron}.vitehub-input-tmp`)).toBe(false)
+    expect(existsSync(`${denoCron}.vitehub-tmp`)).toBe(false)
+  })
+
   it("can route Deno cron provider wake output through a preset facade", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-facade-output-")
 
