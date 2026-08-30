@@ -5,6 +5,7 @@ import {
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
+  isStandaloneCancellationObservation,
   isStandaloneFailureObservation,
   isStandaloneSuccessfulLifecycleObservation,
   isTerminalToolObservation,
@@ -199,6 +200,12 @@ describe("Console session trace model", () => {
     expect(isTerminalToolObservation("agent.tool.failed")).toBe(true);
     expect(isTerminalToolObservation("agent.tool.start")).toBe(false);
     expect(isTerminalToolObservation("agent.model.failed")).toBe(false);
+  });
+
+  it("recognizes standalone lifecycle cancellations", () => {
+    for (const name of ["agent.model.abort", "agent.step.cancel", "agent.task.cancelled"])
+      expect(isStandaloneCancellationObservation(name)).toBe(true);
+    expect(isStandaloneCancellationObservation("agent.model.finish")).toBe(false);
   });
 
   it("recognizes every paired lifecycle terminal suffix", () => {

@@ -206,6 +206,7 @@
     "google-auth-library": "catalog:storage",
     "shiki": "^4.3.0",
     "uploadthing": "catalog:storage",
+    "valibot": "catalog:runtime",
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
@@ -219,7 +220,6 @@
     "reka-ui": "^2.10.3",
     "tailwindcss": "^4.3.2",
     "typescript": "catalog:tooling",
-    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",

@@ -6,6 +6,7 @@ import {
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
+  isStandaloneCancellationObservation,
   isStandaloneFailureObservation,
   isTerminalTaskObservation,
   isTerminalToolObservation,
@@ -144,34 +145,26 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
 
   for (const observation of observations) {
     const failed = isStandaloneFailureObservation(observation.name);
+    const cancelled = isStandaloneCancellationObservation(observation.name);
     const successfulTerminal = standaloneSuccessfulTerminals.has(observation.sequence);
     const successfulTool = successfulTerminal && isTerminalToolObservation(observation.name);
-    const cancelledTool =
-      isTerminalToolObservation(observation.name) &&
-      (observation.name.endsWith(".abort") ||
-        observation.name.endsWith(".cancel") ||
-        observation.name.endsWith(".cancelled"));
+    const cancelledTool = isTerminalToolObservation(observation.name) && cancelled;
     const terminalTool =
       isTerminalToolObservation(observation.name) &&
       (failed || cancelledTool) &&
       isLifecycleTerminalObservation(observation.name);
-    if (!failed && !successfulTerminal && !terminalTool) continue;
+    if (!failed && !successfulTerminal && !cancelled) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
-    const cancelled =
-      observation.name === "agent.task.cancelled" ||
-      observation.name.endsWith(".abort") ||
-      observation.name.endsWith(".cancel") ||
-      observation.name.endsWith(".cancelled");
     const operation =
       successfulTool || terminalTool
         ? "execute_tool"
         : isTerminalTaskObservation(observation.name)
           ? "run_task"
-          : successfulTerminal
+          : successfulTerminal || cancelled
             ? operationName(observation, observation.attributes ?? {})
             : "error";
     const deniedApproval = isDeniedApproval(operation, observation.attributes ?? {});

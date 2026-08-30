@@ -350,9 +350,10 @@ async function loadFile(path: string) {
     );
     if (loadedFile.path !== path || loadedFile.revision !== workspace.value?.revision)
       throw new Error("The host returned a Workspace file for a different path or revision.");
+    if (fileRequest !== controller || selectedPath.value !== path) return;
     file.value = loadedFile;
   } catch (error) {
-    if (!controller.signal.aborted) fileError.value = message(error);
+    if (!controller.signal.aborted && fileRequest === controller) fileError.value = message(error);
   } finally {
     if (!controller.signal.aborted && fileRequest === controller) fileLoading.value = false;
   }

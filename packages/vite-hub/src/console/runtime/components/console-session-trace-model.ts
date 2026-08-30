@@ -81,6 +81,12 @@ export function isStandaloneFailureObservation(name: string): boolean {
   return name.endsWith(".error") || name.endsWith(".failed") || isTerminalTaskObservation(name);
 }
 
+export function isStandaloneCancellationObservation(name: string): boolean {
+  return (
+    name.endsWith(".abort") || name.endsWith(".cancel") || name.endsWith(".cancelled")
+  );
+}
+
 export function isStandaloneSuccessfulLifecycleObservation(
   observation: TraceObservationIdentity,
 ): boolean {
