@@ -659,6 +659,16 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
     })
+    expect(pluginNames(vitehub({
+      preset: "cloudflare",
+      rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
+    }))).toContain("@vite-hub/rate-limit/vite")
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/_internal/rate-limit",
+      projectRoot: "packages/policies",
+      provider: "cloudflare",
+      scanDirs: ["rules"],
+    })
   })
 
   it("passes configured Email drivers through the canonical integration", () => {

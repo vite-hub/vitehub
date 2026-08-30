@@ -951,6 +951,7 @@ describe("Agent invocation console", () => {
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
       })
+      // SAFETY: Vite plugin options form a recursive array, and this test narrows each flattened candidate structurally before using it as a plugin.
       const pluginCandidates = (plugins as unknown[]).flat(Infinity)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin options can be nested and mixed at this test boundary, so narrow the flattened value by its plugin name.
       const plugin = pluginCandidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))

@@ -812,7 +812,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
+    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
     plugins.push(hubRateLimit({
+      ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
