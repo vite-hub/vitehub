@@ -349,9 +349,9 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             if (
               babelPropertyName(path) === "provider"
               && belongsToRequestedExport
-              && babelStringValue(value, path) === "cloudflare-artifacts"
             ) {
-              declaresCloudflareArtifacts = true
+              const provider = babelStringValue(value, path)
+              if (provider === "cloudflare-artifacts" || provider === undefined) declaresCloudflareArtifacts = true
             }
           },
           VariableDeclarator(path: BabelNodePath) {
@@ -481,8 +481,9 @@ function sourceImportsFeedingWorkspaceStore(
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
+            const memberSelected = path.node.init?.type === "MemberExpression"
             const reachesRequestedExport = binding?.referencePaths?.some(reference => exportedName === "default"
-              ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
+              ? babelPathReachesExportedStore(reference) || (!memberSelected && babelPathReachesDefaultExport(reference))
               : babelPathOrBindingIsExported(reference, exportedName))
             if (!reachesRequestedExport) return
             const selectedName = path.node.init?.type === "MemberExpression"
