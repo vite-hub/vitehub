@@ -491,7 +491,7 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: packageTypeRoots(packageName, runnerDir),
+    typeRoots: packageTypeRoots(runnerDir),
     types: [...new Set([
       ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
@@ -501,9 +501,8 @@ async function packageModuleDiagnostics(
   return declarationDiagnostics(program, packageName)
 }
 
-function packageTypeRoots(packageName: string, runnerDir: string) {
+function packageTypeRoots(runnerDir: string) {
   return [
-    join(runnerDir, "node_modules", ...packageName.split("/"), "node_modules/@types"),
     join(runnerDir, "node_modules/@types"),
     resolve(runnerDir, "../../node_modules/@types"),
   ]
@@ -564,8 +563,8 @@ describe("published declaration diagnostics", () => {
       dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
     })
     expect(dependencies).toEqual(["@types/ws"])
-    expect(packageTypeRoots("@vite-hub/queue", "/consumer/queue")[0]).toBe(
-      "/consumer/queue/node_modules/@vite-hub/queue/node_modules/@types",
+    expect(packageTypeRoots("/consumer/queue")[0]).toBe(
+      "/consumer/queue/node_modules/@types",
     )
   })
 
