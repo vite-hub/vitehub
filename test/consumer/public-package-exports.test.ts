@@ -498,10 +498,57 @@ async function packageModuleDiagnostics(
     ])],
   }
   const program = ts.createProgram(rootNames, options)
-  return ts.getPreEmitDiagnostics(program)
+  return declarationDiagnostics(program, packageName)
+}
+
+function declarationDiagnostics(program: ts.Program, packageName?: string) {
+  return ts.getPreEmitDiagnostics(program).filter(diagnostic =>
+    packageName !== "@vite-hub/database" || !isKnownDrizzleTypeScript6Diagnostic(diagnostic),
+  )
+}
+
+function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
+  const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
+  if (!path.includes("/node_modules/drizzle-orm/")) return false
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+  return (diagnostic.code === 2307 && /Cannot find module '(?:gel|mysql2(?:\/promise)?)'/.test(message))
+    || ([2420, 2515].includes(diagnostic.code) && /(?:getSQL|generatedAlwaysAs)/.test(message))
+    || (diagnostic.code === 2416 && message.includes("generatedAlwaysAs"))
+    || (diagnostic.code === 2344 && /Type '(?:string|\w+SetOperatorExcludedMethods)' does not satisfy the constraint/.test(message))
+    || (diagnostic.code === 2559 && /Role' has no properties in common with type '.+RoleConfig'/.test(message))
 }
 
 describe("published declaration diagnostics", () => {
+  it("recognizes only known Drizzle TypeScript 6 diagnostics", () => {
+    const drizzleFile = { fileName: "/consumer/node_modules/drizzle-orm/gel-core/query.d.ts" } as ts.SourceFile
+    const viteHubFile = { fileName: "/consumer/node_modules/@vite-hub/database/dist/index.d.ts" } as ts.SourceFile
+
+    expect(isKnownDrizzleTypeScript6Diagnostic({
+      category: ts.DiagnosticCategory.Error,
+      code: 2307,
+      file: drizzleFile,
+      length: 3,
+      messageText: "Cannot find module 'gel' or its corresponding type declarations.",
+      start: 0,
+    })).toBe(true)
+    expect(isKnownDrizzleTypeScript6Diagnostic({
+      category: ts.DiagnosticCategory.Error,
+      code: 2307,
+      file: drizzleFile,
+      length: 3,
+      messageText: "Cannot find module 'unrelated-package' or its corresponding type declarations.",
+      start: 0,
+    })).toBe(false)
+    expect(isKnownDrizzleTypeScript6Diagnostic({
+      category: ts.DiagnosticCategory.Error,
+      code: 2307,
+      file: viteHubFile,
+      length: 3,
+      messageText: "Cannot find module 'gel' or its corresponding type declarations.",
+      start: 0,
+    })).toBe(false)
+  })
+
   it("keeps declared type dependencies visible to the package compiler", () => {
     const dependencies = packageTypeDependencies({
       dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
