@@ -357,6 +357,32 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("specific")
   })
 
+  it("preserves first-match semantics for duplicate exact aliases", async () => {
+    const rootDir = await createTempDir()
+    const first = resolve(rootDir, "first.mjs")
+    const second = resolve(rootDir, "second.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, 'export { value } from "duplicate"\n', "utf8"),
+      writeFile(first, "export const value = 'first'\n", "utf8"),
+      writeFile(second, "export const value = 'second'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: {
+        duplicate: first,
+        "duplicate\0vitehub-exact:1": second,
+      },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("first")
+    expect(await readFile(outfile, "utf8")).not.toContain("second")
+  })
+
   it("preserves broad aliases when an explicit slash alias follows", async () => {
     const rootDir = await createTempDir()
     const broadDir = resolve(rootDir, "broad")

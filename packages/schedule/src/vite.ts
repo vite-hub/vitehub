@@ -131,9 +131,11 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
   for (const [index, alias] of config.resolve.alias.entries()) {
     if (!(alias.find instanceof RegExp)) {
-      aliases[alias.find] = alias.replacement
+      const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}\0vitehub-exact:${index}` : alias.find
+      aliases[exactSpecifier] = alias.replacement
       if (alias.find.endsWith("/")) {
-        aliases[`${alias.find}/`] = `${alias.replacement.replace(/\/$/, "")}/`
+        const prefixSpecifier = `${alias.find}/${Object.hasOwn(aliases, `${alias.find}/`) ? `\0vitehub-prefix:${index}` : ""}`
+        aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
       }
       else {
         aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`

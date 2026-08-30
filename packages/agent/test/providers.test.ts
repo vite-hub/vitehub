@@ -985,6 +985,7 @@ describe("agent Vite plugin", () => {
           alias: [
             { find: "@", replacement: join(root, "src") },
             { find: "@/", replacement: join(root, "nested") },
+            { find: "@", replacement: join(root, "duplicate") },
           ],
         },
         root,
@@ -1006,6 +1007,8 @@ describe("agent Vite plugin", () => {
                     "@/\0vitehub-prefix:0": `${join(root, "src")}/`,
                     "@/": join(root, "nested"),
                     "@//": `${join(root, "nested")}/`,
+                    "@\0vitehub-exact:2": join(root, "duplicate"),
+                    "@/\0vitehub-prefix:2": `${join(root, "duplicate")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
                   external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),
