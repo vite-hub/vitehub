@@ -119,6 +119,16 @@ describe("Agent Invocation controllers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("rejects trusted child invokers with undefined properties before dispatch", async () => {
+    const run = vi.fn(() => "done")
+    const agent = defineAgent({ driver: { run }, runtime: workflow("controlled-child-portability") })
+
+    await expect(startAgentInvocation(agent, runtime({ runtime: "vercel" }), {}, {
+      invoker: { id: "user-1", meta: { scope: undefined } },
+    })).rejects.toThrow("startAgentInvocation({ invoker }) must contain only JSON-compatible values")
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("settles inline streams before resolving the public result", async () => {
     const agent = defineAgent({
       driver: {
@@ -512,6 +522,32 @@ describe("Agent Invocation controllers", () => {
       outcome: "accepted",
     })
     expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("caches backed terminal state when the public result settles", async () => {
+    const cancel = vi.fn(async () => { throw Object.assign(new Error("unsupported"), { code: "WORKFLOW_OPERATION_UNSUPPORTED" }) })
+    const inspect = vi.fn(async () => ({ id: "child", status: "running" as const }))
+    const controller = createBackedAgentInvocationController({
+      cancel,
+      errorOutcome: () => "unsupported",
+      id: "child",
+      inspect,
+      result: () => Promise.resolve("done"),
+      startResult: Promise.resolve(),
+    })
+
+    await expect(controller.result).resolves.toBe("done")
+    await expect(controller.inspect()).resolves.toEqual({
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "available",
+    })
+    await expect(controller.cancel()).resolves.toEqual({
+      id: "child",
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "invalid-state",
+    })
+    expect(inspect).not.toHaveBeenCalled()
+    expect(cancel).not.toHaveBeenCalled()
   })
 
   it("stops observing parent cancellation after a backed invocation reaches a terminal state", async () => {

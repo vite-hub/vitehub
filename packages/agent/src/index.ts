@@ -2172,7 +2172,7 @@ export interface StartAgentInvocationOptions {
 
 function portableChildInvocationInvoker(invoker: AgentInvoker): AgentInvoker {
   try {
-    return cloneWorkflowJsonValue(invoker) as AgentInvoker
+    return cloneWorkflowJsonValue(invoker, { omitUndefinedObjectProperties: false }) as AgentInvoker
   }
   catch (cause) {
     throw new TypeError("[vitehub] startAgentInvocation({ invoker }) must contain only JSON-compatible values.", { cause })
