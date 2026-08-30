@@ -293,7 +293,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
       rejectActive = reject
     })
     running = active
-    void (async () => {
+    const runAdmitted = async (): Promise<void> => {
       let failure: unknown
       let hasFailure = false
       do {
@@ -318,14 +318,25 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
         }
       } while (rerun)
       if (hasFailure) throw failure
-    })().then(resolveActive, rejectActive)
-    try {
-      await active
     }
-    finally {
-      if (running === active) running = undefined
+    const complete = (failure?: unknown, hasFailure = false): void => {
+      if (rerun) {
+        void runAdmitted().then(
+          () => complete(failure, hasFailure),
+          error => complete(hasFailure ? failure : error, true),
+        )
+        return
+      }
+      running = undefined
       scheduleRepair()
+      if (hasFailure) rejectActive(failure)
+      else resolveActive()
     }
+    void runAdmitted().then(
+      () => complete(),
+      error => complete(error, true),
+    )
+    await active
   }
 
   const wake = (nextReason: string) => {

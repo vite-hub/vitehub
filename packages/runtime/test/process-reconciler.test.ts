@@ -202,6 +202,52 @@ describe("createProcessReconciler", () => {
     expect(reconciler.status()).toBe("failed")
   })
 
+  it("runs a rerun admitted during active-run settlement", async () => {
+    const reasons: string[] = []
+    let reconciler!: ProcessReconciler
+    const retry = deferred()
+    reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onError() {
+        queueMicrotask(() => queueMicrotask(() => reconciler.wake("retry")))
+        throw new Error("error reporting failed")
+      },
+      run(reason) {
+        reasons.push(reason)
+        if (reason === "startup") throw new Error("reconciliation failed")
+        return retry.promise
+      },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await vi.waitFor(() => expect(reasons).toEqual(["startup", "retry"]))
+    const draining = reconciler.drain()
+    retry.resolve()
+
+    await expect(draining).rejects.toThrow("error reporting failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
+  it("queues a wake that arrives after active-run settlement", async () => {
+    const reasons: string[] = []
+    let reconciler!: ProcessReconciler
+    reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      run(reason) {
+        reasons.push(reason)
+        if (reason === "startup") {
+          queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => reconciler.wake("retry"))))
+        }
+      },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await vi.waitFor(() => expect(reasons).toEqual(["startup", "retry"]))
+    await reconciler.close()
+  })
+
   it("starts periodic repair without an event-driven wake", async () => {
     vi.useFakeTimers()
     const run = vi.fn()
@@ -387,6 +433,7 @@ describe("createProcessReconciler", () => {
   })
 
   it.each(["SIGKILL", "SIGSTOP"] as const)("rejects the uncatchable %s signal", (signal) => {
+    // SAFETY: This verifies the runtime guard for values intentionally excluded from the public type.
     expect(() => createProcessReconciler({ intervalMs: 60_000, run() {}, signal: signal as never }))
       .toThrow(`Process reconciler signal ${signal} cannot be handled.`)
   })

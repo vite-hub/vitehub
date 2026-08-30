@@ -13,6 +13,7 @@ describe("process drain command", () => {
       })
       server.listen(0, "127.0.0.1", () => process.send(server.address().port))
     `], { stdio: ["ignore", "ignore", "ignore", "ipc"] })
+    // SAFETY: The child sends exactly one numeric listening port from its listen callback.
     const [port] = await once(target, "message") as [number]
     const command = spawn(process.execPath, [
       fileURLToPath(new URL("../src/drain.ts", import.meta.url)),
