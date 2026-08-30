@@ -64,6 +64,7 @@ interface PublicUsageTotals {
   costUsd: string
   inputTokensAvailable: boolean
   inputTokens: number
+  invocationsAvailable: boolean
   invocations: number
   outputTokensAvailable: boolean
   outputTokens: number
@@ -331,6 +332,7 @@ function publicTotals(total: UsageTotal, complete = true): PublicUsageTotals {
     costUsd: decimalString(total.cost),
     inputTokensAvailable: hasEvidence && total.inputTokensAvailable,
     inputTokens: total.inputTokens,
+    invocationsAvailable: complete,
     invocations: total.invocations,
     outputTokensAvailable: hasEvidence && total.outputTokensAvailable,
     outputTokens: total.outputTokens,

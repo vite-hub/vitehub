@@ -17,6 +17,7 @@ const usageTotalsEntries = {
   inputTokens: v.number(),
   inputTokensAvailable: v.boolean(),
   invocations: v.number(),
+  invocationsAvailable: v.boolean(),
   outputTokens: v.number(),
   outputTokensAvailable: v.boolean(),
   reasoningTokens: v.number(),
@@ -228,7 +229,7 @@ onBeforeUnmount(() => request?.abort())
         </template>
 
         <UEmpty
-          v-else-if="!summary?.available"
+          v-else-if="!error && !summary?.available"
           class="min-h-96"
           icon="i-lucide-chart-no-axes-column"
           title="No usage recorded yet"
@@ -246,7 +247,7 @@ onBeforeUnmount(() => request?.abort())
             <div class="rounded-lg border border-default bg-elevated/30 p-4">
               <p class="text-xs text-muted">Sessions</p>
               <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
-                {{ formatTokens(summary.totals.invocations) }}
+                {{ summary.totals.invocationsAvailable ? formatTokens(summary.totals.invocations) : "—" }}
               </p>
             </div>
             <div class="rounded-lg border border-default bg-elevated/30 p-4">
@@ -305,7 +306,9 @@ onBeforeUnmount(() => request?.abort())
                 <tbody>
                   <tr v-for="model in summary.models" :key="model.model" class="border-t border-default">
                     <td class="px-4 py-3 font-medium sm:px-5">{{ model.model }}</td>
-                    <td class="px-4 py-3 text-right tabular-nums text-muted">{{ formatTokens(model.invocations) }}</td>
+                    <td class="px-4 py-3 text-right tabular-nums text-muted">
+                      {{ model.invocationsAvailable ? formatTokens(model.invocations) : "—" }}
+                    </td>
                     <td class="px-4 py-3 text-right tabular-nums">
                       {{ model.totalTokensAvailable ? formatTokens(model.totalTokens) : "—" }}
                     </td>

@@ -2165,7 +2165,7 @@ describe("Agent invocation console", () => {
       now: "2026-08-27T12:00:00.000Z",
       window: "24h",
     })).resolves.toMatchObject({
-      models: [{ model: "leaf-a" }, { model: "leaf-b" }],
+      models: [{ model: "leaf-b" }, { model: "leaf-a" }],
       totals: { costUsd: "0.00000000000000000001", totalTokens: 15 },
     })
   })
