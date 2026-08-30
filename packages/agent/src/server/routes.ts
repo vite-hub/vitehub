@@ -4055,6 +4055,18 @@ function isCurrentChatSdkMessage(item: ChatSdkMessage, current: ChatSdkMessage):
   )
 }
 
+function chatRawDeliveryKey(message: ChatSdkMessage): string | undefined {
+  if (!isRuntimeObject(message.raw)) return
+  try {
+    return JSON.stringify(message.raw)
+  } catch {}
+}
+
+function isExactChatSdkDelivery(item: ChatSdkMessage, current: ChatSdkMessage, currentRawKey?: string): boolean {
+  if (item === current || (isRuntimeObject(current.raw) && item.raw === current.raw)) return true
+  return currentRawKey !== undefined && chatRawDeliveryKey(item) === currentRawKey
+}
+
 async function chatTriggerMessages(
   thread: Thread,
   message: ChatSdkMessage,
@@ -4069,6 +4081,7 @@ async function chatTriggerMessages(
 
   const fetchedNewestFirst: UIMessageLike[] = []
   const fetchedLimit = message.id ? limit : limit - 1
+  const currentRawKey = message.id ? undefined : chatRawDeliveryKey(message)
   let foundCurrent = false
   let scanned = 0
   try {
@@ -4078,7 +4091,7 @@ async function chatTriggerMessages(
       if (++scanned > MAX_CHAT_TRIGGER_HISTORY_SCAN) break
       if (!message.id) {
         idLessCandidates.push(item)
-        if (exactIdLessCurrentIndex < 0 && (item === message || (isRuntimeObject(message.raw) && item.raw === message.raw))) {
+        if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message, currentRawKey)) {
           exactIdLessCurrentIndex = idLessCandidates.length - 1
         }
         if (exactIdLessCurrentIndex >= 0 && idLessCandidates.length > exactIdLessCurrentIndex + fetchedLimit) break
@@ -4104,7 +4117,17 @@ async function chatTriggerMessages(
   } catch {}
 
   let durable = await durableChatThreadMessages(thread, limit)
-  const durableCurrentIndex = durable.findLastIndex((item) => isCurrentChatSdkMessage(item, message))
+  const exactDurableCurrentIndices = message.id
+    ? []
+    : durable.flatMap((item, index) => (isExactChatSdkDelivery(item, message, currentRawKey) ? [index] : []))
+  const structuralDurableCurrentIndices = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : []))
+  const durableCurrentIndex = message.id
+    ? structuralDurableCurrentIndices.at(-1) ?? -1
+    : exactDurableCurrentIndices.length === 1
+      ? exactDurableCurrentIndices[0] ?? -1
+      : exactDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
+        ? structuralDurableCurrentIndices[0] ?? -1
+        : -1
   if (!message.id) {
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }

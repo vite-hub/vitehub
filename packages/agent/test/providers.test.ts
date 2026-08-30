@@ -17856,10 +17856,10 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (text: string) =>
+    const request = (updateId: number, text: string) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: 22,
+          update_id: updateId,
           message: {
             chat: { id: 456, type: "private" },
             date: 1_781_092_822,
@@ -17870,9 +17870,9 @@ describe("server helpers", () => {
         method: "POST",
       })
 
-    await expect(handler(request("current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(request("intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(request("current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(20, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(21, "intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(22, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs.at(-1)).toEqual(["current id-less", "ok", "intervening id-less", "ok", "current id-less"])
   })
@@ -17990,7 +17990,6 @@ describe("server helpers", () => {
         status: 200,
       })
       const resetAdapter = createTestChatAdapter({ persistThreadHistory: true })
-      resetAdapter.fetchMessages.mockResolvedValue({ messages: [] })
       await expect(handler(resetAdapter)(request(31, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
       expect(runs).toEqual([["remember DEPLOY-HISTORY"], ["remember DEPLOY-HISTORY", "reply 1", "what marker did I ask you to remember?"]])
