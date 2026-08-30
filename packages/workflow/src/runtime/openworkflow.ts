@@ -245,6 +245,7 @@ function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {
     case "succeeded":
       return "completed"
     case "canceled":
+      return "cancelled"
     case "failed":
       return "failed"
     case "pending":

@@ -877,6 +877,27 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("maps canceled OpenWorkflow runs to the normalized cancelled status", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    openWorkflowMock.runs.set("cancelled-1", {
+      error: null,
+      id: "cancelled-1",
+      namespaceId: "production",
+      output: undefined,
+      status: "canceled",
+      version: null,
+      workflowName: "welcome",
+    })
+
+    await expect(getWorkflowRun("welcome", "cancelled-1")).resolves.toMatchObject({
+      provider: "openworkflow",
+      status: "cancelled",
+    })
+  })
+
   it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
     let resolveBackend: ((backend: OpenWorkflowMockBackend) => void) | undefined
     const stop = vi.fn()
