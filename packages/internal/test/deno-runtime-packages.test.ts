@@ -1036,6 +1036,18 @@ load("@img/sharp-linux-x64/sharp.node")
     )
   })
 
+  it("keeps required dynamic packages required across split server chunks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-chunks-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/a-lazy.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
+    await writeFile(join(root, ".output/server/b-required.mjs"), 'await import("missing-feature")\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+      "Could not resolve package.json for missing-feature",
+    )
+  })
+
   it("recovers prior output left by an interrupted directory swap", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-output-"))
     const interruptedStage = join(root, "..output.vitehub-interrupted")

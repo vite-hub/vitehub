@@ -1018,7 +1018,9 @@ async function readRuntimePackages(
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: staticNames.has(name) ? false : existing?.optional ?? optionalDynamicNames.has(name),
+        optional: staticNames.has(name)
+          ? false
+          : (existing?.optional ?? true) && optionalDynamicNames.has(name),
         packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
