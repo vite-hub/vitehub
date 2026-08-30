@@ -5,6 +5,7 @@ import { inputCommands } from "../src/capabilities.ts"
 import { createProcessAgentCapacity } from "../src/runtime/process.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 import { cancellableAsyncIterableSource } from "../src/stream-output.ts"
+import { toReadableAsyncIterableStream } from "../src/internal/stream-result.ts"
 import { capabilityInvocationStartSymbol } from "../src/capability-runtime.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
@@ -2461,6 +2462,42 @@ describe("Agent Driver capacity", () => {
     const reader = source.getReader()
     reader.releaseLock()
     await cancellable.cancel()
+  })
+
+  it("settles both cancellable source cleanup paths after a synchronous failure", async () => {
+    const directCancel = vi.fn()
+    const failure = new Error("iterator cleanup failed")
+    const source = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<unknown>>(() => {}),
+          return: () => { throw failure },
+        }
+      },
+      [Symbol.for("vitehub.agent.stream.cancel")]: directCancel,
+    }
+    const cancellable = cancellableAsyncIterableSource(source)
+
+    await expect(cancellable.cancel()).rejects.toBe(failure)
+    expect(directCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it("settles both readable adapter cleanup paths after a synchronous failure", async () => {
+    const directCancel = vi.fn()
+    const failure = new Error("iterator cleanup failed")
+    const source = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<unknown>>(() => {}),
+          return: () => { throw failure },
+        }
+      },
+      [Symbol.for("vitehub.agent.stream.cancel")]: directCancel,
+    }
+    const stream = toReadableAsyncIterableStream(source)
+
+    await expect(stream.cancel()).rejects.toBe(failure)
+    expect(directCancel).toHaveBeenCalledTimes(1)
   })
 
   it("releases an unconsumed direct UI-message stream when its invocation aborts", async () => {
