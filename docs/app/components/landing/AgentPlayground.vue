@@ -340,7 +340,6 @@ const capabilityOptions = [
   { code: "access({ workspace })", icon: "i-lucide-shield-check", key: "access", label: "Access" },
   { code: "chat()", icon: "i-lucide-messages-square", key: "chat", label: "Chat" },
   { code: "inputCommands({ commands })", icon: "i-lucide-command", key: "input-commands", label: "Input commands" },
-  { code: "subagents({ agents })", icon: "i-lucide-git-fork", key: "subagents", label: "Subagents" },
   { code: "browser()", icon: "i-lucide-monitor", key: "browser", label: "Browser" },
   { code: "workspaceShell({ mode: 'write' })", icon: "i-lucide-square-terminal", key: "workspace-shell", label: "Workspace shell" },
   { code: "git()", icon: "i-lucide-git-branch", key: "git", label: "Git" },

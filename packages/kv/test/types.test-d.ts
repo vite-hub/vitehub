@@ -48,8 +48,11 @@ describe("types", () => {
 
   it("exposes the intended kv runtime surface", () => {
     expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<KVResult<string | null>>>()
+    expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<KVResult<string | null>>>()
     expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<KVResult<boolean>>>()
+    expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<KVResult<number>>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<KVResult<string[]>>>()
+    expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<KVResult<{ keys: string[]; cursor?: string }>>>()
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<KVResult<void>>>()
   })
 

@@ -212,6 +212,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/kv",
       "./console/sections",
       "./console/server",
       "./database/drizzle",
@@ -302,7 +303,13 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)")
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)")
     expect(consolePage).toContain('data-slot="mobile-session-navigation"')
-    expect(consolePage).toContain('window.matchMedia("(min-width: 1280px)")')
+    expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")')
+    expect(consolePage).toContain('class="vitehub-console__session-navbar"')
+    expect(consolePage).toContain("minSize: 220")
+    expect(consolePage).toContain("defaultSize: 680")
+    expect(consolePage).toContain("maxSize: 1080")
+    expect(consolePage).toContain("defaultSize: 560")
+    expect(consolePage).toContain("max-width: 48rem")
     expect(consolePage).not.toContain("route.query.agent")
     expect(consolePage).not.toContain("groupConsoleSessions")
     expect(consolePage).not.toContain("<UApp")
@@ -315,7 +322,17 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain("<ConsoleHome")
     expect(consoleIndexRoute).toContain(":sections-base=")
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
+    const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8")
+    expect(consoleKVRoute).toContain(`sections.includes("kv")`)
+    expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`)
+    expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)")
+    expect(consoleKVRoute).toContain(`v-if="available"`)
+    expect(consoleKVRoute).toContain("Try again")
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/definitions.js`)).toBe(true)
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions")
     const consoleProvider = readFileSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`, "utf8")
     expect(consoleProvider).toContain("injectTooltipProviderContext(null)")
     expect(consoleProvider).toContain('<slot v-if="hasAppProvider" />')
@@ -331,6 +348,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
     expect(consoleClient).toContain("/kv")
+    expect(consoleClient).toContain("/workflows")
     expect(readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8")).toContain("vitehub-console")
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
   })
@@ -345,6 +363,7 @@ describe("framework package contract", () => {
           console: { exposure: "host-managed" },
           kv: true,
           preset: "node",
+          workflow: true,
         })
         .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console")
       if (!plugin) throw new TypeError("Expected the distributed Console plugin.")
@@ -361,8 +380,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(8)
+      expect(handlers).toHaveLength(10)
       expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/usage" }))
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/kv" }))
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

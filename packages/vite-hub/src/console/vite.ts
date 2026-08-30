@@ -12,11 +12,13 @@ import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Environment, Plugin } from "vite"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+import { discoverConsoleBuildCatalog, type ConsoleAgentEntry, type ConsoleBuildCatalog } from "./build.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
+import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -49,16 +51,16 @@ type ConsoleNitroConfig = {
   [key: string]: unknown
 }
 
-type ConsoleAgentEntry = { handler: string, name: string }
-
 export type ConsoleOptions =
   | { access: "auth", exposure?: never }
   | { access?: never, exposure: "host-managed" }
 
 interface ConsoleVitePluginOptions {
   console?: true | ConsoleOptions
+  kvStores?: readonly string[]
   preset?: string
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  resolveKVStores?: (kv: unknown) => readonly string[] | false
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
 }
@@ -114,7 +116,7 @@ export function updateConsoleInvocationRootState(
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
 
 function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
-  if (!route.authorize || (route.method && route.method.toUpperCase() !== "GET")) return false
+  if (!route.authorize || route.method) return false
   if (!route.route.endsWith("/**")) return false
   const routeBase = route.route.slice(0, -3)
   const targetBase = target.slice(0, -3)
@@ -156,11 +158,15 @@ function renderConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
+  catalog: ConsoleBuildCatalog,
+  kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const kvEnabled = sections.includes("kv")
+  const definitionsEnabled = sections.includes("workflows")
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -168,8 +174,16 @@ function renderConsoleNitroPlugin(
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
+    ...(kvEnabled
+      ? [
+          `import { installConsoleKV } from "vite-hub/console/kv"`,
+          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
+        ]
+      : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
           fixture
@@ -177,6 +191,9 @@ function renderConsoleNitroPlugin(
             : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
           `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
         ]
+      : []),
+    ...(kvEnabled
+      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
       : []),
     "export default function viteHubConsolePlugin() {}",
     "",
@@ -188,6 +205,8 @@ async function writeConsoleNitroPlugin(
   projectRoot: string,
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
+  catalog: ConsoleBuildCatalog,
+  kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
   active: () => boolean = () => true,
@@ -200,7 +219,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -225,7 +244,8 @@ export function generatedConsolePluginRegistration(value: string): boolean {
 }
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
-  const sections = options.sections ?? []
+  let sections = options.sections ?? []
+  let kvStores = options.kvStores ?? []
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -233,21 +253,56 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let fixture: string | undefined
   let cliDiscovery = false
 
-  const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
+  const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const identity = await writeConsoleNitroPlugin(
-      generatedPlugin,
-      projectRoot,
-      sections,
-      sections.includes("agents") ? discoverAgentDefinitionEntries(root, serverDirs) : [],
-      fixture,
-      options.invocationRootState?.binding,
-      () => !options.invocationRootState?.closed,
-    )
-    if (options.invocationRootState) {
-      updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
-    }
+    const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
+    if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
+
+  function resolveKVRegistration(kv: unknown): void {
+    const resolvedKVStores = options.resolveKVStores?.(kv)
+    sections = (options.sections ?? []).filter(section => section !== "kv")
+    if (resolvedKVStores !== false) sections = [...sections, "kv"]
+    kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+  }
+
+  function resolveWorkflowRegistration(workflow: unknown): void {
+    sections = sections.filter(section => section !== "workflows")
+    if (workflow) sections = [...sections, "workflows"]
+  }
+
+  function reconcileKVHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/kv"
+    const kvHandler = join(consoleRuntimeRoot, "server/kv.get.js")
+    const handlers = Array.isArray(nitro.handlers)
+      ? nitro.handlers.filter(handler => handler?.handler !== kvHandler)
+      : []
+    if (sections.includes("kv")) {
+      const conflictingHandler = handlers.find(handler => handler?.route === route)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      handlers.push({ handler: kvHandler, route })
+    }
+    nitro.handlers = handlers
+  }
+
+  function reconcileDefinitionsHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/definitions"
+    const definitionsHandler = join(consoleRuntimeRoot, "server/definitions.get.js")
+    const handlers = Array.isArray(nitro.handlers)
+      ? nitro.handlers.filter(handler => handler?.handler !== definitionsHandler)
+      : []
+    if (sections.includes("workflows")) {
+      const conflictingHandler = handlers.find(handler => handler?.route === route)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      handlers.push({ handler: definitionsHandler, route })
+    }
+    nitro.handlers = handlers
+  }
 
   const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
@@ -258,8 +313,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        kv?: unknown
+        workflow?: unknown
         vitehubCliDiscovery?: true
       }
+      resolveKVRegistration(viteConfig.kv)
+      resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
         agentsEnabled: sections.includes("agents"),
@@ -283,19 +343,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
-        configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshAgentDefinitions)
+        configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
       if (!cliDiscovery && !fixture) {
+        const initialSections = sections.filter(section => section !== "workflows")
+        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
           sections,
-          sections.includes("agents") ? discoverAgentDefinitionEntries(root) : [],
+          catalog.agents,
+          catalog,
+          kvStores,
           fixture,
           options.invocationRootState?.binding,
         )
       }
-
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
       const consoleConfig = viteConfig as typeof viteConfig & { nitro?: ConsoleNitroConfig }
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
@@ -303,8 +366,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
+                join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
+                join(consoleRuntimeRoot, "server/kv.get.js"),
                 join(consoleRuntimeRoot, "server/agents.get.js"),
                 join(consoleRuntimeRoot, "server/sections.get.js"),
                 join(consoleRuntimeRoot, "server/search.get.js"),
@@ -318,6 +383,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           handler: join(consoleRuntimeRoot, "server/sections.get.js"),
           route: "/api/_vitehub/console/sections",
         },
+        ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
+          ? [{
+              handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
+              route: "/api/_vitehub/console/definitions",
+            }]
+          : []),
         ...(sections.includes("agents")
           ? [
               {
@@ -344,6 +415,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
+      nitro.handlers = handlers
+      reconcileKVHandler(nitro)
+      reconcileDefinitionsHandler(nitro)
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
@@ -355,27 +429,35 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fallthrough: false,
       })
 
-      consoleConfig.nitro = { ...nitro, handlers, plugins, publicAssets }
+      consoleConfig.nitro = { ...nitro, handlers: nitro.handlers, plugins, publicAssets }
     },
     async configResolved(config) {
       root = config.root
       projectRoot ||= resolveViteHubProjectRoot(config.root)
+      generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
+      // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
+      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig, workflow?: unknown }
+      resolveKVRegistration(viteConfig.kv)
+      resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      const nitro = viteConfig.nitro ??= {}
+      reconcileKVHandler(nitro)
+      reconcileDefinitionsHandler(nitro)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
-      if (!cliDiscovery && !fixture) await refreshAgentDefinitions()
+      if (!cliDiscovery && !fixture) await refreshConsoleCatalog()
     },
     buildStart: {
       order: "post",
       async handler() {
-        if (!cliDiscovery && fixture) await refreshAgentDefinitions()
+        if (!cliDiscovery && fixture) await refreshConsoleCatalog()
       },
     },
     configureServer(server) {
       if (fixture) server.watcher.add(fixture)
       const refresh = async () => {
         try {
-          await refreshAgentDefinitions()
+          await refreshConsoleCatalog()
         }
         catch (error) {
           server.config.logger.error(

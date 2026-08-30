@@ -43,6 +43,7 @@
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
+    "destr": "^2.0.5",
     "unstorage": "catalog:storage"
   },
   "devDependencies": {

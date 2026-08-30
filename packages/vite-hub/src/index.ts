@@ -664,7 +664,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds(options)
+  const consoleSections = resolveConsoleSectionIds({ ...options, preset: plan.preset })
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -701,6 +701,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       console: options.console === true ? true : options.console,
+      kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
       resolveAuthConfig: options.auth
         ? (root, serverDirs, auth) => resolveAuthViteConfig(
@@ -709,6 +710,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
+      resolveKVStores: (kv) => {
+        if (kv === false) return false
+        if (kv === undefined && !options.kv) return false
+        const resolved = resolveKVViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
+          (kv ?? configuredKV) as KVModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).kv
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
       invocationRootState,
       sections: consoleSections,
     }))

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  discoverWorkflowDefinitions: vi.fn(() => []),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
@@ -26,8 +27,10 @@ const integrationMocks = vi.hoisted(() => ({
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
-  resolveKVViteConfig: vi.fn((kv?: { driver?: string }, input?: { hosting?: string }) => ({
-    kv: { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
+  resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
+    kv: kv?.stores
+      ? { stores: kv.stores }
+      : { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
   })),
   resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -68,7 +71,10 @@ vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
-vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWorkflow }))
+vi.mock("@vite-hub/workflow/vite", () => ({
+  discoverWorkflowDefinitions: integrationMocks.discoverWorkflowDefinitions,
+  hubWorkflow: integrationMocks.hubWorkflow,
+}))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -217,6 +223,65 @@ describe("vitehub", () => {
     )
   })
 
+  it("includes implicitly enabled Workflow in the Agent Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-workflow-"))
+    try {
+      const plugin = dependencyPluginByName(
+        vitehub({ agent: true, console: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+
+      expect(config.nitro).toMatchObject({
+        handlers: expect.arrayContaining([
+          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+        ]),
+      })
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
+        `installConsoleSections(${JSON.stringify(root)}, ["agents","usage","workflows"])`,
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("defers standalone Workflow discovery until config resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
+    try {
+      integrationMocks.discoverWorkflowDefinitions.mockClear()
+      integrationMocks.discoverWorkflowDefinitions.mockImplementation(() => {
+        throw new Error("unresolved Workflow discovery")
+      })
+      const plugin = dependencyPluginByName(
+        vitehub({ console: true, preset: "node", workflow: true }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      config.workflow = false
+      await callHook(plugin.configResolved, [config])
+
+      expect(integrationMocks.discoverWorkflowDefinitions).not.toHaveBeenCalled()
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.not.toContain(
+        "installConsoleDefinitions",
+      )
+      expect(config.nitro).not.toMatchObject({
+        handlers: expect.arrayContaining([
+          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+        ]),
+      })
+    }
+    finally {
+      integrationMocks.discoverWorkflowDefinitions.mockReset()
+      integrationMocks.discoverWorkflowDefinitions.mockReturnValue([])
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("does not install console plugins when explicitly disabled", () => {
     expect(pluginNames(vitehub({ console: false, preset: "node" }))).not.toEqual(expect.arrayContaining([
       "vite-hub/console",
@@ -232,6 +297,84 @@ describe("vitehub", () => {
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
       .rejects.toThrow('Console currently requires preset: "node" for production')
+  })
+
+  it("derives Console KV registration from the resolved Vite KV configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-"))
+    try {
+      for (const [name, kv] of [["omitted", undefined], ["disabled", false]] as const) {
+        const inactiveRoot = join(root, name)
+        const inactive = dependencyPluginByName(
+          vitehub({ console: true, kv, preset: "node" }),
+          "vite-hub/console",
+        )
+        const inactiveConfig: Record<string, unknown> = { root: inactiveRoot }
+        await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
+        await callHook(inactive.configResolved, [inactiveConfig])
+
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveConfig.nitro).not.toMatchObject({
+          handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        })
+      }
+
+      const named = dependencyPluginByName(
+        vitehub({ console: true, kv: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const namedConfig: Record<string, unknown> = { root }
+      await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+      namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
+      await callHook(named.configResolved, [namedConfig])
+
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('installConsoleKV(')
+      expect(generated).toContain('["cache","sessions"]')
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+
+      const disabledRoot = join(root, "disabled")
+      const disabled = dependencyPluginByName(
+        vitehub({ console: true, kv: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root: disabledRoot }
+      await callHook(disabled.config, [config, { command: "serve", mode: "development" }])
+      config.kv = false
+      await callHook(disabled.configResolved, [config])
+
+      const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(config.nitro).not.toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a conflicting standalone Console KV handler", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ console: true, kv: true, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{
+      nitro: {
+        handlers: [{
+          handler: "/app/server/api/custom-kv.ts",
+          route: "/api/_vitehub/console/kv",
+        }],
+      },
+    }, { command: "serve", mode: "development" }])).rejects.toThrow(
+      "Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /app/server/api/custom-kv.ts.",
+    )
   })
 
   it("passes discovered Auth access policy to production Console builds", async () => {
@@ -275,6 +418,50 @@ describe("vitehub", () => {
     await expect(callHook(plugin.config, [{ auth: false }, { command: "build", mode: "production" }]))
       .rejects.toThrow("requires a discovered ViteHub Auth Definition")
     expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(false, expect.any(String), { serverDirs: undefined })
+  })
+
+  it("omits implicitly disabled Netlify Workflow from the standalone Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-netlify-workflow-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const implicit = dependencyPluginByName(
+        vitehub({ agent: true, console: { exposure: "host-managed" }, preset: "netlify" }),
+        "vite-hub/console",
+      )
+      const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
+      await callHook(implicit.config, [implicitConfig, { command: "serve", mode: "development" }])
+
+      expect(implicitConfig).toMatchObject({
+        nitro: {
+          handlers: expect.not.arrayContaining([
+            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          ]),
+        },
+      })
+
+      const explicit = dependencyPluginByName(
+        vitehub({
+          agent: true,
+          console: { exposure: "host-managed" },
+          preset: "netlify",
+          workflow: { provider: "vercel" },
+        }),
+        "vite-hub/console",
+      )
+      const explicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
+      await callHook(explicit.config, [explicitConfig, { command: "serve", mode: "development" }])
+
+      expect(explicitConfig).toMatchObject({
+        nitro: {
+          handlers: expect.arrayContaining([
+            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          ]),
+        },
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {

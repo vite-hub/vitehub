@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
@@ -8,6 +12,7 @@ import type { KVResult } from "../src/types.ts"
 function expectKVSuccess<TResult>(result: KVResult<TResult>): TResult {
   const [error, value] = result
   expect(error).toBeNull()
+  // SAFETY: The preceding assertion verifies the success branch of KVResult.
   return value as TResult
 }
 
@@ -19,6 +24,10 @@ const mountedDrivers: {
 
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | Error | undefined
+let upstashEval: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> | undefined
+let upstashGetdel: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>> | undefined
+let upstashScan: ReturnType<typeof vi.fn> | undefined
+// SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
 function resetStorage() {
@@ -27,18 +36,30 @@ function resetStorage() {
   delete mountedDrivers.cloudflare
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
+  upstashEval = undefined
+  upstashGetdel = undefined
+  upstashScan = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
   return (options: Record<string, unknown> = {}) => {
     mountedDrivers[name] = options
-    return memoryDriver()
+    return {
+      ...memoryDriver(),
+      async getAndDeleteItem(key: string) {
+        return await upstashGetdel?.(key) ?? null
+      },
+      async incrementItem(key: string, ttl: number): Promise<number> {
+        return Number(await upstashEval?.(key, ttl) ?? 1)
+      },
+    }
   }
 }
 
 function createDriverWithoutOptionalMethods(): Driver {
   const data = new Map<string, unknown>()
 
+  // SAFETY: This fixture implements every required Driver method below.
   return {
     name: "minimal",
     options: {},
@@ -74,11 +95,14 @@ function createDenoOpenKvMock() {
       data.delete(key)
     },
     get: async ([key]: [string]) => ({
+      // SAFETY: The mock accepts and returns the single-string key shape used by this adapter.
       key: [key] as [string],
       value: data.has(key) ? data.get(key) : null,
+      versionstamp: data.has(key) ? "00000000000000010000" : null,
     }),
     list: async function* () {
       for (const [key, value] of data) {
+        // SAFETY: Mock data keys are strings and the adapter reads a one-element Deno tuple.
         yield { key: [key] as [string], value }
       }
     },
@@ -109,10 +133,18 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
   }),
 }))
 
+vi.mock("unstorage/drivers/upstash", () => ({
+  default: vi.fn(() => ({
+    ...memoryDriver(),
+    getInstance: () => ({ eval: upstashEval, getdel: upstashGetdel, scan: upstashScan }),
+  })),
+}))
+
 describe("kv runtime", () => {
   beforeEach(async () => {
     vi.resetModules()
     resetStorage()
+    // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
@@ -120,12 +152,14 @@ describe("kv runtime", () => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
     delete process.env.VITEHUB_HOSTING
+    // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
   it("returns provider failures as KV results", async () => {
     process.env.VITEHUB_HOSTING = "local"
     const cause = new Error("provider unavailable")
+    // SAFETY: The fixture extends a complete minimal Driver with the optional methods under test.
     fsLiteDriver = {
       ...memoryDriver(),
       async getItem() { throw cause },
@@ -175,9 +209,75 @@ describe("kv runtime", () => {
     })
   })
 
+  it("exposes atomic Upstash operations through the KV helper", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => '{"singleUse":true}')
+    upstashEval = vi.fn(async () => 2)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expect(expectKVSuccess(await kv.getAndDelete<{ singleUse: boolean }>("verification"))).toEqual({ singleUse: true })
+    expect(expectKVSuccess(await kv.increment("attempts", 60))).toBe(2)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
+  })
+
+  it("maps atomic operations to native Upstash commands", async () => {
+    upstashGetdel = vi.fn(async () => '"single-use"')
+    upstashEval = vi.fn(async () => 1)
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe('"single-use"')
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
+    const script = String(upstashEval?.mock.calls[0]?.[0])
+    expect(script).toContain("redis.call('EXISTS'")
+    expect(script).toContain("negative and '9007199254740992' or '9007199254740991'")
+    expect(script).toContain("local at_positive_boundary = not negative and digits == boundary")
+    expect(script.indexOf("if beyond or at_positive_boundary")).toBeLessThan(script.indexOf("redis.call('INCR'"))
+    expect(script).toContain("if existed == 0")
+    expect(script).toContain("redis.call('EXPIRE'")
+    await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
+    await expect(driver.incrementItem?.("attempts", 1e21)).rejects.toThrow("supported integer range")
+    expect(upstashEval).toHaveBeenCalledOnce()
+
+    upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
+    const unsafeDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+    await expect(unsafeDriver.incrementItem?.("attempts", 60)).rejects.toThrow("safe integer range")
+  })
+
+  it("normalizes atomic operation keys like ordinary storage operations", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => "single-use")
+    upstashEval = vi.fn(async () => 1)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await kv.getAndDelete("token/path")
+    await kv.increment("attempt/path", 60)
+    expect(upstashGetdel).toHaveBeenCalledWith("token:path")
+    expect(upstashEval).toHaveBeenCalledWith("attempt:path", 60)
+  })
+
+  it("rejects atomic operations on unsupported KV stores", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.getAndDelete("verification")).rejects.toThrow("does not support atomic operations")
+    await expect(kv.increment("attempts", 60)).rejects.toThrow("does not support atomic operations")
+
+    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
+    const denoStorage = createHostedKVStorage({ store: { driver: "deno-kv" } })
+    expect(denoStorage.getAndDeleteItem).toBeUndefined()
+    expect(denoStorage.incrementItem).toBeUndefined()
+  })
+
   it("honors explicit hosting before ambient Deno KV detection", async () => {
     process.env.VITEHUB_HOSTING = "local"
     const { openKv } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
 
     const { kv } = await import("../src/runtime/storage.ts")
@@ -193,6 +293,7 @@ describe("kv runtime", () => {
 
   it("does not make the lazy driver thenable", async () => {
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
+    // SAFETY: The test inspects optional Driver properties that are intentionally outside the lazy driver's declared contract.
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
@@ -235,6 +336,7 @@ describe("kv runtime", () => {
     cloudflareDriver = createDriverWithoutOptionalMethods()
 
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
+    // SAFETY: The test exercises optional Driver methods through their standard unstorage types.
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
@@ -258,6 +360,7 @@ describe("kv runtime", () => {
       mtime: new Date("2026-01-01T00:00:00.000Z"),
       size: 5,
     }
+    // SAFETY: The fixture extends a complete minimal Driver with the optional methods under test.
     fsLiteDriver = {
       ...createDriverWithoutOptionalMethods(),
       getItemRaw: vi.fn(async () => Buffer.from("hello")),
@@ -266,6 +369,7 @@ describe("kv runtime", () => {
     } as Driver
 
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
+    // SAFETY: The test inspects optional Driver properties that are intentionally outside the lazy driver's declared contract.
     const driver = createLazyKVRuntimeDriver({
       store: {
         base: ".vitehub/data/kv",
@@ -286,6 +390,7 @@ describe("kv runtime", () => {
 
   it("loads Deno KV through the lazy KV Store driver", async () => {
     const { openKv } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
 
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
@@ -304,25 +409,30 @@ describe("kv runtime", () => {
   })
 
   it("maps the KV Store surface onto native Deno KV without exposing queue or watch handles", async () => {
-    const { close, openKv } = createDenoOpenKvMock()
+    const { close, data, openKv } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
 
     const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    // SAFETY: The adapter implements Driver and the record intersection permits checks for deliberately omitted Deno APIs.
     const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" }) as Driver & Record<string, unknown>
     const storage = createStorage({ driver })
 
     await storage.setItem("users:42:profile", { name: "Ada" })
     await storage.setItem("users:42:prefs", { theme: "system" })
     await storage.setItem("users:7:profile", { name: "Grace" })
+    data.set("nullable", null)
 
     expect(await storage.getItem("users:42:profile")).toEqual({ name: "Ada" })
     expect(await storage.hasItem("users:42:prefs")).toBe(true)
+    expect(await driver.getItem("nullable")).toBeNull()
+    expect(await driver.hasItem?.("nullable", {})).toBe(true)
     expect(await storage.getKeys("users:42:")).toEqual(["users:42:prefs", "users:42:profile"])
     expect(driver.enqueue).toBeUndefined()
     expect(driver.listenQueue).toBeUndefined()
     expect(driver.watch).toBeUndefined()
 
-    await (driver.clear as unknown as (base?: string) => Promise<void>)("users:42:")
+    await driver.clear?.("users:42:", {})
 
     expect(await storage.hasItem("users:42:profile")).toBe(false)
     expect(await storage.hasItem("users:7:profile")).toBe(true)
@@ -331,4 +441,243 @@ describe("kv runtime", () => {
     expect(openKv).toHaveBeenCalledWith(":memory:")
     expect(close).toHaveBeenCalledOnce()
   })
+
+  it("bounds and resumes fs-lite listing across directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
+    try {
+      await mkdir(join(root, "a"))
+      await writeFile(join(root, "a", "x"), "x")
+      await writeFile(join(root, "a0"), "a0")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 1, prefix: "missing" })
+      const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
+      const third = await driver.listKeys({ cursor: second.cursor, limit: 1, prefix: "" })
+
+      expect(first).toMatchObject({ keys: [], cursor: expect.any(String) })
+      expect([...second.keys, ...third.keys]).toEqual(expect.arrayContaining(["a0", "a:x"]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("stops reading a flat fs-lite directory when the page is full", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-flat-"))
+    try {
+      await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(join(root, `key-${index}`), "value")))
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      await expect(driver.listKeys({ limit: 2 })).resolves.toMatchObject({
+        keys: [expect.any(String), expect.any(String)],
+        cursor: expect.any(String),
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("counts fs-lite directories toward bounded traversal work", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-directories-"))
+    try {
+      let directory = root
+      for (let index = 0; index < 10; index += 1) {
+        directory = join(directory, `level-${index}`)
+        await mkdir(directory)
+      }
+      await writeFile(join(directory, "key"), "value")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 2 })
+
+      expect(first).toEqual({ keys: [], cursor: expect.any(String) })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("releases the oldest abandoned fs-lite listing when continuation capacity is full", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-continuations-"))
+    try {
+      await writeFile(join(root, "one"), "one")
+      await writeFile(join(root, "two"), "two")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const cursors: string[] = []
+      for (let index = 0; index < 33; index += 1) {
+        const page = await driver.listKeys({ limit: 1 })
+        if (page.cursor) cursors.push(page.cursor)
+      }
+
+      await expect(driver.listKeys({ cursor: cursors[0], limit: 1 })).rejects.toThrow("Invalid or expired")
+      await expect(driver.listKeys({ cursor: cursors.at(-1), limit: 1 })).resolves.toMatchObject({ keys: [expect.any(String)] })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("treats a missing fs-lite directory as an empty store", async () => {
+    const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
+    const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+    const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+    await expect(driver.listKeys({ limit: 10 })).resolves.toEqual({ keys: [] })
+  })
+
+  it("resumes fs-lite listing across canonically equivalent Unicode names", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-unicode-"))
+    try {
+      await writeFile(join(root, "e\u0301"), "decomposed")
+      await writeFile(join(root, "é"), "composed")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 1 })
+      const second = await driver.listKeys({ cursor: first.cursor, limit: 1 })
+
+      expect([...first.keys, ...second.keys]).toHaveLength(2)
+      expect([...first.keys, ...second.keys]).toEqual(expect.arrayContaining(["e\u0301", "é"]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("resumes fs-lite listing after the cursor file is deleted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-deleted-cursor-"))
+    try {
+      await writeFile(join(root, "a"), "a")
+      await writeFile(join(root, "b"), "b")
+      await writeFile(join(root, "c"), "c")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 1 })
+      const remaining = ["a", "b", "c"].filter(key => key !== first.keys[0])
+      await rm(join(root, first.keys[0]!), { force: true })
+      const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
+      const third = second.cursor
+        ? await driver.listKeys({ cursor: second.cursor, limit: 2 })
+        : { keys: [] }
+
+      expect([...second.keys, ...third.keys]).toEqual(expect.arrayContaining(remaining))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses one bounded Upstash scan with a literal prefix", async () => {
+    upstashScan = vi.fn(async () => ["7", ["user:*literal"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    await expect(driver.listKeys({ limit: 2, prefix: "user:*?[\\" })).resolves.toMatchObject({
+      keys: ["user:*literal"],
+      cursor: expect.any(String),
+    })
+    expect(upstashScan).toHaveBeenCalledOnce()
+    expect(upstashScan).toHaveBeenCalledWith("0", { count: 2, match: "user:\\*\\?\\[\\\\*" })
+  })
+
+  it("caps oversized Upstash scan replies without dropping overflow", async () => {
+    upstashScan = vi.fn(async () => ["0", ["one", "two", "three"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 2 })
+    const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
+
+    expect(first).toMatchObject({ keys: ["one", "two"], cursor: expect.any(String) })
+    expect(second).toEqual({ keys: ["three"] })
+    expect(first.cursor).not.toContain("three")
+    expect(upstashScan).toHaveBeenCalledOnce()
+  })
+
+  it("keeps ordinary Upstash scan cursors portable across driver instances", async () => {
+    upstashScan = vi.fn()
+      .mockResolvedValueOnce([7, ["one", "one"]])
+      .mockResolvedValueOnce([0, ["one", "two"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const firstDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await firstDriver.listKeys({ limit: 2 })
+    const secondDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const second = await secondDriver.listKeys({ cursor: first.cursor, limit: 2 })
+
+    expect(first).toMatchObject({ keys: ["one"], cursor: expect.any(String) })
+    expect(second).toEqual({ keys: ["one", "two"] })
+    expect(upstashScan).toHaveBeenNthCalledWith(2, "7", { count: 2, match: "*" })
+  })
+
+  it("does not replay an oversized Upstash scan to resume overflow", async () => {
+    upstashScan = vi.fn()
+      .mockResolvedValueOnce(["7", ["one", "two", "three"]])
+      .mockResolvedValueOnce(["0", ["changed"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 2 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 2 })).resolves.toEqual({
+      keys: ["three"],
+      cursor: expect.any(String),
+    })
+    expect(upstashScan).toHaveBeenCalledOnce()
+  })
+
+  it("rejects Upstash overflow that exceeds the retained byte budget", async () => {
+    upstashScan = vi.fn(async () => ["0", ["page", "x".repeat(1024 * 1024 + 1)]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    await expect(driver.listKeys({ limit: 1 })).rejects.toThrow("continuation size limit")
+  })
+
+  it("marks expired Upstash continuations separately from malformed cursors", async () => {
+    upstashScan = vi.fn(async () => ["0", ["one", "two"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const first = await driver.listKeys({ limit: 1 })
+    await driver.listKeys({ cursor: first.cursor, limit: 1 })
+
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({
+      code: "KV_CURSOR_EXPIRED",
+    })
+    await expect(driver.listKeys({ cursor: "malformed", limit: 1 })).rejects.not.toMatchObject({
+      code: "KV_CURSOR_EXPIRED",
+    })
+  })
+
+  it("passes a bounded page size to Deno KV for selective prefixes", async () => {
+    const list = vi.fn((_selector: { prefix: [] }, _options: { cursor?: string; limit?: number } = {}) => {
+      const iterator = (async function* () {
+        yield { key: ["other"], value: null }
+      })()
+      return Object.assign(iterator, { cursor: "deno-next" })
+    })
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
+      openKv: async () => ({
+        delete: vi.fn(),
+        get: vi.fn(),
+        list,
+        set: vi.fn(),
+      }),
+    }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver()
+
+    await expect(driver.listKeys({ cursor: "deno-before", limit: 3, prefix: "missing" })).resolves.toEqual({
+      keys: [],
+      cursor: "deno-next",
+    })
+    expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "deno-before", limit: 3 })
+  })
+
 })

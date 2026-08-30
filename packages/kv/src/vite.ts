@@ -22,7 +22,9 @@ const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
 const KV_ERRORS_IMPORT_ID = new URL(import.meta.url.endsWith(".ts") ? "./errors.ts" : "./errors.js", import.meta.url).href
 const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
-const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = "@vite-hub/kv/runtime/cloudflare-kv"
+const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
+  ? "@vite-hub/kv/runtime/cloudflare-kv"
+  : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -144,8 +146,11 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async clear(base, options) { const [error, storage] = await resolveStorageResult(name, \"clear\"); return error ? [error, undefined] : kvResult(\"clear\", name, async () => { await storage.clear(base, options); }); },",
     "    async del(key, options) { const [error, storage] = await resolveStorageResult(name, \"del\"); return error ? [error, undefined] : kvResult(\"del\", name, async () => { await storage.removeItem(key, options); }); },",
     "    async get(key, options) { const [error, storage] = await resolveStorageResult(name, \"get\"); return error ? [error, undefined] : kvResult(\"get\", name, () => storage.getItem(key, options)); },",
+    "    async getAndDelete() { resolveStoreConfig(name); throw new Error(\"[vitehub] Cloudflare KV does not support atomic operations. Use Upstash.\"); },",
     "    async has(key, options) { const [error, storage] = await resolveStorageResult(name, \"has\"); return error ? [error, undefined] : kvResult(\"has\", name, () => storage.hasItem(key, options)); },",
+    "    async increment() { resolveStoreConfig(name); throw new Error(\"[vitehub] Cloudflare KV does not support atomic operations. Use Upstash.\"); },",
     "    async keys(base, options) { const [error, storage] = await resolveStorageResult(name, \"keys\"); return error ? [error, undefined] : kvResult(\"keys\", name, () => storage.getKeys(base, options)); },",
+    "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) throw new TypeError(\"`limit` must be a positive integer.\"); const [error, storage] = await resolveStorageResult(name, \"list\"); return error ? [error, undefined] : kvResult(\"list\", name, () => storage.listKeys(options)); },",
     "    async set(key, value, options) { const [error, storage] = await resolveStorageResult(name, \"set\"); return error ? [error, undefined] : kvResult(\"set\", name, async () => { await storage.setItem(key, value, options); }); },",
     "    store(storeName) { return createKVStorage(storeName); },",
     "  };",

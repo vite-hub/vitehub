@@ -17256,7 +17256,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
   })
 
-  it("derives trigger history from thread history in chat webhook runs", async () => {
+  it("does not derive trigger history from thread history in chat webhook runs", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -17304,7 +17304,7 @@ describe("server helpers", () => {
     await expect(handler(request(20, "remember BROWSER-HISTORY"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["remember BROWSER-HISTORY"], ["remember BROWSER-HISTORY", "reply 1", "what marker did I ask you to remember?"]])
+    expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
