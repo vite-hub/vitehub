@@ -217,9 +217,15 @@ export async function discoverConsoleBuildCatalog(options: {
         serverRootDir: options.scheduleDiscoveryRoot ?? options.projectRoot,
       })
     : []
-  const scheduleCrons = discoveredSchedules.length > 0
-    ? await readScheduleDefinitionCrons(discoveredSchedules)
-    : new Map<string, string>()
+  const scheduleCrons = new Map<string, string>()
+  for (const definition of discoveredSchedules) {
+    try {
+      for (const [name, cron] of await readScheduleDefinitionCrons([definition])) scheduleCrons.set(name, cron)
+    }
+    catch {
+      // Console inspection must not apply provider-output validation to runtime-valid Schedule Definitions.
+    }
+  }
   const schedules = discoveredSchedules
     .map(definition => scheduleDefinition(options.projectRoot, definition, scheduleCrons))
   const definitions: ConsoleDefinitionCatalog = {}

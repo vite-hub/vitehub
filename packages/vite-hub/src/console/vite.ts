@@ -64,6 +64,7 @@ interface ConsoleVitePluginOptions {
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  resolveBlobStores?: (blob: unknown) => readonly string[] | false
   resolveKVStores?: (kv: unknown) => readonly string[] | false
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
@@ -264,7 +265,7 @@ export function generatedConsolePluginRegistration(value: string): boolean {
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
   let sections = options.sections ?? []
   let kvStores = options.kvStores ?? []
-  const blobStores = options.blobStores ?? []
+  let blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
   let databaseDiscoveryRoot: string | undefined
   let projectRoot: string | undefined
@@ -286,9 +287,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 
   function resolveKVRegistration(kv: unknown): void {
     const resolvedKVStores = options.resolveKVStores?.(kv)
-    sections = (options.sections ?? []).filter(section => section !== "kv")
+    sections = sections.filter(section => section !== "kv")
     if (resolvedKVStores !== false) sections = [...sections, "kv"]
     kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+  }
+
+  function resolveBlobRegistration(blob: unknown): void {
+    const resolvedBlobStores = options.resolveBlobStores?.(blob)
+    sections = sections.filter(section => section !== "blob")
+    if (resolvedBlobStores !== false) sections = [...sections, "blob"]
+    blobStores = resolvedBlobStores === false ? [] : resolvedBlobStores ?? options.blobStores ?? []
   }
 
   function resolveWorkflowRegistration(workflow: unknown): void {
@@ -359,6 +367,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        blob?: unknown
         database?: unknown
         kv?: unknown
         queue?: unknown
@@ -368,6 +377,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         workflow?: unknown
         vitehubCliDiscovery?: true
       }
+      resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
@@ -509,7 +519,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))

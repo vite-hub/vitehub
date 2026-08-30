@@ -691,6 +691,20 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("uses the effective Vite Blob stores for the Nuxt Console", async () => {
+    const development = createNuxt(true)
+    const viteConfig = development.nuxt.options.vite as UserConfig & { blob?: unknown }
+    viteConfig.blob = {
+      stores: { archive: { driver: "memory" }, media: { driver: "memory" } },
+    }
+
+    await viteHubNuxtModule({ blob: true, console: true, preset: "node" }, development.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["archive","media"])`,
+    )
+  })
+
   it("uses the effective Vite Workflow configuration for the Nuxt Console", async () => {
     const development = createNuxt(true)
     development.nuxt.options.vite.workflow = false

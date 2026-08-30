@@ -953,10 +953,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  const explicitBlob = Boolean(options.blob && options.blob !== true && ("driver" in options.blob || "stores" in options.blob))
-  const consoleBlobEnabled = Boolean(options.blob) && (plan.services.blob.supported || explicitBlob)
+  // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
+  const viteBlob = (nuxt.options.vite as UserConfig & { blob?: Parameters<typeof vitehub>[0]["blob"] }).blob
+  const effectiveBlob = viteBlob ?? options.blob
+  const explicitBlob = Boolean(effectiveBlob && effectiveBlob !== true && ("driver" in effectiveBlob || "stores" in effectiveBlob))
+  const consoleBlobEnabled = Boolean(effectiveBlob) && (plan.services.blob.supported || explicitBlob)
   const resolvedConsoleBlob = consoleBlobEnabled
-    ? resolveBlobViteConfig(options.blob === true ? undefined : options.blob, { hosting: plan.nitroPreset }).blob
+    ? resolveBlobViteConfig(effectiveBlob === true ? undefined : effectiveBlob, { hosting: plan.nitroPreset }).blob
     : false
   const consoleBlobStores = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })

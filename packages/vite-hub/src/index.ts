@@ -723,6 +723,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
+      resolveBlobStores: (blob) => {
+        if (blob === false) return false
+        if (blob === undefined && !options.blob) return false
+        const resolved = resolveBlobViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `blob` config extension.
+          (blob ?? configuredBlob) as BlobModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).blob
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
       resolveKVStores: (kv) => {
         if (kv === false) return false
         if (kv === undefined && !options.kv) return false

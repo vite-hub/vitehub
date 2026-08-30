@@ -368,6 +368,27 @@ describe("vitehub", () => {
     }
   })
 
+  it("derives Console Blob stores from the resolved Vite Blob configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-stores-"))
+    try {
+      const plugin = dependencyPluginByName(
+        vitehub({ blob: true, console: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      config.blob = { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } }
+      await callHook(plugin.configResolved, [config])
+
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('installConsoleBlob(')
+      expect(generated).toContain('["archive","media"]')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects a conflicting standalone Console KV handler", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, kv: true, preset: "node" }),
