@@ -17495,18 +17495,23 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
     const chat = adapter._chatInstance()
     if (!chat) throw new Error("Expected the webhook to initialize Chat.")
-    // SAFETY: This fixture accesses the Chat SDK's internal thread cache to model an adapter restart.
-    const chatBoundary = chat as unknown as { thread(threadId: string): object }
-    const thread = chatBoundary.thread("telegram:456")
     adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
-    Reflect.set(thread, "_threadHistory", {
-      getMessages: vi.fn(async () => [
-        message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
-        message("20", "current", "2026-06-10T12:00:20.000Z"),
-        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-      ]),
+    // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
+    const chatBoundary = chat as unknown as {
+      createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
+    }
+    const createThread = chatBoundary.createThread.bind(chatBoundary)
+    vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
+      const thread = createThread(...arguments_)
+      Reflect.set(thread, "_threadHistory", {
+        getMessages: vi.fn(async () => [
+          message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+          message("20", "current", "2026-06-10T12:00:20.000Z"),
+          message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+        ]),
+      })
+      return thread
     })
-    vi.spyOn(chatBoundary, "thread").mockReturnValue(thread)
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "same-time previous", "current"]])
