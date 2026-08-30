@@ -338,6 +338,10 @@ function reconcileConsoleKVHandler(
     if (index !== -1) handlers.splice(index, 1)
     return
   }
+  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
+  if (conflictingHandler) {
+    throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+  }
   if (index === -1) handlers.push({ handler, route })
 }
 
