@@ -553,6 +553,32 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("rejects a conflicting standalone Blob inspection handler", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-conflict-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        blobStores: ["default"],
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["blob"],
+      })
+      const config = {
+        nitro: {
+          handlers: [{ handler: "~/server/api/blob.ts", route: "/api/_vitehub/console/blob" }],
+        },
+        root,
+      }
+
+      await expect(callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }]))
+        .rejects.toThrow("Cannot install the Console Blob handler")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("registers only the section manifest and pages for a KV-only console", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-host-"))
     try {

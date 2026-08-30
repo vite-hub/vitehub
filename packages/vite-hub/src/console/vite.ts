@@ -334,6 +334,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     nitro.handlers = handlers
   }
 
+  function reconcileBlobHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/blob"
+    const blobHandler = join(consoleRuntimeRoot, "server/blob.get.js")
+    const handlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
+    if (sections.includes("blob")) {
+      const conflictingHandler = handlers.find(handler => handler?.route === route && handler?.handler !== blobHandler)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      if (!handlers.some(handler => handler?.handler === blobHandler)) handlers.push({ handler: blobHandler, route })
+    }
+    nitro.handlers = sections.includes("blob")
+      ? handlers
+      : handlers.filter(handler => handler?.handler !== blobHandler)
+  }
+
   const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
     async config(config, environment) {
@@ -474,6 +490,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       nitro.handlers = handlers
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)
+      reconcileBlobHandler(nitro)
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
@@ -511,6 +528,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)
+      reconcileBlobHandler(nitro)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

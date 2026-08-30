@@ -1270,6 +1270,20 @@ describe("vitehub", () => {
         sandbox: { name: "acme-my-app-sandbox", provider: "cloudflare" },
       })
 
+      const configuredRateLimit = await applyDeploymentConfig(
+        {
+          preset: "cloudflare",
+          rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
+        },
+        { root: appRoot },
+      )
+      expect(configuredRateLimit.rateLimit).toEqual({
+        namespace: "acme-my-app",
+        projectRoot: "packages/policies",
+        provider: "cloudflare",
+        scanDirs: ["rules"],
+      })
+
       await rm(join(root, "package.json"))
       const fallback = await applyDeploymentConfig(
         { preset: "cloudflare", queue: true },

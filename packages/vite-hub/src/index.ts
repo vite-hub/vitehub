@@ -469,6 +469,7 @@ function deploymentPlugins(
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
           ;(config as { rateLimit?: unknown }).rateLimit = {
+            ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
             provider: plan.services.rateLimit.adapter,
