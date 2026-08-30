@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue"
+import { useRoute } from "vue-router"
 
 import { loadConsoleNavigation } from "../client/sections"
+import { resolveConsoleRouteName } from "../console-route"
 
 const props = defineProps<{
   collapsed?: boolean
@@ -9,6 +11,7 @@ const props = defineProps<{
 }>()
 
 const projectName = ref<string>()
+const route = useRoute()
 
 onMounted(async () => {
   projectName.value = (await loadConsoleNavigation(props.sectionsBase))?.projectName
@@ -17,8 +20,12 @@ onMounted(async () => {
 
 <template>
   <div class="flex h-10 w-full min-w-0 items-center px-1.5">
-    <strong v-if="!collapsed" class="truncate text-[13px] font-semibold text-highlighted">
+    <RouterLink
+      v-if="!collapsed"
+      class="truncate text-[13px] font-semibold text-highlighted"
+      :to="{ name: resolveConsoleRouteName(route.name, 'vitehub-console') }"
+    >
       {{ projectName ? `ViteHub ${projectName}` : "ViteHub" }}
-    </strong>
+    </RouterLink>
   </div>
 </template>

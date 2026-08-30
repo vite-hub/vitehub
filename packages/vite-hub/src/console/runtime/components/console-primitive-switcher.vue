@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+const navigationFailed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
 const items = computed(() =>
   sections.value
@@ -29,9 +30,17 @@ async function openSection(section: ConsoleSectionId): Promise<void> {
   });
 }
 
-onMounted(async () => {
-  sections.value = (await loadConsoleNavigation(props.sectionsBase))?.sections ?? [];
-});
+async function loadSections(): Promise<void> {
+  navigationFailed.value = false;
+  const navigation = await loadConsoleNavigation(props.sectionsBase);
+  if (!navigation) {
+    navigationFailed.value = true;
+    return;
+  }
+  sections.value = navigation.sections;
+}
+
+onMounted(loadSections);
 </script>
 
 <template>
@@ -44,6 +53,16 @@ onMounted(async () => {
         size="xs"
         :variant="active === item.id ? 'soft' : 'ghost'"
         @click="openSection(item.id)"
+      />
+    </UTooltip>
+    <UTooltip v-if="navigationFailed" text="Retry loading primitives">
+      <UButton
+        aria-label="Retry loading primitives"
+        color="neutral"
+        icon="i-ph-arrow-clockwise"
+        size="xs"
+        variant="ghost"
+        @click="loadSections"
       />
     </UTooltip>
   </nav>

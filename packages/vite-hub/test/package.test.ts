@@ -440,6 +440,18 @@ describe("framework package contract", () => {
     navigationRequest?.abort()
     return
   }`);
+    const consoleBrand = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-brand.vue`,
+      "utf8",
+    );
+    expect(consoleBrand).toContain("<RouterLink");
+    expect(consoleBrand).toContain("resolveConsoleRouteName(route.name, 'vitehub-console')");
+    const consolePrimitiveSwitcher = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-primitive-switcher.vue`,
+      "utf8",
+    );
+    expect(consolePrimitiveSwitcher).toContain("navigationFailed.value = true");
+    expect(consolePrimitiveSwitcher).toContain('aria-label="Retry loading primitives"');
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
