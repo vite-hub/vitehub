@@ -346,7 +346,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
       if (!cliDiscovery && !fixture) {
-        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
+        const initialSections = sections.filter(section => section !== "workflows")
+        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,

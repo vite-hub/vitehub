@@ -248,6 +248,40 @@ describe("vitehub", () => {
     }
   })
 
+  it("defers standalone Workflow discovery until config resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
+    try {
+      integrationMocks.discoverWorkflowDefinitions.mockClear()
+      integrationMocks.discoverWorkflowDefinitions.mockImplementation(() => {
+        throw new Error("unresolved Workflow discovery")
+      })
+      const plugin = dependencyPluginByName(
+        vitehub({ console: true, preset: "node", workflow: true }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      config.workflow = false
+      await callHook(plugin.configResolved, [config])
+
+      expect(integrationMocks.discoverWorkflowDefinitions).not.toHaveBeenCalled()
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.not.toContain(
+        "installConsoleDefinitions",
+      )
+      expect(config.nitro).not.toMatchObject({
+        handlers: expect.arrayContaining([
+          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+        ]),
+      })
+    }
+    finally {
+      integrationMocks.discoverWorkflowDefinitions.mockReset()
+      integrationMocks.discoverWorkflowDefinitions.mockReturnValue([])
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("does not install console plugins when explicitly disabled", () => {
     expect(pluginNames(vitehub({ console: false, preset: "node" }))).not.toEqual(expect.arrayContaining([
       "vite-hub/console",
