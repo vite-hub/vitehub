@@ -317,6 +317,8 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8")
     expect(consoleKVRoute).toContain(`sections.includes("kv")`)
+    expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`)
+    expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)")
     expect(consoleKVRoute).toContain(`v-if="available"`)
     expect(consoleKVRoute).toContain("Try again")
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)

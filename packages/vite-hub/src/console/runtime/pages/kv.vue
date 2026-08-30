@@ -21,7 +21,7 @@ async function loadSections() {
       ? value.sections.filter(isConsoleSectionId)
       : [];
     if (!sections.includes("kv")) {
-      await navigateTo(`${appBaseURL}/_vitehub`);
+      await navigateTo("/_vitehub");
       return;
     }
     available.value = true;
