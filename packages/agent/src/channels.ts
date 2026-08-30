@@ -1320,7 +1320,7 @@ function githubActivityBadge(status: AgentActivityStatus): string {
 function githubActivityTask(task: AgentActivityTask): string {
   const title = task.title
     .replace(/[\r\n]+/g, " ")
-    .replace(/([\\`*_[\]<>])/g, "\\$1")
+    .replace(/([\\`*_()[\]<>])/g, "\\$1")
     .slice(0, 300)
   if (task.status === "completed") return `- [x] ${title}`
   if (task.status === "in-progress") return `- [ ] ⏳ ${title}`
