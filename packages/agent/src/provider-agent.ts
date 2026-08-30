@@ -1399,6 +1399,9 @@ async function* runProvider<
   const sessionKey = sessionId
     ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
+  const preservesProviderSession = options.provider !== "codex"
+    || options.credentials === undefined
+    || Boolean(options.credentialProfile?.trim())
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
   const providerEnvironmentOverrides = options.env
@@ -1431,7 +1434,7 @@ async function* runProvider<
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
-  let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
+  let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let deferredRuntimeFailure: unknown
@@ -1641,13 +1644,13 @@ async function* runProvider<
     let nextEvent = events.next()
     // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
     const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
-    const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
+    const resumed = Boolean(preservesProviderSession && sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
-      resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
+      resumeCursor: preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
@@ -1888,7 +1891,7 @@ async function* runProvider<
     const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
     if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
     else releaseSessionLock?.()
-    if (sessionKey) {
+    if (preservesProviderSession && sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)
       }

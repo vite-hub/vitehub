@@ -1509,6 +1509,33 @@ cli_auth_credentials_store = "keyring"
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
   })
 
+  it("replays message history instead of resuming an ephemeral credential Home", async () => {
+    const threadId = "thread-private-credentials-resume"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "deleted-home-cursor",
+    })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId, {
+      messages: [
+        { content: "hello", role: "user" },
+        { content: "first answer", role: "assistant" },
+        { content: "continue", role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
+      threadId,
+    }))
+  })
+
   it("clears a provider cursor when the invocation fails", async () => {
     const threadId = "thread-failed-resume"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
