@@ -3,6 +3,7 @@ import type { KVRuntimeDriver } from "./driver.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
 type ViteHubDenoKVKey = [string]
+type ViteHubDenoKVExpiryKey = [string, "vitehub:increment-expiry"]
 
 interface DenoKVEntry<T = unknown> {
   key: DenoKVKey
@@ -38,6 +39,10 @@ function getDenoRuntime(): DenoRuntime | undefined {
 
 function toDenoKey(key: string): ViteHubDenoKVKey {
   return [key]
+}
+
+function toDenoExpiryKey(key: string): ViteHubDenoKVExpiryKey {
+  return [key, "vitehub:increment-expiry"]
 }
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
@@ -125,15 +130,26 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async incrementItem(key, ttl) {
       const kv = await open()
       const resolvedKey = toDenoKey(key)
+      const expiryKey = toDenoExpiryKey(key)
       const expireIn = normalizeTTL(ttl)
       while (true) {
-        const entry = await kv.get(resolvedKey)
+        const [entry, expiryEntry] = await Promise.all([kv.get(resolvedKey), kv.get<number>(expiryKey)])
         const current = entry.versionstamp === null ? 0 : parseCounterValue(entry.value)
         if (!Number.isSafeInteger(current)) throw new TypeError(`Atomic KV increment requires an integer value at "${key}".`)
-        const transaction = kv.atomic().check(entry)
-        const result = await (entry.versionstamp === null
-          ? transaction.set(resolvedKey, current + 1, { expireIn })
-          : transaction.set(resolvedKey, current + 1)).commit()
+        const now = Date.now()
+        const created = entry.versionstamp === null
+        const trackedExpiry = expiryEntry.versionstamp !== null
+        const expiresAt = trackedExpiry ? Number(expiryEntry.value) : now + expireIn
+        if (!Number.isSafeInteger(expiresAt)) throw new TypeError(`Atomic KV increment has invalid expiry metadata at "${key}".`)
+        const remaining = Math.max(1, expiresAt - now)
+        const transaction = kv.atomic().check(entry).check(expiryEntry)
+        if (!created && !trackedExpiry) {
+          const result = await transaction.set(resolvedKey, current + 1).commit()
+          if (result.ok) return current + 1
+          continue
+        }
+        const result = await transaction.set(resolvedKey, current + 1, { expireIn: remaining })
+          .set(expiryKey, expiresAt, { expireIn: remaining }).commit()
         if (result.ok) return current + 1
       }
     },

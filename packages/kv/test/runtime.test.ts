@@ -92,20 +92,21 @@ function createDenoOpenKvMock() {
   const close = vi.fn()
   const openKv = vi.fn(async () => ({
     atomic: () => {
-      let operation = () => {}
+      const operations: Array<() => void> = []
       const transaction = {
         check: () => transaction,
         commit: async () => {
-          operation()
+          for (const operation of operations) operation()
           return { ok: true }
         },
         delete: ([key]: [string]) => {
-          operation = () => data.delete(key)
+          operations.push(() => data.delete(key))
           return transaction
         },
-        set: ([key]: [string], value: unknown, options?: { expireIn?: number }) => {
+        set: (keyParts: [string, ...unknown[]], value: unknown, options?: { expireIn?: number }) => {
           setOptions.push(options)
-          operation = () => data.set(key, value)
+          const key = keyParts.join(":")
+          operations.push(() => data.set(key, value))
           return transaction
         },
       }
@@ -115,12 +116,15 @@ function createDenoOpenKvMock() {
     delete: async ([key]: [string]) => {
       data.delete(key)
     },
-    get: async ([key]: [string]) => ({
-      // SAFETY: The mock accepts and returns the single-string key shape used by this adapter.
-      key: [key] as [string],
-      value: data.has(key) ? data.get(key) : null,
-      versionstamp: data.has(key) ? "00000000000000010000" : null,
-    }),
+    get: async (keyParts: [string, ...unknown[]]) => {
+      const key = keyParts.join(":")
+      return {
+        // SAFETY: The mock accepts and returns the string key shapes used by this adapter.
+        key: keyParts,
+        value: data.has(key) ? data.get(key) : null,
+        versionstamp: data.has(key) ? "00000000000000010000" : null,
+      }
+    },
     list: async function* () {
       for (const [key, value] of data) {
         // SAFETY: Mock data keys are strings and the adapter reads a one-element Deno tuple.
@@ -253,8 +257,22 @@ describe("kv runtime", () => {
     await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
     expect(upstashGetdel).toHaveBeenCalledWith("verification")
     expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
-    expect(upstashEval?.mock.calls[0]?.[0]).toContain("if value == 1")
+    expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXISTS'")
+    expect(upstashEval?.mock.calls[0]?.[0]).toContain("if existed == 0")
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXPIRE'")
+  })
+
+  it("normalizes atomic operation keys like ordinary storage operations", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => "single-use")
+    upstashEval = vi.fn(async () => 1)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await kv.getAndDelete("token/path")
+    await kv.increment("attempt/path", 60)
+    expect(upstashGetdel).toHaveBeenCalledWith("token:path")
+    expect(upstashEval).toHaveBeenCalledWith("attempt:path", 60)
   })
 
   it("rejects atomic operations on local filesystem KV", async () => {
@@ -445,7 +463,15 @@ describe("kv runtime", () => {
     await expect(driver.getAndDeleteItem?.("verification")).resolves.toBeNull()
     await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
     await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(2)
-    expect(setOptions).toEqual([{ expireIn: 60_000 }, undefined])
+    expect(setOptions).toHaveLength(4)
+    expect(setOptions.every(options => options?.expireIn && options.expireIn <= 60_000)).toBe(true)
+    expect(data.get("attempts:vitehub:increment-expiry")).toEqual(expect.any(Number))
+
+    setOptions.length = 0
+    data.set("existing-zero", 0)
+    await expect(driver.incrementItem?.("existing-zero", 60)).resolves.toBe(1)
+    expect(setOptions).toEqual([undefined])
+    expect(data.has("existing-zero:vitehub:increment-expiry")).toBe(false)
   })
 
   it("bounds and resumes fs-lite listing across directories", async () => {

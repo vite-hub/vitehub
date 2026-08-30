@@ -1,4 +1,4 @@
-import { createStorage } from "unstorage"
+import { createStorage, normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
@@ -64,7 +64,7 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   storage.listKeys = options => driver.listKeys(options)
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem
-  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(key))
-  if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(key, ttl)
+  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(normalizeKey(key)))
+  if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   return storage
 }

@@ -11,8 +11,9 @@ interface UpstashClient {
 }
 
 const incrementScript = `
+local existed = redis.call('EXISTS', KEYS[1])
 local value = redis.call('INCR', KEYS[1])
-if value == 1 then
+if existed == 0 then
   redis.call('EXPIRE', KEYS[1], ARGV[1])
 end
 return value
