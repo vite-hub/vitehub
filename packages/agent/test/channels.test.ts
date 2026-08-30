@@ -164,12 +164,25 @@ describe("agent channels", () => {
   it("creates queued GitHub activity when a pull request opens", async () => {
     const { github } = await import("../src/channels.ts")
     let storedBody = ""
+    let releaseIdentity: (() => void) | undefined
+    let identityBlocked = true
+    const background: Promise<unknown>[] = []
     const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
       const method = init?.method || "GET"
       methods.push(method)
-      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (url.pathname === "/user") {
+        if (identityBlocked) {
+          await new Promise<void>((resolve) => {
+            releaseIdentity = () => {
+              identityBlocked = false
+              resolve()
+            }
+          })
+        }
+        return Response.json({ login: "vitehub-bot" })
+      }
       if (method === "GET") {
         return Response.json(url.searchParams.get("page") === "2" || !storedBody
           ? []
@@ -192,11 +205,17 @@ describe("agent channels", () => {
         agentIdentity: { name: "reviewer" },
         channel,
         trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+        waitUntil: (task: Promise<unknown>) => background.push(task),
       } as never
       const opened = { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() }
       const result = await trigger.invoke(triggerContext, opened)
 
       expect(result).toBeInstanceOf(Response)
+      expect(background).toHaveLength(1)
+      expect(storedBody).toBe("")
+      await vi.waitFor(() => expect(releaseIdentity).toBeTypeOf("function"))
+      releaseIdentity!()
+      await background[0]
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
       expect(storedBody).toContain("agent-queued-6e7781")
 
@@ -212,6 +231,7 @@ describe("agent channels", () => {
       } as never)
       const runningBody = storedBody
       await trigger.invoke(triggerContext, opened)
+      await background[1]
 
       expect(methods.filter(method => method === "POST")).toHaveLength(1)
       expect(methods.filter(method => method === "PATCH")).toHaveLength(1)

@@ -2283,7 +2283,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const payload = inputPayloadOrBody(input)
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
-          await activity.update({
+          const update = activity.update({
             ...context,
             activity: {
               ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
@@ -2294,6 +2294,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             },
             target: { ...activityTarget },
           })
+          context.waitUntil(update.catch(error => console.error(new Error(
+            "[vitehub] GitHub pull request activity initialization failed.",
+            { cause: error },
+          ))))
           return ignored("activity_queued")
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
