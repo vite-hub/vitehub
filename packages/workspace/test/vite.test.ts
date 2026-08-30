@@ -1052,6 +1052,24 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("inspects inline Artifact stores when standalone Definition loading fails", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: {
+        wrangler: {
+          artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }],
+        },
+      },
+    })
+  })
+
   it("preserves inline overrides for factored Artifact stores when standalone Definition loading fails", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)

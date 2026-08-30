@@ -730,6 +730,7 @@ function sourceInlineWorkspaceStoreOperations(
           SpreadElement(path: BabelNodePath) {
             // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
             const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
+            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
             const position = (path.node as BabelNode & { start?: number }).start
             if (
               position === undefined
@@ -744,6 +745,7 @@ function sourceInlineWorkspaceStoreOperations(
             })
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
+            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
             const position = (path.node as BabelNode & { start?: number }).start
             if (position === undefined) return
             if (!babelPathBelongsToExportedStore(path)) return
@@ -782,6 +784,26 @@ function sourceInlineWorkspaceStoreOperations(
   return operations.sort((left, right) => left.position - right.position)
 }
 
+function reconstructCloudflareArtifactStore(
+  operations: InlineWorkspaceStoreOperation[],
+  importedStore?: { localName: string, store: Record<string, unknown> },
+): WorkspaceDefinitionInput["store"] | undefined {
+  let reconstructed: Record<string, unknown> = {}
+  for (const operation of operations) {
+    if (operation.kind === "spread") {
+      reconstructed = operation.localName === importedStore?.localName
+        ? { ...reconstructed, ...importedStore.store }
+        : {}
+      continue
+    }
+    if (operation.value === undefined) return
+    reconstructed[operation.name] = operation.value
+  }
+  if (reconstructed.provider !== "cloudflare-artifacts") return
+  // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
+  return reconstructed as WorkspaceDefinitionInput["store"]
+}
+
 async function loadFactoredCloudflareArtifactStore(
   definition: DiscoveredWorkspaceDefinition,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
@@ -792,7 +814,7 @@ async function loadFactoredCloudflareArtifactStore(
   if (!loaded) return
   const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
   for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
-    if (!importedName) continue
+    if (!importedName || !localName) continue
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
@@ -806,22 +828,12 @@ async function loadFactoredCloudflareArtifactStore(
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
-        let reconstructed: Record<string, unknown> = {}
-        for (const operation of operations) {
-          if (operation.kind === "spread") {
-            reconstructed = operation.localName === localName ? { ...reconstructed, ...store } : {}
-            continue
-          }
-          if (operation.value === undefined) return
-          reconstructed[operation.name] = operation.value
-        }
-        if (reconstructed.provider !== "cloudflare-artifacts") return
-        // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
-        return reconstructed as WorkspaceDefinitionInput["store"]
+        return reconstructCloudflareArtifactStore(operations, { localName, store })
       }
     }
     catch {}
   }
+  return reconstructCloudflareArtifactStore(operations)
 }
 
 function vercelFunctionRuntimePackages() {
