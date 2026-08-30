@@ -249,7 +249,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   name: string,
   definition: WorkflowDefinition<TPayload, TResult>,
   payload?: TPayload,
-  waitUntil?: (promise: Promise<unknown>) => void,
+  observeSettlement?: (promise: PromiseLike<unknown>) => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
@@ -268,7 +268,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
     const run = await runtime.start(native as never, [context])
     return { id: normalizeRunId(run.runId), run }
   })
-  waitUntil?.(Promise.resolve(run.returnValue).then(() => undefined, () => undefined))
+  observeSettlement?.(Promise.resolve(run.returnValue).then(() => undefined, () => undefined))
   return {
     id,
     metadata: { workflow: name },

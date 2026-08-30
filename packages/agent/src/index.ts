@@ -954,6 +954,9 @@ async function runAgentAsWorkflow<
     ...(context.trace ? { trace: context.trace } : {}),
   }
   const workflowSettlementTasks: Promise<unknown>[] = []
+  const observeSettlement = (promise: PromiseLike<unknown>) => {
+    workflowSettlementTasks.push(Promise.resolve(promise))
+  }
   const waitUntil = (promise: PromiseLike<unknown>) => {
     const task = Promise.resolve(promise)
     workflowSettlementTasks.push(task)
@@ -961,9 +964,11 @@ async function runAgentAsWorkflow<
   }
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
+    settled: observeSettlement,
     waitUntil,
     context: {
       ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
+      settled: observeSettlement,
       waitUntil,
     },
   }
