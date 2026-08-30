@@ -79,7 +79,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
           if (line.trim()) yield parseAgentInvocationStreamEvent(line)
         }
       }
-      if (pending.trim()) yield parseAgentInvocationStreamEvent(pending)
+      if (!interrupted && pending.trim()) yield parseAgentInvocationStreamEvent(pending)
     }
     catch (cause) {
       error = cause
