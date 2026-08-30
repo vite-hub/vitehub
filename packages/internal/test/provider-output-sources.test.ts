@@ -135,13 +135,15 @@ it("retains sibling dependencies for configured roots beneath ignored directorie
   const rootDir = join(workspace, ".vitest-tmp", "project", "vite")
   const handler = join(rootDir, "server", "workflows", "support.ts")
   const shared = join(workspace, ".vitest-tmp", "project", "_shared", "support.ts")
+  const siblingGenerated = join(workspace, ".vitest-tmp", "project", "_shared", ".vitehub", "data", "secret.txt")
   const nestedGenerated = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
-  await Promise.all([handler, shared, nestedGenerated].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([handler, shared, siblingGenerated, nestedGenerated].map(file => mkdir(dirname(file), { recursive: true })))
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
     writeFile(join(rootDir, "package.json"), "{}\n"),
     writeFile(handler, 'export { value } from "../../../_shared/support"\n'),
     writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(siblingGenerated, "local data must not be retained\n"),
     writeFile(nestedGenerated, "throw new Error('generated descendant must not be retained')\n"),
   ])
 
@@ -152,6 +154,7 @@ it("retains sibling dependencies for configured roots beneath ignored directorie
   })
 
   await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("retained")
+  await expect(readFile(retained.resolve(siblingGenerated), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await expect(readFile(retained.resolve(nestedGenerated), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
