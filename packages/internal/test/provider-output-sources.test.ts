@@ -184,6 +184,34 @@ it("retains relative dependencies beside a requested output entry", async () => 
   await expect(readFile(retained.resolve(unrelatedOutput), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("scopes markerless generated inputs to their provider output", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-markerless-output-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, ".vitehub", "database", "schema", "default.ts")
+  const chunk = join(rootDir, ".vitehub", "database", "schema", "chunk.ts")
+  const unrelatedWorkflow = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
+  const unrelatedData = join(rootDir, ".vitehub", "data", "database", "sqlite.db")
+  await Promise.all([entry, chunk, unrelatedWorkflow, unrelatedData].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(entry, 'export { value } from "./chunk"\n'),
+    writeFile(chunk, 'export const value = "retained"\n'),
+    writeFile(unrelatedWorkflow, "throw new Error('unrelated output must not be retained')\n"),
+    writeFile(unrelatedData, "local data must not be retained\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "database-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain("./chunk")
+  await expect(readFile(retained.resolve(chunk), "utf8")).resolves.toContain("retained")
+  await expect(readFile(retained.resolve(unrelatedWorkflow), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(unrelatedData), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)
