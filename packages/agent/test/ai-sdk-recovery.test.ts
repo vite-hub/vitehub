@@ -1839,15 +1839,19 @@ describe("AI SDK recovery", () => {
     await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
   })
 
-  it("propagates tool-call repair failures after a successful follow-up step", async () => {
+  it("stops before another generated step after tool-call repair fails", async () => {
     const unavailable = new Error("repair provider unavailable")
     const fakeModel = model([
       [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
       async () => { throw unavailable },
       "Finished",
     ])
+    const executions = vi.fn(() => "found")
 
-    await expect(runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+    await expect(runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" })).rejects.toBe(unavailable)
+
+    expect(fakeModel.calls).toHaveLength(2)
+    expect(executions).not.toHaveBeenCalled()
   })
 
   it("reports completed tool-call repair usage when a later model step fails", async () => {
@@ -1899,16 +1903,21 @@ describe("AI SDK recovery", () => {
     }))
   })
 
-  it("propagates streamed tool-call repair failures after a successful follow-up step", async () => {
+  it("stops before another streamed step after tool-call repair fails", async () => {
     const unavailable = new Error("repair provider unavailable")
     const fakeModel = streamingRepairModel()
     fakeModel.doGenerate.mockRejectedValueOnce(unavailable)
-    const result = await streamAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, { prompt: "Search" })
+    const executions = vi.fn(() => "found")
+    const result = await streamAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" })
 
     await expect(async () => {
       // SAFETY: streamAgentInline returns the documented async iterable result contract.
       for await (const _event of result as AsyncIterable<unknown>) {}
     }).rejects.toBe(unavailable)
+
+    expect(fakeModel.doGenerate).toHaveBeenCalledOnce()
+    expect(fakeModel.doStream).toHaveBeenCalledOnce()
+    expect(executions).not.toHaveBeenCalled()
   })
 
   it("includes tool-call repair usage in streamed invocations", async () => {

@@ -2029,6 +2029,15 @@ async function createAgent(
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
       : configuredRepairToolCall ?? builtInRepairToolCall
+  const configuredPrepareStep = commonSettings.prepareStep
+  const prepareStep = repairToolCall === builtInRepairToolCall
+    ? async (input: unknown) => {
+        if (toolRepairFailure !== undefined) throw toolRepairFailure
+        return hasRuntimeType(configuredPrepareStep, "function")
+          ? await configuredPrepareStep(input)
+          : undefined
+      }
+    : configuredPrepareStep
   const maxOutputAttempts = context.output ? outputMaxAttempts(context.output) : 1
   const repairAgent = maxOutputAttempts > 1
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -2094,6 +2103,7 @@ async function createAgent(
       model: executionModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
+      ...(prepareStep ? { prepareStep: prepareStep as never } : {}),
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
