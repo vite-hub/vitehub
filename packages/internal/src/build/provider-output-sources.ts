@@ -112,6 +112,12 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => pathContains(root, path))
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
+    const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
+      const segments = relative(root, configuredRoot).split(sep)
+      const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
+      if (ignoredIndex === -1 || ignoredIndex === segments.length - 1) return []
+      return [resolve(root, ...segments.slice(0, ignoredIndex + 2))]
+    })
     const requestedOutputRoots = requested.flatMap((path) => {
       const configuredRoot = nestedConfiguredRoots
         .filter(root => pathContains(root, path))
@@ -164,6 +170,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
             && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
               || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
+              || configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))
+                && !nestedConfiguredRoots.some(configuredRoot => pathContains(configuredRoot, resolvedSource))
               || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
           }
           return true

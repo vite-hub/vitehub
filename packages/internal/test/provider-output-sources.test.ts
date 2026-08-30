@@ -129,6 +129,32 @@ it("retains configured roots beneath nested generated output directories", async
   await expect(readFile(join(retainedWorkspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("retains sibling dependencies for configured roots beneath ignored directories", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-ignored-root-sibling-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, ".vitest-tmp", "project", "vite")
+  const handler = join(rootDir, "server", "workflows", "support.ts")
+  const shared = join(workspace, ".vitest-tmp", "project", "_shared", "support.ts")
+  const nestedGenerated = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
+  await Promise.all([handler, shared, nestedGenerated].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, 'export { value } from "../../../_shared/support"\n'),
+    writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(nestedGenerated, "throw new Error('generated descendant must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("retained")
+  await expect(readFile(retained.resolve(nestedGenerated), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("excludes ignored output directories beneath a configured closure root", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-standalone-root-"))
   tempDirs.push(rootDir)
