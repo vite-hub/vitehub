@@ -263,7 +263,9 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options)
         if (nitroOptions) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces)
-        if (hasNitroConfigContext(config)) nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces)
+        if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
+          nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces)
+        }
       },
     },
     configEnvironment: {

@@ -180,30 +180,6 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             }
           }
         }
-        if (!match && !isAbsolute(specifier) && aliases.some(alias => isAbsolute(alias.specifier))) {
-          const resolved = await build.resolve(args.path, {
-            importer: args.importer,
-            kind: args.kind,
-            namespace: args.namespace,
-            pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-            resolveDir: args.resolveDir,
-            with: args.with,
-          })
-          if (!resolved.errors.length && !resolved.external && resolved.namespace === "file") {
-            specifier = resolved.path
-            normalizedSpecifier = normalizePathSeparators(resolve(specifier))
-            canonicalSpecifier = normalizedSpecifier
-            match = aliases.find(({ prefix, specifier }) => prefix
-              ? normalizedSpecifier.startsWith(specifier)
-              : normalizedSpecifier === specifier)
-            if (!match) {
-              await canonicalizeSpecifier()
-              match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix }) => prefix
-                ? canonicalSpecifier.startsWith(canonicalAlias)
-                : canonicalSpecifier === canonicalAlias)
-            }
-          }
-        }
         matchedAlias ||= match && canonicalSpecifier.startsWith(match.canonicalSpecifier)
           ? match.canonicalSpecifier
           : match?.specifier

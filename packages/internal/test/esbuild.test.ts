@@ -93,6 +93,32 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
+  it("preserves bare imports that resolve to an absolute alias key", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "index.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: "./index.mjs", name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'package'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, 'export { value } from "example"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [original]: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("package")
+    expect(await readFile(outfile, "utf8")).not.toContain("replacement")
+  })
+
   it("redirects relative imports that match absolute aliases", async () => {
     const rootDir = await createTempDir()
     const sourceDir = resolve(rootDir, "retained")

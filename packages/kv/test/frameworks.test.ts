@@ -359,6 +359,24 @@ describe("hubKv", () => {
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
   })
 
+  it("contributes bindings to a resolved Nitro config supplied by ViteHub", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const configure = testHook(plugin.config, (_value: object): void | Promise<void> => undefined)
+    const configureResolved = testHook(plugin.configResolved, (_value: {
+      kv?: unknown
+      nitro: Record<string, unknown>
+      plugins: Array<{ name: string }>
+      root: string
+    }): void | Promise<void> => undefined)
+
+    await configure({})
+    const resolved = { kv: undefined, nitro: {}, plugins: [], root: "/app" }
+    await configureResolved(resolved)
+
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
+  })
+
   it("cleans prior standalone bindings when Nitro takes output ownership", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-transition-"))

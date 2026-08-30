@@ -18,13 +18,17 @@ export function retainProviderOutputAliases(
   aliases: Record<string, string>,
   retainedSources: RetainedProviderOutputSources,
 ): Record<string, string> {
-  return Object.fromEntries(Object.entries(aliases).flatMap(([specifier, target]) => {
+  const retainedAliases: Record<string, string> = Object.create(null)
+  const retain = (specifier: string, target: string): void => {
+    if (!Object.hasOwn(retainedAliases, specifier)) retainedAliases[specifier] = target
+  }
+  for (const [specifier, target] of Object.entries(aliases)) {
     const retainedSpecifier = retainedSources.resolve(specifier)
     const retainedTarget = retainedSources.resolve(target)
-    return retainedSpecifier === specifier
-      ? [[specifier, retainedTarget]]
-      : [[specifier, retainedTarget], [retainedSpecifier, retainedTarget]]
-  }))
+    retain(specifier, retainedTarget)
+    if (retainedSpecifier !== specifier) retain(retainedSpecifier, retainedTarget)
+  }
+  return retainedAliases
 }
 
 const ignoredSourceDirectories = new Set([
