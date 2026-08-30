@@ -63,6 +63,7 @@ describe("docs build warning budget", () => {
     const warnings = [
       "[warn] [docus] AI assistant disabled: missing AI binding",
       "[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.",
+      "[warn] Could not fetch from `https://fonts.bunny.net/list`. Will retry in `1000ms`. `3` retries left.",
       "[warn] [PLUGIN_TIMINGS] render pages took 1s",
       "[warn] [INEFFECTIVE_DYNAMIC_IMPORT] Button.vue is dynamically and statically imported",
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
