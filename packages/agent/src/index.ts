@@ -6641,22 +6641,24 @@ function createInlineAgentInvocationController<
       }
       else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
         let text = ""
+        let finishReason: unknown
         for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
           text += uiMessageTextDelta(chunk) || ""
+          if (isRuntimeRecord(chunk) && chunk.type === "finish" && chunk.finishReason !== undefined)
+            finishReason = chunk.finishReason
         }
-        materializedStreamResult = { text }
+        materializedStreamResult = { ...(finishReason !== undefined ? { finishReason } : {}), text }
       }
       const outcome = await finished
       if (outcome.status === "completed") {
         if (materializedStreamResult) {
-          const { raw: _raw, ...materialized } = materializedStreamResult
           const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
             ? outcome.output
             : undefined
           const completedPublicResult = completed ? { ...completed } : {}
-          for (const property of ["fullStream", "raw", "stream", "textStream", "toUIMessageStream"])
+          for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
             Reflect.deleteProperty(completedPublicResult, property)
-          return { ...completedPublicResult, ...materialized }
+          return { ...completedPublicResult, ...materializedStreamResult }
         }
         // SAFETY: the completed lifecycle output uses the controller's declared public result union.
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult

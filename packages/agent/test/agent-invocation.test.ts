@@ -119,6 +119,7 @@ describe("Agent Invocation controllers", () => {
             fullStream: (async function* () {
               yield { delta: "nested", type: "text-delta" }
             })(),
+            raw: { providerData: "preserved" },
             requestId: "request-1",
           }
         },
@@ -129,7 +130,12 @@ describe("Agent Invocation controllers", () => {
     const controller = await startAgentInvocation(agent, runtime(), {})
 
     const result = await controller.result
-    expect(result).toMatchObject({ answer: 42, requestId: "request-1", text: "nested" })
+    expect(result).toMatchObject({
+      answer: 42,
+      raw: { providerData: "preserved" },
+      requestId: "request-1",
+      text: "nested",
+    })
     expect(result).not.toHaveProperty("fullStream")
     expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
