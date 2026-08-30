@@ -953,6 +953,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
+  const configuredDatabaseDiscoveryRoot = configuredProjectRoot(viteRoot, nuxt.options.vite?.database)
+    ?? configuredProjectRoot(rootDir, options.database)
   // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
   const viteBlob = (nuxt.options.vite as UserConfig & { blob?: Parameters<typeof vitehub>[0]["blob"] }).blob
   const effectiveBlob = options.console ? viteBlob ?? options.blob : false
@@ -1264,7 +1266,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
       const consoleCatalog = await discoverConsoleBuildCatalog({
-        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.database ?? nuxt.options.vite?.database ?? options.database),
+        databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot
+          ? configuredProjectRoot(viteRoot, replayConfig.database ?? nuxt.options.vite?.database) ?? configuredDatabaseDiscoveryRoot
+          : undefined,
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,
@@ -1352,7 +1356,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleInvocationRootState,
       () => consoleWorkflowConfigResolved,
       {
-        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.database ?? options.database),
+        databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),
         rateLimitScanDirs: configuredScanDirs(nuxt.options.vite.rateLimit ?? options.rateLimit),
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.schedule ?? options.schedule),
