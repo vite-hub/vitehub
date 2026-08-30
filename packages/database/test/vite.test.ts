@@ -67,6 +67,10 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubDb().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
     const rootDir = await createTempProject()
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
