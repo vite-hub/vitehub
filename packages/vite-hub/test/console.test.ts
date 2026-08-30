@@ -589,7 +589,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("uses configured server directories during initial Workflow discovery", async () => {
+  it("uses configured server directories during resolved Workflow discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-workflow-server-dirs-"))
     try {
       const customServerDir = join(root, "backend")
@@ -611,6 +611,7 @@ describe("Agent invocation console", () => {
       }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('"name":"custom"')
