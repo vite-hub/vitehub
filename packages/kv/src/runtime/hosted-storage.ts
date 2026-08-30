@@ -7,7 +7,10 @@ export interface RuntimeStorage {
   clear(base?: string, options?: unknown): Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract.
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
+  getAndDeleteItem?<T = unknown>(key: string): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
+  incrementItem?(key: string, ttl: number): Promise<number>
   listKeys(options: KVListOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
@@ -15,6 +18,25 @@ export interface RuntimeStorage {
 }
 
 export class KVStoreConfigurationError extends Error {}
+
+function deserializeValue(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Stored values cross a provider boundary and unstorage serializes non-string values as strings.
+  if (typeof value !== "string") return value
+  if (value === "undefined") return undefined
+  try {
+    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This mirrors unstorage's JSON value decoding and never trusts the result structurally.
+    return JSON.parse(value)
+  }
+  catch {
+    return value
+  }
+}
+
+export class KVAtomicOperationUnsupportedError extends KVStoreConfigurationError {
+  constructor(store: string) {
+    super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash or Deno KV.`)
+  }
+}
 
 function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined): ResolvedKVModuleOptions {
   if (!config) {
@@ -40,5 +62,9 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   // SAFETY: createStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
   const storage = createStorage({ driver }) as unknown as RuntimeStorage
   storage.listKeys = options => driver.listKeys(options)
+  const getAndDeleteItem = driver.getAndDeleteItem
+  const incrementItem = driver.incrementItem
+  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(key))
+  if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(key, ttl)
   return storage
 }

@@ -11,12 +11,20 @@ interface DenoKVEntry<T = unknown> {
 }
 
 interface DenoKV {
+  atomic: () => DenoKVAtomicOperation
   close?: () => void
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
   list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T) => Promise<unknown>
+}
+
+interface DenoKVAtomicOperation {
+  check: (entry: DenoKVEntry) => DenoKVAtomicOperation
+  commit: () => Promise<{ ok: boolean }>
+  delete: (key: DenoKVKey) => DenoKVAtomicOperation
+  set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn?: number }) => DenoKVAtomicOperation
 }
 
 interface DenoRuntime {
@@ -35,6 +43,17 @@ function toDenoKey(key: string): ViteHubDenoKVKey {
 function fromDenoKey(key: DenoKVKey): string | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV keys are untrusted structured values and only one-string keys belong to this adapter.
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
+}
+
+function normalizeTTL(ttl: number): number {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw new TypeError("Atomic KV increment requires a positive TTL in seconds.")
+  return Math.ceil(ttl) * 1000
+}
+
+function parseCounterValue(value: unknown): number {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV can contain native numbers or numeric strings written through unstorage.
+  if (typeof value !== "number" && typeof value !== "string") return Number.NaN
+  return Number(value)
 }
 
 export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
@@ -79,6 +98,15 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async getItem(key) {
       return (await (await open()).get(toDenoKey(key))).value ?? null
     },
+    // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the Deno KV and unstorage caller-typed read contracts.
+    async getAndDeleteItem<T = unknown>(key: string): Promise<T | null> {
+      const kv = await open()
+      const resolvedKey = toDenoKey(key)
+      while (true) {
+        const entry = await kv.get<T>(resolvedKey)
+        if ((await kv.atomic().check(entry).delete(resolvedKey).commit()).ok) return entry.value ?? null
+      }
+    },
     async getKeys(base = "") {
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
@@ -93,6 +121,21 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).versionstamp !== null
+    },
+    async incrementItem(key, ttl) {
+      const kv = await open()
+      const resolvedKey = toDenoKey(key)
+      const expireIn = normalizeTTL(ttl)
+      while (true) {
+        const entry = await kv.get(resolvedKey)
+        const current = entry.versionstamp === null ? 0 : parseCounterValue(entry.value)
+        if (!Number.isSafeInteger(current)) throw new TypeError(`Atomic KV increment requires an integer value at "${key}".`)
+        const transaction = kv.atomic().check(entry)
+        const result = await (entry.versionstamp === null
+          ? transaction.set(resolvedKey, current + 1, { expireIn })
+          : transaction.set(resolvedKey, current + 1)).commit()
+        if (result.ok) return current + 1
+      }
     },
     async removeItem(key) {
       await (await open()).delete(toDenoKey(key))

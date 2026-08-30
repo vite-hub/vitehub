@@ -16,14 +16,17 @@ const lazyDriverMethods = new Set<PropertyKey>([
 ])
 
 export type KVRuntimeDriver = Driver & Record<string, unknown> & {
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract at the internal driver boundary.
+  getAndDeleteItem?: <T = unknown>(key: string) => Promise<T | null>
+  incrementItem?: (key: string, ttl: number) => Promise<number>
   listKeys: (options: KVListOptions) => Promise<KVListPage>
 }
 
 const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
   "cloudflare-kv-binding": new Set(),
-  "deno-kv": new Set(),
+  "deno-kv": new Set(["getAndDeleteItem", "incrementItem"]),
   "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
-  "upstash": new Set(["getItems"]),
+  "upstash": new Set(["getAndDeleteItem", "getItems", "incrementItem"]),
 }
 
 async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<KVRuntimeDriver> {

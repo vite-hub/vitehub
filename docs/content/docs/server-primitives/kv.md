@@ -125,7 +125,17 @@ export async function savePreferences(tenantId: string, value: unknown) {
 }
 ```
 
-KV does not provide the atomic consume contract required for request budgets. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) instead of composing `get()` and `set()` under concurrency.
+Upstash and Deno KV provide atomic single-use reads and counters:
+
+```ts [server/verification.ts]
+const [consumeError, token] = await kv.getAndDelete('verification:token')
+if (consumeError) throw consumeError
+
+const [incrementError, attempts] = await kv.increment('rate-limit:user', 60)
+if (incrementError) throw incrementError
+```
+
+`increment()` applies the TTL only when it creates the counter. Cloudflare KV and local `fs-lite` stores reject both methods because they cannot provide the same atomic guarantee. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) when provider-managed request budgets fit the application.
 
 ## Runtime helper
 
@@ -134,8 +144,10 @@ KV does not provide the atomic consume contract required for request budgets. Us
 | Method | Description |
 | --- | --- |
 | `kv.get<T>(key)` | Reads a value or returns `null`. |
+| `kv.getAndDelete<T>(key)` | Atomically returns and deletes a value on Upstash and Deno KV. |
 | `kv.set<T>(key, value)` | Writes a value. |
 | `kv.has(key)` | Checks whether a key exists. |
+| `kv.increment(key, ttl)` | Atomically increments a counter on Upstash and Deno KV. |
 | `kv.del(key)` | Deletes one key. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
@@ -167,7 +179,7 @@ Give model-facing tools the narrowest useful key prefix and configure write acce
 
 KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
 
-Do not build public coordination locks on top of basic `kv.get()` and `kv.set()`. ViteHub runtime coordination uses package-owned internal APIs when stronger guarantees are required.
+Do not build coordination locks on top of basic `kv.get()` and `kv.set()`. The atomic methods cover single-use reads and counters; they are not a general compare-and-swap API.
 
 ## Next steps
 

@@ -63,7 +63,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "get" | "has" | "keys" | "list" | "set"
+export type KVOperation = "clear" | "del" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set"
 export type KVErrorDetails = ViteHubErrorDetails & {
   operation: KVOperation
   store: string
@@ -92,7 +92,10 @@ export interface KVStorage {
   del(key: string, options?: unknown): Promise<KVResult<void>>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown>(key: string, options?: unknown): Promise<KVResult<T | null>>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
+  getAndDelete<T = unknown>(key: string): Promise<KVResult<T | null>>
   has(key: string, options?: unknown): Promise<KVResult<boolean>>
+  increment(key: string, ttl: number): Promise<KVResult<number>>
   keys(base?: string, options?: unknown): Promise<KVResult<string[]>>
   list(options: KVListOptions): Promise<KVResult<KVListPage>>
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<KVResult<void>>

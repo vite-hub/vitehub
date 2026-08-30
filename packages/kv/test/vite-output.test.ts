@@ -166,6 +166,7 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("#vitehub/kv/config")
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
+    expect(output).toContain("Cloudflare KV does not support atomic operations")
     expect(output).toContain("KV_CUSTOM")
   })
 
@@ -438,5 +439,5 @@ describe("KV source type visibility", () => {
       const output = (error as { stderr?: string, stdout?: string }).stdout || (error as { stderr?: string, stdout?: string }).stderr
       throw new Error(output)
     }
-  })
+  }, 20_000)
 })

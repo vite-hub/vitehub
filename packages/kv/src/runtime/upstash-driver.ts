@@ -4,7 +4,23 @@ import type { KVListOptions, KVListPage, ResolvedUpstashKVStoreConfig } from "..
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface UpstashClient {
+  eval: (script: string, keys: string[], args: string[]) => Promise<number>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models the caller-typed Upstash read command used by the unstorage adapter.
+  getdel: <T = unknown>(key: string) => Promise<T | null>
   scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
+}
+
+const incrementScript = `
+local value = redis.call('INCR', KEYS[1])
+if value == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return value
+`
+
+function normalizeTTL(ttl: number): number {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw new TypeError("Atomic KV increment requires a positive TTL in seconds.")
+  return Math.ceil(ttl)
 }
 
 interface UpstashCursor {
@@ -47,6 +63,9 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   const maximumContinuations = 32
   const maximumContinuationBytes = 1024 * 1024
   let continuationBytes = 0
+
+  driver.getAndDeleteItem = key => driver.getInstance().getdel(key)
+  driver.incrementItem = async (key, ttl) => Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
 
   function releaseContinuation(cursor: string): void {
     const continuation = continuations.get(cursor)

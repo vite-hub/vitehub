@@ -24,6 +24,8 @@ const mountedDrivers: {
 
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | Error | undefined
+let upstashEval: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> | undefined
+let upstashGetdel: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>> | undefined
 let upstashScan: ReturnType<typeof vi.fn> | undefined
 // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
@@ -34,13 +36,23 @@ function resetStorage() {
   delete mountedDrivers.cloudflare
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
+  upstashEval = undefined
+  upstashGetdel = undefined
   upstashScan = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
   return (options: Record<string, unknown> = {}) => {
     mountedDrivers[name] = options
-    return memoryDriver()
+    return {
+      ...memoryDriver(),
+      async getAndDeleteItem(key: string) {
+        return await upstashGetdel?.(key) ?? null
+      },
+      async incrementItem(key: string, ttl: number): Promise<number> {
+        return Number(await upstashEval?.(key, ttl) ?? 1)
+      },
+    }
   }
 }
 
@@ -76,8 +88,29 @@ function createDriverWithoutOptionalMethods(): Driver {
 
 function createDenoOpenKvMock() {
   const data = new Map<string, unknown>()
+  const setOptions: Array<{ expireIn?: number } | undefined> = []
   const close = vi.fn()
   const openKv = vi.fn(async () => ({
+    atomic: () => {
+      let operation = () => {}
+      const transaction = {
+        check: () => transaction,
+        commit: async () => {
+          operation()
+          return { ok: true }
+        },
+        delete: ([key]: [string]) => {
+          operation = () => data.delete(key)
+          return transaction
+        },
+        set: ([key]: [string], value: unknown, options?: { expireIn?: number }) => {
+          setOptions.push(options)
+          operation = () => data.set(key, value)
+          return transaction
+        },
+      }
+      return transaction
+    },
     close,
     delete: async ([key]: [string]) => {
       data.delete(key)
@@ -99,7 +132,7 @@ function createDenoOpenKvMock() {
     },
   }))
 
-  return { close, data, openKv }
+  return { close, data, openKv, setOptions }
 }
 
 vi.mock("unstorage/drivers/fs-lite", () => ({
@@ -124,7 +157,7 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
 vi.mock("unstorage/drivers/upstash", () => ({
   default: vi.fn(() => ({
     ...memoryDriver(),
-    getInstance: () => ({ scan: upstashScan }),
+    getInstance: () => ({ eval: upstashEval, getdel: upstashGetdel, scan: upstashScan }),
   })),
 }))
 
@@ -195,6 +228,41 @@ describe("kv runtime", () => {
       token: "upstash-token",
       url: "https://upstash.example.com",
     })
+  })
+
+  it("exposes atomic Upstash operations through the KV helper", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => '{"singleUse":true}')
+    upstashEval = vi.fn(async () => 2)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expect(expectKVSuccess(await kv.getAndDelete<{ singleUse: boolean }>("verification"))).toEqual({ singleUse: true })
+    expect(expectKVSuccess(await kv.increment("attempts", 60))).toBe(2)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
+  })
+
+  it("maps atomic operations to native Upstash commands", async () => {
+    upstashGetdel = vi.fn(async () => "single-use")
+    upstashEval = vi.fn(async () => 1)
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe("single-use")
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
+    expect(upstashEval?.mock.calls[0]?.[0]).toContain("if value == 1")
+    expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXPIRE'")
+  })
+
+  it("rejects atomic operations on local filesystem KV", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.getAndDelete("verification")).rejects.toThrow("does not support atomic operations")
+    await expect(kv.increment("attempts", 60)).rejects.toThrow("does not support atomic operations")
   })
 
   it("honors explicit hosting before ambient Deno KV detection", async () => {
@@ -363,6 +431,21 @@ describe("kv runtime", () => {
     await driver.dispose?.()
     expect(openKv).toHaveBeenCalledWith(":memory:")
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("uses Deno KV transactions for atomic operations", async () => {
+    const { data, openKv, setOptions } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
+
+    data.set("verification", "single-use")
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe("single-use")
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBeNull()
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(2)
+    expect(setOptions).toEqual([{ expireIn: 60_000 }, undefined])
   })
 
   it("bounds and resumes fs-lite listing across directories", async () => {
