@@ -45,6 +45,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   wranglerConfigKeys?: string[]
   wranglerConfigDefaults?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
+  wranglerConfigOwnershipFiles?: Record<string, string>
   wranglerConfig: object
 }
 
@@ -85,6 +86,7 @@ interface CloudflareProviderDeploymentCleanup {
   fileNames?: string[]
   outputRoot?: string
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
+  wranglerConfigOwnershipFiles?: Record<string, string>
 }
 
 interface VercelProviderDeploymentCleanup {
@@ -123,6 +125,7 @@ export type ProviderDeploymentOutputOwner =
   | "workflow"
   | "vite-hub"
   | "browser"
+  | "kv"
 
 export interface ProviderDeploymentOutputWriter {
   (options: ProviderDeploymentOutputOptions): Promise<void>
@@ -184,6 +187,7 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "workflow",
   "vite-hub",
   "browser",
+  "kv",
 ]
 
 function throwIfProviderOutputAborted(signal: AbortSignal): void {
@@ -212,6 +216,71 @@ function resolveClientOutput(rootDir: string, clientOutDir: string): ResolvedCli
 
 function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
+}
+
+type ProviderOutputOwnershipValue = boolean | null | number | string
+
+function isProviderOutputOwnershipValue(value: unknown): value is ProviderOutputOwnershipValue {
+  if (value === null) return true
+  const tag = Object.prototype.toString.call(value)
+  if (tag === "[object Number]") return Number.isFinite(Number(value))
+  return tag === "[object Boolean]" || tag === "[object String]"
+}
+
+function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
+  if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
+    throw new TypeError(`Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}`)
+  }
+  return resolve(outputRoot, fileName)
+}
+
+async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<ProviderOutputOwnershipValue[]> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
+    return Array.isArray(parsed) ? parsed.filter(isProviderOutputOwnershipValue) : []
+  }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return []
+    throw error
+  }
+}
+
+async function resolvePersistedProviderOutputOwnership(
+  outputRoot: string,
+  ownership: ProviderOutputConfigOwnership | undefined,
+  files: Record<string, string> | undefined,
+): Promise<ProviderOutputConfigOwnership | undefined> {
+  if (!files || !Object.keys(files).length) return ownership
+  const arrays = { ...ownership?.arrays }
+  await Promise.all(Object.entries(files).map(async ([field, fileName]) => {
+    const current = arrays[field]
+    if (!current) throw new TypeError(`Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.`)
+    arrays[field] = {
+      ...current,
+      values: [
+        ...await readProviderOutputOwnershipFile(outputRoot, fileName),
+        ...(current.values ?? []),
+      ],
+    }
+  }))
+  return { ...ownership, arrays }
+}
+
+async function writeProviderOutputOwnershipFiles(
+  outputRoot: string,
+  ownership: ProviderOutputConfigOwnership | undefined,
+  files: Record<string, string> | undefined,
+): Promise<void> {
+  await Promise.all(Object.entries(files ?? {}).map(async ([field, fileName]) => {
+    const file = resolveProviderOutputOwnershipFile(outputRoot, fileName)
+    const values = [...new Set(ownership?.arrays?.[field]?.values ?? [])]
+    if (!values.length) {
+      await rm(file, { force: true })
+      return
+    }
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(file, `${JSON.stringify(values, null, 2)}\n`, "utf8")
+  }))
 }
 
 export function createDefaultVercelOutputRoot(rootDir: string): string {
@@ -285,41 +354,47 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     }
   }
 
-  await mkdir(outputRoot, { recursive: true })
-
-  const writes = [
-    writeCloudflareWranglerConfig({
-      outputRoot,
-      rootDir: options.rootDir,
-      wranglerConfig: options.wranglerConfig,
-      wranglerConfigDefaults: options.wranglerConfigDefaults,
-      wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
-    }),
-    options.bundleEntry && staticIndex
-      ? copyClientOutput(clientDir, staticOutputDir)
-      : Promise.resolve(),
-    ...files.map(([fileName, contents]) =>
-      writeFile(resolve(outputRoot, fileName), contents, "utf8")),
-  ]
-
-  if (options.bundleEntry && workerOutfile) {
-    const stagedWorkerOutfile = `${workerOutfile}.pending`
-    writes.push((async () => {
-      try {
-        await rm(stagedWorkerOutfile, { force: true, recursive: true })
-        await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal })
-        signal?.throwIfAborted()
-        await rename(stagedWorkerOutfile, workerOutfile)
-      }
-      catch (error) {
-        await rm(stagedWorkerOutfile, { force: true, recursive: true })
-        throw error
-      }
-    })())
-  }
-
   try {
+    await mkdir(outputRoot, { recursive: true })
+    const wranglerConfigOwnership = await resolvePersistedProviderOutputOwnership(
+      outputRoot,
+      options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
+      options.wranglerConfigOwnershipFiles,
+    )
+
+    const writes = [
+      writeCloudflareWranglerConfig({
+        outputRoot,
+        rootDir: options.rootDir,
+        wranglerConfig: options.wranglerConfig,
+        wranglerConfigDefaults: options.wranglerConfigDefaults,
+        wranglerConfigOwnership,
+      }),
+      options.bundleEntry && staticIndex
+        ? copyClientOutput(clientDir, staticOutputDir)
+        : Promise.resolve(),
+      ...files.map(([fileName, contents]) =>
+        writeFile(resolve(outputRoot, fileName), contents, "utf8")),
+    ]
+
+    if (options.bundleEntry && workerOutfile) {
+      const stagedWorkerOutfile = `${workerOutfile}.pending`
+      writes.push((async () => {
+        try {
+          await rm(stagedWorkerOutfile, { force: true, recursive: true })
+          await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+          signal?.throwIfAborted()
+          await rename(stagedWorkerOutfile, workerOutfile)
+        }
+        catch (error) {
+          await rm(stagedWorkerOutfile, { force: true, recursive: true })
+          throw error
+        }
+      })())
+    }
+
     await settleWrites(writes)
+    await writeProviderOutputOwnershipFiles(outputRoot, options.wranglerConfigOwnership, options.wranglerConfigOwnershipFiles)
     signal?.throwIfAborted()
     publicationSucceeded = true
   }
@@ -550,13 +625,19 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
   signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
+  const wranglerConfigOwnership = await resolvePersistedProviderOutputOwnership(
+    outputRoot,
+    cleanup.wranglerConfigOwnership,
+    cleanup.wranglerConfigOwnershipFiles,
+  )
   const writes = (cleanup.fileNames ?? []).map(fileName => rm(resolve(outputRoot, fileName), { force: true, recursive: true }))
   writes.push(writeCloudflareWranglerConfig({
     outputRoot,
     rootDir,
-    wranglerConfigOwnership: cleanup.wranglerConfigOwnership,
+    wranglerConfigOwnership,
   }))
   await Promise.all(writes)
+  await writeProviderOutputOwnershipFiles(outputRoot, cleanup.wranglerConfigOwnership, cleanup.wranglerConfigOwnershipFiles)
   try {
     await rmdir(outputRoot)
   }

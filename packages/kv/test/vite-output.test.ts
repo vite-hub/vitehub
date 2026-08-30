@@ -64,6 +64,13 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("serializes provider output finalization after other post hooks", async () => {
+    const plugin = (await import("../src/vite.ts")).hubKv()
+
+    expect(plugin.enforce).toBe("post")
+    expect(plugin.closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
@@ -112,6 +119,7 @@ describe("KV Vite output", () => {
     })
 
     const output = await readOutput(join(rootDir, "dist"))
+    // SAFETY: the fixture entry exports the tested async worker as its default export.
     const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
       default: () => Promise<unknown>
     }
@@ -200,17 +208,20 @@ describe("KV Vite output", () => {
       root: rootDir,
     })
 
-    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+    const wranglerContents = await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8")
+    const wrangler = JSON.parse(wranglerContents)
 
     expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
-    expect(wrangler).toEqual({
+    const expected = {
       d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
+      triggers: { crons: ["0 0 * * *"] },
       kv_namespaces: [
         { binding: "OLD", id: "old-namespace" },
         { binding: "SETTINGS", id: "11111111111111111111111111111111" },
       ],
-      triggers: { crons: ["0 0 * * *"] },
-    })
+    }
+    expect(wrangler).toEqual(expected)
+    expect(wranglerContents).toBe(`${JSON.stringify(expected, null, 2)}\n`)
   })
 
   it("preserves sibling Cloudflare provider output from closeBundle hooks", async () => {
@@ -240,18 +251,21 @@ describe("KV Vite output", () => {
       },
       logLevel: "silent",
       plugins: [
-        hubKv(),
         {
           name: "late-cloudflare-provider-output",
-          async closeBundle() {
-            await new Promise(resolve => setTimeout(resolve, 10))
-            await mkdir(cloudflareOutputRoot, { recursive: true })
-            await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
-              d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
-              kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
-            }, null, 2)}\n`, "utf8")
+          closeBundle: {
+            order: "post",
+            async handler() {
+              await new Promise(resolve => setTimeout(resolve, 10))
+              await mkdir(cloudflareOutputRoot, { recursive: true })
+              await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+                d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
+                kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+              }, null, 2)}\n`, "utf8")
+            },
           },
         },
+        hubKv(),
       ],
       root: rootDir,
     })
@@ -352,7 +366,7 @@ describe("KV Vite output", () => {
       { binding: "MANUAL", id: "manual-namespace" },
       { binding: "NEW", id: "new-namespace" },
     ])
-    await expect(readFile(join(cloudflareOutputRoot, kvBindingsFile), "utf8").then(JSON.parse)).resolves.toEqual(["NEW"])
+    await expect(readFile(join(cloudflareOutputRoot, kvBindingsFile), "utf8")).resolves.toBe('[\n  "NEW"\n]\n')
   })
 
   it("removes stale generated Cloudflare KV namespaces when KV stops contributing", async () => {
@@ -429,6 +443,7 @@ describe("KV source type visibility", () => {
       await execFileAsync(resolve(repoRoot, "node_modules/.bin/tsc"), ["--noEmit", "-p", join(rootDir, "tsconfig.json")])
     }
     catch (error) {
+      // SAFETY: execFileAsync rejects with the child process stdout and stderr fields used for diagnostics here.
       const output = (error as { stderr?: string, stdout?: string }).stdout || (error as { stderr?: string, stdout?: string }).stderr
       throw new Error(output)
     }
