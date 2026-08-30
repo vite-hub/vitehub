@@ -1104,6 +1104,27 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("preserves inline overrides for destructured CommonJS Artifact stores", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-stores.cjs"), `exports.artifactStore = { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.cjs"), [
+      `require("virtual:generated-workspace-metadata")`,
+      `const { artifactStore } = require("./artifact-stores.cjs")`,
+      `module.exports = { store: { ...artifactStore, binding: "CUSTOM_FILES", namespace: "custom-workspaces" } }`,
+      ``,
+    ].join("\n"))
+    await rm(join(root, "src", "docs.workspace.ts"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: {
+        wrangler: {
+          artifacts: [{ binding: "CUSTOM_FILES", namespace: "custom-workspaces" }],
+        },
+      },
+    })
+  })
+
   it("preserves overrides in locally factored Artifact stores when standalone Definition loading fails", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
@@ -1663,6 +1684,21 @@ describe("hubWorkspace", () => {
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
     expect(wrangler.artifacts).toEqual([{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }])
+  })
+
+  it("does not import wrapped CommonJS Definitions with unrelated Artifact metadata", async () => {
+    const root = await createViteRoot()
+    await rm(join(root, "src", "docs.workspace.ts"))
+    await writeFile(join(root, "src", "docs.workspace.cjs"), [
+      `const generatedStore = require("virtual:generated-workspace-store")`,
+      `module.exports = { default: { store: generatedStore, metadata: { provider: "cloudflare-artifacts" } } }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+
+    await expect((plugin.closeBundle as { handler: () => Promise<void> }).handler()).resolves.toBeUndefined()
   })
 
   it("resolves definition-level Cloudflare Artifacts bindings through default re-exports", async () => {

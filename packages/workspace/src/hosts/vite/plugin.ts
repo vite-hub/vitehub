@@ -310,7 +310,16 @@ function babelPathBelongsToExportedStore(path: BabelNodePath): boolean {
           && babelPropertyName(nested) === "default"
           && nested.parentPath?.node.type === "ObjectExpression"
           && nested.parentPath.parentPath === current
-        ) return true
+        ) {
+          for (let wrapped = path.parentPath; wrapped && wrapped !== nested; wrapped = wrapped.parentPath) {
+            if (
+              wrapped.node.type === "ObjectProperty"
+              && babelPropertyName(wrapped) === "store"
+              && wrapped.parentPath?.node === nested.node.value
+            ) return true
+          }
+          return false
+        }
       }
       return false
     }
@@ -708,7 +717,7 @@ function sourceImportsFeedingWorkspaceStore(
                   ? babelStringValue(key, path)
                   : property.key?.name ?? property.key?.value
                 // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
-                imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
+                imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
               }
               return
             }
