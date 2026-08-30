@@ -122,6 +122,7 @@ function createTestChatAdapter(
     cachedMessages.set(message.threadId, [...(cachedMessages.get(message.threadId) ?? []), message])
   }
   const adapter = {
+    _cachedMessages: (threadId: string) => cachedMessages.get(threadId) ?? [],
     _chatInstance: () => chatInstance,
     channelIdFromThreadId: vi.fn((threadId: string) => threadId),
     handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
@@ -310,6 +311,7 @@ function createTestChatAdapter(
   const adapterBoundary: unknown = adapter
   // SAFETY: the returned intersection lists methods defined on the object above.
   return adapterBoundary as Adapter & {
+    _cachedMessages: (threadId: string) => Message[]
     _chatInstance: () => ChatInstance | undefined
     deleteMessage: ReturnType<typeof vi.fn>
     handleWebhook: ReturnType<typeof vi.fn>
@@ -17776,14 +17778,12 @@ describe("server helpers", () => {
     const nearest = historicalMessage("nearest id-less")
     Reflect.deleteProperty(previous, "id")
     Reflect.deleteProperty(nearest, "id")
-    const includedCurrent = historicalMessage("current id-less")
-    includedCurrent.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
-    Reflect.deleteProperty(includedCurrent, "id")
-    const newer = historicalMessage("newer id-less")
+    const newer = historicalMessage("current id-less")
+    newer.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
     Reflect.deleteProperty(newer, "id")
-    adapter.fetchMessages.mockResolvedValue({
-      messages: [previous, nearest, includedCurrent, newer],
-    })
+    adapter.fetchMessages.mockImplementation(async (threadId: string) => ({
+      messages: [previous, nearest, ...adapter._cachedMessages(threadId), newer],
+    }))
     const runs: string[][] = []
     const agent = defineAgent({
       channels: {

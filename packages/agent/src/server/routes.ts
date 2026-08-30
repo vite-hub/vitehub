@@ -4072,13 +4072,33 @@ async function chatTriggerMessages(
   let foundCurrent = false
   let scanned = 0
   try {
+    const idLessCandidates: ChatSdkMessage[] = []
+    let exactIdLessCurrentIndex = -1
     for await (const item of thread.messages) {
       if (++scanned > MAX_CHAT_TRIGGER_HISTORY_SCAN) break
+      if (!message.id) {
+        idLessCandidates.push(item)
+        if (exactIdLessCurrentIndex < 0 && (item === message || (isRuntimeObject(message.raw) && item.raw === message.raw))) {
+          exactIdLessCurrentIndex = idLessCandidates.length - 1
+        }
+        if (exactIdLessCurrentIndex >= 0 && idLessCandidates.length > exactIdLessCurrentIndex + fetchedLimit) break
+        continue
+      }
       if (fetchedNewestFirst.length >= fetchedLimit) break
       const isCurrent = isCurrentChatSdkMessage(item, message)
       if (!foundCurrent && isCurrent) foundCurrent = true
-      if (foundCurrent && (message.id || !isCurrent)) {
+      if (foundCurrent) {
         fetchedNewestFirst.push(isCurrent ? current : await chatSdkMessageToUiMessage(item))
+      }
+    }
+    if (!message.id) {
+      const currentIndex = exactIdLessCurrentIndex >= 0
+        ? exactIdLessCurrentIndex
+        : idLessCandidates.findIndex((item) => isCurrentChatSdkMessage(item, message))
+      if (currentIndex >= 0) {
+        for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
+          fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+        }
       }
     }
   } catch {}
