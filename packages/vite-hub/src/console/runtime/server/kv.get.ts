@@ -124,7 +124,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       if (replacement !== input) return serialize(replacement, depth, arrayValue, key)
     }
     const boxed = input instanceof Number || input instanceof String || input instanceof Boolean || Object.prototype.toString.call(input) === "[object BigInt]"
-      ? Reflect.apply(object.valueOf, input, []) as unknown
+      ? Reflect.apply(object.valueOf, input, [])
       : input
     if (boxed !== input) return serialize(boxed, depth, arrayValue, key)
     if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")

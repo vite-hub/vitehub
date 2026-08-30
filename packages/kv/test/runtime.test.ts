@@ -494,7 +494,22 @@ describe("kv runtime", () => {
     expect(first).toMatchObject({ keys: ["one", "two"], cursor: expect.any(String) })
     expect(second).toEqual({ keys: ["three"] })
     expect(first.cursor).not.toContain("three")
-    expect(upstashScan).toHaveBeenCalledTimes(2)
+    expect(upstashScan).toHaveBeenCalledOnce()
+  })
+
+  it("does not replay an oversized Upstash scan to resume overflow", async () => {
+    upstashScan = vi.fn()
+      .mockResolvedValueOnce([7, ["one", "two", "three"]])
+      .mockResolvedValueOnce([0, ["changed"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 2 })
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 2 })).resolves.toEqual({
+      keys: ["three"],
+      cursor: expect.any(String),
+    })
+    expect(upstashScan).toHaveBeenCalledOnce()
   })
 
   it("passes a bounded page size to Deno KV for selective prefixes", async () => {

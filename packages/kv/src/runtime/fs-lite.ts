@@ -62,7 +62,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     const nextCursor = randomUUID()
     const timeout = setTimeout(() => {
       releaseContinuation(nextCursor)
-    }, 60_000)
+    }, 15 * 60_000)
     timeout.unref()
     continuations.set(nextCursor, { iterator, timeout })
     while (continuations.size > maximumContinuations) {
