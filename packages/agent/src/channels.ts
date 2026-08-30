@@ -1218,10 +1218,14 @@ function githubActivityLinksState(links: readonly { label: string, url: string }
 }
 
 function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
-  if (!isRecord(comment) || !hasRuntimeType(comment.body, "string") || !comment.body.includes(githubActivityMarker)) return false
+  if (!isRecord(comment) || !hasRuntimeType(comment.body, "string") || !comment.body.startsWith(githubActivityMarker)) return false
   const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
   const appId = isRecord(comment.performed_via_github_app) ? maybeNumber(comment.performed_via_github_app.id) : undefined
   return Boolean(identity.appId ? appId === identity.appId : identity.login && user === identity.login)
+}
+
+function githubActivityIdentityKey(identity: GitHubActivityIdentity): string {
+  return identity.appId ? `app:${identity.appId}` : `user:${identity.login}`
 }
 
 function githubActivityRunId(agentName: string, runId: string): string {
@@ -1345,14 +1349,15 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
       const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
-      const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
+      const commentsTarget = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
+      const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
         const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
         const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
         const knownActiveRun = activeRuns.has(runId)
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
-        const commentsUrl = `${activityKey}/comments?sort=created&direction=desc`
+        const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))

@@ -199,6 +199,81 @@ describe("agent channels", () => {
     expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
   })
 
+  it("does not reuse owned replies that only quote the activity marker", async () => {
+    const { github } = await import("../src/channels.ts")
+    const methods: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (method === "GET") {
+        return Response.json(url.searchParams.has("page")
+          ? []
+          : [{ body: "Quoted source: <!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
+      }
+      return Response.json({ id: 8 }, { status: 201 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-quoted", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-quoted" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(methods).toContain("POST")
+      expect(methods).not.toContain("PATCH")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("orders GitHub activity separately for each authenticated identity", async () => {
+    const { github } = await import("../src/channels.ts")
+    const posts: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const authorization = String((init?.headers as Record<string, string> | undefined)?.authorization || "")
+      if (url.pathname === "/user") return Response.json({ login: authorization.endsWith("token-a") ? "bot-a" : "bot-b" })
+      if (init?.method === "GET") return Response.json([])
+      posts.push(authorization)
+      return Response.json({ id: posts.length }, { status: 201 })
+    })
+    const context = (channel: ReturnType<typeof github>) => ({
+      activity: { links: [], runId: "shared-run", status: "running", tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId: "shared-run" },
+      runtime: "unknown",
+      target: { issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    })
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channelA = github({ activity: true })
+      const channelB = github({ activity: true })
+      vi.stubEnv("GITHUB_TOKEN", "token-a")
+      await channelA.activity?.update(context(channelA) as never)
+      vi.stubEnv("GITHUB_TOKEN", "token-b")
+      await channelB.activity?.update(context(channelB) as never)
+
+      expect(posts).toEqual(["Bearer token-a", "Bearer token-b"])
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("reuses GitHub Actions bot activity when its installation token cannot resolve /user", async () => {
     const { github } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
