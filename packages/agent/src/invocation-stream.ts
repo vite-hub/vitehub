@@ -53,6 +53,13 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
   let error: unknown
   let pending = ""
   let cancellation: Promise<void> | undefined
+  let released = false
+
+  function releaseReader(): void {
+    if (released) return
+    released = true
+    reader.releaseLock()
+  }
 
   const events = (async function* () {
     try {
@@ -85,7 +92,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
         }
       }
       finally {
-        reader.releaseLock()
+        releaseReader()
       }
     }
   })()
@@ -112,6 +119,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
         }
       }
       const result = await events.return(value)
+      releaseReader()
       if (cancellationFailed) throw cancellationError
       return result
     },
