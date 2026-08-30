@@ -116,6 +116,7 @@ function createTestChatAdapter(
 ) {
   let chatInstance: ChatInstance | undefined
   let idLessMessageSequence = 0
+  let latestIncomingDate = new Date("2026-06-10T12:00:00.000Z")
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
   const cacheMessage = (message: Message) => {
@@ -172,6 +173,7 @@ function createTestChatAdapter(
         | undefined
       const photo = photos?.at(-1)
       const date = isRuntimeNumber(rawMessage.date) ? new Date(rawMessage.date * 1000) : new Date("2026-06-10T12:00:00.000Z")
+      latestIncomingDate = date
       const message = new Message({
         attachments: rawMessage.audio
           ? [
@@ -293,7 +295,7 @@ function createTestChatAdapter(
           },
           formatted: { children: [], type: "root" },
           id,
-          metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+          metadata: { dateSent: latestIncomingDate, edited: false },
           raw: { message },
           text: isRuntimeString(message)
             ? message
