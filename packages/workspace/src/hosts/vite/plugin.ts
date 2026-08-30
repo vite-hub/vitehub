@@ -73,6 +73,7 @@ interface BabelNode {
   name?: string
   object?: BabelNode
   property?: BabelNode
+  right?: BabelNode
   source?: BabelNode
   specifiers?: BabelNode[]
   local?: BabelNode
@@ -140,6 +141,18 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
     }
   }
   return false
+}
+
+function babelPathIsDirectDefaultExport(path: BabelNodePath): boolean {
+  const parent = path.parentPath?.node
+  if (parent?.type === "ExportDefaultDeclaration") return true
+  return parent?.type === "AssignmentExpression"
+    && parent.right === path.node
+    && parent.left?.type === "MemberExpression"
+    && parent.left.object?.type === "Identifier"
+    && parent.left.object.name === "module"
+    && parent.left.property?.type === "Identifier"
+    && parent.left.property.name === "exports"
 }
 
 function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
@@ -453,7 +466,7 @@ function sourceImportsFeedingWorkspaceStore(
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
               const binding = path.scope.getBinding(imported.local.name)
               const referenceReachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
-                ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
+                ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
                 : (() => {
                     for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
                       if (
@@ -465,10 +478,14 @@ function sourceImportsFeedingWorkspaceStore(
                     }
                     return false
                   })()
-              if (imported.type === "ImportNamespaceSpecifier") {
+              if (imported.type === "ImportNamespaceSpecifier" || imported.type === "ImportDefaultSpecifier") {
                 for (const reference of binding?.referencePaths ?? []) {
-                  for (const importedName of babelNamespaceMemberNames(reference, referenceReachesRequestedExport)) {
+                  const memberNames = babelNamespaceMemberNames(reference, referenceReachesRequestedExport)
+                  for (const importedName of memberNames) {
                     imports.push({ importedName, specifier })
+                  }
+                  if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
+                    imports.push({ importedName: "default", specifier })
                   }
                 }
                 continue
@@ -499,13 +516,15 @@ function sourceImportsFeedingWorkspaceStore(
                 const value = property.value as BabelNode | undefined
                 const local = value?.type === "AssignmentPattern" ? value.left : value
                 const localName = local?.name
-                if (property.type !== "ObjectProperty" || typeof localName !== "string") continue
+                if (property.type !== "ObjectProperty" || !localName) continue
                 const reachesRequestedExport = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
                   ? babelPathReachesExportedStore(reference)
                   : babelPathOrBindingIsExported(reference, exportedName))
                 if (!reachesRequestedExport) continue
+                // SAFETY: Babel's ObjectProperty discriminator above guarantees a Babel-compatible key node.
+                const key = property.key as BabelNode | undefined
                 const importedName = property.computed
-                  ? babelStringValue(property.key as BabelNode | undefined, path)
+                  ? babelStringValue(key, path)
                   : property.key?.name ?? property.key?.value
                 // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
                 imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
@@ -526,22 +545,48 @@ function sourceImportsFeedingWorkspaceStore(
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
-            const memberSelected = path.node.init?.type === "MemberExpression"
-            const reachesRequestedExport = binding?.referencePaths?.some(reference => exportedName === "default"
-              ? babelPathReachesExportedStore(reference) || (!memberSelected && babelPathReachesDefaultExport(reference))
-              : babelPathOrBindingIsExported(reference, exportedName))
-            if (!reachesRequestedExport) return
+            const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+              ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
+              : babelPathOrBindingIsExported(reference, exportedName)
+            const selectedNames = binding?.referencePaths?.flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport)) ?? []
+            const direct = binding?.referencePaths?.some(reachesRequestedExport)
+            if (!direct && !selectedNames.length) return
             const selectedName = path.node.init?.type === "MemberExpression"
               ? path.node.init.property?.name ?? path.node.init.property?.value
               : "default"
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
-            if (typeof selectedName === "string") imports.push({ importedName: selectedName, specifier })
+            if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
+            for (const name of selectedNames) imports.push({ importedName: name, specifier })
           },
         },
       })],
     },
   })
   return imports
+}
+
+async function loadFactoredCloudflareArtifactStore(
+  definition: DiscoveredWorkspaceDefinition,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  resolveModule?: SourceModuleResolver,
+): Promise<WorkspaceDefinitionInput["store"] | undefined> {
+  const loaded = await readSourceModule(definition.path)
+  if (!loaded) return
+  for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
+    if (!importedName) continue
+    const resolvedModule = specifier.startsWith(".")
+      ? resolve(dirname(loaded.file), specifier)
+      : await resolveModule?.(specifier, loaded.file)
+    if (!resolvedModule) continue
+    try {
+      // SAFETY: Jiti has no generic import contract; the record guard below validates the module namespace before access.
+      const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
+      const store = importedName === "default" ? imported.default : imported[importedName]
+      // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
+      if (isRecord(store) && store.provider === "cloudflare-artifacts") return store as WorkspaceDefinitionInput["store"]
+    }
+    catch {}
+  }
 }
 
 function vercelFunctionRuntimePackages() {
@@ -645,7 +690,11 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     }
     catch (error) {
       if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
-      throw error
+      const store = inspection?.artifactsOnly
+        ? await loadFactoredCloudflareArtifactStore(definition, loader, resolveModule)
+        : undefined
+      if (!store) throw error
+      loaded = { store }
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
     if (!workspace.store || "readFile" in workspace.store) continue
