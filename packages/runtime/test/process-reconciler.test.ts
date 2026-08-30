@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createProcessReconciler } from "../src/node.ts"
+import type { ProcessReconciler } from "../src/node.ts"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -321,6 +322,26 @@ describe("createProcessReconciler", () => {
     const listeners = process.listenerCount("SIGUSR2")
     const reconciler = createProcessReconciler({ intervalMs: 60_000, run() {}, signal: "SIGUSR2" })
 
+    expect(process.listenerCount("SIGUSR2")).toBe(listeners + 1)
+    await reconciler.close()
+    expect(process.listenerCount("SIGUSR2")).toBe(listeners)
+  })
+
+  it("retains its signal listener when close rejects", async () => {
+    const listeners = process.listenerCount("SIGUSR2")
+    let reconciler!: ProcessReconciler
+    reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      async run() {
+        await expect(reconciler.close()).rejects.toThrow("cannot call drain() while active")
+      },
+      signal: "SIGUSR2",
+    })
+
+    reconciler.wake("test")
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    expect(reconciler.status()).toBe("accepting")
     expect(process.listenerCount("SIGUSR2")).toBe(listeners + 1)
     await reconciler.close()
     expect(process.listenerCount("SIGUSR2")).toBe(listeners)

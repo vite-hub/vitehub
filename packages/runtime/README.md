@@ -39,7 +39,9 @@ tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
 manager should trigger that drain through the `vitehub-drain` command included
 with the owner-package installation, `@vite-hub/runtime`. Lifecycle callbacks
 must return before an external caller starts `drain()`; calling `drain()` from an
-active callback rejects to prevent that callback from waiting on itself.
+active callback rejects to prevent that callback from waiting on itself. Keep the
+status endpoint available until `vitehub-drain` observes the terminal `drained`
+status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
 ## Get a first result
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { hasRuntimeType } from "./internal/runtime-type.ts"
-import { processExitCompletedDrain } from "./internal/drain.ts"
 
 const pidInput: string | undefined = process.argv[2]
 const statusUrl: string = process.argv[3] || "http://127.0.0.1:3000/api/drain"
@@ -50,7 +49,6 @@ try {
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }
-  if (processExitCompletedDrain(signaled)) process.exit(0)
   throw new Error(`Process ${pid} exited before drain completed.`)
 }
 catch (error) {

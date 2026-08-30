@@ -402,12 +402,8 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
 
   return {
     async close() {
-      try {
-        await drain()
-      }
-      finally {
-        if (signal && listener) process.off(signal, listener)
-      }
+      await drain()
+      if (signal && listener) process.off(signal, listener)
     },
     drain,
     status: () => status,
