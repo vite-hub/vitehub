@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
@@ -22,6 +22,29 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("redirects imports that were resolved before bundling", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const original = resolve(rootDir, "original.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [original]: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+    expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
   it("creates nested output directories for cancellable bundles", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")

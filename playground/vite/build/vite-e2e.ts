@@ -750,6 +750,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const kvViteRuntimeGuardFile = resolve(generatedDir, "kv-vite-runtime-guard.mjs")
     alias["@vite-hub/kv/runtime/cloudflare-kv"] = resolve(kvPackageDir, "src/runtime/cloudflare-kv.ts")
     alias["@vite-hub/kv/vite"] = kvViteRuntimeGuardFile
+    alias[resolvePackageRuntime(kvPackageDir, "vite")] = kvViteRuntimeGuardFile
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(
       writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),

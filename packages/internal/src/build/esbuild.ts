@@ -1,5 +1,5 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -30,7 +30,23 @@ const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
   if (!aliases) return
-  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/")))
+  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/") && !isAbsolute(specifier)))
+}
+
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
+  const resolvedAliases = Object.entries(aliases || {}).filter(([specifier]) => isAbsolute(specifier))
+  if (!resolvedAliases.length) return
+  const replacements = new Map(resolvedAliases.map(([specifier, replacement]) => [resolve(specifier), replacement]))
+  return {
+    name: "vitehub-resolved-alias",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, (args) => {
+        if (!args.resolveDir) return
+        const replacement = replacements.get(resolve(args.resolveDir, args.path))
+        return replacement ? { path: replacement } : undefined
+      })
+    },
+  }
 }
 
 function stripMarkdownCode(template: string): string {
@@ -275,7 +291,7 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
-    plugins: [...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime)],
+    plugins: [createResolvedAliasPlugin(options.alias), ...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime)].filter(Boolean) as Plugin[],
     sourcemap: false,
     target: "es2022",
     write: options.signal ? false : true,

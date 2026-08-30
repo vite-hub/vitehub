@@ -286,6 +286,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
             ...definitions.map(definition => definition.handler),
+            ...Object.keys(providerImportAliases),
             ...Object.values(providerImportAliases),
           ],
           roots: [rootDir],
@@ -295,7 +296,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           handler: retainedSources.resolve(definition.handler),
         }))
         const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
-          .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+          .map(([specifier, target]) => [retainedSources.resolve(specifier), retainedSources.resolve(target)]))
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const nitro = (config as { nitro?: unknown }).nitro
         const generation = providerOutputGenerations.get(this)
