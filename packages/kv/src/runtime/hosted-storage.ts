@@ -19,19 +19,6 @@ export interface RuntimeStorage {
 
 export class KVStoreConfigurationError extends Error {}
 
-function deserializeValue(value: unknown) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Stored values cross a provider boundary and unstorage serializes non-string values as strings.
-  if (typeof value !== "string") return value
-  if (value === "undefined") return undefined
-  try {
-    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This mirrors unstorage's JSON value decoding and never trusts the result structurally.
-    return JSON.parse(value)
-  }
-  catch {
-    return value
-  }
-}
-
 export class KVAtomicOperationUnsupportedError extends KVStoreConfigurationError {
   constructor(store: string) {
     super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash or Deno KV.`)
@@ -64,7 +51,7 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   storage.listKeys = options => driver.listKeys(options)
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem
-  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(normalizeKey(key)))
+  if (getAndDeleteItem) storage.getAndDeleteItem = key => getAndDeleteItem(normalizeKey(key))
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   return storage
 }

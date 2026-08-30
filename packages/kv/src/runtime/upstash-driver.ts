@@ -24,6 +24,19 @@ function normalizeTTL(ttl: number): number {
   return Math.ceil(ttl)
 }
 
+function deserializeValue(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upstash returns the serialized representation written by unstorage.
+  if (typeof value !== "string") return value
+  if (value === "undefined") return undefined
+  try {
+    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This mirrors unstorage's JSON value decoding and never trusts the result structurally.
+    return JSON.parse(value)
+  }
+  catch {
+    return value
+  }
+}
+
 interface UpstashCursor {
   cursor: string
 }
@@ -65,7 +78,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   const maximumContinuationBytes = 1024 * 1024
   let continuationBytes = 0
 
-  driver.getAndDeleteItem = key => driver.getInstance().getdel(key)
+  driver.getAndDeleteItem = async key => deserializeValue(await driver.getInstance().getdel(key))
   driver.incrementItem = async (key, ttl) => Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
 
   function releaseContinuation(cursor: string): void {

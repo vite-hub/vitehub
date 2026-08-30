@@ -473,6 +473,11 @@ describe("kv runtime", () => {
     await expect(driver.incrementItem?.("existing-zero", 60)).resolves.toBe(1)
     expect(setOptions).toEqual([undefined])
     expect(data.has("existing-zero:vitehub:increment-expiry")).toBe(false)
+
+    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
+    const storage = createHostedKVStorage({ store: { driver: "deno-kv", path: ":memory:" } })
+    await storage.setItem("json-string", "123")
+    await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe("123")
   })
 
   it("starts a fresh Deno counter window after replacement or deletion", async () => {
@@ -484,7 +489,7 @@ describe("kv runtime", () => {
 
     await driver.incrementItem?.("attempts", 60)
     data.set("attempts:vitehub:increment-expiry", Date.now() + 1_000)
-    await driver.removeItem?.("attempts", undefined)
+    await driver.removeItem?.("attempts", {})
     expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
 
     setOptions.length = 0
@@ -492,13 +497,13 @@ describe("kv runtime", () => {
     expect(setOptions).toHaveLength(2)
     expect(setOptions.every(options => options?.expireIn && options.expireIn > 59_000)).toBe(true)
 
-    await driver.setItem?.("attempts", "replacement", undefined)
+    await driver.setItem?.("attempts", "replacement", {})
     expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
     await driver.incrementItem?.("single-use", 60)
     await driver.getAndDeleteItem?.("single-use")
     expect(data.has("single-use:vitehub:increment-expiry")).toBe(false)
     await driver.incrementItem?.("clear-me", 60)
-    await driver.clear?.("clear", undefined)
+    await driver.clear?.("clear", {})
     expect(data.has("clear-me:vitehub:increment-expiry")).toBe(false)
   })
 
