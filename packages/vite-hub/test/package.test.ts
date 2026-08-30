@@ -312,12 +312,13 @@ describe("framework package contract", () => {
         "utf8",
       ),
     ).toContain("Workspace unavailable");
-    expect(
-      readFileSync(
-        `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
-        "utf8",
-      ),
-    ).toContain("session-trace__waterfall");
+    const sessionTrace = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
+      "utf8",
+    );
+    expect(sessionTrace).toContain("session-trace__waterfall");
+    expect(sessionTrace).toContain('start.name === "agent.approval.request"');
+    expect(sessionTrace).toContain('"completed", "error", "failed"');
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
     ).toContain("<h1>Health</h1>");

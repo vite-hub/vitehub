@@ -165,12 +165,14 @@ function traceStarts(observations: Observation[]): Observation[] {
     }
     if (
       observation.name.startsWith("agent.tool.") &&
-      [".finish", ".error", ".abort", ".cancel"].some((suffix) =>
-        observation.name.endsWith(suffix),
-      )
+      [".finish", ".error", ".abort", ".cancel"].some((suffix) => observation.name.endsWith(suffix))
     )
       openTools.delete(id);
-    if (observation.name.endsWith(".start") || observation.name === "agent.task.started")
+    if (
+      observation.name.endsWith(".start") ||
+      observation.name === "agent.task.started" ||
+      observation.name === "agent.approval.request"
+    )
       starts.push(observation);
   }
   return starts;
@@ -215,9 +217,11 @@ function pairedTerminal(
   const terminalNames =
     start.name === "agent.task.started"
       ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
-      : ["finish", "error", "abort", "cancel"].map((suffix) =>
-          start.name.replace(/\.start$/, `.${suffix}`),
-        );
+      : start.name === "agent.approval.request"
+        ? ["agent.approval.decision"]
+        : ["finish", "completed", "error", "failed", "abort", "cancel", "cancelled"].map((suffix) =>
+            start.name.replace(/\.start$/, `.${suffix}`),
+          );
   const startIndex =
     observations.filter(
       (observation) =>
@@ -305,6 +309,7 @@ function operationName(observation: Observation, attributes: Record<string, unkn
   if (typeof explicit === "string" && explicit) return explicit;
   if (observation.name.startsWith("agent.invocation.")) return "invoke_agent";
   if (observation.name.startsWith("agent.tool.")) return "execute_tool";
+  if (observation.name.startsWith("agent.approval.")) return "tool_approval";
   if (observation.name.startsWith("agent.task.")) return "run_task";
   return observation.name.replace(/\.(start|started|finish|completed)$/, "");
 }
@@ -318,7 +323,9 @@ function operationTarget(
   const keys =
     operation === "execute_tool"
       ? ["gen_ai.tool.name", "tool.name"]
-      : ["gen_ai.request.model", "model.id", "agent.name"];
+      : operation === "tool_approval"
+        ? ["approval.name"]
+        : ["gen_ai.request.model", "model.id", "agent.name"];
   for (const key of keys) {
     const value = attributes[key];
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
