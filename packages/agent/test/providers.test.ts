@@ -17748,13 +17748,13 @@ describe("server helpers", () => {
     await rm(stateDir, { force: true, recursive: true })
   }, 15_000)
 
-  it("keeps fetched thread history when the current chat message has no id", async () => {
+  it("bounds fetched thread history when the current chat message has no id", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ missingIncomingMessageId: true })
-    const historicalMessage = new Message({
+    const historicalMessage = (text: string) => new Message({
       attachments: [],
       author: {
         fullName: "Maxi",
@@ -17767,12 +17767,15 @@ describe("server helpers", () => {
       id: "missing-id",
       metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
       raw: {},
-      text: "previous id-less",
+      text,
       threadId: "telegram:456",
     })
-    Reflect.deleteProperty(historicalMessage, "id")
+    const previous = historicalMessage("previous id-less")
+    const nearest = historicalMessage("nearest id-less")
+    Reflect.deleteProperty(previous, "id")
+    Reflect.deleteProperty(nearest, "id")
     adapter.fetchMessages.mockResolvedValue({
-      messages: [historicalMessage],
+      messages: [previous, nearest],
     })
     const runs: string[][] = []
     const agent = defineAgent({
@@ -17788,7 +17791,7 @@ describe("server helpers", () => {
       },
       messages: {
         stream: false,
-        triggerHistory: { maxMessages: 10, source: "thread" },
+        triggerHistory: { maxMessages: 2, source: "thread" },
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17812,7 +17815,7 @@ describe("server helpers", () => {
       ),
     ).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["previous id-less", "current id-less"]])
+    expect(runs).toEqual([["nearest id-less", "current id-less"]])
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {
