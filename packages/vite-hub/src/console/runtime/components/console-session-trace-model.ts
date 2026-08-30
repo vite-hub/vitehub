@@ -59,3 +59,29 @@ export function isStandaloneFailureObservation(name: string): boolean {
 export function isStandaloneSuccessfulToolObservation(name: string): boolean {
   return name === "agent.tool.finish";
 }
+
+export function standaloneSuccessfulToolSequences(
+  observations: TraceObservationIdentity[],
+  representedSequences: ReadonlySet<number>,
+): Set<number> {
+  const representedIdentities = new Set<string>();
+  const standaloneSequences = new Set<number>();
+
+  for (const observation of observations) {
+    const identity = traceEventId(observation);
+    if (observation.name === "agent.tool.start") {
+      representedIdentities.delete(identity);
+      continue;
+    }
+    if (!isStandaloneSuccessfulToolObservation(observation.name)) continue;
+    if (representedSequences.has(observation.sequence)) {
+      representedIdentities.add(identity);
+      continue;
+    }
+    if (representedIdentities.has(identity)) continue;
+    representedIdentities.add(identity);
+    standaloneSequences.add(observation.sequence);
+  }
+
+  return standaloneSequences;
+}

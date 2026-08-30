@@ -4,7 +4,7 @@ import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
   isStandaloneFailureObservation,
-  isStandaloneSuccessfulToolObservation,
+  standaloneSuccessfulToolSequences,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
@@ -122,10 +122,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   const representedSequences = new Set(
     pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
+  const standaloneSuccessfulTools = standaloneSuccessfulToolSequences(
+    observations,
+    representedSequences,
+  );
 
   for (const observation of observations) {
     const failed = isStandaloneFailureObservation(observation.name);
-    const successfulTool = isStandaloneSuccessfulToolObservation(observation.name);
+    const successfulTool = standaloneSuccessfulTools.has(observation.sequence);
     if (!failed && !successfulTool) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;

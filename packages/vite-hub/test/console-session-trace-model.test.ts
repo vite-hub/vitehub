@@ -4,6 +4,7 @@ import {
   isDeniedApproval,
   isStandaloneFailureObservation,
   isStandaloneSuccessfulToolObservation,
+  standaloneSuccessfulToolSequences,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
@@ -76,5 +77,28 @@ describe("Console session trace model", () => {
     expect(isStandaloneSuccessfulToolObservation("agent.tool.finish")).toBe(true);
     expect(isStandaloneSuccessfulToolObservation("agent.tool.start")).toBe(false);
     expect(isStandaloneSuccessfulToolObservation("agent.model.finish")).toBe(false);
+  });
+
+  it("deduplicates successful terminals within each tool lifecycle", () => {
+    const observations = [
+      { attributes: { "tool.id": "standalone" }, name: "agent.tool.finish", sequence: 1 },
+      { attributes: { "tool.id": "standalone" }, name: "agent.tool.finish", sequence: 2 },
+      { attributes: { "tool.id": "paired" }, name: "agent.tool.start", sequence: 3 },
+      { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 4 },
+      { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 5 },
+      { attributes: { "tool.id": "paired" }, name: "agent.tool.start", sequence: 6 },
+      { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 7 },
+    ];
+
+    const representedSequences = new Set([4, 7]);
+    const standaloneSequences = standaloneSuccessfulToolSequences(
+      observations,
+      representedSequences,
+    );
+
+    expect(standaloneSequences).toEqual(new Set([1]));
+    expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(
+      new Set([1, 4, 7]),
+    );
   });
 });
