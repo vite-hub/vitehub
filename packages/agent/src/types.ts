@@ -1540,7 +1540,7 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxMessages?: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number

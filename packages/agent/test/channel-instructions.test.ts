@@ -118,6 +118,9 @@ async function modelCallFor(channel: "discord" | "telegram", messages = history)
         inputRoles = input.messages?.map(message => message.role) ?? []
       },
     },
+    messages: {
+      triggerHistory: { maxMessages: 10, source: "thread" },
+    },
   })
 
   const channelId = channel === "telegram" ? "support" : "discord"
