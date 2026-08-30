@@ -33,7 +33,7 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 ## Publish Agent activity without opening a chat
 
-Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. GitHub reuses an authenticated app- or bot-owned issue or pull-request comment when one is visible, updates its status from queued through completion, renders normalized harness plans as a task list, and preserves earlier session links under a collapsed section.
+Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened`; later invocations reuse it. The compact comment shows lifecycle status, normalized harness plans, current links, errors, and earlier session links under a collapsed section. Full Agent output stays in the linked session.
 
 Activity updates are ordered within one process. Across concurrent hosts, GitHub delivery is best-effort: intermediate updates can coalesce, separate hosts can temporarily create duplicate managed comments, and overlapping writes can briefly replace newer state. A later update reconciles owned duplicates and stale state when possible. Within one process, older updates do not replace the current or terminal run.
 
@@ -46,7 +46,6 @@ export const agent = defineAgent({
     github: github({
       activity: true,
       app: true,
-      webhooks: false,
     }),
   },
   driver: { model: 'openai/gpt-5.1-mini' },

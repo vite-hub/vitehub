@@ -32,6 +32,16 @@ function githubIssueCommentPayload(body = "/review please") {
   }
 }
 
+function githubPullRequestOpenedPayload() {
+  return {
+    action: "opened",
+    installation: { id: 123 },
+    number: 42,
+    pull_request: { number: 42 },
+    repository: { full_name: "acme/app" },
+  }
+}
+
 describe("agent channels", () => {
   it("creates and updates one GitHub Agent activity comment with session history", async () => {
     const { github } = await import("../src/channels.ts")
@@ -86,6 +96,7 @@ describe("agent channels", () => {
       await update(context("run-1", "running") as never)
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-1", "completed") as never)
+      expect(stored?.body).not.toContain("Review complete.")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running") as never)
 
@@ -143,6 +154,41 @@ describe("agent channels", () => {
       await update(context("long-running", "completed") as never)
       expect(stored?.body).toBe(newestBody)
       expect(stored?.body).toContain("https://console.test/invocations/newer-100")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("creates queued GitHub activity when a pull request opens", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (init?.method === "GET") return Response.json([])
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      return Response.json({ id: 7 }, { status: 201 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      const result = await trigger.invoke({
+        agentCapabilities: [],
+        agentIdentity: { name: "reviewer" },
+        channel,
+        trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+      } as never, { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() })
+
+      expect(result).toBeInstanceOf(Response)
+      expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
+      expect(storedBody).toContain("agent-queued-6e7781")
     }
     finally {
       vi.unstubAllGlobals()

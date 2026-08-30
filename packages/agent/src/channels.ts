@@ -1313,7 +1313,6 @@ function renderGithubActivity(
   if (links.length) sections.push(githubActivityLinks(links))
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
-  if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
   if (state.history.length) {
     const history = state.history
       .filter(entry => entry.links.length)
@@ -1338,6 +1337,7 @@ function renderGithubActivity(
 
 function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  trackActiveRuns = true,
 ): NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]> {
   const options = githubAppOptions(app) || {}
   return {
@@ -1355,7 +1355,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const update = previousUpdate.catch(() => {}).then(async () => {
         const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
         const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
-        const knownActiveRun = activeRuns.has(runId)
+        const knownActiveRun = trackActiveRuns && activeRuns.has(runId)
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
         const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
@@ -1413,7 +1413,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           headers,
           method: commentId ? "PATCH" : "POST",
         })
-        if (!terminal) {
+        if (!terminal && trackActiveRuns) {
           activeRuns.add(runId)
           githubActivityActiveRuns.set(activityKey, activeRuns)
         }
@@ -2255,30 +2255,60 @@ function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined
   return input as GitHubIssueCommentPayload
 }
 
+function githubOpenedPullRequestActivityTarget(input: unknown, payload: unknown): GitHubActivityTarget | undefined {
+  if (!isRecord(payload) || payload.action !== "opened" || !isRecord(payload.pull_request)) return
+  const facts = inputGithubFacts(input)
+  const event = maybeString(facts?.event)
+  if (event && event !== "pull_request") return
+  const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
+  const issue = maybeNumber(payload.number) ?? maybeNumber(payload.pull_request.number)
+  const installationId = maybeNumber(facts?.installationId)
+    ?? (isRecord(payload.installation) ? maybeNumber(payload.installation.id) : undefined)
+  if (!repository || !issue) return
+  return { repository, issue, ...(installationId ? { installationId } : {}) }
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
+  activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
 ): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
-  if (!pullRequest) return undefined
-  const options = pullRequest === true ? {} : pullRequest
+  if (!pullRequest && !activity) return undefined
+  const options = pullRequest === true || !pullRequest ? {} : pullRequest
   return {
     webhook: {
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const payload = inputPayloadOrBody(input)
+        const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
+        if (activity && activityTarget) {
+          await activity.update({
+            ...context,
+            activity: {
+              ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
+              links: [],
+              runId: `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
+              status: "queued",
+              tasks: [],
+            },
+            target: { ...activityTarget },
+          })
+          return ignored("activity_queued")
+        }
+        if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload)
-        const pullRequest = githubPullRequestRunContext(command, {
+        const pullRequestContext = githubPullRequestRunContext(command, {
           ...options,
           threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
         }, payload, metadata)
         const finishEffects = githubPullRequestCommentFinishEffects(options)
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
-          input: pullRequestCommandInput(command, pullRequest),
-          run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
+          input: pullRequestCommandInput(command, pullRequestContext),
+          run: githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId),
         }
       },
     },
@@ -2416,6 +2446,8 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   const { activity, app: appOptions, pullRequest, ...channelOptions } = options
+  const activityDefinition = activity ? githubAgentActivity(appOptions) : undefined
+  const openedActivityDefinition = activity ? githubAgentActivity(appOptions, false) : undefined
   const app = githubAppOptions(appOptions)
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
@@ -2432,7 +2464,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     : undefined
   return defineChannel("github", {
     ...channelOptions,
-    activity: activity ? githubAgentActivity(appOptions) : undefined,
+    activity: activityDefinition,
     capabilities: [
       ...(workspaceCapability ? [workspaceCapability] : []),
       ...channelOptions.capabilities || [],
@@ -2441,7 +2473,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
-      ...githubEventTriggers(pullRequest, appOptions),
+      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition),
       ...options.triggers,
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
