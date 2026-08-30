@@ -3444,6 +3444,7 @@ describe("Agent Invocations", () => {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
+        updated_at TEXT,
         record TEXT NOT NULL
       )`)
       await setupClient.execute({
@@ -3498,13 +3499,6 @@ describe("Agent Invocations", () => {
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
-      const completedMigrationPlan = await firstClient.execute(`EXPLAIN QUERY PLAN
-        SELECT sequence FROM vitehub_agent_invocations
-        WHERE updated_at = '' AND sequence > 0 ORDER BY sequence LIMIT 100`)
-      expect(completedMigrationPlan.rows.map(row => row.detail)).toContainEqual(
-        expect.stringContaining("vitehub_agent_invocations_missing_updated_at_sequence"),
-      )
-
       const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
       await initializedStore.list()
       await setupClient.execute({
@@ -3526,6 +3520,12 @@ describe("Agent Invocations", () => {
       await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
       })
+      const completedMigrationPlan = await firstClient.execute(`EXPLAIN QUERY PLAN
+        SELECT sequence FROM vitehub_agent_invocations
+        WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > 0 ORDER BY sequence LIMIT 100`)
+      expect(completedMigrationPlan.rows.map(row => row.detail)).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_missing_updated_at_sequence"),
+      )
     }
     finally {
       setupClient.close()

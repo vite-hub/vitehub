@@ -203,13 +203,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
         AFTER INSERT ON ${table}
-        WHEN NEW.updated_at = ''
+        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
         BEGIN
           UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
         END`)
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_update
         AFTER UPDATE OF record ON ${table}
-        WHEN NEW.updated_at = OLD.updated_at
+        WHEN NEW.updated_at IS OLD.updated_at
         BEGIN
           UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
         END`)
@@ -220,7 +220,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
-        ON ${table} (sequence) WHERE updated_at = ''`)
+        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
       while (true) {
         const missingSearch = await client.execute({
@@ -263,7 +263,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         const missingUpdatedAt = await client.execute({
           args: [backfillSequence, backfillPageSize],
           sql: `SELECT sequence FROM ${table}
-            WHERE updated_at = '' AND sequence > ? ORDER BY sequence LIMIT ?`,
+            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
         })
         if (!missingUpdatedAt.rows.length) break
         const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
@@ -271,7 +271,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           return {
             args: [numberValue(row.sequence)],
             sql: `UPDATE ${table} SET updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
-              WHERE sequence = ? AND updated_at = ''`,
+              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
           }
         })
         await client.batch(updatedAtBackfill, "write")
