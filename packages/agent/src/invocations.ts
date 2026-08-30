@@ -637,6 +637,11 @@ function assertInvocationId(id: string): void {
   }
 }
 
+export async function agentInvocationId(runId: string, agentName?: string): Promise<string> {
+  assertInvocationId(runId)
+  return await boundedIdentity(invocationIdentity(runId, agentName))
+}
+
 function assertStore(store: AgentInvocationStore | undefined): asserts store is AgentInvocationStore {
   if (!store
     || !hasRuntimeType(store.claim, "function")
@@ -1021,7 +1026,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
       const agentName = bindOptions.agentName || context.agentIdentity?.name
-      const recordId = await boundedIdentity(invocationIdentity(runId, agentName))
+      const recordId = await agentInvocationId(runId, agentName)
       const claimId = createInvocationId()
       const traceId = await boundedIdentity(context.trace?.id || runId)
       const annotations = normalizeAnnotations(context.run?.annotations)
@@ -1436,8 +1441,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return await store.get(id)
     },
     async getByRunId(runId, agentName) {
-      assertInvocationId(runId)
-      return await store.get(await boundedIdentity(invocationIdentity(runId, agentName)))
+      return await store.get(await agentInvocationId(runId, agentName))
     },
     async list(options = {}) {
       const search = normalizeSearch(options.search)

@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -2945,6 +2945,17 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("shared-run", "support")).resolves.toMatchObject({ agentName: "support" })
     await expect(invocations.getByRunId("shared-run", "review")).resolves.toMatchObject({ agentName: "review" })
     await expect(invocations.list()).resolves.toMatchObject({ invocations: [{}, {}] })
+  })
+
+  it("resolves the public invocation ID from a run and Agent Definition", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
+
+    await runAgent(agent, runtime("linked-run"), {})
+
+    const id = await agentInvocationId("linked-run", "support")
+    await expect(invocations.get(id)).resolves.toMatchObject({ agentName: "support" })
+    await expect(agentInvocationId("linked-run", "review")).resolves.not.toBe(id)
   })
 
   it("encodes Agent Definition and run identities without delimiter collisions", async () => {
