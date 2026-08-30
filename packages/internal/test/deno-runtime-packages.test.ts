@@ -1062,6 +1062,7 @@ load("@img/sharp-linux-x64/sharp.node")
       'const load = () =>\n  require("missing-feature")\n',
       'const load = () => (prepare(), require("missing-feature"))\n',
       'const load = () => ({ feature: require("missing-feature") })\n',
+      'const load = () => true\n  && require("missing-feature")\n',
     ]) {
       await writeFile(join(conciseRoot, ".output/server/index.mjs"), source)
       await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot }), source).resolves.toBeUndefined()

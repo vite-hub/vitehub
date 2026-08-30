@@ -255,7 +255,13 @@ function sanitizeNetlifyScheduleFunctionName(name: string): string {
 }
 
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport) {
-  const scheduleCrons = Object.fromEntries([...crons.entries()].sort(([left], [right]) => left.localeCompare(right)))
+  const scheduleCrons = [...crons.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, cron], index) => {
+      const cronId = index.toString(36)
+      const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
+      return { cron, cronName: `vitehub-${cronId}-${safeName.slice(0, 56 - cronId.length)}`, name }
+    })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
@@ -269,8 +275,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  return loaded?.default ?? loaded",
     "}",
     "",
-    "for (const [name, cron] of Object.entries(scheduleCrons)) {",
-    "  const cronName = `vitehub-${[...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : `_${character.codePointAt(0).toString(16)}_`).join('')}`",
+    "for (const { cron, cronName, name } of scheduleCrons) {",
     "  Deno.cron(cronName, cron, async () => {",
     "    const definition = await loadScheduleDefinition(name)",
     "    if (!definition) {",
@@ -280,7 +285,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  })",
     "}",
     "",
-    "export const vitehubScheduleDefinitions = Object.keys(scheduleCrons)",
+    "export const vitehubScheduleDefinitions = scheduleCrons.map(({ name }) => name)",
     "",
   ].join("\n")
 }

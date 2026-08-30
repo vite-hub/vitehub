@@ -262,6 +262,20 @@ describe("schedule provider output", () => {
 
   it("emits Deno cron provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-output-")
+    const nestedScheduleDir = join(rootDir, "src", "foo")
+    const longScheduleName = "a".repeat(80)
+    await mkdir(nestedScheduleDir, { recursive: true })
+    for (const file of [
+      join(nestedScheduleDir, "bar.schedule.ts"),
+      join(rootDir, "src", "foo_2f_bar.schedule.ts"),
+      join(rootDir, "src", `${longScheduleName}.schedule.ts`),
+    ]) {
+      await writeFile(file, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+        "",
+      ].join("\n"), "utf8")
+    }
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -272,7 +286,10 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain("Deno.cron(cronName, cron")
-    expect(source).toContain("character.codePointAt(0).toString(16)")
+    const cronNames = [...source.matchAll(/cronName:\s*"([^"]+)"/g)].map(match => match[1])
+    expect(cronNames).toHaveLength(4)
+    expect(new Set(cronNames).size).toBe(cronNames.length)
+    expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")

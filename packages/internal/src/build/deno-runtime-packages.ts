@@ -221,8 +221,10 @@ function isGuardedConciseArrow(source: string, expressionStart: number, expressi
   const precedingLines = prefix.slice(arrow + 2).split("\n")
   if (precedingLines.length > 1) {
     const completedLine = precedingLines.at(-2)!.trimEnd()
+    const continuationLine = precedingLines.at(-1)!.trimStart()
     if (completedLine
       && !/[([{,.:?+\-*/%&|^!~=<>]$/.test(completedLine)
+      && !/^(?:&&|\|\||\?\?|\?\.|[,+\-*/%&|^.:<>=])/.test(continuationLine)
       && delimiterDepth(precedingLines.slice(0, -1).join("\n")) === 0) return false
   }
 
