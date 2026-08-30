@@ -172,7 +172,9 @@ watch(
 watch(
   () => route.query.definition,
   (name) => {
-    if (
+    if (name === undefined) {
+      selectedName.value = definitions.value[0]?.name;
+    } else if (
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
       typeof name === "string" &&
       definitions.value.some((definition) => definition.name === name)

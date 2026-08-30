@@ -270,7 +270,19 @@ async function applyRouteSelection(): Promise<void> {
   const store = route.query.store;
   const key = route.query.key;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
-  if (typeof store !== "string" || typeof key !== "string") return;
+  if (typeof store !== "string") return;
+  if (typeof key !== "string") {
+    if (selectedStore.value === store && selectedKey.value === undefined) return;
+    applyingRouteSelection = true;
+    selectedStore.value = store;
+    selectedKey.value = undefined;
+    try {
+      await loadKeys();
+    } finally {
+      applyingRouteSelection = false;
+    }
+    return;
+  }
   if (selectedStore.value === store && selectedKey.value === key) return;
   applyingRouteSelection = true;
   selectedStore.value = store;
@@ -285,7 +297,7 @@ async function applyRouteSelection(): Promise<void> {
 onMounted(() => {
   rememberConsoleSection("kv");
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
-  if (typeof route.query.store === "string" && typeof route.query.key === "string") {
+  if (typeof route.query.store === "string") {
     void applyRouteSelection();
   } else void loadKeys();
 });

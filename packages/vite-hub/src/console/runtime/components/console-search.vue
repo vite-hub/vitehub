@@ -119,6 +119,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
           icon: "i-ph-cloud-slash-light",
           label: "Could not load Console search",
         }],
+        ignoreFilter: true,
         label: "Search status",
       }]
     : []),
