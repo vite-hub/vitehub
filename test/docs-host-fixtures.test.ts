@@ -89,6 +89,10 @@ async function expectDenoLauncherToStart(appRoot: string) {
     child.once("error", reject)
     child.once("exit", (code, signal) => resolve({ code, signal }))
   })
+  const waitForExit = (timeout: number) => Promise.race([
+    exit.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), timeout)),
+  ])
 
   try {
     const started = (async () => {
@@ -115,13 +119,12 @@ async function expectDenoLauncherToStart(appRoot: string) {
   finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM")
-      await Promise.race([
-        exit,
-        new Promise<void>(resolve => setTimeout(resolve, 1_000)),
-      ])
+      await waitForExit(1_000)
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
     }
-    await exit
+    if (!await waitForExit(5_000)) {
+      throw new Error(`Deno launcher did not exit after SIGKILL\n${output}`)
+    }
   }
 }
 
