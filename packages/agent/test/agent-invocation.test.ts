@@ -344,6 +344,7 @@ describe("Agent Invocation controllers", () => {
             text: "existing text",
             toUIMessageStream: () => new ReadableStream({
               start(controller) {
+                controller.enqueue({ delta: "", id: "reply", type: "text-delta" })
                 controller.enqueue({ finishReason: "tool-calls", type: "finish" })
                 controller.close()
               },

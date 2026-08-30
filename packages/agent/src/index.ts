@@ -6678,7 +6678,7 @@ function createInlineAgentInvocationController<
         let finishReason: unknown
         for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
           const delta = uiMessageTextDelta(chunk)
-          if (delta !== undefined) {
+          if (delta) {
             hasTextDelta = true
             text += delta
           }
