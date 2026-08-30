@@ -4091,12 +4091,11 @@ async function chatTriggerMessages(
   const limit = Math.max(triggerLimit || 0, sessionHistoryLimit || 0)
   if (!limit) return [current]
   const maxAgeMs = chatTriggerHistoryMaxAgeMs(triggerHistory)
-  const includeHistoricalAttachments = triggerLimit !== undefined && triggerLimit > 1
   const currentTime = message.metadata.dateSent.getTime()
-  const toHistoryUiMessage = async (item: ChatSdkMessage): Promise<UIMessageLike> => {
+  const toHistoryUiMessage = async (item: ChatSdkMessage, includeAttachments: boolean): Promise<UIMessageLike> => {
     const itemTime = item.metadata.dateSent.getTime()
     const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-    return await chatSdkMessageToUiMessage(item, undefined, !includeHistoricalAttachments || outsideTriggerAge ? { includeAttachments: false } : undefined)
+    return await chatSdkMessageToUiMessage(item, undefined, !includeAttachments || outsideTriggerAge ? { includeAttachments: false } : undefined)
   }
 
   const fetchedNewestFirst: UIMessageLike[] = []
@@ -4138,7 +4137,7 @@ async function chatTriggerMessages(
         const itemTime = item.metadata.dateSent.getTime()
         const outsideTriggerAge = maxAgeMs !== undefined && !isCurrent && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
         if (outsideTriggerAge && !sessionHistoryLimit) break
-        fetchedNewestFirst.push(isCurrent ? current : await toHistoryUiMessage(item))
+        fetchedNewestFirst.push(isCurrent ? current : await toHistoryUiMessage(item, fetchedNewestFirst.length < (triggerLimit || 0)))
       } else {
         fetchedBeforeCurrent.push(item)
       }
@@ -4151,7 +4150,7 @@ async function chatTriggerMessages(
         .filter(item => item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime())
         .slice(0, Math.max(0, limit - 1))
       for (const item of predecessors) {
-        fetchedNewestFirst.push(await toHistoryUiMessage(item))
+        fetchedNewestFirst.push(await toHistoryUiMessage(item, fetchedNewestFirst.length < Math.max(0, (triggerLimit || 0) - 1)))
       }
     }
     if (!message.id) {
@@ -4169,7 +4168,7 @@ async function chatTriggerMessages(
       if (currentIndex >= 0) {
         fetchedAfterIdLessCurrent.push(...idLessCandidates.slice(0, currentIndex))
         for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
-          fetchedNewestFirst.push(await toHistoryUiMessage(item))
+          fetchedNewestFirst.push(await toHistoryUiMessage(item, fetchedNewestFirst.length < Math.max(0, (triggerLimit || 0) - 1)))
         }
       }
     }
@@ -4233,7 +4232,14 @@ async function chatTriggerMessages(
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }
   let messages = [
-    ...(await Promise.all(durable.map((item, index) => (index === durableCurrentIndex ? current : toHistoryUiMessage(item))))),
+    ...(await Promise.all(durable.map((item, index) => {
+      if (index === durableCurrentIndex) return current
+      const triggerPredecessorCount = Math.max(0, (triggerLimit || 0) - 1)
+      const triggerBoundary = durableCurrentIndex >= 0
+        ? durableCurrentIndex - triggerPredecessorCount
+        : durable.length - triggerPredecessorCount
+      return toHistoryUiMessage(item, index >= triggerBoundary)
+    }))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -4907,6 +4913,20 @@ async function handleChatSdkMessage(
       message.id,
       input.run?.runId || delivery.delivery.id,
     )
+    const transportSessionId = input.run?.threadId ?? input.run?.runId
+    const selectedSessionId = resolveChatSessionId(messages, options?.sessions, input.session)
+    const providerSessionId = input.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
+      ? `${transportSessionId}:chat-session:${selectedSessionId}`
+      : transportSessionId)
+    if (providerSessionId) {
+      input = {
+        ...input,
+        context: {
+          ...input.context,
+          "chat.sessionId": providerSessionId,
+        },
+      }
+    }
     const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })

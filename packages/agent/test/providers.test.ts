@@ -17519,8 +17519,10 @@ describe("server helpers", () => {
       capabilities: [
         defineChatCapability({
           platforms: { telegram: () => platformAdapter },
+          sessions: { idleTimeoutMs: 60_000, strategy: "idle-timeout" },
           stream: false,
-          triggerHistory: { maxAgeMs: 30_000, maxMessages: 3, source: "thread" },
+          threadHistory: {},
+          triggerHistory: { maxMessages: 3, source: "thread" },
           webhooks: { telegram: {} },
         }),
       ],
