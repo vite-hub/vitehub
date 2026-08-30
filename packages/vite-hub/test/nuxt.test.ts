@@ -717,15 +717,20 @@ describe("ViteHub Nuxt integration", () => {
     configured.nuxt.options.vite.queue = false
 
     await viteHubNuxtModule({ console: true, preset: "node", queue: true }, configured.nuxt)
+    const configuredNitroConfig = nitroOptions(configured.nuxt)
+    await configured.runNitroConfigHook(configuredNitroConfig)
     const configuredPages: Array<{ file: string; name: string; path: string }> = []
     configured.runPagesHook(configuredPages)
 
     expect(configuredPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
-    expect(nitroHandlerRoutes(nitroOptions(configured.nuxt))).not.toContain("/api/_vitehub/console/definitions")
+    expect(nitroHandlerRoutes(configuredNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
 
     const replayed = createNuxt(true, [{
       name: "vite-hub/queue-replay",
-      config: () => ({ queue: false } as UserConfig),
+      config: (): UserConfig & { queue?: boolean } => ({ queue: false }),
     }])
 
     await viteHubNuxtModule({ console: true, preset: "node", queue: true }, replayed.nuxt)

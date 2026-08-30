@@ -23,7 +23,7 @@ export default defineConfig({
   plugins: [vitehub({
     agent: true,
     console: true,
-    preset: 'node',
+    preset: 'cloudflare',
     kv: true,
     queue: true,
     workflow: true,
