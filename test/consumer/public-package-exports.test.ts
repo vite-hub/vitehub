@@ -12,6 +12,7 @@ import ts from "typescript"
 import { array, boolean, object, optional, parse, record, string } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 import { packageInfos } from "../utils/repo"
 
 const execFileAsync = promisify(execFile)
@@ -26,6 +27,7 @@ function isJavaScriptModule(target: string) {
 function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
   if (contract.packageName === "@vite-hub/auth") return false
   if (contract.subpath.endsWith("/client")) return false
+  if (contract.subpath.endsWith("/vue")) return false
   if (["@vite-hub/ui", "@vite-hub/ui/headless", "vite-hub/ui", "vite-hub/ui/headless"].includes(contract.specifier)) return false
   return true
 }
@@ -94,13 +96,18 @@ function requiredDependency(manifest: { dependencies?: Record<string, string> },
 
 async function packPublicPackages(packDir: string) {
   const specs: Record<string, string> = {}
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
   for (const info of packageInfos) {
-    const before = new Set(await readdir(packDir))
-    await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarballs = (await readdir(packDir)).filter(file => !before.has(file))
-    expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
-    specs[info.packageName] = `file:${join(packDir, tarballs[0]!)}`
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      const before = new Set(await readdir(packDir))
+      await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      const tarballs = (await readdir(packDir)).filter(file => !before.has(file))
+      expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
+      return join(packDir, tarballs[0]!)
+    })
+    specs[info.packageName] = `file:${tarball}`
   }
+  if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
   return specs
 }
 
@@ -239,7 +246,8 @@ async function importPackagesWithoutDeclarationPeer(
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    const devDependencies = mixedPeerFixtureSpecs(packageName, omittedPeer, requiredPeers, specs, peerSpecs)
+    const declaredPeers = Object.keys(sourceManifest.peerDependencies || {})
+    const devDependencies = mixedPeerFixtureSpecs(packageName, omittedPeer, requiredPeers, declaredPeers, specs, peerSpecs)
     await mkdir(appDir, { recursive: true })
     await Promise.all([
       writeFile(join(appDir, ".npmrc"), [
@@ -269,13 +277,14 @@ function mixedPeerFixtureSpecs(
   packageName: string,
   omittedPeer: string,
   requiredPeers: readonly string[],
+  declaredPeers: readonly string[],
   specs: Record<string, string>,
   peerSpecs: Record<string, string>,
 ) {
   return Object.fromEntries([...new Set([
     ...(packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
     ...requiredPeers,
-    ...Object.keys(peerSpecs).filter(peer => peer !== omittedPeer),
+    ...declaredPeers.filter(peer => peer !== omittedPeer),
   ])].map((name) => {
     const spec = specs[name] || peerSpecs[name]
     if (!spec) throw new Error(`Missing peer spec for ${name}`)
@@ -616,6 +625,7 @@ describe("published declaration diagnostics", () => {
     const withoutVite = declarationPeerAbsentRuntimeContracts("vite")
     const withoutNuxtUi = declarationPeerAbsentRuntimeContracts("@nuxt/ui")
 
+    expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/markdown-template/internal/vite")
     expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/ui/vite")
     expect(withoutVite.map(contract => contract.specifier)).toContain("vite-hub/ui/vite")
     expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
@@ -625,11 +635,25 @@ describe("published declaration diagnostics", () => {
       "@vite-hub/ui",
       "vite",
       ["ai"],
+      ["ai", "@nuxt/ui", "vite"],
       {},
-      { ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0", vite: "1.0.0" },
+      { ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0", evalite: "1.0.0", vite: "1.0.0" },
     )
     expect(fixtureSpecs).toMatchObject({ ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
+    expect(fixtureSpecs).not.toHaveProperty("evalite")
     expect(fixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("keeps browser-only Vue declarations free of Node globals", () => {
+    const vueContracts = publicPackageExportContracts.filter(contract => contract.subpath.endsWith("/vue"))
+
+    expect(vueContracts.map(contract => contract.specifier)).toEqual(expect.arrayContaining([
+      "@vite-hub/agent/vue",
+      "@vite-hub/realtime/vue",
+      "vite-hub/agent/vue",
+      "vite-hub/realtime/vue",
+    ]))
+    expect(vueContracts.every(contract => !usesNodeDeclarationTypes(contract))).toBe(true)
   })
 
   it("imports runtime contracts in isolated processes", async () => {
