@@ -49,6 +49,8 @@ jobs:
       - run: vp run examples:verify
       - name: Package tests
         run: vp run test
+      - name: Docs links
+        run: vp run --filter vitehub-docs test:links
       - name: Consumer contracts
         run: vp run test:consumer
 

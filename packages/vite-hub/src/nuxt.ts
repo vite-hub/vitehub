@@ -390,15 +390,14 @@ async function installConsole(
             },
           ]
         : []),
-      ...(sections.includes("kv")
-        ? [
-            {
-              file: join(consoleRuntimeRoot, "pages/kv.vue"),
-              name: "vitehub-console-kv",
-              path: "/_vitehub/kv",
-            },
-          ]
+      ...(sections.includes("usage")
+        ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
         : []),
+      {
+        file: join(consoleRuntimeRoot, "pages/kv.vue"),
+        name: "vitehub-console-kv",
+        path: "/_vitehub/kv",
+      },
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -440,6 +439,9 @@ async function installConsole(
           handler: join(consoleRuntimeRoot, "server/kv.get.js"),
           route: "/api/_vitehub/console/kv",
         }]
+      : []),
+    ...(sections.includes("usage")
+      ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
       : []),
   ]
   for (const handler of additions) {
@@ -988,6 +990,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleSections,
         consoleSections.includes("agents") ? discoverAgentDefinitionEntries(viteRoot, nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined) : [],
         consoleKVStores,
+        resolvedConsoleFixture,
+        consoleInvocationRootState.binding,
+        () => !consoleInvocationRootState.closed,
       )
     }
     Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))

@@ -1,12 +1,17 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
 const directories: string[] = []
+const execFileAsync = promisify(execFile)
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -45,6 +50,35 @@ function stream() {
 }
 
 describe("ViteHub CLI", () => {
+  it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn()
+
+    const exitCode = await runViteHubCli({ args: [flag], loadConfig, stderr, stdout })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe(`${cliPackageManifest.version}\n`)
+    expect(stderr.output()).toBe("")
+    expect(loadConfig).not.toHaveBeenCalled()
+  })
+
+  it("prints the installed manifest version through the built binary outside a project", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "package")
+    await mkdir(packageDir, { recursive: true })
+    await cp(resolve(import.meta.dirname, "../dist"), join(packageDir, "dist"), { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(packageDir, "node_modules"), "dir")
+
+    const { stderr, stdout } = await execFileAsync(process.execPath, [join(packageDir, "dist/index.js"), "--version"], {
+      cwd: rootDir,
+    })
+
+    expect(stdout).toBe("0.0.0-preview.1174\n")
+    expect(stderr).toBe("")
+  })
+
   it("flushes configured entrypoint streams before exiting", async () => {
     const callbacks: Array<() => void> = []
     const createStream = () => ({

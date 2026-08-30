@@ -335,6 +335,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/agents.get.js"),
                 join(consoleRuntimeRoot, "server/sections.get.js"),
                 join(consoleRuntimeRoot, "server/search.get.js"),
+                join(consoleRuntimeRoot, "server/usage.get.js"),
                 join(consoleRuntimeRoot, "server/page.get.js"),
               ].includes(handler?.handler),
           )
@@ -363,6 +364,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 route: "/api/_vitehub/console/search",
               },
             ]
+          : []),
+        ...(sections.includes("usage")
+          ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
           : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },

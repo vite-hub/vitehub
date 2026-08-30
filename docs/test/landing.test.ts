@@ -58,6 +58,7 @@ describe("landing page", () => {
     expect(normalizedSource).toContain(
       "Bring any model or coding provider, compose your own Capabilities around a persistent Workspace",
     );
+    expect(normalizedSource).toContain("deploy the same Agent across supported hosts.");
     for (const term of [
       "driver.model",
       "driver.provider",
@@ -79,7 +80,7 @@ describe("landing page", () => {
       /Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/,
     );
     expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/);
-    expect(source).not.toMatch(/Agents for any host|Deploy anywhere|Write it once/);
+    expect(source).not.toMatch(/any host|Deploy anywhere|Write it once/i);
     expect(source).toContain(":aria-pressed");
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
@@ -128,6 +129,8 @@ describe("landing page", () => {
     expect(source).toContain("useSeo({");
     expect(source).toContain('type: "website"');
     expect(source).toContain('defineOgImage("Landing"');
+    expect(source).toContain("run them across supported hosts");
+    expect(source).not.toMatch(/any host/i);
     expect(source).not.toContain("titleTemplate");
   });
 });

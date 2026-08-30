@@ -36,7 +36,7 @@ import type {
   Message,
   StreamEvent,
 } from "../messages.ts"
-import type { MessageChannelTitleDeliveryAttempt, MessageChannelStateBinding } from "../internal/channels.ts"
+import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
