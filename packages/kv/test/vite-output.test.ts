@@ -167,6 +167,8 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
     expect(output).toContain("Cloudflare KV does not support atomic operations")
+    expect(output).toContain("async getAndDelete() { resolveStoreConfig(name);")
+    expect(output).toContain("async increment() { resolveStoreConfig(name);")
     expect(output).toContain("KV_CUSTOM")
   })
 

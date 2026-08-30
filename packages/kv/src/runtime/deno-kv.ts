@@ -85,13 +85,26 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     return keys
   }
 
+  async function replaceItem(key: string, replacement?: { value: unknown }): Promise<void> {
+    const kv = await open()
+    const resolvedKey = toDenoKey(key)
+    const expiryKey = toDenoExpiryKey(key)
+    while (true) {
+      const [entry, expiryEntry] = await Promise.all([kv.get(resolvedKey), kv.get(expiryKey)])
+      const transaction = kv.atomic().check(entry).check(expiryEntry).delete(expiryKey)
+      if (replacement) transaction.set(resolvedKey, replacement.value)
+      else transaction.delete(resolvedKey)
+      if ((await transaction.commit()).ok) return
+    }
+  }
+
   return {
     name: "deno-kv",
     options,
     async clear(base = "") {
-      const kv = await open()
       for (const key of await matchingKeys(base)) {
-        await kv.delete(key)
+        const resolvedKey = fromDenoKey(key)
+        if (resolvedKey !== undefined) await replaceItem(resolvedKey)
       }
     },
     async dispose() {
@@ -107,9 +120,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async getAndDeleteItem<T = unknown>(key: string): Promise<T | null> {
       const kv = await open()
       const resolvedKey = toDenoKey(key)
+      const expiryKey = toDenoExpiryKey(key)
       while (true) {
-        const entry = await kv.get<T>(resolvedKey)
-        if ((await kv.atomic().check(entry).delete(resolvedKey).commit()).ok) return entry.value ?? null
+        const [entry, expiryEntry] = await Promise.all([kv.get<T>(resolvedKey), kv.get(expiryKey)])
+        if ((await kv.atomic().check(entry).check(expiryEntry).delete(resolvedKey).delete(expiryKey).commit()).ok) return entry.value ?? null
       }
     },
     async getKeys(base = "") {
@@ -139,7 +153,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         const now = Date.now()
         const created = entry.versionstamp === null
         const trackedExpiry = expiryEntry.versionstamp !== null
-        const expiresAt = trackedExpiry ? Number(expiryEntry.value) : now + expireIn
+        const expiresAt = created || !trackedExpiry ? now + expireIn : Number(expiryEntry.value)
         if (!Number.isSafeInteger(expiresAt)) throw new TypeError(`Atomic KV increment has invalid expiry metadata at "${key}".`)
         const remaining = Math.max(1, expiresAt - now)
         const transaction = kv.atomic().check(entry).check(expiryEntry)
@@ -154,10 +168,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       }
     },
     async removeItem(key) {
-      await (await open()).delete(toDenoKey(key))
+      await replaceItem(key)
     },
     async setItem(key, value) {
-      await (await open()).set(toDenoKey(key), value)
+      await replaceItem(key, { value })
     },
   }
 }

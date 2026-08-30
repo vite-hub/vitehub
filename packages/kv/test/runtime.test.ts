@@ -99,7 +99,8 @@ function createDenoOpenKvMock() {
           for (const operation of operations) operation()
           return { ok: true }
         },
-        delete: ([key]: [string]) => {
+        delete: (keyParts: [string, ...unknown[]]) => {
+          const key = keyParts.join(":")
           operations.push(() => data.delete(key))
           return transaction
         },
@@ -472,6 +473,33 @@ describe("kv runtime", () => {
     await expect(driver.incrementItem?.("existing-zero", 60)).resolves.toBe(1)
     expect(setOptions).toEqual([undefined])
     expect(data.has("existing-zero:vitehub:increment-expiry")).toBe(false)
+  })
+
+  it("starts a fresh Deno counter window after replacement or deletion", async () => {
+    const { data, openKv, setOptions } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
+
+    await driver.incrementItem?.("attempts", 60)
+    data.set("attempts:vitehub:increment-expiry", Date.now() + 1_000)
+    await driver.removeItem?.("attempts", undefined)
+    expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
+
+    setOptions.length = 0
+    await driver.incrementItem?.("attempts", 60)
+    expect(setOptions).toHaveLength(2)
+    expect(setOptions.every(options => options?.expireIn && options.expireIn > 59_000)).toBe(true)
+
+    await driver.setItem?.("attempts", "replacement", undefined)
+    expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
+    await driver.incrementItem?.("single-use", 60)
+    await driver.getAndDeleteItem?.("single-use")
+    expect(data.has("single-use:vitehub:increment-expiry")).toBe(false)
+    await driver.incrementItem?.("clear-me", 60)
+    await driver.clear?.("clear", undefined)
+    expect(data.has("clear-me:vitehub:increment-expiry")).toBe(false)
   })
 
   it("bounds and resumes fs-lite listing across directories", async () => {
