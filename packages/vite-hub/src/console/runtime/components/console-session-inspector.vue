@@ -371,13 +371,14 @@ function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
   const descriptor = record(value);
   const rawPaths = descriptor?.paths;
   const paths = Array.isArray(rawPaths) ? rawPaths.map(stringValue) : undefined;
+  const hasPullRequest = descriptor !== undefined && "pullRequest" in descriptor;
   const pullRequest = numericValue(descriptor?.pullRequest);
   const repository = stringValue(descriptor?.repository);
   const revision = stringValue(descriptor?.revision);
   if (
     !paths ||
     paths.some((path) => path === undefined) ||
-    (pullRequest !== undefined && !Number.isInteger(pullRequest)) ||
+    (hasPullRequest && (pullRequest === undefined || !Number.isInteger(pullRequest))) ||
     !repository ||
     !revision
   )

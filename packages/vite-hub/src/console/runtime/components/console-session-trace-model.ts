@@ -37,6 +37,10 @@ export function traceSpanEndMs(startMs: number, endMs: number, durationMs: numbe
   return Math.max(endMs, startMs + durationMs);
 }
 
+export function traceStartBoundaryMs(invocationStartMs: number, spanStartMs: number[]): number {
+  return Math.min(invocationStartMs, ...spanStartMs);
+}
+
 export function isDeniedApproval(
   operation: string,
   attributes: Record<string, unknown>,

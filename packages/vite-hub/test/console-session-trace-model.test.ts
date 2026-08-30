@@ -8,6 +8,7 @@ import {
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
+  traceStartBoundaryMs,
 } from "../src/console/runtime/components/console-session-trace-model";
 
 describe("Console session trace model", () => {
@@ -51,6 +52,11 @@ describe("Console session trace model", () => {
   it("includes recorded duration in trace bounds", () => {
     expect(traceSpanEndMs(1_000, 1_000, 42)).toBe(1_042);
     expect(traceSpanEndMs(1_000, 1_100, 42)).toBe(1_100);
+  });
+
+  it("includes reconstructed span starts in trace bounds", () => {
+    expect(traceStartBoundaryMs(1_000, [1_000, 958])).toBe(958);
+    expect(traceStartBoundaryMs(1_000, [])).toBe(1_000);
   });
 
   it("recognizes terminal Provider task observations without a start", () => {

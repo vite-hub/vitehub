@@ -9,6 +9,7 @@ import {
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
+  traceStartBoundaryMs,
 } from "./console-session-trace-model";
 
 type Observation = AgentInvocationView["observations"][number];
@@ -41,7 +42,10 @@ const copied = ref(false);
 const spans = computed(() => buildSpans(props.invocation));
 const traceStartMs = computed(
   () =>
-    spans.value[0]?.startMs ?? timestamp(props.invocation.startedAt || props.invocation.createdAt),
+    traceStartBoundaryMs(
+      timestamp(props.invocation.startedAt || props.invocation.createdAt),
+      spans.value.map((span) => span.startMs),
+    ),
 );
 const traceEndMs = computed(() =>
   Math.max(

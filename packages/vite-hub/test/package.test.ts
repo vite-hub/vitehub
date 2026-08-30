@@ -313,6 +313,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("Workspace unavailable");
     expect(sessionInspector).toContain("invocationUsage.totalTokens");
     expect(sessionInspector).toContain('workspace.pullRequest !== undefined');
+    expect(sessionInspector).toContain('hasPullRequest && (pullRequest === undefined');
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",
