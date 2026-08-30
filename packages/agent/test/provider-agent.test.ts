@@ -744,8 +744,8 @@ cli_auth_credentials_store = "keyring"
     })
     runtime("thread-profile-parent", [event("turn.completed", "thread-profile-parent", { state: "completed" }, { turnId: "turn-1" })])
 
-    // SAFETY: The test contexts supply the complete provider invocation contract.
     const primaryContext = context("thread-profile-parent")
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const primaryInvocation = primary.generate(primaryContext as never)
     await primaryRunning
     const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context("thread-profile-parent"))
@@ -783,8 +783,8 @@ cli_auth_credentials_store = "keyring"
     })
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
 
-    // SAFETY: The test contexts supply the complete provider invocation contract.
     const primaryContext = context(threadId)
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const primaryInvocation = primary.generate(primaryContext as never)
     await primaryRunning
     const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
@@ -795,6 +795,7 @@ cli_auth_credentials_store = "keyring"
     releasePrimary()
     await Promise.all([primaryInvocation, auxiliaryInvocation])
 
+    // SAFETY: The last call comes from the auxiliary Codex adapter configured above.
     const settings = createProviderRuntime.mock.calls.at(-1)?.[0].settings as { homePath: string }
     expect(settings.homePath).toBe(`${process.cwd()}/.vitehub/data/codex/${auxiliaryProfile}`)
     await rm(`${process.cwd()}/.vitehub/data/codex/${primaryProfile}`, { force: true, recursive: true })
@@ -924,6 +925,26 @@ cli_auth_credentials_store = "keyring"
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an abandoned credential root before using ambient Codex credentials", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const threadId = "thread-scavenge-before-ambient-codex"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
   })

@@ -432,10 +432,13 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
     }))
 }
 
-async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
+async function runCodexCredentialHomeScavenger(): Promise<void> {
   const scavenging = codexCredentialScavenging.then(scavengeCodexCredentialHomes, scavengeCodexCredentialHomes)
   codexCredentialScavenging = scavenging.then(() => undefined, () => undefined)
   await scavenging
+}
+
+async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
   const root = await mkdtemp(join(tmpdir(), codexCredentialTemporaryPrefix))
   const homePath = join(root, "home")
   try {
@@ -535,7 +538,9 @@ async function prepareCodexCredentialHome<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<CodexCredentialHome | undefined> {
-  if (options.provider !== "codex" || options.credentials === undefined) return
+  if (options.provider !== "codex") return
+  await runCodexCredentialHomeScavenger()
+  if (options.credentials === undefined) return
   if (process.platform === "win32") {
     throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
   }
