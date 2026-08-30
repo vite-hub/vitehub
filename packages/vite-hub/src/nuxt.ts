@@ -819,7 +819,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
-  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, workflow: effectiveWorkflow })
+  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, preset: plan.preset, workflow: effectiveWorkflow })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -1081,6 +1081,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
         kv: resolvedKV,
+        preset: plan.preset,
         workflow: viteConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)

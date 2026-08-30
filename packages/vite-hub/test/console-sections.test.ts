@@ -26,6 +26,12 @@ describe("Console section preferences", () => {
       "workflows",
     ])
     expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+      "agents",
+      "usage",
+      "workflows",
+    ])
     expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
   })

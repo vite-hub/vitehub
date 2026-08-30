@@ -45,8 +45,9 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; workflow?: unknown }): ConsoleSectionId[] {
-  const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
+export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; preset?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+  const workflowEnabled = options.workflow !== false
+    && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.agent ? ["agents" as const, "usage" as const] : []),
     ...(options.kv ? ["kv" as const] : []),

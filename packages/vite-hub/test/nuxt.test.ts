@@ -681,6 +681,31 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("omits implicitly disabled Netlify Workflow from the Nuxt Console", async () => {
+    const implicit = createNuxt(true)
+
+    await viteHubNuxtModule({ agent: true, console: true, preset: "netlify" }, implicit.nuxt)
+    const implicitPages: Array<{ file: string; name: string; path: string }> = []
+    implicit.runPagesHook(implicitPages)
+    const implicitNitroConfig = nitroOptions(implicit.nuxt)
+    await implicit.runNitroConfigHook(implicitNitroConfig)
+
+    expect(implicitPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+    expect(implicitNitroConfig.handlers?.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+
+    const explicit = createNuxt(true)
+    await viteHubNuxtModule({
+      agent: true,
+      console: true,
+      preset: "netlify",
+      workflow: { provider: "vercel" },
+    }, explicit.nuxt)
+    const explicitPages: Array<{ file: string; name: string; path: string }> = []
+    explicit.runPagesHook(explicitPages)
+
+    expect(explicitPages).toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+  })
+
   it("reconciles the Nuxt Console from the retained KV plugin", async () => {
     const retainedKV = {
       name: "@vite-hub/kv/vite",

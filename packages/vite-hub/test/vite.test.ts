@@ -382,6 +382,50 @@ describe("vitehub", () => {
     expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(false, expect.any(String), { serverDirs: undefined })
   })
 
+  it("omits implicitly disabled Netlify Workflow from the standalone Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-netlify-workflow-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const implicit = dependencyPluginByName(
+        vitehub({ agent: true, console: { exposure: "host-managed" }, preset: "netlify" }),
+        "vite-hub/console",
+      )
+      const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
+      await callHook(implicit.config, [implicitConfig, { command: "build", mode: "production" }])
+
+      expect(implicitConfig).toMatchObject({
+        nitro: {
+          handlers: expect.not.arrayContaining([
+            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          ]),
+        },
+      })
+
+      const explicit = dependencyPluginByName(
+        vitehub({
+          agent: true,
+          console: { exposure: "host-managed" },
+          preset: "netlify",
+          workflow: { provider: "vercel" },
+        }),
+        "vite-hub/console",
+      )
+      const explicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
+      await callHook(explicit.config, [explicitConfig, { command: "build", mode: "production" }])
+
+      expect(explicitConfig).toMatchObject({
+        nitro: {
+          handlers: expect.arrayContaining([
+            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          ]),
+        },
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/deployment-preset",
