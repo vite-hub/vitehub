@@ -360,8 +360,10 @@ describe("Vite db provider outputs", () => {
       rootDir,
       runtimeConfig,
     }, async (output) => {
-      expect(output.cloudflare?.bundleOptions?.alias?.["@vite-hub/blob"]).toBe("blob-old-cloudflare.mjs")
-      expect(output.vercel?.bundleOptions.alias?.["@vite-hub/blob"]).toBe("blob-old-vercel.mjs")
+      const cloudflareAliases = output.cloudflare?.bundleOptions?.alias as Record<string, string> | undefined
+      const vercelAliases = output.vercel?.bundleOptions.alias as Record<string, string> | undefined
+      expect(cloudflareAliases?.["@vite-hub/blob"]).toBe("blob-old-cloudflare.mjs")
+      expect(vercelAliases?.["@vite-hub/blob"]).toBe("blob-old-vercel.mjs")
     })
   })
 
