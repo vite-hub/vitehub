@@ -164,8 +164,10 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
 
   const cloudflareViteStub = join(rootDir, "cloudflare-vite-stub.mjs")
   const cloudflareRunnerStub = join(rootDir, "cloudflare-runner-stub.mjs")
+  const workflowRuntimeStub = join(rootDir, "workflow-runtime-stub.mjs")
   await writeFile(cloudflareViteStub, "export const createWorkflowCloudflareWorker = options => options\nexport const installWorkflowCloudflareRuntime = () => undefined\n")
   await writeFile(cloudflareRunnerStub, "export const runCloudflareWorkflow = async () => undefined\n")
+  await writeFile(workflowRuntimeStub, "export const createWorkflowSteps = () => []\nexport const takeInlineWorkflowDefinitionForModule = () => undefined\n")
   const fileUrlPlugin: import("esbuild").Plugin = {
     name: "file-url",
     setup(build) {
@@ -176,6 +178,8 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     alias: {
       "vite-hub/_internal/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
       "vite-hub/_internal/workflow/runtime/cloudflare-vite": cloudflareViteStub,
+      "vite-hub/_internal/workflow/runtime/execute": workflowRuntimeStub,
+      "vite-hub/_internal/workflow/runtime/state": workflowRuntimeStub,
     },
     bundle: true,
     entryPoints: [join(publishedDir, "cloudflare-worker.mjs")],
@@ -190,6 +194,8 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     alias: {
       "@vite-hub/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
       "@vite-hub/workflow/runtime/cloudflare-vite": cloudflareViteStub,
+      "@vite-hub/workflow/runtime/execute": workflowRuntimeStub,
+      "@vite-hub/workflow/runtime/state": workflowRuntimeStub,
     },
     bundle: true,
     entryPoints: [ownerArtifacts.cloudflareWorkerFile],
