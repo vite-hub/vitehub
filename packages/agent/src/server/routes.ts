@@ -4074,10 +4074,9 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
-): Promise<UIMessageLike[]> {
-  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
-    rejectOversizedTextAttachments: true,
-  })
+): Promise<{ materializeAttachments: () => Promise<UIMessageLike[]>; messages: UIMessageLike[] }> {
+  const currentMetadata = chatMessageMetadata(thread, message, messageContext)
+  const current = await chatSdkMessageToUiMessage(message, currentMetadata, { includeAttachments: false })
   const triggerHistory = resolveChatTriggerHistory(options)
   const triggerLimit = chatTriggerHistoryLimit(triggerHistory)
   const configuredThreadLimit = isRuntimeObject(options?.threadHistory)
@@ -4089,7 +4088,14 @@ async function chatTriggerMessages(
     ? Math.floor(configuredThreadLimit)
     : undefined
   const limit = Math.max(triggerLimit || 0, sessionHistoryLimit || 0)
-  if (!limit) return [current]
+  if (!limit) {
+    return {
+      materializeAttachments: async () => [await chatSdkMessageToUiMessage(message, currentMetadata, {
+        rejectOversizedTextAttachments: true,
+      })],
+      messages: [current],
+    }
+  }
   const maxAgeMs = chatTriggerHistoryMaxAgeMs(triggerHistory)
   const currentTime = message.metadata.dateSent.getTime()
   const historySource = new WeakMap<UIMessageLike, ChatSdkMessage>()
@@ -4272,13 +4278,19 @@ async function chatTriggerMessages(
   }
   messages = messages.slice(-limit)
   const triggerBoundary = messages.length - (triggerLimit || 0)
-  return await Promise.all(messages.map(async (item, index) => {
-    const source = historySource.get(item)
-    if (!source || source === message || index < triggerBoundary) return item
-    const itemTime = source.metadata.dateSent.getTime()
-    const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-    return outsideTriggerAge ? item : await chatSdkMessageToUiMessage(source)
-  }))
+  return {
+    materializeAttachments: async () => await Promise.all(messages.map(async (item, index) => {
+      const source = historySource.get(item)
+      if (!source || index < triggerBoundary) return item
+      if (source === message) {
+        return await chatSdkMessageToUiMessage(source, currentMetadata, { rejectOversizedTextAttachments: true })
+      }
+      const itemTime = source.metadata.dateSent.getTime()
+      const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
+      return outsideTriggerAge ? item : await chatSdkMessageToUiMessage(source)
+    })),
+    messages,
+  }
 }
 
 function createChatTriggerInput(
@@ -4905,8 +4917,9 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
-    const messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext),
+    const collectedMessages = await chatTriggerMessages(thread, message, options, messageContext)
+    let messages = scopeCurrentChatUiMessage(
+      collectedMessages.messages,
       message.id,
       input.run?.runId || delivery.delivery.id,
     )
@@ -4922,6 +4935,11 @@ async function handleChatSdkMessage(
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
       return
     }
+    messages = scopeCurrentChatUiMessage(
+      await collectedMessages.materializeAttachments(),
+      message.id,
+      input.run?.runId || delivery.delivery.id,
+    )
     const parsedChannelContext = authorizationInput.context?.channel
     input = withAgentInvokerRunAnnotation({
       ...input,

@@ -19270,7 +19270,8 @@ describe("server helpers", () => {
         }
       },
     })
-    const adapter = createTestChatAdapter()
+    const attachmentFetchData = vi.fn(async () => Buffer.from("secret"))
+    const adapter = createTestChatAdapter({ attachmentFetchData })
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
       capabilities: [
@@ -19303,7 +19304,12 @@ describe("server helpers", () => {
               chat: { id: 456, type: "private" },
               from: { id: 999 },
               message_id: 7,
-              text: "hello",
+              document: {
+                content: "secret",
+                file_id: "secret-file",
+                file_name: "secret.txt",
+                mime_type: "text/plain",
+              },
             },
           }),
           method: "POST",
@@ -19315,6 +19321,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(eventAppends).toBe(3)
+      expect(attachmentFetchData).not.toHaveBeenCalled()
       expect(run).not.toHaveBeenCalled()
       expect(adapter.postMessage).not.toHaveBeenCalled()
     } finally {
