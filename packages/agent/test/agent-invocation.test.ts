@@ -116,7 +116,7 @@ describe("Agent Invocation controllers", () => {
         async run() {
           return {
             fullStream: (async function* () {
-              yield { text: "nested", type: "text-delta" }
+              yield { delta: "nested", type: "text-delta" }
             })(),
           }
         },
@@ -127,6 +127,36 @@ describe("Agent Invocation controllers", () => {
     const controller = await startAgentInvocation(agent, runtime(), {})
 
     await expect(controller.result).resolves.toMatchObject({ text: "nested" })
+    await expect(controller.inspect()).resolves.toMatchObject({
+      invocation: { status: "completed" },
+      outcome: "available",
+    })
+  })
+
+  it("settles inline UI-message streams before resolving the public result", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            toUIMessageStream: () => new ReadableStream({
+              start(controller) {
+                controller.enqueue({ messageId: "reply", type: "start" })
+                controller.enqueue({ id: "reply", type: "text-start" })
+                controller.enqueue({ delta: "ui message", id: "reply", type: "text-delta" })
+                controller.enqueue({ id: "reply", type: "text-end" })
+                controller.enqueue({ finishReason: "stop", type: "finish" })
+                controller.close()
+              },
+            }),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const controller = await startAgentInvocation(agent, runtime(), {})
+
+    await expect(controller.result).resolves.toMatchObject({ text: "ui message" })
     await expect(controller.inspect()).resolves.toMatchObject({
       invocation: { status: "completed" },
       outcome: "available",

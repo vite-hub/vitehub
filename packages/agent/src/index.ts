@@ -6637,11 +6637,16 @@ function createInlineAgentInvocationController<
       }
       else if (started !== null && typeof started === "object" && hasTraceableStreamResult(started)) {
         for (const property of ["stream", "fullStream", "textStream"] as const) {
-          const stream = Reflect.get(started, property)
-          if (!isAsyncIterable(stream)) continue
+          const candidate = Reflect.get(started, property)
+          if (!isAsyncIterable(candidate)) continue
+          const stream: AsyncIterable<unknown> = candidate
           for await (const _chunk of stream) {}
           break
         }
+      }
+      else if (started !== null && typeof started === "object" && isUIMessageStreamResult(started)) {
+        const stream: AsyncIterable<unknown> = started.toUIMessageStream()
+        for await (const _chunk of stream) {}
       }
       const outcome = await finished
       if (outcome.status === "completed") {
