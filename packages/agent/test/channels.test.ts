@@ -372,6 +372,64 @@ describe("agent channels", () => {
     }
   })
 
+  it("orders GitHub activity before resolving authenticated identity", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    let identityCalls = 0
+    let releaseFirstIdentity!: () => void
+    const firstIdentityPending = new Promise<void>(resolve => { releaseFirstIdentity = resolve })
+    const writes: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") {
+        identityCalls++
+        if (identityCalls === 1) await firstIdentityPending
+        return Response.json({ login: "vitehub-bot" })
+      }
+      if (init?.method === "GET") {
+        return Response.json(url.searchParams.has("page") || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      writes.push(storedBody)
+      return Response.json({ id: 7 }, { status: init?.method === "POST" ? 201 : 200 })
+    })
+    const context = (channel: ReturnType<typeof github>, runId: string) => ({
+      activity: { links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }], runId, status: "running" as const, tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId },
+      runtime: "unknown",
+      target: { issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const first = channel.activity?.update(context(channel, "run-first") as never)
+      await vi.waitFor(() => expect(identityCalls).toBe(1))
+      const second = channel.activity?.update(context(channel, "run-second") as never)
+
+      await Promise.resolve()
+      expect(identityCalls).toBe(1)
+      releaseFirstIdentity()
+      await Promise.all([first, second])
+
+      expect(identityCalls).toBe(2)
+      expect(writes).toHaveLength(2)
+      expect(writes[0]).toContain("run-first")
+      expect(writes[1]).toContain("run-second")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("reuses GitHub Actions bot activity when its installation token cannot resolve /user", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })

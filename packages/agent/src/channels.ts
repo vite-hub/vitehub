@@ -1345,15 +1345,15 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
     async update(context) {
       const target = githubActivityTarget(context.target)
       const fetcher = options.fetch || fetch
-      const token = await githubPullRequestMetadataToken(app, context, target.installationId)
-      if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
-      const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
-      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
       const commentsTarget = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
-      const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
-      const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
+      const previousUpdate = githubActivityUpdates.get(commentsTarget) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
+        const token = await githubPullRequestMetadataToken(app, context, target.installationId)
+        if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
+        const headers = githubApiHeaders(token, options.userAgent)
+        const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
+        const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
         const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
         const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
         const knownActiveRun = trackActiveRuns && activeRuns.has(runId)
@@ -1423,12 +1423,12 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         if (terminal) activeRuns.delete(runId)
         if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
       })
-      githubActivityUpdates.set(activityKey, update)
+      githubActivityUpdates.set(commentsTarget, update)
       try {
         await update
       }
       finally {
-        if (githubActivityUpdates.get(activityKey) === update) githubActivityUpdates.delete(activityKey)
+        if (githubActivityUpdates.get(commentsTarget) === update) githubActivityUpdates.delete(commentsTarget)
       }
     },
   }
@@ -2283,7 +2283,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const payload = inputPayloadOrBody(input)
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
-          const update = activity.update({
+          const update = Promise.resolve(activity.update({
             ...context,
             activity: {
               ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
@@ -2293,7 +2293,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               tasks: [],
             },
             target: { ...activityTarget },
-          })
+          }))
           context.waitUntil(update.catch(error => console.error(new Error(
             "[vitehub] GitHub pull request activity initialization failed.",
             { cause: error },
