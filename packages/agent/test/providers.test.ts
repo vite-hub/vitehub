@@ -107,6 +107,7 @@ function createTestChatAdapter(
     isDM?: boolean
     bypassIdLessMessageDedupe?: boolean
     missingIncomingMessageId?: boolean
+    onInitialize?: (chat: ChatInstance) => void
     persistThreadHistory?: boolean
     photoData?: Blob
     rawMessageValue?: unknown
@@ -269,6 +270,7 @@ function createTestChatAdapter(
     deleteMessage: vi.fn(async () => {}),
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
+      options.onInitialize?.(chat)
     }),
     isDM: vi.fn(() => options.isDM ?? true),
     editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({
@@ -17451,7 +17453,6 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter({ persistThreadHistory: true })
     const message = (id: string, text: string, date: string) => new Message({
       attachments: [],
       author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
@@ -17461,6 +17462,29 @@ describe("server helpers", () => {
       raw: {},
       text,
       threadId: "telegram:456",
+    })
+    let initializedChats = 0
+    const adapter = createTestChatAdapter({
+      onInitialize: (chat) => {
+        if (++initializedChats !== 2) return
+        // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
+        const chatBoundary = chat as unknown as {
+          createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
+        }
+        const createThread = chatBoundary.createThread.bind(chatBoundary)
+        vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
+          const thread = createThread(...arguments_)
+          Reflect.set(thread, "_threadHistory", {
+            getMessages: vi.fn(async () => [
+              message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+              message("20", "current", "2026-06-10T12:00:20.000Z"),
+              message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+            ]),
+          })
+          return thread
+        })
+      },
+      persistThreadHistory: true,
     })
     adapter.fetchMessages.mockResolvedValue({
       messages: [
@@ -17493,25 +17517,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
-    const chat = adapter._chatInstance()
-    if (!chat) throw new Error("Expected the webhook to initialize Chat.")
     adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
-    // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
-    const chatBoundary = chat as unknown as {
-      createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
-    }
-    const createThread = chatBoundary.createThread.bind(chatBoundary)
-    vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
-      const thread = createThread(...arguments_)
-      Reflect.set(thread, "_threadHistory", {
-        getMessages: vi.fn(async () => [
-          message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
-          message("20", "current", "2026-06-10T12:00:20.000Z"),
-          message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        ]),
-      })
-      return thread
-    })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "same-time previous", "current"]])
