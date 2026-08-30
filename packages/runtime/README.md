@@ -36,7 +36,8 @@ information and, on Linux, `/proc` and cgroup v2 files.
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
-manager should trigger that drain through the included `vitehub-drain` command.
+manager should trigger that drain through the `vitehub-drain` command included
+with the owner-package installation, `@vite-hub/runtime`.
 
 ## Get a first result
 

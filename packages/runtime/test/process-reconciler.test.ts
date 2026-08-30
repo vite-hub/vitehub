@@ -6,14 +6,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function deferred<T = void>(): {
-  promise: Promise<T>
+function deferred(): {
+  promise: Promise<void>
   reject: (error: unknown) => void
-  resolve: (value: T | PromiseLike<T>) => void
+  resolve: () => void
 } {
   let reject!: (error: unknown) => void
-  let resolve!: (value: T | PromiseLike<T>) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
     reject = rejectPromise
     resolve = resolvePromise
   })
@@ -134,6 +134,21 @@ describe("createProcessReconciler", () => {
     unfinished.resolve()
 
     await expect(draining).rejects.toThrow("tracked work failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
+  it("retains failures from work tracked during an active drain", async () => {
+    const initial = deferred()
+    const late = deferred()
+    const reconciler = createProcessReconciler({ intervalMs: 60_000, run() {}, signal: false })
+    reconciler.track(initial.promise)
+    const draining = reconciler.drain()
+    reconciler.track(late.promise)
+    late.reject(new Error("late tracked work failed"))
+    await Promise.resolve()
+    initial.resolve()
+
+    await expect(draining).rejects.toThrow("late tracked work failed")
     expect(reconciler.status()).toBe("failed")
   })
 

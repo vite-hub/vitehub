@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { hasRuntimeType } from "./internal/runtime-type.ts"
+
 const pidInput: string | undefined = process.argv[2]
 const statusUrl: string = process.argv[3] || "http://127.0.0.1:3000/api/drain"
 const pid: number = Number(pidInput)
@@ -24,7 +26,8 @@ async function readStatus(): Promise<"accepting" | "drained" | "draining" | "fai
     const response = await fetch(statusUrl, { signal: AbortSignal.timeout(5_000) })
     if (!response.ok) return "unavailable"
     const body: unknown = await response.json()
-    const status = typeof body === "object" && body !== null && "status" in body ? body.status : undefined
+    // SAFETY: The status endpoint response is validated before its value is used.
+    const status = body && hasRuntimeType(body, "object") ? (body as { status?: unknown }).status : undefined
     return status === "accepting" || status === "drained" || status === "draining" || status === "failed"
       ? status
       : "invalid"

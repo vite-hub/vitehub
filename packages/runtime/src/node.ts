@@ -236,12 +236,18 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   let running: Promise<void> | undefined
   let status: ProcessReconcilerStatus = "accepting"
   let timer: NodeJS.Timeout | undefined
-  const tracked = new Set<Promise<unknown>>()
+  const settlements = new Map<Promise<unknown>, Promise<PromiseSettledResult<unknown>>>()
 
   const track: ProcessReconcilerRunContext["track"] = (work) => {
     const promise = Promise.resolve(work)
-    tracked.add(promise)
-    void promise.finally(() => tracked.delete(promise)).catch(() => {})
+    const settlement = promise.then(
+      (value): PromiseSettledResult<unknown> => ({ status: "fulfilled", value }),
+      (reason): PromiseSettledResult<unknown> => ({ reason, status: "rejected" }),
+    )
+    settlements.set(promise, settlement)
+    void settlement.then(() => {
+      if (status === "accepting") settlements.delete(promise)
+    })
     return promise
   }
 
@@ -297,27 +303,31 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   const drain = (): Promise<void> => {
     if (drainPromise) return drainPromise
     drainPromise = (async () => {
+      const settleTrackedWork = async (): Promise<void> => {
+        let failure: unknown
+        let hasFailure = false
+        while (settlements.size) {
+          const batch = [...settlements.entries()]
+          const results = await Promise.all(batch.map(([, settlement]) => settlement))
+          for (const [promise] of batch) settlements.delete(promise)
+          const rejected = results.find(result => result.status === "rejected")
+          if (!hasFailure && rejected) {
+            failure = rejected.reason
+            hasFailure = true
+          }
+        }
+        if (hasFailure) throw failure
+      }
+
       status = "draining"
       closed = true
-      const acceptedWork = [...tracked]
       if (timer) clearTimeout(timer)
       timer = undefined
       await options.onQuiesce?.()
       await running
-      let failure: unknown
-      let hasFailure = false
-      let pending = new Set([...acceptedWork, ...tracked])
-      while (pending.size) {
-        const results = await Promise.allSettled(pending)
-        const rejected = results.find(result => result.status === "rejected")
-        if (!hasFailure && rejected) {
-          failure = rejected.reason
-          hasFailure = true
-        }
-        pending = new Set(tracked)
-      }
-      if (hasFailure) throw failure
+      await settleTrackedWork()
       await options.onDrained?.()
+      await settleTrackedWork()
       status = "drained"
     })().catch((error) => {
       status = "failed"
