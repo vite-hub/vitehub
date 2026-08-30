@@ -538,7 +538,9 @@ async function prepareCodexCredentialHome<
   if (process.platform === "win32") {
     throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
   }
-  const profile = options.credentialProfile?.trim()
+  // Auxiliary Drivers run inside their parent invocation. They must not wait for
+  // a named Home that the parent owns until cleanup.
+  const profile = isAuxiliaryAgentAdapterContext(context) ? undefined : options.credentialProfile?.trim()
   const resolveCredentials = async () => {
     context.input.abortSignal?.throwIfAborted()
     // SAFETY: providerMetadataContext establishes the credential resolver contract; this adds its optional abort signal.
@@ -1421,7 +1423,7 @@ async function* runProvider<
     : undefined
   const preservesProviderSession = options.provider !== "codex"
     || options.credentials === undefined
-    || Boolean(options.credentialProfile?.trim())
+    || (Boolean(options.credentialProfile?.trim()) && !isAuxiliaryAgentAdapterContext(context))
   const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
   const providerEnvironmentOverrides = options.env
