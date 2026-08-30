@@ -767,6 +767,41 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(secondOutput, "index.js"), "utf8")).resolves.toBe("second previous\n")
   })
 
+  it("rolls back KV output at the default Cloudflare root when a peer root fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const kvRoot = await createTempProject()
+    const failingRoot = await createTempProject()
+    const kvOutput = createDefaultCloudflareOutputRoot(kvRoot)
+    await mkdir(kvOutput, { recursive: true })
+    await writeFile(join(kvOutput, "wrangler.json"), '{"name":"previous"}\n')
+    let kvReady!: () => void
+    const kvCompleted = new Promise<void>(resolve => kvReady = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir: kvRoot,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { wranglerConfig: { name: "replacement" } },
+          rootDir: kvRoot,
+        })
+        kvReady()
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir: failingRoot,
+      write: async () => {
+        await kvCompleted
+        throw new Error("peer root failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("peer root failed")
+
+    await expect(readFile(join(kvOutput, "wrangler.json"), "utf8")).resolves.toBe('{"name":"previous"}\n')
+  })
+
   it("preserves newer generated inputs when rolling back output ownership", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

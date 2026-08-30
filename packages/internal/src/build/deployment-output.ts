@@ -760,7 +760,7 @@ async function writeProviderDeploymentOutputsNow(
 function providerDeploymentOutputPaths(options: ProviderDeploymentOutputOptions): string[] {
   const clientDir = resolve(options.rootDir, options.clientOutDir)
   return [
-    options.cloudflare?.outputRoot,
+    options.cloudflare && (options.cloudflare.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)),
     options.cloudflare?.staticOutputDir,
     options.netlify?.outputRoot,
     options.vercel?.outputRoot,
