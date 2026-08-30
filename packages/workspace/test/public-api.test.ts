@@ -153,6 +153,7 @@ describe("workspace public API", () => {
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
     expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.vite).toBe("catalog:vite")
     expect(packageJson.exports).toHaveProperty("./collections")
     expect(packageJson.exports).toHaveProperty("./collections/client")
     expect(packageJson.exports).toHaveProperty("./mountx")
