@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "blob", "databases", "kv", "rate-limits", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "usage", "blob", "databases", "kv", "rate-limits", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -39,6 +39,12 @@ export const consoleSectionDetails = {
     label: "Rate Limits",
     routeName: "vitehub-console-rate-limits",
   },
+  workspaces: {
+    description: "Inspect discovered Workspace Definitions and their source roots.",
+    icon: "i-lucide-folder-kanban",
+    label: "Workspaces",
+    routeName: "vitehub-console-workspaces",
+  },
   workflows: {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
     icon: "i-lucide-git-branch",
@@ -75,7 +81,7 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
@@ -84,6 +90,7 @@ export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unkn
     ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(options.rateLimit ? ["rate-limits" as const] : []),
+    ...(options.workspace ? ["workspaces" as const] : []),
     ...(workflowEnabled ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),
     ...(options.schedule ? ["schedules" as const] : []),

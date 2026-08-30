@@ -476,6 +476,13 @@ async function installConsole(
             path: "/_vitehub/workflows",
           }]
         : []),
+      ...(sections.includes("workspaces")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/workspaces.vue"),
+            name: "vitehub-console-workspaces",
+            path: "/_vitehub/workspaces",
+          }]
+        : []),
       ...(sections.includes("rate-limits")
         ? [{
             file: join(consoleRuntimeRoot, "pages/rate-limits.vue"),
