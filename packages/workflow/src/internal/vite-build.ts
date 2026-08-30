@@ -1408,27 +1408,39 @@ async function generateProviderOutputsWithinLock(
     if (resolve(artifacts.generatedDir) === generatedDir) return
     const nextDir = `${generatedDir}.${randomUUID()}.next`
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
-    await cp(artifacts.generatedDir, nextDir, { recursive: true })
-    const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
-    if (existsSync(retainedSourcesDir)) {
-      const publishedSourcesDir = resolve(generatedDir, "sources")
-      await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
-      const rewriteRetainedSourceImports = async (file: string) => {
-        const contents = await readFile(file, "utf8")
-        const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
-        if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
-      }
-      await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
-      await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
-    }
     const hadPrevious = existsSync(generatedDir)
+    let movedPrevious = false
     try {
-      if (hadPrevious) await rename(generatedDir, previousDir)
+      await cp(artifacts.generatedDir, nextDir, { recursive: true })
+      const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
+      if (existsSync(retainedSourcesDir)) {
+        const publishedSourcesDir = resolve(generatedDir, "sources")
+        await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+        const rewriteRetainedSourceImports = async (file: string) => {
+          const contents = await readFile(file, "utf8")
+          const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
+          if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
+        }
+        await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
+        await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
+        for (const spec of providerEntrySpecs) {
+          const entryFile = resolve(nextDir, spec.entryFile)
+          const contents = await readFile(entryFile, "utf8")
+          const stagedSourcesImport = createImportPath(resolve(artifacts.generatedDir, spec.entryFile), retainedSourcesDir)
+          const publishedSourcesImport = createImportPath(resolve(generatedDir, spec.entryFile), publishedSourcesDir)
+          const rewritten = contents.replaceAll(`${JSON.stringify(stagedSourcesImport).slice(0, -1)}/`, `${JSON.stringify(publishedSourcesImport).slice(0, -1)}/`)
+          if (rewritten !== contents) await writeFile(entryFile, rewritten, "utf8")
+        }
+      }
+      if (hadPrevious) {
+        await rename(generatedDir, previousDir)
+        movedPrevious = true
+      }
       await rename(nextDir, generatedDir)
     }
     catch (error) {
       await rm(nextDir, { force: true, recursive: true })
-      if (hadPrevious) {
+      if (movedPrevious) {
         try {
           await rm(generatedDir, { force: true, recursive: true })
           await rename(previousDir, generatedDir)

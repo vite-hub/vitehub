@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -114,14 +114,17 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup", "01-cleanup.ts")
+  const retainedAppFile = join(retainedRoot, "src", "server.ts")
   await mkdir(join(retainedRoot, "server", "workflows", "cleanup"), { recursive: true })
+  await mkdir(join(retainedRoot, "src"), { recursive: true })
   await writeFile(retainedWorkflowFile, "export default async function cleanup() {}\n")
+  await writeFile(retainedAppFile, "export default { async fetch() { return new Response('ok') } }\n")
   const artifacts = await writeProviderEntries(
     rootDir,
     false,
     { workflow: "vite-hub/_internal/workflow" },
     undefined,
-    false,
+    true,
     undefined,
     retainedRoot,
     artifactDir,
@@ -147,13 +150,74 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
 
   const publishedDir = join(rootDir, ".vitehub", "workflow")
   const publishedWorkflowFile = join(publishedDir, "sources", "server", "workflows", "cleanup", "01-cleanup.ts")
+  const publishedAppFile = join(publishedDir, "sources", "src", "server.ts")
   await expect(readFile(join(publishedDir, "registry.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)
+  await expect(readFile(join(publishedDir, "cloudflare-worker.mjs"), "utf8")).resolves.toContain(`from "./sources/src/server.ts"`)
+  await expect(readFile(join(publishedDir, "vercel-server.mjs"), "utf8")).resolves.toContain(`from "./sources/src/server.ts"`)
   await expect(readdir(join(publishedDir, "vercel-native"))).resolves.toHaveLength(1)
   const [publishedNativeFile] = await readdir(join(publishedDir, "vercel-native"))
   await expect(readFile(join(publishedDir, "vercel-native", publishedNativeFile!), "utf8")).resolves.toContain(publishedWorkflowFile)
   await expect(stat(publishedWorkflowFile)).resolves.toBeDefined()
+  await expect(stat(publishedAppFile)).resolves.toBeDefined()
   await rm(join(rootDir, ".vitehub", "workflow-generations", "test"), { force: true, recursive: true })
   expect(() => buildSync({ bundle: true, entryPoints: [join(publishedDir, "vercel-native", publishedNativeFile!)], platform: "node", write: false })).not.toThrow()
+
+  const cloudflareViteStub = join(rootDir, "cloudflare-vite-stub.mjs")
+  const cloudflareRunnerStub = join(rootDir, "cloudflare-runner-stub.mjs")
+  await writeFile(cloudflareViteStub, "export const createWorkflowCloudflareWorker = options => options\nexport const installWorkflowCloudflareRuntime = () => undefined\n")
+  await writeFile(cloudflareRunnerStub, "export const runCloudflareWorkflow = async () => undefined\n")
+  const fileUrlPlugin: import("esbuild").Plugin = {
+    name: "file-url",
+    setup(build) {
+      build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
+    },
+  }
+  expect(() => buildSync({
+    alias: {
+      "vite-hub/_internal/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
+      "vite-hub/_internal/workflow/runtime/cloudflare-vite": cloudflareViteStub,
+    },
+    bundle: true,
+    entryPoints: [join(publishedDir, "cloudflare-worker.mjs")],
+    external: ["cloudflare:workflows"],
+    platform: "neutral",
+    plugins: [fileUrlPlugin],
+    write: false,
+  })).not.toThrow()
+
+  const ownerArtifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, join(rootDir, ".vitehub", "workflow-owner-output"))
+  expect(() => buildSync({
+    alias: {
+      "@vite-hub/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
+      "@vite-hub/workflow/runtime/cloudflare-vite": cloudflareViteStub,
+    },
+    bundle: true,
+    entryPoints: [ownerArtifacts.cloudflareWorkerFile],
+    external: ["cloudflare:workflows"],
+    platform: "neutral",
+    plugins: [fileUrlPlugin],
+    write: false,
+  })).not.toThrow()
+})
+
+it("removes partial staged Workflow publication when preparation fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-publication-failure-")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  await mkdir(retainedRoot, { recursive: true })
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
+  await rm(artifacts.registryFile)
+
+  await expect(generateWorkflowProviderOutputs({
+    artifacts,
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "node-server",
+    rootDir,
+    workflow: false,
+  }, async options => await options.afterWrite?.())).rejects.toThrow()
+
+  const viteHubEntries = await readdir(join(rootDir, ".vitehub"))
+  expect(viteHubEntries.some(entry => entry.endsWith(".next"))).toBe(false)
 })
 
 it("rewrites JSON-escaped Windows paths when publishing retained Workflow sources", () => {
