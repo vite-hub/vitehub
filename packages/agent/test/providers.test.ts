@@ -1138,7 +1138,7 @@ describe("agent Vite plugin", () => {
                 bundleOptions: expect.objectContaining({
                   alias: {
                     "@": join(root, "src"),
-                    "@/": `${join(root, "src")}/`,
+                    "@/\0vitehub-prefix:0": `${join(root, "src")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
                   external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),
