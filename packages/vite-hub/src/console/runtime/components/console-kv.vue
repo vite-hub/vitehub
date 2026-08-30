@@ -250,8 +250,8 @@ async function loadMore(): Promise<void> {
 
 function syncRouteSelection(): void {
   if (
-    selectedKey.value === undefined ||
-    (route.query.store === selectedStore.value && route.query.key === selectedKey.value)
+    route.query.store === selectedStore.value &&
+    route.query.key === selectedKey.value
   )
     return;
   void router.replace({

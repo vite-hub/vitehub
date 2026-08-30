@@ -108,7 +108,20 @@ const kvSearchItems = computed<CommandPaletteItem[]>(() =>
     onSelect: () => selectKVKey(item),
   })),
 )
+const paletteError = computed(() => navigationError.value || sessionSearch.error.value)
 const groups = computed<CommandPaletteGroup[]>(() => [
+  ...(paletteError.value
+    ? [{
+        id: "error",
+        items: [{
+          description: errorMessage(paletteError.value),
+          disabled: true,
+          icon: "i-ph-cloud-slash-light",
+          label: "Could not load Console search",
+        }],
+        label: "Search status",
+      }]
+    : []),
   {
     id: "pages",
     items: [
@@ -163,7 +176,6 @@ const groups = computed<CommandPaletteGroup[]>(() => [
 const loading = computed(() =>
   navigationLoading.value || (agentsEnabled.value && sessionSearch.pending.value),
 )
-const paletteError = computed(() => navigationError.value || sessionSearch.error.value)
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -362,14 +374,14 @@ onBeforeUnmount(() => {
     <template #empty="{ searchTerm: value }">
       <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
         <UIcon
-          :name="paletteError ? 'i-ph-cloud-slash-light' : 'i-ph-magnifying-glass-minus-light'"
+          name="i-ph-magnifying-glass-minus-light"
           class="size-6 text-dimmed"
         />
         <p class="text-sm font-medium text-highlighted">
-          {{ paletteError ? "Could not load Console search" : "No matches" }}
+          No matches
         </p>
         <p class="text-xs text-muted">
-          {{ paletteError ? errorMessage(paletteError) : value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
+          {{ value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
     </template>
