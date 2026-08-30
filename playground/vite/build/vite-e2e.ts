@@ -746,6 +746,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
+    alias["@vite-hub/kv/runtime/cloudflare-kv"] = resolve(kvPackageDir, "src/runtime/cloudflare-kv.ts")
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
   }
