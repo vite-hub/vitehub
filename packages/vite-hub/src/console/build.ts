@@ -176,7 +176,7 @@ export async function discoverConsoleBuildCatalog(options: {
     : []
   const databases = options.sections.includes("databases")
     ? discoverDatabaseDefinitions(options.databaseDiscoveryRoot ?? options.discoveryRoot, {
-        serverDirs: options.serverDirs,
+        serverDirs: options.databaseDiscoveryRoot ? undefined : options.serverDirs,
       }).map(definition => databaseDefinition(options.projectRoot, definition))
     : []
   const workflows = options.sections.includes("workflows")

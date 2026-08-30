@@ -951,7 +951,7 @@ describe("Agent invocation console", () => {
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
       })
-      const pluginCandidates: unknown[] = plugins.flat(Infinity)
+      const pluginCandidates = (plugins as unknown[]).flat(Infinity)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin options can be nested and mixed at this test boundary, so narrow the flattened value by its plugin name.
       const plugin = pluginCandidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
