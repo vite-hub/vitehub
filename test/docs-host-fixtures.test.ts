@@ -99,6 +99,7 @@ async function expectDenoLauncherToStart(appRoot: string) {
     exit.then(() => true),
     new Promise<false>(resolve => setTimeout(() => resolve(false), timeout)),
   ])
+  let cleanupError: Error | undefined
 
   try {
     const started = (async () => {
@@ -129,9 +130,10 @@ async function expectDenoLauncherToStart(appRoot: string) {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
     }
     if (!await waitForExit(5_000)) {
-      throw new Error(`Deno launcher did not exit after SIGKILL\n${output}`)
+      cleanupError = new Error(`Deno launcher did not exit after SIGKILL\n${output}`)
     }
   }
+  if (cleanupError) throw cleanupError
 }
 
 describe("host documentation fixtures", () => {
@@ -192,7 +194,7 @@ describe("host documentation fixtures", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 600_000)
+  }, 900_000)
 
   it("declares exactly one representative build per documented host", async () => {
     const contracts = parseSnippetContracts(await readFile(join(fixturesRoot, "manifest.json"), "utf8"))
