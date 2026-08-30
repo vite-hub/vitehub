@@ -425,6 +425,30 @@ describe("kv runtime", () => {
     }
   })
 
+  it("resumes fs-lite listing after the cursor file is deleted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-deleted-cursor-"))
+    try {
+      await writeFile(join(root, "a"), "a")
+      await writeFile(join(root, "b"), "b")
+      await writeFile(join(root, "c"), "c")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      const first = await driver.listKeys({ limit: 1 })
+      const remaining = ["a", "b", "c"].filter(key => key !== first.keys[0])
+      await rm(join(root, first.keys[0]!), { force: true })
+      const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
+      const third = second.cursor
+        ? await driver.listKeys({ cursor: second.cursor, limit: 2 })
+        : { keys: [] }
+
+      expect([...second.keys, ...third.keys]).toEqual(expect.arrayContaining(remaining))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("uses one bounded Upstash scan with a literal prefix", async () => {
     upstashScan = vi.fn(async () => [7, ["user:*literal"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")

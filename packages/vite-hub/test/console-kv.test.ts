@@ -111,6 +111,8 @@ describe("Console KV inspection", () => {
       default: new Map<string, unknown>([
         ["", "empty key"],
         ["config", { enabled: true }],
+        ["boxed", new Number(7)],
+        ["keyed", { toJSON: (key: string) => ({ key }) }],
         ["large-structured", { content: "x".repeat(256 * 1_024 + 1) }],
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
@@ -135,6 +137,10 @@ describe("Console KV inspection", () => {
       store: "default",
       type: "object",
       value: "{\n  \"enabled\": true\n}",
+    })
+    await expect(kvHandler(event("?key=boxed"))).resolves.toMatchObject({ value: "7" })
+    await expect(kvHandler(event("?key=keyed"))).resolves.toMatchObject({
+      value: "{\n  \"key\": \"\"\n}",
     })
     await expect(kvHandler(event("?key=nullable"))).resolves.toMatchObject({
       found: true,
@@ -187,5 +193,18 @@ describe("Console KV inspection", () => {
     await expect(kvHandler(event("", "POST"))).rejects.toMatchObject({ statusCode: 405 })
     await expect(kvHandler(event("?store=unknown"))).rejects.toMatchObject({ statusCode: 404 })
     await expect(kvHandler(event("?limit=501"))).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it("exposes configured stores when the selected store cannot list keys", async () => {
+    const { storage } = memoryKV({ cache: new Map(), default: new Map() })
+    storage.list = async () => [new Error("default unavailable"), undefined]
+    installConsoleKV("/project", storage, ["default", "cache"])
+
+    await expect(kvHandler(event())).resolves.toMatchObject({
+      error: "default unavailable",
+      keys: [],
+      store: "default",
+      stores: ["default", "cache"],
+    })
   })
 })

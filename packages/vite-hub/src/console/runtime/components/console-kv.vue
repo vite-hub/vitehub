@@ -10,6 +10,7 @@ import ConsoleSearch from "./console-search.vue";
 
 interface KVListResponse {
   cursor?: string;
+  error?: string;
   keys: string[];
   limit: number;
   prefix: string;
@@ -67,6 +68,8 @@ function parseList(value: unknown): KVListResponse {
   return {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     cursor: typeof source.cursor === "string" ? source.cursor : undefined,
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    error: typeof source.error === "string" ? source.error : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
@@ -138,6 +141,13 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
   const controller = new AbortController();
   listRequest = controller;
   listLoading.value = true;
+  if (!options.append) {
+    keys.value = [];
+    nextCursor.value = undefined;
+    selectedKey.value = undefined;
+    selectedValue.value = undefined;
+    valueError.value = undefined;
+  }
   try {
     const value = parseList(await requestConsole(props.kvBase, {
       query: { cursor: options.append ? nextCursor.value : undefined, prefix: prefix.value || undefined, store: selectedStore.value },
@@ -145,6 +155,7 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     }));
     if (listRequest !== controller) return;
     stores.value = value.stores;
+    if (value.error) throw new Error(value.error);
     keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;

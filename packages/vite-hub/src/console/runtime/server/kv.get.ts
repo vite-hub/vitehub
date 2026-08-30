@@ -95,7 +95,11 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     return append('"')
   }
 
-  function serialize(input: unknown, depth: number, arrayValue: boolean): boolean {
+  function serialize(input: unknown, depth: number, arrayValue: boolean, key: string): boolean {
+    const boxed = input instanceof Number || input instanceof String || input instanceof Boolean
+      ? input.valueOf()
+      : input
+    if (boxed !== input) return serialize(boxed, depth, arrayValue, key)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
     if (typeof input === "string") return appendString(input)
     if (input === null) return append("null")
@@ -108,14 +112,18 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       return arrayValue ? append("null") : false
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
-    if (typeof input === "bigint") throw new TypeError("Cannot serialize bigint as JSON.")
+    if (typeof input === "bigint") {
+      const toJSON = (Object(input) as { toJSON?: (key: string) => unknown }).toJSON
+      if (typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key)
+      throw new TypeError("Cannot serialize bigint as JSON.")
+    }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
-    const object = input as object & { toJSON?: () => unknown }
+    const object = input as object & { toJSON?: (key: string) => unknown }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
     if (typeof object.toJSON === "function") {
-      const replacement = object.toJSON()
-      if (replacement !== input) return serialize(replacement, depth, arrayValue)
+      const replacement = object.toJSON(key)
+      if (replacement !== input) return serialize(replacement, depth, arrayValue, key)
     }
     if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
     ancestors.add(object)
@@ -124,7 +132,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       if (!append("[")) return false
       for (let index = 0; index < object.length; index += 1) {
         if (!append(`${index === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
-        if (!serialize(object[index], depth + 1, true)) return false
+        if (!serialize(object[index], depth + 1, true, String(index))) return false
       }
       if (object.length > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
       ancestors.delete(object)
@@ -140,7 +148,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
       if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
       if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
-      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false)) return false
+      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false, key)) return false
       count += 1
     }
     if (count > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
@@ -148,7 +156,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     return append("}")
   }
 
-  const serialized = serialize(value, 0, false)
+  const serialized = serialize(value, 0, false, "")
   return { truncated, value: serialized || truncated ? rendered : undefined }
 }
 
@@ -197,7 +205,7 @@ function selectStore(storage: KVStorage, stores: readonly string[], requested: s
 
 export default async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   | ConsoleKVValue
-  | { cursor?: string; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
+  | { cursor?: string; error?: string; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
   assertConsoleRequest(event)
   const url = consoleRequestURL(event)
@@ -222,13 +230,16 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   if (prefix.length > maximumKeyLength) throw requestError(400, "prefix is too long.")
   const limit = limitParameter(url.searchParams.get("limit"))
   const cursor = url.searchParams.get("cursor") || undefined
-  const page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
+  const pageResult = await selected.storage.list({ cursor, limit, prefix })
   const response = {
-    keys: page.keys,
+    keys: [] as string[],
     limit,
     prefix,
     store: selected.name,
     stores: inspection.stores,
   }
-  return page.cursor ? { ...response, cursor: page.cursor } : response
+  if (pageResult[0]) return { ...response, error: pageResult[0].message }
+  const page = pageResult[1]
+  const listed = { ...response, keys: page.keys }
+  return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }
