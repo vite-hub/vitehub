@@ -1387,6 +1387,20 @@ async function generateProviderOutputsWithinLock(
     const nextDir = `${generatedDir}.${randomUUID()}.next`
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
     await cp(artifacts.generatedDir, nextDir, { recursive: true })
+    const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
+    if (existsSync(retainedSourcesDir)) {
+      const publishedSourcesDir = resolve(generatedDir, "sources")
+      await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+      const rewriteRetainedSourceImports = async (file: string) => {
+        const contents = await readFile(file, "utf8")
+        const rewritten = contents
+          .replaceAll(pathToFileURL(retainedSourcesDir).href, pathToFileURL(publishedSourcesDir).href)
+          .replaceAll(retainedSourcesDir, publishedSourcesDir)
+        if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
+      }
+      await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
+      await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
+    }
     const hadPrevious = existsSync(generatedDir)
     try {
       if (hadPrevious) await rename(generatedDir, previousDir)

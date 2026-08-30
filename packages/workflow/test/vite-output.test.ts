@@ -112,7 +112,7 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
-  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup", "01-cleanup.ts")
   await mkdir(join(retainedRoot, "server", "workflows", "cleanup"), { recursive: true })
   await writeFile(retainedWorkflowFile, "export default async function cleanup() {}\n")
@@ -136,9 +136,15 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     workflow: false,
   }, async options => await options.afterWrite?.())
 
-  await expect(readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8"))
-    .resolves.toBe(await readFile(join(artifactDir, "registry.mjs"), "utf8"))
-  await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))).resolves.toHaveLength(1)
+  const publishedDir = join(rootDir, ".vitehub", "workflow")
+  const publishedWorkflowFile = join(publishedDir, "sources", "server", "workflows", "cleanup", "01-cleanup.ts")
+  await expect(readFile(join(publishedDir, "registry.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)
+  await expect(readdir(join(publishedDir, "vercel-native"))).resolves.toHaveLength(1)
+  const [publishedNativeFile] = await readdir(join(publishedDir, "vercel-native"))
+  await expect(readFile(join(publishedDir, "vercel-native", publishedNativeFile!), "utf8")).resolves.toContain(publishedWorkflowFile)
+  await expect(stat(publishedWorkflowFile)).resolves.toBeDefined()
+  await rm(join(rootDir, ".vitehub", "workflow-generations", "test"), { force: true, recursive: true })
+  expect(() => buildSync({ bundle: true, entryPoints: [join(publishedDir, "vercel-native", publishedNativeFile!)], platform: "node", write: false })).not.toThrow()
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {
@@ -147,7 +153,7 @@ it("preserves staged Workflow imports from configured external server directorie
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   const externalServerDir = join(rootDir, "..", `${basename(rootDir)}-external-server`)
   const externalWorkflowDir = join(externalServerDir, "workflows", "external")
-  const externalHandler = join(externalWorkflowDir, "index.ts")
+  const externalHandler = join(externalServerDir, "external.workflow.ts")
   const externalStep = join(externalWorkflowDir, "01-external.ts")
   tempDirs.push(externalServerDir)
   await mkdir(retainedRoot, { recursive: true })
