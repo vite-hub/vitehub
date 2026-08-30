@@ -61,8 +61,15 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
 }
 
 interface BabelNode {
+  arguments?: BabelNode[]
+  callee?: BabelNode
+  elements?: Array<BabelNode | null>
   expression?: BabelNode
+  init?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
+  name?: string
+  object?: BabelNode
+  property?: BabelNode
   type?: string
   value?: BabelNode | unknown
 }
@@ -78,21 +85,26 @@ function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
 }
 
-function babelStringValue(node: BabelNode | undefined): unknown {
+function babelStringValue(node: BabelNode | undefined, bindings = new Map<string, BabelNode>()): unknown {
   if (node?.type === "StringLiteral") return node.value
   if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
-    return babelStringValue(node.expression)
+    return babelStringValue(node.expression, bindings)
   }
-}
-
-function isExportedWorkspaceStoreProperty(path: BabelObjectPropertyPath): boolean {
-  let exported = false
-  let store = babelPropertyName(path) === "store"
-  for (let current = path.parentPath; current; current = current.parentPath) {
-    if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") store = true
-    if (current.node.type === "ExportDefaultDeclaration") exported = true
+  if (node?.type === "Identifier" && node.name) {
+    return babelStringValue(bindings.get(node.name), bindings)
   }
-  return exported && store
+  if (
+    node?.type === "CallExpression"
+    && node.arguments?.length === 1
+    && babelStringValue(node.arguments[0], bindings) === "-"
+    && node.callee?.type === "MemberExpression"
+    && node.callee.object?.type === "ArrayExpression"
+    && node.callee.property?.type === "Identifier"
+    && node.callee.property.name === "join"
+  ) {
+    const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, bindings))
+    if (values?.every(value => typeof value === "string")) return values.join("-")
+  }
 }
 
 async function sourceModuleDeclaresCloudflareArtifacts(
@@ -102,6 +114,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
   const loaded = await readSourceModule(file)
   if (!loaded) return false
   let declaresCloudflareArtifacts = false
+  const bindings = new Map<string, BabelNode>()
   loader.transform({
     filename: loaded.file,
     jsx: /x$/.test(extname(loaded.file)),
@@ -110,12 +123,16 @@ async function sourceModuleDeclaresCloudflareArtifacts(
     babel: {
       plugins: [() => ({
         visitor: {
+          VariableDeclarator(path: { node: { id?: BabelNode, init?: BabelNode } }) {
+            if (path.node.id?.type === "Identifier" && path.node.id.name && path.node.init) {
+              bindings.set(path.node.id.name, path.node.init)
+            }
+          },
           ObjectProperty(path: BabelObjectPropertyPath) {
             const value = path.node.value as BabelNode | undefined
             if (
               babelPropertyName(path) === "provider"
-              && babelStringValue(value) === "cloudflare-artifacts"
-              && isExportedWorkspaceStoreProperty(path)
+              && babelStringValue(value, bindings) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
             }
@@ -129,14 +146,14 @@ async function sourceModuleDeclaresCloudflareArtifacts(
 
 async function sourceModuleMayUseCloudflareArtifacts(
   file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   resolveModule?: SourceModuleResolver,
   visited = new Set<string>(),
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
   if (!loaded || visited.has(loaded.file)) return false
   visited.add(loaded.file)
-  if (/["']cloudflare-artifacts["']/.test(loaded.source)) return true
-  if (/["']cloudflare["']\s*,\s*["']artifacts["']/.test(loaded.source)) return true
+  if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader)) return true
 
   const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
   for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
@@ -147,7 +164,7 @@ async function sourceModuleMayUseCloudflareArtifacts(
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited)) return true
   }
   return false
 }
@@ -246,7 +263,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, resolveModule)) continue
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
