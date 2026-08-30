@@ -135,7 +135,7 @@ async function sourceModuleMayUseCloudflareArtifacts(
   const loaded = await readSourceModule(file)
   if (!loaded || visited.has(loaded.file)) return false
   visited.add(loaded.file)
-  if (/\bprovider["']?\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
+  if (/["']cloudflare-artifacts["']/.test(loaded.source)) return true
   if (/["']cloudflare["']\s*,\s*["']artifacts["']/.test(loaded.source)) return true
 
   const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
