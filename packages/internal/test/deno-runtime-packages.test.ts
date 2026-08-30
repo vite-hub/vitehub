@@ -272,6 +272,12 @@ import "real"
     expect(collectDenoRuntimePackageNames('const ratio={ nested: {} }/import("division-package")')).toEqual(["division-package"])
   })
 
+  it("scans generated bundles without repeatedly flattening the complete prefix", () => {
+    const source = `${'const value = "inert import(\\"fake-package\\")";\n'.repeat(50_000)}${"\n".repeat(50_000)}import "real-package"`
+
+    expect(collectDenoRuntimePackageNames(source)).toEqual(["real-package"])
+  }, 2_000)
+
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

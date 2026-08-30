@@ -87,13 +87,13 @@ const bindingIdentifier = `${identifierStart}${identifierContinue}*`
 
 function collectCreateRequireAliases(source: string): Set<string> {
   const factories = new Set<string>()
-  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s*\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
     for (const specifier of match[1]!.split(",")) {
       const imported = /^\s*createRequire(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier)
       if (imported) factories.add(imported[1] ?? "createRequire")
     }
   }
-  for (const match of source.matchAll(/(?:^|[;\n])\s*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
     factories.add(`${match[1]}.createRequire`)
   }
   for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
@@ -121,7 +121,7 @@ function collectCreateRequireAliases(source: string): Set<string> {
 }
 
 const staticFromPattern = new RegExp(
-  String.raw`(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
+  String.raw`(?:^|(?<=;))[^\S\r\n]*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
   "gmu",
 )
 
@@ -130,7 +130,7 @@ function collectImportedPackageNames(source: string): Set<string> {
   const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
   const executableSource = maskInertImportText(source, createRequireAliases)
   const patterns = [
-    /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
+    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
     staticFromPattern,
   ]
   for (const pattern of patterns) {
@@ -166,7 +166,7 @@ function collectStaticPackageNames(source: string): Set<string> {
   const names = new Set<string>()
   const executableSource = maskInertImportText(source)
   for (const pattern of [
-    /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
+    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
     staticFromPattern,
   ]) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -293,7 +293,14 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
 
 function maskInertImportText(source: string, packageCallNames = new Set<string>()): string {
   let output = ""
+  let recentOutput = ""
   let index = 0
+
+  function appendOutput(value: string): void {
+    output += value
+    recentOutput += value.replace(/\s+/g, " ")
+    if (recentOutput.length > 320) recentOutput = recentOutput.slice(-160)
+  }
 
   function maskLiteralText(text: string): string {
     return text.replace(/[^\n]/g, " ")
@@ -308,42 +315,42 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
   }
 
   function scanTemplate(): void {
-    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(output)
-      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(output)
-      || /\bnew\s+URL\s*\(\s*$/.test(output)) {
+    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(recentOutput)
+      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(recentOutput)
+      || /\bnew\s+URL\s*\(\s*$/.test(recentOutput)) {
       let literalEnd = index + 1
       while (literalEnd < source.length) {
         if (source[literalEnd] === "\\") literalEnd += 2
         else if (source[literalEnd] === "$" && source[literalEnd + 1] === "{") break
         else {
           if (source[literalEnd++] === "`") {
-            output += source.slice(index, literalEnd)
+            appendOutput(source.slice(index, literalEnd))
             index = literalEnd
             return
           }
         }
       }
     }
-    output += " "
+    appendOutput(" ")
     index++
     while (index < source.length) {
       if (source[index] === "\\") {
         const end = Math.min(index + 2, source.length)
-        output += maskLiteralText(source.slice(index, end))
+        appendOutput(maskLiteralText(source.slice(index, end)))
         index = end
       }
       else if (source[index] === "`") {
-        output += "0"
+        appendOutput("0")
         index++
         return
       }
       else if (source[index] === "$" && source[index + 1] === "{") {
-        output += "${"
+        appendOutput("${")
         index += 2
         scanCode(true)
       }
       else {
-        output += source[index] === "\n" ? "\n" : " "
+        appendOutput(source[index] === "\n" ? "\n" : " ")
         index++
       }
     }
@@ -355,25 +362,25 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
       const character = source[index]!
       const next = source[index + 1]
       if (stopAtTemplateExpressionEnd && character === "}" && braceDepth === 0) {
-        output += character
+        appendOutput(character)
         index++
         return
       }
       if (character === "/" && next === "/") {
         const end = source.indexOf("\n", index)
         const length = (end === -1 ? source.length : end) - index
-        output += " ".repeat(length)
+        appendOutput(" ".repeat(length))
         index += length
         continue
       }
       if (character === "/" && next === "*") {
         const closing = source.indexOf("*/", index + 2)
         const length = (closing === -1 ? source.length : closing + 2) - index
-        output += maskLiteralText(source.slice(index, index + length))
+        appendOutput(maskLiteralText(source.slice(index, index + length)))
         index += length
         continue
       }
-      if (character === "/" && canStartRegexLiteral(output)) {
+      if (character === "/" && canStartRegexLiteral(output, recentOutput)) {
         let end = index + 1
         let inCharacterClass = false
         while (end < source.length) {
@@ -394,12 +401,12 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
           else if (source[end] === "\n" || source[end] === "\r") break
           else end++
         }
-        output += maskLiteralOperand(source.slice(index, end))
+        appendOutput(maskLiteralOperand(source.slice(index, end)))
         index = end
         continue
       }
       if (character === "`") {
-        const prefix = output.slice(Math.max(0, output.length - 160))
+        const prefix = recentOutput.slice(-160)
         const keepPackageCall = [...packageCallNames].some((name) =>
           new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
         )
@@ -409,7 +416,7 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
             if (source[end] === "\\") end += 2
             else if (source[end] === "$" && source[end + 1] === "{") break
             else if (source[end++] === "`") {
-              output += source.slice(index, end)
+              appendOutput(source.slice(index, end))
               index = end
               break
             }
@@ -421,7 +428,7 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
         continue
       }
       if (character === '"' || character === "'") {
-        const prefix = output.slice(Math.max(0, output.length - 120))
+        const prefix = recentOutput.slice(-120)
         const keepPackageCall = [...packageCallNames].some((name) =>
           new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
         )
@@ -432,13 +439,13 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
           else if (source[end++] === character) break
         }
         const literal = source.slice(index, end)
-        output += keep ? literal : maskLiteralOperand(literal)
+        appendOutput(keep ? literal : maskLiteralOperand(literal))
         index = end
         continue
       }
       if (character === "{") braceDepth++
       else if (character === "}") braceDepth--
-      output += character
+      appendOutput(character)
       index++
     }
   }
@@ -447,15 +454,19 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
   return output
 }
 
-function canStartRegexLiteral(output: string): boolean {
-  const prefix = output.trimEnd()
-  if (!prefix) return true
-  if (prefix.endsWith("++") || prefix.endsWith("--")) return false
-  if ("([{,:;=!?&|~%^<>*+-".includes(prefix.at(-1)!)) return true
-  if (endsWithDeclaration(prefix)) return true
-  if (endsWithControlCondition(prefix)) return true
-  if (endsWithStatementBlock(prefix)) return true
-  return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(prefix)
+function canStartRegexLiteral(output: string, recentOutput: string): boolean {
+  const recentPrefix = recentOutput.trimEnd()
+  if (!recentPrefix) return true
+  if (recentPrefix.endsWith("++") || recentPrefix.endsWith("--")) return false
+  const lastCharacter = recentPrefix.at(-1)!
+  if ("([{,:;=!?&|~%^<>*+-".includes(lastCharacter)) return true
+  if (lastCharacter === ")" || lastCharacter === "}") {
+    const prefix = output.trimEnd()
+    if (endsWithDeclaration(prefix)) return true
+    if (endsWithControlCondition(prefix)) return true
+    if (endsWithStatementBlock(prefix)) return true
+  }
+  return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(recentPrefix)
 }
 
 function matchingOpeningDelimiter(source: string, opening: string, closing: string): number | undefined {
@@ -853,10 +864,11 @@ async function recordServerRuntimePackageResolutions(
   resolvedPackageJsonPaths: Map<string, string>,
 ): Promise<void> {
   const files = await runtimeSourceFiles(serverDir)
+  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
   const bundledPackageJsonPaths = new Map<string, Set<string>>()
   const bundledPackageJsonPathsByFile = new Map<string, Map<string, Set<string>>>()
-  for (const file of files) {
-    const source = await readFile(file, "utf8")
+  for (const [index, file] of files.entries()) {
+    const source = sources[index]!
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
       const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
       try {
@@ -876,16 +888,26 @@ async function recordServerRuntimePackageResolutions(
       }
     }
   }
-  for (const file of files) {
-    const source = await readFile(file, "utf8")
-    const resolver = createRequire(file)
+  const packageResolutions = new Map<string, Promise<string | undefined>>()
+  const resolvePackageFromFile = (name: string, file: string): Promise<string | undefined> => {
+    const fromDir = dirname(file)
+    const key = `${fromDir}\0${name}`
+    const existing = packageResolutions.get(key)
+    if (existing) return existing
+    const resolution = resolvePackageJson(name, createRequire(file), fromDir)
+      .then(path => path && realpath(path))
+    packageResolutions.set(key, resolution)
+    return resolution
+  }
+  for (const [index, file] of files.entries()) {
+    const source = sources[index]!
     const externalPackageNames = collectImportedPackageNames(maskBundledPackageRegions(source))
     for (const name of collectImportedPackageNames(source)) {
       const bundledPaths = bundledPackageJsonPaths.get(name)
       const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
       const resolvedPackageJsonPath = localBundledPaths?.size && !externalPackageNames.has(name)
         ? localBundledPaths.values().next().value
-        : await resolvePackageJson(name, resolver, dirname(file)).then(path => path && realpath(path))
+        : await resolvePackageFromFile(name, file)
       const resolvedPaths = new Set(bundledPaths)
       if (resolvedPackageJsonPath) resolvedPaths.add(resolvedPackageJsonPath)
       if (resolvedPaths.size > 1) {
