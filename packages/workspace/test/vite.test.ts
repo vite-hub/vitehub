@@ -1125,6 +1125,24 @@ describe("hubWorkspace", () => {
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.not.toHaveProperty("cloudflare.wrangler.artifacts")
   })
 
+  it("recovers Artifact stores that override an earlier spread", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "memory-store.ts"), `export default { provider: "memory" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import artifactOptions from "./artifact-store"`,
+      `import memoryOptions from "./memory-store"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { ...memoryOptions, ...artifactOptions } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
+    })
+  })
+
   it("preserves environment-selected overrides for factored Artifact stores", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
@@ -1164,6 +1182,22 @@ describe("hubWorkspace", () => {
       `const stores = await import("./workspace-stores")`,
       `import "virtual:generated-workspace-metadata"`,
       `export default { store: stores.artifactStore }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }] } },
+    })
+  })
+
+  it("follows member-selected awaited dynamic imports into the Workspace store", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `const store = (await import("./artifact-store")).default`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store }`,
       ``,
     ].join("\n"))
     const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")

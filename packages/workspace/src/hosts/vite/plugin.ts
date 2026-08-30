@@ -565,11 +565,17 @@ function sourceImportsFeedingWorkspaceStore(
             }
           },
           VariableDeclarator(path: BabelNodePath) {
-            // SAFETY: Babel's AwaitExpression discriminator guarantees the argument field.
-            const awaitExpression = path.node.init as BabelNode & { argument?: BabelNode }
-            const awaited = path.node.init?.type === "AwaitExpression"
-              ? awaitExpression.argument
+            const selectedDynamicImportName = path.node.init?.type === "MemberExpression"
+              ? path.node.init.property?.name ?? path.node.init.property?.value
+              : undefined
+            const dynamicImportValue = path.node.init?.type === "MemberExpression"
+              ? path.node.init.object
               : path.node.init
+            // SAFETY: Babel's AwaitExpression discriminator guarantees the argument field.
+            const awaitExpression = dynamicImportValue as BabelNode & { argument?: BabelNode }
+            const awaited = dynamicImportValue?.type === "AwaitExpression"
+              ? awaitExpression.argument
+              : dynamicImportValue
             if (
               awaited?.type === "CallExpression"
               && awaited.callee?.type === "Import"
@@ -596,11 +602,18 @@ function sourceImportsFeedingWorkspaceStore(
                 }
               }
               else if (path.node.id?.type === "Identifier") {
-                const binding = path.scope.getBinding(path.node.id.name)
+                const localName = path.node.id.name
+                if (!localName) return
+                const binding = path.scope.getBinding(localName)
+                const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+                  ? babelPathReachesExportedStore(reference)
+                  : babelPathOrBindingIsExported(reference, exportedName)
+                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
+                if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
+                  imports.push({ importedName: selectedDynamicImportName, localName, specifier })
+                }
                 for (const reference of binding?.referencePaths ?? []) {
-                  const memberNames = babelNamespaceMemberNames(reference, candidate => exportedName === "default"
-                    ? babelPathReachesExportedStore(candidate)
-                    : babelPathOrBindingIsExported(candidate, exportedName))
+                  const memberNames = babelNamespaceMemberNames(reference, reachesRequestedExport)
                   for (const importedName of memberNames) imports.push({ importedName, specifier })
                 }
               }
@@ -707,6 +720,7 @@ function sourceInlineWorkspaceStoreOperations(
           ObjectProperty(path: BabelObjectPropertyPath) {
             if (!babelPathBelongsToExportedStore(path)) return
             const name = babelPropertyName(path)
+            if (name === "store" && babelPropertyIsTopLevelDefaultExport(path)) return
             // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
             const valueNode = path.node.value as BabelNode | undefined
             let value = babelStringValue(valueNode, path)
@@ -764,11 +778,10 @@ async function loadFactoredCloudflareArtifactStore(
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
-        const reconstructed: Record<string, unknown> = {}
+        let reconstructed: Record<string, unknown> = {}
         for (const operation of operations) {
           if (operation.kind === "spread") {
-            if (operation.localName !== localName) return
-            Object.assign(reconstructed, store)
+            reconstructed = operation.localName === localName ? { ...reconstructed, ...store } : {}
             continue
           }
           if (operation.value === undefined) return
