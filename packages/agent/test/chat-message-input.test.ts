@@ -200,6 +200,22 @@ describe("chat message trigger input", () => {
       .join(""))).toEqual(["two"])
   })
 
+  it("treats an explicitly undefined trigger history age bound as omitted", () => {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxAgeMs: undefined, maxMessages: 20, source: "thread" },
+    }, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["one", "two"])
+  })
+
   it("keeps stateless trigger history explicit", () => {
     const result = createChatMessageTriggerInput({
       threadHistory: { maxMessages: 10 },

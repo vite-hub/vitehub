@@ -371,6 +371,7 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   if (!triggerHistory || triggerHistory.source !== "thread") return
   if (
     Object.prototype.hasOwnProperty.call(triggerHistory, "maxAgeMs") &&
+    triggerHistory.maxAgeMs !== undefined &&
     normalizedMaxAgeMs(triggerHistory.maxAgeMs) === undefined
   ) return
   return normalizedMaxMessages(triggerHistory.maxMessages)
