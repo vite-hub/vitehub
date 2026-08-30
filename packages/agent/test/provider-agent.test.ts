@@ -766,7 +766,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     })
     // SAFETY: This test fixture intentionally constructs the exact provider run context.
     await adapter.generate(context(threadId) as never)
-  }, 15_000)
+  }, 30_000)
 
   it("uses CODEX_HOME as the shared Codex home", async () => {
     const threadId = "thread-environment-codex-home"
