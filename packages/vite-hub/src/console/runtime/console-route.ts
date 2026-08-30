@@ -19,6 +19,7 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
     "vitehub-console-sandboxes",
     "vitehub-console-schedules",
     "vitehub-console-databases",
+    "vitehub-console-queues",
     "vitehub-console-agents",
     "vitehub-console-agent",
     "vitehub-console-usage",
