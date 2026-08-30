@@ -165,6 +165,7 @@ export async function discoverConsoleBuildCatalog(options: {
   queueDiscoveryRoot?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
+  sandboxDiscoveryRoot?: string
   sections: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
   serverDirs?: string[]
@@ -194,7 +195,7 @@ export async function discoverConsoleBuildCatalog(options: {
       }).map(definition => workspaceDefinition(options.projectRoot, definition))
     : []
   const sandboxes = options.sections.includes("sandboxes")
-    ? discoverSandboxDefinitions({ rootDir: options.projectRoot })
+    ? discoverSandboxDefinitions({ rootDir: options.sandboxDiscoveryRoot ?? options.projectRoot })
         .map(definition => sandboxDefinition(options.projectRoot, definition))
     : []
   const rateLimits = options.sections.includes("rate-limits")

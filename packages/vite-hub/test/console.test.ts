@@ -1000,16 +1000,17 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("discovers default-root services from the resolved ViteHub project root", async () => {
+  it("uses each runtime's default discovery root in a nested Vite app", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-root-"))
     const viteRoot = join(projectRoot, "app")
     try {
       await mkdir(join(projectRoot, "server/schedules"), { recursive: true })
       await mkdir(join(projectRoot, "src"), { recursive: true })
-      await mkdir(viteRoot, { recursive: true })
+      await mkdir(join(viteRoot, "src"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(projectRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "src/unrelated.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
@@ -1024,7 +1025,8 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
-      expect(generated).toContain(`"file":"src/preview.sandbox.ts","name":"preview","source":"vite-suffix"`)
+      expect(generated).toContain(`"file":"app/src/preview.sandbox.ts","name":"preview","source":"vite-suffix"`)
+      expect(generated).not.toContain(`"name":"unrelated"`)
       expect(generated).toContain(`"file":"server/schedules/adhoc.ts","name":"adhoc","source":"server-schedules"`)
       expect(generated).not.toContain(`"file":"../`)
     }
