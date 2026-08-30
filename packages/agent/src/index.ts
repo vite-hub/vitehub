@@ -6640,7 +6640,11 @@ function createInlineAgentInvocationController<
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started !== null && typeof started === "object" && isUIMessageStreamResult(started)) {
-        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
+        let text = ""
+        for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
+          text += uiMessageTextDelta(chunk) || ""
+        }
+        materializedStreamResult = { text }
       }
       const outcome = await finished
       if (outcome.status === "completed") {
