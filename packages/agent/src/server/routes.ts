@@ -4092,10 +4092,12 @@ async function chatTriggerMessages(
   if (!limit) return [current]
   const maxAgeMs = chatTriggerHistoryMaxAgeMs(triggerHistory)
   const currentTime = message.metadata.dateSent.getTime()
-  const toHistoryUiMessage = async (item: ChatSdkMessage, includeAttachments: boolean): Promise<UIMessageLike> => {
-    const itemTime = item.metadata.dateSent.getTime()
-    const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-    return await chatSdkMessageToUiMessage(item, undefined, !includeAttachments || outsideTriggerAge ? { includeAttachments: false } : undefined)
+  const historySource = new WeakMap<UIMessageLike, ChatSdkMessage>()
+  historySource.set(current, message)
+  const toHistoryUiMessage = async (item: ChatSdkMessage): Promise<UIMessageLike> => {
+    const converted = await chatSdkMessageToUiMessage(item, undefined, { includeAttachments: false })
+    historySource.set(converted, item)
+    return converted
   }
 
   const fetchedNewestFirst: UIMessageLike[] = []
@@ -4137,7 +4139,7 @@ async function chatTriggerMessages(
         const itemTime = item.metadata.dateSent.getTime()
         const outsideTriggerAge = maxAgeMs !== undefined && !isCurrent && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
         if (outsideTriggerAge && !sessionHistoryLimit) break
-        fetchedNewestFirst.push(isCurrent ? current : await toHistoryUiMessage(item, fetchedNewestFirst.length < (triggerLimit || 0)))
+        fetchedNewestFirst.push(isCurrent ? current : await toHistoryUiMessage(item))
       } else {
         fetchedBeforeCurrent.push(item)
       }
@@ -4150,7 +4152,7 @@ async function chatTriggerMessages(
         .filter(item => item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime())
         .slice(0, Math.max(0, limit - 1))
       for (const item of predecessors) {
-        fetchedNewestFirst.push(await toHistoryUiMessage(item, fetchedNewestFirst.length < Math.max(0, (triggerLimit || 0) - 1)))
+        fetchedNewestFirst.push(await toHistoryUiMessage(item))
       }
     }
     if (!message.id) {
@@ -4168,7 +4170,7 @@ async function chatTriggerMessages(
       if (currentIndex >= 0) {
         fetchedAfterIdLessCurrent.push(...idLessCandidates.slice(0, currentIndex))
         for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
-          fetchedNewestFirst.push(await toHistoryUiMessage(item, fetchedNewestFirst.length < Math.max(0, (triggerLimit || 0) - 1)))
+          fetchedNewestFirst.push(await toHistoryUiMessage(item))
         }
       }
     }
@@ -4234,15 +4236,20 @@ async function chatTriggerMessages(
   let messages = [
     ...(await Promise.all(durable.map((item, index) => {
       if (index === durableCurrentIndex) return current
-      const triggerPredecessorCount = Math.max(0, (triggerLimit || 0) - 1)
-      const triggerBoundary = durableCurrentIndex >= 0
-        ? durableCurrentIndex - triggerPredecessorCount
-        : durable.length - triggerPredecessorCount
-      return toHistoryUiMessage(item, index >= triggerBoundary)
+      return toHistoryUiMessage(item)
     }))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
+      const source = historySource.get(item)
+      const existing = source && deduped.findIndex((candidate) => {
+        const candidateSource = historySource.get(candidate)
+        return candidateSource && isExactChatSdkDelivery(candidateSource, source)
+      })
+      if (existing !== undefined && existing >= 0) {
+        deduped[existing] = item
+        return deduped
+      }
       deduped.push(item)
       return deduped
     }
@@ -4263,7 +4270,15 @@ async function chatTriggerMessages(
     const currentIndex = messages.findIndex((item) => item === current)
     messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [...messages, current]
   }
-  return messages.slice(-limit)
+  messages = messages.slice(-limit)
+  const triggerBoundary = messages.length - (triggerLimit || 0)
+  return await Promise.all(messages.map(async (item, index) => {
+    const source = historySource.get(item)
+    if (!source || source === message || index < triggerBoundary) return item
+    const itemTime = source.metadata.dateSent.getTime()
+    const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
+    return outsideTriggerAge ? item : await chatSdkMessageToUiMessage(source)
+  }))
 }
 
 function createChatTriggerInput(
