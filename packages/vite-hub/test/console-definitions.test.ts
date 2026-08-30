@@ -42,6 +42,18 @@ function catalog(name: string): ConsoleDefinitionCatalog {
       name,
       source: "server-queues",
     }],
+    "rate-limits": [{
+      fields: [
+        { label: "Limit", value: "10" },
+        { label: "Window", value: "1m" },
+        { label: "Enforcement", value: "Best effort" },
+        { label: "Provider failure", value: "Deny" },
+        { label: "Source location", value: "12:5" },
+      ],
+      file: `server/api/${name}.ts`,
+      name,
+      source: "require-rate-limit",
+    }],
     schedules: [{
       fields: [
         { label: "Kind", value: "Static schedule" },
@@ -93,6 +105,21 @@ describe("Console definition inspection", () => {
         source: "server-database-default",
       }],
       section: "databases",
+    })
+    expect(definitionsHandler(event("?section=rate-limits"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Limit", value: "10" },
+          { label: "Window", value: "1m" },
+          { label: "Enforcement", value: "Best effort" },
+          { label: "Provider failure", value: "Deny" },
+          { label: "Source location", value: "12:5" },
+        ],
+        file: "server/api/release.ts",
+        name: "release",
+        source: "require-rate-limit",
+      }],
+      section: "rate-limits",
     })
     expect(definitionsHandler(event("?section=queues"))).toEqual({
       definitions: [{

@@ -30,6 +30,7 @@ const sectionDetails = computed(() => consoleSectionDetails[props.section]);
 const definitionNotice = computed(() => ({
   databases: "Database rows, SQL execution, migrations, and credentials are not included in this build-time Definition catalog.",
   queues: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
+  "rate-limits": "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
   schedules: "Runtime-created Schedules and run history are not included in this build-time Definition catalog yet.",
   workflows: "Workflow run history is not exposed by ViteHub's provider-independent Workflow contract yet.",
 })[props.section]);

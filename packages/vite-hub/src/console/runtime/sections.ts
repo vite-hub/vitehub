@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "blob", "databases", "kv", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "usage", "blob", "databases", "kv", "rate-limits", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -32,6 +32,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-key-round",
     label: "KV",
     routeName: "vitehub-console-kv",
+  },
+  "rate-limits": {
+    description: "Inspect discovered Rate Limit policies and their source locations.",
+    icon: "i-lucide-gauge",
+    label: "Rate Limits",
+    routeName: "vitehub-console-rate-limits",
   },
   workflows: {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
@@ -69,7 +75,7 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
@@ -77,6 +83,7 @@ export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unkn
     ...(options.blob ? ["blob" as const] : []),
     ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
+    ...(options.rateLimit ? ["rate-limits" as const] : []),
     ...(workflowEnabled ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),
     ...(options.schedule ? ["schedules" as const] : []),

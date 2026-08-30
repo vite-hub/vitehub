@@ -19,12 +19,13 @@ function memoryStorage(initial?: string) {
 
 describe("Console section preferences", () => {
   it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
-    expect(resolveConsoleSectionIds({ agent: true, blob: true, database: true, kv: true, queue: true, schedule: true, workflow: true })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, blob: true, database: true, kv: true, queue: true, rateLimit: true, schedule: true, workflow: true })).toEqual([
       "agents",
       "usage",
       "blob",
       "databases",
       "kv",
+      "rate-limits",
       "workflows",
       "queues",
       "schedules",
@@ -43,13 +44,14 @@ describe("Console section preferences", () => {
 
   it("prioritizes the last active section without losing configured sections", () => {
     expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], "kv")).toEqual(["kv", "agents", "usage"])
-    expect(prioritizeConsoleSectionIds(["agents", "usage", "blob", "databases", "kv", "workflows", "queues", "schedules"], "schedules")).toEqual([
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "blob", "databases", "kv", "rate-limits", "workflows", "queues", "schedules"], "schedules")).toEqual([
       "schedules",
       "agents",
       "usage",
       "blob",
       "databases",
       "kv",
+      "rate-limits",
       "workflows",
       "queues",
     ])
