@@ -65,7 +65,6 @@ import {
   normalizeAgentInvokerOptions,
   portableResolvedAgentInvokerInput,
   resolveAgentInvoker,
-  withResolvedAgentInvokerInput,
 } from "./invoker.ts"
 import {
   parseScheduledAgentTurnInput,
@@ -2163,21 +2162,6 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
 
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
-}
-
-export interface StartAgentInvocationOptions {
-  invoker?: AgentInvoker
-  runId?: string
-}
-
-function portableChildInvocationInvoker(invoker: AgentInvoker): AgentInvoker {
-  try {
-    // SAFETY: strict Workflow cloning preserves the validated AgentInvoker object's fields and JSON value types.
-    return cloneWorkflowJsonValue(invoker, { omitUndefinedObjectProperties: false }) as AgentInvoker
-  }
-  catch (cause) {
-    throw new TypeError("[vitehub] startAgentInvocation({ invoker }) must contain only JSON-compatible values.", { cause })
-  }
 }
 
 type AgentInvocationContext<
@@ -5256,7 +5240,10 @@ async function materializeAgentStructuredOutput(
     if (!hasStream) return result
     streamResult = cloneWithPropertyDescriptors(streamResult, descriptors)
   }
-  const existingText = toAgentRunResult(streamResult).text
+  if (toAgentRunResult(streamResult).text !== undefined) {
+    await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel()))
+    return result
+  }
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
@@ -5281,7 +5268,7 @@ async function materializeAgentStructuredOutput(
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
-  return existingText !== undefined ? result : resultWithUsageRecord(text, usageRecord)
+  return resultWithUsageRecord(text, usageRecord)
 }
 
 type AgentInvocationExecutionOptions =
@@ -6553,39 +6540,10 @@ function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable"
     : "unavailable"
 }
 
-async function awaitWorkflowAgentInvocationResult<CALL_OPTIONS, TOutput>(
-  started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
-): Promise<TOutput> {
-  let current = started.run
-  if (started.settled && current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
-    await started.settled
-  }
-  while (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
-    // SAFETY: the Workflow handle and started run share the same output contract.
-    current = await started.handle.getRun(current.id) as AgentWorkflowRun<TOutput>
-    if (current.status === "unknown") {
-      throw new Error("Agent invocation Workflow is unavailable.")
-    }
-    if (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
-      await new Promise(resolve => setTimeout(resolve, 250))
-    }
-  }
-  // SAFETY: a completed Agent Workflow stores the Agent output in its result field.
-  if (current.status === "completed") return current.result as TOutput
-  if (current.status === "cancelled") throw new DOMException("Agent invocation was cancelled.", "AbortError")
-  const error = current.metadata instanceof Error
-    ? current.metadata
-    : new Error("Agent invocation Workflow failed.", { cause: current.metadata })
-  terminalWorkflowAgentInvocationErrors.add(error)
-  throw error
-}
-
-const terminalWorkflowAgentInvocationErrors = new WeakSet<object>()
-
 function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
-): AgentInvocationController<TOutput | Response, CALL_OPTIONS, TOutput> {
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
   const { handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
@@ -6593,7 +6551,7 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
     }
     return snapshot
   }
-  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response, TOutput> = {
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -6605,43 +6563,13 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    result: () => awaitWorkflowAgentInvocationResult(started),
-    resultErrorStatus: error => isRuntimeRecord(error) && terminalWorkflowAgentInvocationErrors.has(error)
-      ? "failed"
-      : undefined,
-    startResult: Promise.resolve(run),
+    result: Promise.resolve(run),
   }
   if (settled) {
     controllerOptions.settled = settled
     if (parentAbortSignal) controllerOptions.parentAbortSignal = parentAbortSignal
   }
   return createBackedAgentInvocationController(controllerOptions)
-}
-
-const agentResultStreamProperties = ["fullStream", "stream", "textStream", "toUIMessageStream"] as const
-
-function omitAgentResultStreamSurfaces(record: Record<string, unknown>): void {
-  for (const property of agentResultStreamProperties) {
-    const value = Reflect.get(record, property)
-    if (isAsyncIterable(value) || hasRuntimeType(value, "function"))
-      Reflect.deleteProperty(record, property)
-  }
-}
-
-function cloneableAgentResultRaw(value: unknown): unknown {
-  try {
-    let candidate = value
-    if (isRuntimeRecord(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
-      const sanitized = { ...value }
-      omitAgentResultStreamSurfaces(sanitized)
-      candidate = sanitized
-    }
-    structuredClone(candidate)
-    return candidate
-  }
-  catch {
-    return undefined
-  }
 }
 
 function createInlineAgentInvocationController<
@@ -6653,12 +6581,11 @@ function createInlineAgentInvocationController<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   runId?: string,
-): AgentInvocationController<TOutput | Response, CALL_OPTIONS, TOutput | Response | AgentRunResult> {
-  return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS, TOutput | Response | AgentRunResult>({
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
+  return startLiveAgentInvocation<TOutput | Response, CALL_OPTIONS>({
     parentAbortSignal: input.abortSignal,
     sendInput: (id, nextInput, options) => sendAgentInvocationInput(id, nextInput, options),
-    // SAFETY: renderOutput returns the same public result union as runAgentInline().
-    start: async ({ abortSignal, id, onFinish }) => await executeAgentInvocation(agent, {
+    start: ({ abortSignal, id, onFinish }) => executeAgentInvocation(agent, {
       ...withAgentInvocationResponseOwner(context, id),
       run: { ...context.run, runId: runId || id },
     }, { ...input, abortSignal }, {
@@ -6670,127 +6597,7 @@ function createInlineAgentInvocationController<
           : { error: outcome.error, status: "failed" })
       },
       renderOutput: true,
-    }) as TOutput | Response | AgentRunResult,
-    async result({ finished, startResult }) {
-      const started = await startResult
-      let settledResponse: Response | undefined
-      let materializedStreamResult: AgentRunResult | undefined
-      let materializedRaw: unknown
-      let hasExplicitRaw = false
-      let hasSanitizedRawCandidate = false
-      if (isAsyncIterable(started)) {
-        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
-      }
-      else if (started instanceof Response && started.body && !started.bodyUsed) {
-        settledResponse = started.clone()
-        await started.arrayBuffer()
-      }
-      else if (started !== null && hasRuntimeType(started, "object") && hasTraceableStreamResult(started)) {
-        hasSanitizedRawCandidate = true
-        hasExplicitRaw = Object.hasOwn(started, "raw")
-        materializedRaw = cloneableAgentResultRaw(
-          hasExplicitRaw ? Reflect.get(started, "raw") : started,
-        )
-        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
-      }
-      else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
-        hasSanitizedRawCandidate = true
-        hasExplicitRaw = Object.hasOwn(started, "raw")
-        materializedRaw = cloneableAgentResultRaw(
-          hasExplicitRaw ? Reflect.get(started, "raw") : started,
-        )
-        let text = ""
-        let hasTextDelta = false
-        let finishReason: unknown
-        for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
-          const delta = uiMessageTextDelta(chunk)
-          if (delta) {
-            hasTextDelta = true
-            text += delta
-          }
-          if (isRuntimeRecord(chunk) && chunk.type === "finish" && chunk.finishReason !== undefined)
-            finishReason = chunk.finishReason
-        }
-        materializedStreamResult = {
-          ...(finishReason !== undefined ? { finishReason } : {}),
-          ...(hasTextDelta ? { text } : {}),
-        }
-      }
-      const outcome = await finished
-      if (outcome.status === "completed") {
-        if (materializedStreamResult) {
-          const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
-            ? outcome.output
-            : undefined
-          const definedMaterializedResult = Object.fromEntries(
-            Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
-          )
-          const replacedProperties = [
-            ...agentResultStreamProperties,
-            "raw",
-            ...Object.keys(definedMaterializedResult),
-          ]
-          const canMutateCompleted = completed !== undefined
-            && !isAsyncIterable(completed)
-            && Object.isExtensible(completed)
-            && replacedProperties.every((property) => {
-              const descriptor = Object.getOwnPropertyDescriptor(completed, property)
-              return descriptor === undefined || descriptor.configurable
-            })
-          const settledResult = canMutateCompleted ? completed : {}
-          if (completed && !canMutateCompleted) {
-            const preservedDescriptors = Object.fromEntries(
-              Object.entries(Object.getOwnPropertyDescriptors(completed)).filter(([property, descriptor]) => {
-                if (["raw", ...Object.keys(definedMaterializedResult)].includes(property)) return false
-                if (agentResultStreamProperties.includes(property as typeof agentResultStreamProperties[number])) {
-                  let value: unknown
-                  try {
-                    value = Reflect.get(completed, property)
-                  }
-                  catch {
-                    value = undefined
-                  }
-                  if (isAsyncIterable(value) || hasRuntimeType(value, "function")) return false
-                }
-                return "value" in descriptor
-              }),
-            )
-            Object.defineProperties(settledResult, preservedDescriptors)
-          }
-          for (const property of agentResultStreamProperties) {
-            let value: unknown
-            try {
-              value = completed ? Reflect.get(completed, property) : undefined
-            }
-            catch {
-              value = undefined
-            }
-            if (isAsyncIterable(value) || hasRuntimeType(value, "function")) {
-              if (Object.hasOwn(settledResult, property)) Reflect.deleteProperty(settledResult, property)
-              else if (property in settledResult) {
-                Object.defineProperty(settledResult, property, {
-                  configurable: true,
-                  value: undefined,
-                  writable: true,
-                })
-              }
-            }
-          }
-          Reflect.deleteProperty(settledResult, "raw")
-          if (hasExplicitRaw || (hasSanitizedRawCandidate && materializedRaw === undefined))
-            Reflect.deleteProperty(definedMaterializedResult, "raw")
-          return Object.defineProperties(settledResult, {
-            ...Object.getOwnPropertyDescriptors(definedMaterializedResult),
-            ...(materializedRaw !== undefined
-              ? { raw: { configurable: true, enumerable: true, value: materializedRaw, writable: true } }
-              : {}),
-          })
-        }
-        // SAFETY: the completed lifecycle output uses the controller's declared public result union.
-        return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
-      }
-      throw outcome.error
-    },
+    }),
     support: id => agentInvocationInputSupport(id),
   })
 }
@@ -6803,10 +6610,9 @@ export async function startAgentInvocation<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: StartAgentInvocationOptions = {},
-): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS, TOutput | Response | AgentRunResult>> {
+  options: { runId?: string } = {},
+): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
-  if (options.invoker) input = withResolvedAgentInvokerInput(input, portableChildInvocationInvoker(options.invoker))
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
     invocationContext,

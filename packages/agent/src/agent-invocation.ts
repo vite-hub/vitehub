@@ -33,12 +33,10 @@ export interface AgentInvocationInputSupport {
 export interface AgentInvocationController<
   TOutput = unknown,
   CALL_OPTIONS = unknown,
-  TResult = TOutput,
 > {
   cancel: (reason?: unknown) => Promise<AgentInvocationControlResult<TOutput>>
   id: string
   inspect: () => Promise<AgentInvocationInspection<TOutput>>
-  result: Promise<TResult>
   sendInput: (
     input: AgentRunInput<CALL_OPTIONS>,
     options: { mode: AgentInvocationInputMode },
@@ -63,7 +61,7 @@ export type AgentInvocationFinishOutcome<TOutput = unknown> =
   | { output?: TOutput, status: "completed" }
   | { error: unknown, status: "failed" }
 
-export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown, TResult = unknown> {
+export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = unknown> {
   parentAbortSignal?: AbortSignal
   sendInput?: (
     id: string,
@@ -74,42 +72,34 @@ export interface LiveAgentInvocationOptions<TOutput = unknown, CALL_OPTIONS = un
     abortSignal: AbortSignal
     id: string
     onFinish: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
-  }) => Promise<TResult>
-  result?: (context: {
-    finished: Promise<AgentInvocationFinishOutcome<TOutput>>
-    startResult: Promise<TResult>
-  }) => Promise<TResult>
+  }) => Promise<unknown>
   support?: (id: string) => Partial<AgentInvocationInputSupport>
 }
 
-export interface BackedAgentInvocationOptions<TOutput = unknown, TResult extends TOutput = TOutput> {
+export interface BackedAgentInvocationOptions<TOutput = unknown> {
   cancel: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   errorOutcome: (error: unknown) => "unsupported" | "unavailable"
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
-  result: () => Promise<TResult>
-  resultErrorStatus?: (error: unknown) => "failed" | undefined
-  startResult: Promise<unknown>
+  result: Promise<unknown>
   settled?: Promise<unknown>
 }
 
-const agentInvocationStartResult = Symbol.for("vitehub.agentInvocationStartResult")
+const agentInvocationResult = Symbol.for("vitehub.agentInvocationResult")
 
 type InternalAgentInvocationController = AgentInvocationController & {
-  [agentInvocationStartResult]: Promise<unknown>
+  [agentInvocationResult]: Promise<unknown>
 }
 
 export function createAgentInvocationController<
   TOutput = unknown,
   CALL_OPTIONS = unknown,
-  TResult = unknown,
 >(
   id: string,
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
-  result: Promise<TResult> | (() => Promise<TResult>),
-  startResult?: Promise<unknown>,
-): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
+  result: Promise<unknown>,
+): AgentInvocationController<TOutput, CALL_OPTIONS> {
   const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
     get followUp() {
@@ -122,7 +112,6 @@ export function createAgentInvocationController<
       return resolveSupport()?.steer === true
     },
   })
-  // SAFETY: the result getter added below completes the declared controller contract.
   const controller = {
     cancel: adapter.cancel,
     id,
@@ -133,24 +122,14 @@ export function createAgentInvocationController<
       return adapter.sendInput(input, options)
     },
     support,
-  } as AgentInvocationController<TOutput, CALL_OPTIONS, TResult>
-  let cachedResult: Promise<TResult> | undefined
-  Object.defineProperty(controller, "result", {
-    enumerable: true,
-    get() {
-      cachedResult ||= hasRuntimeType(result, "function") ? result() : result
-      void cachedResult.catch(() => {})
-      return cachedResult
-    },
-  })
-  const privateStartResult = startResult ?? (hasRuntimeType(result, "function") ? Promise.resolve() : result)
-  Object.defineProperty(controller, agentInvocationStartResult, { value: privateStartResult })
+  }
+  Object.defineProperty(controller, agentInvocationResult, { value: result })
   return Object.freeze(controller)
 }
 
 export function awaitAgentInvocationResult(controller: AgentInvocationController): Promise<unknown> {
-  // SAFETY: createAgentInvocationController attaches the private start result to every controller it returns.
-  return (controller as InternalAgentInvocationController)[agentInvocationStartResult]
+  // SAFETY: createAgentInvocationController attaches this private result symbol to every controller it returns.
+  return (controller as InternalAgentInvocationController)[agentInvocationResult]
 }
 
 function randomAgentInvocationId(): string {
@@ -161,9 +140,9 @@ function isTerminalAgentInvocationStatus(status: AgentInvocationStatus): boolean
   return status === "completed" || status === "failed" || status === "cancelled"
 }
 
-export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unknown, TResult = unknown>(
-  options: LiveAgentInvocationOptions<TOutput, CALL_OPTIONS, TResult>,
-): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
+export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unknown>(
+  options: LiveAgentInvocationOptions<TOutput, CALL_OPTIONS>,
+): AgentInvocationController<TOutput, CALL_OPTIONS> {
   const id = randomAgentInvocationId()
   const abortController = new AbortController()
   const abortSignal = options.parentAbortSignal
@@ -171,16 +150,11 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
     : abortController.signal
   let snapshot: AgentInvocationSnapshot<TOutput> = { id, status: "running" }
   let observedFinish = false
-  let resolveFinished!: (outcome: AgentInvocationFinishOutcome<TOutput>) => void
-  const finished = new Promise<AgentInvocationFinishOutcome<TOutput>>((resolve) => {
-    resolveFinished = resolve
-  })
-  const startResult = options.start({
+  const result = options.start({
     abortSignal,
     id,
     onFinish(outcome) {
       observedFinish = true
-      resolveFinished(outcome)
       if (outcome.status === "completed") {
         snapshot = { id, status: "completed" }
         if (outcome.output !== undefined) snapshot.output = outcome.output
@@ -192,13 +166,13 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       }
     },
   })
-  void startResult.catch((error) => {
+  void result.catch((error) => {
     if (observedFinish) return
-    const outcome: AgentInvocationFinishOutcome<TOutput> = { error, status: "failed" }
-    resolveFinished(outcome)
-    snapshot = abortSignal.aborted ? { id, status: "cancelled" } : { error, id, status: "failed" }
+    snapshot = abortSignal.aborted
+      ? { id, status: "cancelled" }
+      : { error, id, status: "failed" }
   })
-  return createAgentInvocationController<TOutput, CALL_OPTIONS, TResult>(id, {
+  return createAgentInvocationController<TOutput, CALL_OPTIONS>(id, {
     async cancel(reason) {
       if (isTerminalAgentInvocationStatus(snapshot.status)) {
         return { id, invocation: { ...snapshot }, outcome: "invalid-state" }
@@ -216,56 +190,38 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       return { id, invocation: { ...snapshot }, outcome }
     },
     support: options.support ? () => options.support!(id) : undefined,
-  }, options.result ? () => options.result!({ finished, startResult }) : startResult, startResult)
+  }, result)
 }
 
-export function createBackedAgentInvocationController<TOutput = unknown, TResult extends TOutput = TOutput>(
-  options: BackedAgentInvocationOptions<TOutput, TResult>,
-): AgentInvocationController<TOutput, unknown, TResult> {
+export function createBackedAgentInvocationController<TOutput = unknown>(
+  options: BackedAgentInvocationOptions<TOutput>,
+): AgentInvocationController<TOutput> {
   let removeParentAbortListener: (() => void) | undefined
-  let terminalSnapshot: AgentInvocationSnapshot<TOutput> | undefined
   const stopObservingParent = () => {
     removeParentAbortListener?.()
     removeParentAbortListener = undefined
   }
-  const readTerminalSnapshot = (): AgentInvocationSnapshot<TOutput> | undefined => terminalSnapshot
   const observeTerminalSnapshot = (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot && isTerminalAgentInvocationStatus(snapshot.status)) {
-      terminalSnapshot ??= snapshot
       stopObservingParent()
-      return terminalSnapshot
     }
     return snapshot
   }
   const inspect = async (): Promise<AgentInvocationInspection<TOutput>> => {
-    const cachedTerminalSnapshot = terminalSnapshot
-    if (cachedTerminalSnapshot) return { invocation: { ...cachedTerminalSnapshot }, outcome: "available" }
     try {
       const snapshot = observeTerminalSnapshot(await options.inspect())
-      const settledTerminalSnapshot = terminalSnapshot
-      if (settledTerminalSnapshot) return { invocation: { ...settledTerminalSnapshot }, outcome: "available" }
       return snapshot
         ? { invocation: snapshot, outcome: "available" }
         : { id: options.id, outcome: "unavailable" }
     }
     catch {
-      const settledTerminalSnapshot = terminalSnapshot
-      if (settledTerminalSnapshot) return { invocation: { ...settledTerminalSnapshot }, outcome: "available" }
       return { id: options.id, outcome: "unavailable" }
     }
   }
-  const controller = createAgentInvocationController<TOutput, unknown, TResult>(options.id, {
+  const controller = createAgentInvocationController<TOutput>(options.id, {
     async cancel() {
-      if (terminalSnapshot) {
-        return { id: options.id, invocation: { ...terminalSnapshot }, outcome: "invalid-state" }
-      }
       try {
-        const providerSnapshot = await options.cancel()
-        const settledTerminalSnapshot = readTerminalSnapshot()
-        if (settledTerminalSnapshot) {
-          return { id: options.id, invocation: { ...settledTerminalSnapshot }, outcome: "invalid-state" }
-        }
-        const snapshot = observeTerminalSnapshot(providerSnapshot)
+        const snapshot = observeTerminalSnapshot(await options.cancel())
         if (!snapshot) return { id: options.id, outcome: "unavailable" }
         return {
           id: options.id,
@@ -276,10 +232,6 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
         }
       }
       catch (error) {
-        const settledTerminalSnapshot = readTerminalSnapshot()
-        if (settledTerminalSnapshot) {
-          return { id: options.id, invocation: { ...settledTerminalSnapshot }, outcome: "invalid-state" }
-        }
         return { id: options.id, outcome: options.errorOutcome(error) }
       }
     },
@@ -287,37 +239,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     async sendInput() {
       return { id: options.id, outcome: "unsupported" }
     },
-  }, async () => {
-    try {
-      const output = await options.result()
-      const snapshot: AgentInvocationSnapshot<TOutput> = { id: options.id, status: "completed" }
-      if (output !== undefined) snapshot.output = output
-      const authoritativeSnapshot = observeTerminalSnapshot(snapshot)
-      if (authoritativeSnapshot?.status === "cancelled") {
-        throw new DOMException("The invocation was cancelled.", "AbortError")
-      }
-      if (authoritativeSnapshot?.status === "failed") throw authoritativeSnapshot.error
-      return output
-    }
-    catch (error) {
-      const authoritativeSnapshot = readTerminalSnapshot()
-      if (authoritativeSnapshot?.status === "cancelled") {
-        throw new DOMException("The invocation was cancelled.", "AbortError")
-      }
-      if (authoritativeSnapshot?.status === "failed") throw authoritativeSnapshot.error
-      if (authoritativeSnapshot?.status === "completed") {
-        // SAFETY: a completed terminal snapshot stores the controller's declared result type.
-        return authoritativeSnapshot.output as TResult
-      }
-      if (error instanceof DOMException && error.name === "AbortError") {
-        observeTerminalSnapshot({ id: options.id, status: "cancelled" })
-      }
-      else if (options.resultErrorStatus?.(error) === "failed") {
-        observeTerminalSnapshot({ error, id: options.id, status: "failed" })
-      }
-      throw error
-    }
-  }, options.startResult)
+  }, options.result)
   if (options.parentAbortSignal) {
     const parentAbortSignal = options.parentAbortSignal
     const cancel = () => void controller.cancel(parentAbortSignal.reason)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { awaitAgentInvocationResult, createBackedAgentInvocationController } from "../src/agent-invocation.ts"
+import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
@@ -26,8 +26,7 @@ function backedController(id: string) {
     errorOutcome: () => "unavailable",
     id,
     inspect: async () => undefined,
-    result: () => Promise.resolve(),
-    startResult: Promise.resolve(),
+    result: Promise.resolve(),
   })
 }
 
@@ -81,459 +80,12 @@ describe("Agent Invocation controllers", () => {
 
     await vi.waitFor(() => expect(completions).toHaveLength(2))
     completions[1]!("done")
-    await expect(second.result).resolves.toBe("done")
     await vi.waitFor(async () => {
       await expect(second.inspect()).resolves.toEqual({
         invocation: { id: second.id, output: "done", status: "completed" },
         outcome: "available",
       })
     })
-  })
-
-  it("forwards a trusted parent invoker to the child", async () => {
-    const agent = defineAgent({
-      driver: {
-        run: ({ invoker }) => invoker,
-      },
-      invoker: {
-        resolve: () => {
-          throw new Error("must not resolve an already trusted invoker")
-        },
-      },
-      runtime: false,
-    })
-    const invoker = { id: "user-1", kind: "user", meta: { scope: "support" } }
-
-    const controller = await startAgentInvocation(agent, runtime(), {}, { invoker })
-
-    await expect(controller.result).resolves.toEqual(invoker)
-  })
-
-  it("rejects nonportable trusted child invokers before dispatch", async () => {
-    const run = vi.fn(() => "done")
-    const agent = defineAgent({ driver: { run }, runtime: workflow("controlled-child-portability") })
-
-    await expect(startAgentInvocation(agent, runtime({ runtime: "vercel" }), {}, {
-      invoker: { id: "user-1", meta: { loadScope: () => "support" } },
-    })).rejects.toThrow("startAgentInvocation({ invoker }) must contain only JSON-compatible values")
-    expect(run).not.toHaveBeenCalled()
-  })
-
-  it("rejects trusted child invokers with undefined properties before dispatch", async () => {
-    const run = vi.fn(() => "done")
-    const agent = defineAgent({ driver: { run }, runtime: workflow("controlled-child-portability") })
-
-    await expect(startAgentInvocation(agent, runtime({ runtime: "vercel" }), {}, {
-      invoker: { id: "user-1", meta: { scope: undefined } },
-    })).rejects.toThrow("startAgentInvocation({ invoker }) must contain only JSON-compatible values")
-    expect(run).not.toHaveBeenCalled()
-  })
-
-  it("settles inline streams before resolving the public result", async () => {
-    const agent = defineAgent({
-      driver: {
-        async *run() {
-          yield "first"
-          yield " second"
-        },
-      },
-      runtime: false,
-    })
-
-    const controller = await startAgentInvocation(agent, runtime(), {})
-
-    const result = await controller.result
-    expect(result).toMatchObject({ text: "first second" })
-    // SAFETY: the preceding result assertion establishes an object-shaped Agent result.
-    expect(Reflect.get(result as object, Symbol.asyncIterator)).toBeUndefined()
-    expect(() => structuredClone(result)).not.toThrow()
-    await expect(controller.inspect()).resolves.toMatchObject({
-      invocation: { status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it("settles nested inline streams before resolving the public result", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            answer: 42,
-            finishReason: "stop",
-            fullStream: (async function* () {
-              yield { delta: "nested", type: "text-delta" }
-            })(),
-            raw: { providerData: "preserved" },
-            requestId: "request-1",
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const controller = await startAgentInvocation(agent, runtime(), {})
-
-    const result = await controller.result
-    expect(result).toMatchObject({
-      answer: 42,
-      finishReason: "stop",
-      raw: { providerData: "preserved" },
-      requestId: "request-1",
-      text: "nested",
-    })
-    expect(result).not.toHaveProperty("fullStream")
-    expect(() => structuredClone(result)).not.toThrow()
-    await expect(controller.inspect()).resolves.toMatchObject({
-      invocation: { status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it("settles nested inline streams when the result already contains text", async () => {
-    let cleanedUp = false
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            fullStream: (async function* () {
-              try {
-                yield { delta: "streamed", type: "text-delta" }
-              }
-              finally {
-                cleanedUp = true
-              }
-            })(),
-            text: "existing text",
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toMatchObject({ text: "existing text" })
-    expect(result).not.toHaveProperty("fullStream")
-    expect(cleanedUp).toBe(true)
-  })
-
-  it("removes nested stream surfaces from inferred raw child results", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            answer: 42,
-            fullStream: (async function* () {
-              yield { delta: "nested", type: "text-delta" }
-            })(),
-            requestId: "request-1",
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const controller = await startAgentInvocation(agent, runtime(), {})
-
-    const result = await controller.result
-    expect(result).toMatchObject({
-      answer: 42,
-      raw: { answer: 42, requestId: "request-1" },
-      requestId: "request-1",
-      text: "nested",
-    })
-    expect(result).not.toHaveProperty("fullStream")
-    // SAFETY: the preceding result assertion establishes the expected raw result shape.
-    expect((result as { raw: object }).raw).not.toHaveProperty("fullStream")
-    expect(() => structuredClone(result)).not.toThrow()
-  })
-
-  it("preserves non-stream fields whose names overlap stream surfaces", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            fullStream: (async function* () {
-              yield { delta: "nested", type: "text-delta" }
-            })(),
-            raw: { stream: "upstream" },
-            stream: "public metadata",
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toMatchObject({
-      raw: { stream: "upstream" },
-      stream: "public metadata",
-      text: "nested",
-    })
-    expect(() => structuredClone(result)).not.toThrow()
-  })
-
-  it("preserves streamed result prototypes and property descriptors", async () => {
-    class ProviderResult {
-      #requestId = "request-1"
-
-      fullStream = (async function* () {
-        yield { delta: "nested", type: "text-delta" }
-      })()
-
-      get requestId() {
-        return this.#requestId
-      }
-    }
-    const providerResult = new ProviderResult()
-    Object.defineProperty(providerResult, "providerData", {
-      configurable: true,
-      value: "preserved",
-      writable: true,
-    })
-    const agent = defineAgent({
-      driver: { run: () => providerResult },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toBe(providerResult)
-    expect(result).toBeInstanceOf(ProviderResult)
-    expect(result).toMatchObject({ providerData: "preserved", requestId: "request-1", text: "nested" })
-    expect(Object.getOwnPropertyDescriptor(result, "providerData")?.enumerable).toBe(false)
-    expect(result).not.toHaveProperty("fullStream")
-  })
-
-  it("materializes immutable streamed results without mutating them", async () => {
-    const providerResult = Object.freeze({
-      fullStream: (async function* () {
-        yield { delta: "nested", type: "text-delta" }
-      })(),
-      providerData: "preserved",
-      raw: Object.freeze({ providerData: "raw" }),
-      stream: "public metadata",
-    })
-    const agent = defineAgent({
-      driver: { run: () => providerResult },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).not.toBe(providerResult)
-    expect(result).toMatchObject({
-      providerData: "preserved",
-      raw: { providerData: "raw" },
-      stream: "public metadata",
-      text: "nested",
-    })
-    expect(result).not.toHaveProperty("fullStream")
-    expect(Object.isFrozen(providerResult)).toBe(true)
-  })
-
-  it("shadows inherited stream surfaces on mutable provider results", async () => {
-    class ProviderResult {
-      get fullStream() {
-        return (async function* () {
-          yield { delta: "nested", type: "text-delta" }
-        })()
-      }
-    }
-    const providerResult = new ProviderResult()
-    const agent = defineAgent({ driver: { run: () => providerResult }, runtime: false })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toBe(providerResult)
-    expect(Reflect.get(result, "fullStream")).toBeUndefined()
-    expect(result).toMatchObject({ text: "nested" })
-  })
-
-  it("copies provider results with non-configurable materialized fields", async () => {
-    const providerResult = {
-      fullStream: (async function* () {
-        yield { delta: "nested", type: "text-delta" }
-      })(),
-    }
-    Object.defineProperty(providerResult, "text", {
-      configurable: false,
-      enumerable: true,
-      value: "existing",
-    })
-    const agent = defineAgent({ driver: { run: () => providerResult }, runtime: false })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).not.toBe(providerResult)
-    expect(result).toMatchObject({ text: "existing" })
-    expect(result).not.toHaveProperty("fullStream")
-  })
-
-  it("preserves non-plain cloneable raw child results", async () => {
-    const raw = new Map([["providerData", "preserved"]])
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            fullStream: (async function* () {
-              yield { delta: "nested", type: "text-delta" }
-            })(),
-            raw,
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    // SAFETY: this fixture defines raw as a string Map and exercises preservation of that exact value.
-    expect((result as { raw: Map<string, string> }).raw).toEqual(raw)
-    // SAFETY: this fixture defines an own raw property on the Agent result.
-    expect((result as { raw: unknown }).raw).toBeInstanceOf(Map)
-    expect(() => structuredClone(result)).not.toThrow()
-  })
-
-  it("omits non-cloneable raw child results", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            fullStream: (async function* () {
-              yield { delta: "nested", type: "text-delta" }
-            })(),
-            raw: { callback: () => undefined },
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).not.toHaveProperty("raw")
-    expect(() => structuredClone(result)).not.toThrow()
-  })
-
-  it("omits inferred raw child results when sanitization fails", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            callback: () => undefined,
-            fullStream: (async function* () {
-              yield { delta: "streamed", type: "text-delta" }
-            })(),
-            text: "existing text",
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toMatchObject({ text: "existing text" })
-    expect(result).not.toHaveProperty("fullStream")
-    expect(result).not.toHaveProperty("raw")
-  })
-
-  it("settles inline UI-message streams before resolving the public result", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            toUIMessageStream: () => new ReadableStream({
-              start(controller) {
-                controller.enqueue({ messageId: "reply", type: "start" })
-                controller.enqueue({ id: "reply", type: "text-start" })
-                controller.enqueue({ delta: "ui message", id: "reply", type: "text-delta" })
-                controller.enqueue({ id: "reply", type: "text-end" })
-                controller.enqueue({ finishReason: "stop", type: "finish" })
-                controller.close()
-              },
-            }),
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const controller = await startAgentInvocation(agent, runtime(), {})
-
-    const result = await controller.result
-    expect(result).toMatchObject({ finishReason: "stop", text: "ui message" })
-    expect(result).not.toHaveProperty("toUIMessageStream")
-    expect(() => structuredClone(result)).not.toThrow()
-    await expect(controller.inspect()).resolves.toMatchObject({
-      invocation: { status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it("preserves cloneable raw data for inline UI-message results", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            raw: { providerData: "preserved" },
-            toUIMessageStream: () => new ReadableStream({
-              start(controller) {
-                controller.enqueue({ messageId: "reply", type: "start" })
-                controller.enqueue({ delta: "ui message", id: "reply", type: "text-delta" })
-                controller.enqueue({ finishReason: "stop", type: "finish" })
-                controller.close()
-              },
-            }),
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toMatchObject({
-      finishReason: "stop",
-      raw: { providerData: "preserved" },
-      text: "ui message",
-    })
-    expect(result).not.toHaveProperty("toUIMessageStream")
-    expect(() => structuredClone(result)).not.toThrow()
-  })
-
-  it("preserves existing text when an inline UI-message stream emits no text", async () => {
-    const agent = defineAgent({
-      driver: {
-        async run() {
-          return {
-            text: "existing text",
-            toUIMessageStream: () => new ReadableStream({
-              start(controller) {
-                controller.enqueue({ delta: "", id: "reply", type: "text-delta" })
-                controller.enqueue({ finishReason: "tool-calls", type: "finish" })
-                controller.close()
-              },
-            }),
-          }
-        },
-      },
-      runtime: false,
-    })
-
-    const result = await (await startAgentInvocation(agent, runtime(), {})).result
-    expect(result).toMatchObject({ finishReason: "tool-calls", text: "existing text" })
-    expect(result).not.toHaveProperty("toUIMessageStream")
-  })
-
-  it("returns a readable Response after settling the public result", async () => {
-    const agent = defineAgent({
-      driver: {
-        run: () => new Response("settled response", { headers: { "x-result": "preserved" }, status: 202 }),
-      },
-      runtime: false,
-    })
-
-    const controller = await startAgentInvocation(agent, runtime(), {})
-    const result = await controller.result
-
-    expect(result).toBeInstanceOf(Response)
-    if (!(result instanceof Response)) throw new TypeError("Expected an inline Response result.")
-    expect(result.status).toBe(202)
-    expect(result.headers.get("x-result")).toBe("preserved")
-    await expect(result.text()).resolves.toBe("settled response")
   })
 
   it("propagates controller and parent cancellation without claiming synchronous termination", async () => {
@@ -592,21 +144,15 @@ describe("Agent Invocation controllers", () => {
     const waitUntilTasks: Array<Promise<unknown>> = []
     const parent = new AbortController()
     const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
-    const invoker = { id: "user-1", kind: "user", meta: { scope: "support" } }
     const agent = defineAgent({
-      driver: { run: ({ invoker, run }) => ({ invoker, runId: run?.runId }) },
-      invoker: {
-        resolve: () => {
-          throw new Error("must not resolve an already trusted invoker")
-        },
-      },
+      driver: { run: ({ run }) => run?.runId },
       runtime: workflow("controlled-child"),
     })
     const controller = await startAgentInvocation(agent, runtime({
       run: { origin: "parent", runId: "parent-run", threadId: "thread-1" },
       runtime: "vercel",
       waitUntil: promise => waitUntilTasks.push(Promise.resolve(promise)),
-    }), { abortSignal: parent.signal }, { invoker })
+    }), { abortSignal: parent.signal })
 
     expect(controller.id).not.toBe("parent-run")
     await expect(controller.inspect()).resolves.toMatchObject({ outcome: "available" })
@@ -615,11 +161,10 @@ describe("Agent Invocation controllers", () => {
       outcome: "unsupported",
     })
     await Promise.all(waitUntilTasks)
-    await expect(controller.result).resolves.toEqual({ invoker, runId: controller.id })
     await vi.waitFor(() => expect(removeEventListener).toHaveBeenCalledOnce())
     parent.abort("too late")
     await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: controller.id, output: { invoker, runId: controller.id }, status: "completed" },
+      invocation: { id: controller.id, output: controller.id, status: "completed" },
       outcome: "available",
     })
   })
@@ -631,8 +176,7 @@ describe("Agent Invocation controllers", () => {
       errorOutcome: () => "unavailable",
       id: "child",
       inspect: async () => { throw new Error("inspection unavailable") },
-      result: () => Promise.resolve(),
-      startResult: Promise.resolve(),
+      result: Promise.resolve(),
     })
 
     await expect(controller.cancel()).resolves.toEqual({
@@ -641,225 +185,6 @@ describe("Agent Invocation controllers", () => {
       outcome: "accepted",
     })
     expect(cancel).toHaveBeenCalledOnce()
-  })
-
-  it("caches backed terminal state when the public result settles", async () => {
-    const cancel = vi.fn(async () => { throw Object.assign(new Error("unsupported"), { code: "WORKFLOW_OPERATION_UNSUPPORTED" }) })
-    const inspect = vi.fn(async () => ({ id: "child", status: "running" as const }))
-    const controller = createBackedAgentInvocationController({
-      cancel,
-      errorOutcome: () => "unsupported",
-      id: "child",
-      inspect,
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    await expect(controller.result).resolves.toBe("done")
-    await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "available",
-    })
-    await expect(controller.cancel()).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "invalid-state",
-    })
-    expect(inspect).not.toHaveBeenCalled()
-    expect(cancel).not.toHaveBeenCalled()
-  })
-
-  it("prefers settled backed state over an overlapping inspection", async () => {
-    let releaseInspection!: () => void
-    const inspectionReleased = new Promise<void>((resolve) => {
-      releaseInspection = resolve
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => undefined,
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => {
-        await inspectionReleased
-        return { id: "child", status: "running" }
-      },
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    const inspection = controller.inspect()
-    await expect(controller.result).resolves.toBe("done")
-    releaseInspection()
-    await expect(inspection).resolves.toEqual({
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it("prefers settled backed state when an overlapping inspection fails", async () => {
-    let rejectInspection!: (error: Error) => void
-    const inspectionResult = new Promise<never>((_resolve, reject) => {
-      rejectInspection = reject
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => undefined,
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: () => inspectionResult,
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    const inspection = controller.inspect()
-    await expect(controller.result).resolves.toBe("done")
-    rejectInspection(new Error("inspection unavailable"))
-    await expect(inspection).resolves.toEqual({
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it("does not cache transient backed result errors as terminal failures", async () => {
-    const inspect = vi.fn(async () => ({ id: "child", status: "running" as const }))
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => undefined,
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect,
-      result: async () => { throw new Error("inspection unavailable") },
-      startResult: Promise.resolve(),
-    })
-
-    await expect(controller.result).rejects.toThrow("inspection unavailable")
-    await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: "child", status: "running" },
-      outcome: "available",
-    })
-    expect(inspect).toHaveBeenCalledOnce()
-  })
-
-  it("keeps the first observed backed terminal state during cancellation overlap", async () => {
-    let releaseCancellation!: () => void
-    const cancellationReleased = new Promise<void>((resolve) => {
-      releaseCancellation = resolve
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => {
-        await cancellationReleased
-        return { id: "child", status: "cancelled" }
-      },
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    const cancellation = controller.cancel()
-    await expect(controller.result).resolves.toBe("done")
-    releaseCancellation()
-    await expect(cancellation).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "invalid-state",
-    })
-    await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "available",
-    })
-  })
-
-  it.each([
-    ["rejects", () => Promise.reject(new Error("cancellation unavailable"))],
-    ["returns no snapshot", () => Promise.resolve(undefined)],
-  ])("prefers settled backed state when overlapping cancellation %s", async (_description, cancel) => {
-    let releaseCancellation!: () => void
-    const cancellationReleased = new Promise<void>((resolve) => {
-      releaseCancellation = resolve
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => {
-        await cancellationReleased
-        return cancel()
-      },
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    const cancellation = controller.cancel()
-    await expect(controller.result).resolves.toBe("done")
-    releaseCancellation()
-    await expect(cancellation).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", output: "done", status: "completed" },
-      outcome: "invalid-state",
-    })
-  })
-
-  it("rejects an overlapping backed result when cancellation settles first", async () => {
-    let releaseResult!: () => void
-    const resultReleased = new Promise<void>((resolve) => {
-      releaseResult = resolve
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => ({ id: "child", status: "cancelled" }),
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      result: async () => {
-        await resultReleased
-        return "done"
-      },
-      startResult: Promise.resolve(),
-    })
-
-    const result = controller.result
-    await expect(controller.cancel()).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", status: "cancelled" },
-      outcome: "accepted",
-    })
-    releaseResult()
-    await expect(result).rejects.toMatchObject({ name: "AbortError" })
-    await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: "child", status: "cancelled" },
-      outcome: "available",
-    })
-    await expect(controller.cancel()).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", status: "cancelled" },
-      outcome: "invalid-state",
-    })
-  })
-
-  it("preserves cancellation when an overlapping backed result rejects", async () => {
-    let rejectResult!: (error: Error) => void
-    const resultObservation = new Promise<never>((_resolve, reject) => {
-      rejectResult = reject
-    })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => ({ id: "child", status: "cancelled" }),
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      result: () => resultObservation,
-      startResult: Promise.resolve(),
-    })
-
-    const result = controller.result
-    await expect(controller.cancel()).resolves.toEqual({
-      id: "child",
-      invocation: { id: "child", status: "cancelled" },
-      outcome: "accepted",
-    })
-    rejectResult(new Error("result unavailable"))
-    await expect(result).rejects.toMatchObject({ name: "AbortError" })
-    await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: "child", status: "cancelled" },
-      outcome: "available",
-    })
   })
 
   it("stops observing parent cancellation after a backed invocation reaches a terminal state", async () => {
@@ -872,8 +197,7 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       inspect: async () => ({ id: "child", status: "completed" }),
       parentAbortSignal: parent.signal,
-      result: () => Promise.resolve(),
-      startResult: Promise.resolve(),
+      result: Promise.resolve(),
     })
 
     await expect(controller.inspect()).resolves.toMatchObject({
@@ -899,8 +223,7 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
-      result: () => Promise.resolve(),
-      startResult: Promise.resolve(),
+      result: Promise.resolve(),
       settled,
     })
 
@@ -911,59 +234,20 @@ describe("Agent Invocation controllers", () => {
     expect(cancel).not.toHaveBeenCalled()
   })
 
-  it("stops observing parent cancellation after a backed result settles", async () => {
-    const parent = new AbortController()
-    const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
-    const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
-    const controller = createBackedAgentInvocationController({
-      cancel,
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      parentAbortSignal: parent.signal,
-      result: () => Promise.resolve("done"),
-      startResult: Promise.resolve(),
-    })
-
-    await expect(controller.result).resolves.toBe("done")
-    expect(removeEventListener).toHaveBeenCalledOnce()
-    parent.abort("too late")
-    expect(cancel).not.toHaveBeenCalled()
-  })
-
   it("keeps observing parent cancellation when only a backed start result settles", async () => {
     const parent = new AbortController()
     const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
-    const controller = createBackedAgentInvocationController({
+    createBackedAgentInvocationController({
       cancel,
       errorOutcome: () => "unavailable",
       id: "child",
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
-      result: () => new Promise(() => {}),
-      startResult: Promise.resolve({ id: "child", status: "queued" }),
+      result: Promise.resolve({ id: "child", status: "queued" }),
     })
 
-    await expect(awaitAgentInvocationResult(controller)).resolves.toEqual({ id: "child", status: "queued" })
+    await Promise.resolve()
     parent.abort("stop queued child")
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
-  })
-
-  it("starts backed result observation only once and only when consumed", async () => {
-    const result = vi.fn(async () => { throw new Error("failed") })
-    const controller = createBackedAgentInvocationController({
-      cancel: async () => undefined,
-      errorOutcome: () => "unavailable",
-      id: "child",
-      inspect: async () => ({ id: "child", status: "running" }),
-      result,
-      startResult: Promise.resolve(),
-    })
-
-    expect(result).not.toHaveBeenCalled()
-    const first = controller.result
-    expect(controller.result).toBe(first)
-    await expect(first).rejects.toThrow("failed")
-    expect(result).toHaveBeenCalledOnce()
   })
 })

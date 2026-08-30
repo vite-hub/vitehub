@@ -74,25 +74,16 @@ const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   completed: "completed",
   errored: "failed",
   failed: "failed",
-  paused: "running",
   queued: "queued",
   running: "running",
   success: "completed",
   terminated: "failed",
-  waiting: "running",
-  waitingforpause: "running",
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
   const value = hasRuntimeType(status, "object") && status ? (status as { status?: unknown }).status : status
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
-}
-
-function cloudflareWorkflowOutput(status: unknown): unknown {
-  return hasRuntimeType(status, "object") && status && "output" in status
-    ? status.output
-    : undefined
 }
 
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
@@ -112,12 +103,10 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
-        const result = cloudflareWorkflowOutput(metadata)
         return {
           id,
           metadata,
           provider: "cloudflare",
-          ...(result !== undefined ? { result } : {}),
           status: normalizeCloudflareStatus(metadata),
         }
       }

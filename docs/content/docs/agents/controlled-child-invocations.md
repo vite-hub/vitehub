@@ -6,7 +6,7 @@ navigation.group: Advanced execution
 icon: i-lucide-workflow
 ---
 
-Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API, await `result`, and keep child selection in application code.
+Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API while keeping child selection in application code.
 
 ## Start and inspect a child
 
@@ -25,41 +25,6 @@ if (current.outcome === 'available') {
 ```
 
 Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
-
-When a Capability tool delegates work, pass its trusted `invoker` through the start options. The child then uses the same resolved identity and access scope as the parent. The invoker, including `meta`, must contain only JSON-compatible values so it can cross a Workflow boundary without losing authorization facts. Do not accept this value from model tool input.
-
-```ts
-async function delegate(capabilityContext: AgentCapabilityContext) {
-  const child = await startAgentInvocation(researcher, runtimeContext, {
-    prompt: 'Compare the two deployment options.',
-  }, {
-    invoker: capabilityContext.invoker,
-  })
-
-  const result = await child.result
-  return result instanceof Response
-    ? {
-        body: await result.text(),
-        contentType: result.headers.get('content-type'),
-        status: result.status,
-      }
-    : result
-}
-```
-
-Await `child.result` when the caller needs the completed Agent result. This works for inline and Workflow-backed invocations. Application Capability tools must convert the result to a JSON-compatible value before returning delegated work to a model. Most Agent results can be returned directly, but web API objects such as `Response` need explicit conversion.
-
-```ts
-const result = await child.result
-
-return result instanceof Response
-  ? {
-      body: await result.text(),
-      contentType: result.headers.get('content-type'),
-      status: result.status,
-    }
-  : result
-```
 
 Inline and serverless runtimes may become unavailable after their process ends. Workflow-backed children delegate inspection to their Workflow Run while the returned controller remains available. ViteHub does not add a separate invocation registry or public lookup by id.
 

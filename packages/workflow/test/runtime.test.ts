@@ -859,45 +859,6 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.sleepCalls).toEqual([["settle", "1 second"]])
   })
 
-  it("preserves null results from completed OpenWorkflow runs", async () => {
-    setWorkflowRuntimeConfig({
-      postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
-    })
-    setWorkflowRuntimeRegistry({
-      welcome: async () => ({ default: { handler: async () => null } }),
-    })
-
-    const run = await runWorkflow("welcome", undefined, { id: "null-result" })
-    await vi.waitFor(async () => {
-      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
-        result: null,
-        status: "completed",
-      })
-    })
-  })
-
-  it("maps canceled OpenWorkflow runs to the normalized cancelled status", async () => {
-    setWorkflowRuntimeConfig({
-      postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
-    })
-    openWorkflowMock.runs.set("cancelled-1", {
-      error: null,
-      id: "cancelled-1",
-      namespaceId: "production",
-      output: undefined,
-      status: "canceled",
-      version: null,
-      workflowName: "welcome",
-    })
-
-    await expect(getWorkflowRun("welcome", "cancelled-1")).resolves.toMatchObject({
-      provider: "openworkflow",
-      status: "cancelled",
-    })
-  })
-
   it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
     let resolveBackend: ((backend: OpenWorkflowMockBackend) => void) | undefined
     const stop = vi.fn()
@@ -2643,44 +2604,6 @@ describe("workflow runtime", () => {
     await expect(getWorkflowRun("welcome", "terminated-1")).resolves.toMatchObject({
       provider: "cloudflare",
       status: "failed",
-    })
-  })
-
-  it("maps completed Cloudflare workflow output onto the normalized result", async () => {
-    const get = vi.fn(async (id: string) => ({
-      id,
-      status: vi.fn(async () => ({ output: { ok: true }, status: "complete" })),
-    }))
-
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
-    enterWorkflowRuntimeEvent({
-      req: { runtime: { cloudflare: { env: {
-        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: vi.fn(), get },
-      } } } },
-    })
-
-    await expect(getWorkflowRun("welcome", "completed-1")).resolves.toMatchObject({
-      result: { ok: true },
-      status: "completed",
-    })
-  })
-
-  it.each(["paused", "waiting", "waitingForPause"])("keeps Cloudflare %s runs active", async (status) => {
-    const get = vi.fn(async (id: string) => ({
-      id,
-      status: vi.fn(async () => ({ status })),
-    }))
-
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
-    enterWorkflowRuntimeEvent({
-      req: { runtime: { cloudflare: { env: {
-        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: vi.fn(), get },
-      } } } },
-    })
-
-    await expect(getWorkflowRun("welcome", `${status}-1`)).resolves.toMatchObject({
-      provider: "cloudflare",
-      status: "running",
     })
   })
 })
