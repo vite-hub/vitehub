@@ -303,6 +303,30 @@ describe("Agent Invocation controllers", () => {
     expect(result).not.toHaveProperty("fullStream")
   })
 
+  it("materializes immutable streamed results without mutating them", async () => {
+    const providerResult = Object.freeze({
+      fullStream: (async function* () {
+        yield { delta: "nested", type: "text-delta" }
+      })(),
+      providerData: "preserved",
+      raw: Object.freeze({ providerData: "raw" }),
+    })
+    const agent = defineAgent({
+      driver: { run: () => providerResult },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).not.toBe(providerResult)
+    expect(result).toMatchObject({
+      providerData: "preserved",
+      raw: { providerData: "raw" },
+      text: "nested",
+    })
+    expect(result).not.toHaveProperty("fullStream")
+    expect(Object.isFrozen(providerResult)).toBe(true)
+  })
+
   it("preserves non-plain cloneable raw child results", async () => {
     const raw = new Map([["providerData", "preserved"]])
     const agent = defineAgent({

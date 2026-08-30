@@ -305,7 +305,10 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
         throw new DOMException("The invocation was cancelled.", "AbortError")
       }
       if (authoritativeSnapshot?.status === "failed") throw authoritativeSnapshot.error
-      if (authoritativeSnapshot?.status === "completed") return authoritativeSnapshot.output as TResult
+      if (authoritativeSnapshot?.status === "completed") {
+        // SAFETY: a completed terminal snapshot stores the controller's declared result type.
+        return authoritativeSnapshot.output as TResult
+      }
       if (error instanceof DOMException && error.name === "AbortError") {
         observeTerminalSnapshot({ id: options.id, status: "cancelled" })
       }

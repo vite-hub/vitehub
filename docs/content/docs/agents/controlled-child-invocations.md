@@ -30,11 +30,20 @@ When a Capability tool delegates work, pass its trusted `invoker` through the st
 
 ```ts
 async function delegate(capabilityContext: AgentCapabilityContext) {
-  return startAgentInvocation(researcher, runtimeContext, {
+  const child = await startAgentInvocation(researcher, runtimeContext, {
     prompt: 'Compare the two deployment options.',
   }, {
     invoker: capabilityContext.invoker,
   })
+
+  const result = await child.result
+  return result instanceof Response
+    ? {
+        body: await result.text(),
+        contentType: result.headers.get('content-type'),
+        status: result.status,
+      }
+    : result
 }
 ```
 

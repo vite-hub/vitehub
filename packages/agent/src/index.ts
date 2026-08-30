@@ -6722,7 +6722,26 @@ function createInlineAgentInvocationController<
           const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
             ? outcome.output
             : undefined
-          const settledResult = completed && !isAsyncIterable(completed) ? completed : {}
+          const definedMaterializedResult = Object.fromEntries(
+            Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
+          )
+          const canMutateCompleted = completed !== undefined
+            && !isAsyncIterable(completed)
+            && Object.isExtensible(completed)
+            && [...agentResultStreamProperties, "raw"].every((property) => {
+              const descriptor = Object.getOwnPropertyDescriptor(completed, property)
+              return descriptor === undefined || descriptor.configurable
+            })
+          const settledResult = canMutateCompleted ? completed : {}
+          if (completed && !canMutateCompleted) {
+            const preservedDescriptors = Object.fromEntries(
+              Object.entries(Object.getOwnPropertyDescriptors(completed)).filter(([property, descriptor]) => {
+                if ([...agentResultStreamProperties, "raw", ...Object.keys(definedMaterializedResult)].includes(property)) return false
+                return "value" in descriptor
+              }),
+            )
+            Object.defineProperties(settledResult, preservedDescriptors)
+          }
           for (const property of agentResultStreamProperties) {
             let value: unknown
             try {
@@ -6735,9 +6754,6 @@ function createInlineAgentInvocationController<
               Reflect.deleteProperty(settledResult, property)
           }
           Reflect.deleteProperty(settledResult, "raw")
-          const definedMaterializedResult = Object.fromEntries(
-            Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
-          )
           if (hasExplicitRaw || (hasSanitizedRawCandidate && materializedRaw === undefined))
             Reflect.deleteProperty(definedMaterializedResult, "raw")
           return Object.defineProperties(settledResult, {
