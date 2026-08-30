@@ -196,6 +196,24 @@ function collectOptionalDynamicPackageNames(source: string): Set<string> {
   return dynamicNames
 }
 
+function findClosingBrace(source: string, opening: number): number | undefined {
+  let depth = 0
+  for (let index = opening; index < source.length; index++) {
+    if (source[index] === "{") depth++
+    else if (source[index] === "}" && --depth === 0) return index
+  }
+}
+
+function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
+  const closing = findClosingBrace(source, opening)
+  return closing !== undefined && /^\s*\)\s*(?:\?\.)?\s*\(/.test(source.slice(closing + 1))
+}
+
+function tryBlockHasCatch(source: string, opening: number): boolean {
+  const closing = findClosingBrace(source, opening)
+  return closing !== undefined && /^\s*catch\b/.test(source.slice(closing + 1))
+}
+
 function collectOptionalRequirePackageNames(source: string): Set<string> {
   const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
   const executableSource = maskInertImportText(source, createRequireAliases)
@@ -214,9 +232,11 @@ function collectOptionalRequirePackageNames(source: string): Set<string> {
     }
     const guarded = openings.some((opening) => {
       const prefix = executableSource.slice(0, opening).trimEnd()
-      return /\b(?:try|catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)
-        || /\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^{};]*\)$/.test(prefix)
+      if (/\btry$/.test(prefix)) return tryBlockHasCatch(executableSource, opening)
+      if (/\b(?:catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)) return true
+      const functionBody = /\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^{};]*\)$/.test(prefix)
         || /=>\s*$/.test(prefix)
+      return functionBody && !isImmediatelyInvokedBlock(executableSource, opening)
     })
     if (guarded) optionalNames.add(name)
     else requiredNames.add(name)

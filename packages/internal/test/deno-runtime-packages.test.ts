@@ -1052,6 +1052,20 @@ load("@img/sharp-linux-x64/sharp.node")
     await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
       "Could not resolve package.json for missing-feature",
     )
+
+    for (const source of [
+      '(() => { require("missing-feature") })()\n',
+      'try { require("missing-feature") } finally { cleanup() }\n',
+    ]) {
+      const eagerRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-eager-require-"))
+      await writeJson(join(eagerRoot, "package.json"), {})
+      await mkdir(join(eagerRoot, ".output/server"), { recursive: true })
+      await writeFile(join(eagerRoot, ".output/server/index.mjs"), source)
+
+      await expect(finalizeDenoDeploymentOutput({ rootDir: eagerRoot })).rejects.toThrow(
+        "Could not resolve package.json for missing-feature",
+      )
+    }
   })
 
   it("keeps required dynamic packages required across split server chunks", async () => {
