@@ -71,6 +71,9 @@ describe("release workflow authority", () => {
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
     expect(publishNpm).toContain("voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0")
+    expect(publishNpm).toContain(
+      'node-version: "24"\n          working-directory: trusted-source\n          run-install: false\n          cache: false',
+    )
     expect(publishNpm).not.toContain("voidzero-dev/setup-vp@v1")
 
     expect(githubRelease).toMatch(/permissions:\n      contents: write\n/)
@@ -142,6 +145,12 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).not.toContain("vp pm publish")
     expect(publishNpm).toContain("timeout-minutes: 360")
     expect(githubRelease).toContain(`metadata=${downloadedPath(".release/release-metadata.json").replace("release-data/", "")}`)
+    expect(publishNpm.indexOf("Revalidate release tag")).toBeLessThan(publishNpm.indexOf("Publish packages to npm"))
+    for (const authorityJob of [publishNpm, githubRelease]) {
+      expect(authorityJob).toContain('gh api "repos/${GH_REPO}/commits/${')
+      expect(authorityJob).toContain("live_tag_commit")
+      expect(authorityJob).toContain('live_tag_commit" != "$artifact_commit')
+    }
   })
 
   it("retains safe resume behavior", () => {
