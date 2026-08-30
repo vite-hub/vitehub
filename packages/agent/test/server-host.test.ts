@@ -193,6 +193,16 @@ describe("GitHub host", () => {
     await expect(host.ensureGraphQLBudget("vite-hub/third")).resolves.toMatchObject({ remaining: 100 })
   })
 
+  it("bounds and replaces a stalled shared GraphQL budget check", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "10"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), graphQLCheckTimeout: 20, reserve: 0 })
+
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).rejects.toMatchObject({ code: "ETIMEDOUT" })
+    process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = ""
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).resolves.toMatchObject({ remaining: 100 })
+  })
+
   it("classifies documented secondary rate limits", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
@@ -242,6 +252,8 @@ describe("GitHub host", () => {
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
       "gh repo clone https://github.com/vite-hub/vitehub.git",
     )
+    await expect(readFile(commandLog, "utf8")).resolves.toContain("gh pr checkout 123 --repo vite-hub/vitehub|")
+    await expect(readFile(commandLog, "utf8")).resolves.not.toContain("--detach")
     await expect(readFile(commandLog, "utf8")).resolves.toContain("!gh auth git-credential|token")
 
     await expect(host.withPullRequestCheckout({
@@ -270,6 +282,24 @@ describe("GitHub host", () => {
       repository: "vite-hub/vitehub",
     }, async () => undefined, { signal: controller.signal })).rejects.toMatchObject({ code: "ABORT_ERR" })
     expect((await readdir(tmpdir())).filter(path => path.startsWith(prefix) && !before.has(path))).toEqual([])
+  })
+
+  it.each(["abort", "timeout"] as const)("cancels the checkout callback on %s", async (control) => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_HEAD_SHA = "expected-head"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+    const controller = new AbortController()
+    if (control === "abort") setTimeout(() => controller.abort(new Error("callback cancelled")), 20)
+
+    await expect(host.withPullRequestCheckout({
+      headSha: "expected-head",
+      number: 126,
+      repository: "vite-hub/vitehub",
+    }, async ({ signal }) => await new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+    }), control === "abort" ? { signal: controller.signal } : { timeout: 20 })).rejects.toThrow(
+      control === "abort" ? "callback cancelled" : "timed out",
+    )
   })
 })
 

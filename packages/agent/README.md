@@ -141,15 +141,15 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived GitHub hosts can import `createGitHubHost()` from `@vite-hub/agent/server` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. `withPullRequestCheckout()` clones over HTTPS, configures Git to use the resolved token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Pass the Agent Invocation's abort signal so checkout commands stop with their owner:
+Long-lived GitHub hosts can import `createGitHubHost()` from `@vite-hub/agent/server` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. `withPullRequestCheckout()` clones over HTTPS, checks out the pull request's pushable branch, configures Git to use the resolved token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
-await github.withPullRequestCheckout(pullRequest, async ({ env, path }) => {
-  await runAgent({ cwd: path, env })
+await github.withPullRequestCheckout(pullRequest, async ({ env, path, signal }) => {
+  await runAgent({ cwd: path, env, signal })
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
 
-`access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential refresh and GitHub CLI work stop on cancellation.
+`access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential refresh and GitHub CLI work stop on cancellation. Shared GraphQL admission checks have an independent 60-second command limit. Set `graphQLCheckTimeout` on `createGitHubHost()` when the host needs a different limit.
 
 The same entry exports `failInterruptedAgentInvocations()` and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 

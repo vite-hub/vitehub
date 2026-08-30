@@ -11,6 +11,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 const exec = promisify(execFile)
 const GITHUB_RATE_LIMIT_FALLBACK_MS = 5 * 60_000
 const GITHUB_RATE_LIMIT_ERROR_CODE = "VITEHUB_GITHUB_RATE_LIMIT"
+const GITHUB_GRAPHQL_CHECK_TIMEOUT_MS = 60_000
 
 export type GitHubHostSecret = string | { unseal: () => string }
 
@@ -25,6 +26,7 @@ export interface GitHubHostCredentials {
 export interface GitHubHostOptions {
   cacheMs?: number
   credentials: () => GitHubHostCredentials | Promise<GitHubHostCredentials>
+  graphQLCheckTimeout?: number
   identity?: { email?: string, login?: string }
   maxBuffer?: number
   reserve?: number
@@ -72,7 +74,7 @@ export interface GitHubHost {
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
   ensureGraphQLBudget(repository: string, options?: GitHubHostCheckoutOptions): Promise<GitHubGraphQLRateLimit>
   isRateLimitError(error: unknown): boolean
-  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
+  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
 
 class GitHubRateLimitError extends Error {
@@ -124,6 +126,23 @@ function abortError(reason?: unknown): Error {
   return new DOMException("The operation was aborted.", "AbortError")
 }
 
+function controlledOperation(options: GitHubHostCheckoutOptions): { close: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const abort = () => controller.abort(options.signal?.reason)
+  const timeout = options.timeout === undefined
+    ? undefined
+    : setTimeout(() => controller.abort(new DOMException("The operation timed out.", "TimeoutError")), options.timeout)
+  if (options.signal?.aborted) abort()
+  else options.signal?.addEventListener("abort", abort, { once: true })
+  return {
+    close: () => {
+      if (timeout !== undefined) clearTimeout(timeout)
+      options.signal?.removeEventListener("abort", abort)
+    },
+    signal: controller.signal,
+  }
+}
+
 async function waitForCaller<T>(promise: Promise<T>, options: GitHubHostCheckoutOptions): Promise<T> {
   if (!options.signal && options.timeout === undefined) return await promise
   if (options.signal?.aborted) throw abortError(options.signal.reason)
@@ -157,6 +176,7 @@ export function parseGraphQLRateLimit(value: unknown, checkedAt: number = Date.n
 export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const reserve = options.reserve ?? 1_500
   const cacheMs = options.cacheMs ?? 15_000
+  const graphQLCheckTimeout = options.graphQLCheckTimeout ?? GITHUB_GRAPHQL_CHECK_TIMEOUT_MS
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
@@ -295,7 +315,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const pending = checks.get(key)
     if (pending) return await waitForCaller(pending, options)
     const check = (async () => {
-      const result = await command(["api", "rate_limit"], { repository })
+      const result = await command(["api", "rate_limit"], { repository, timeout: graphQLCheckTimeout })
       const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
       limits.set(key, limit)
       if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
@@ -318,21 +338,21 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   async function withPullRequestCheckout<T>(
     pullRequest: GitHubHostPullRequest,
-    run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>,
+    run: (checkout: GitHubHostAccess & { path: string, signal: AbortSignal }) => Promise<T>,
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
+    const operation = controlledOperation(options)
     try {
       const auth = await access({
         refresh: true,
         repository: pullRequest.headRepository || pullRequest.repository,
-        signal: options.signal,
-        timeout: options.timeout,
+        signal: operation.signal,
       })
       const env = { ...process.env, ...auth.env }
-      const commandOptions = { env, maxBuffer, signal: options.signal, timeout: options.timeout }
+      const commandOptions = { env, maxBuffer, signal: operation.signal }
       await exec("gh", ["repo", "clone", `https://github.com/${pullRequest.repository}.git`, checkout, "--", "--filter=blob:none", "--no-checkout"], commandOptions)
-      await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository, "--detach"], { ...commandOptions, cwd: checkout })
+      await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository], { ...commandOptions, cwd: checkout })
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       const pushUrl = pullRequest.headRepository
         ? `https://github.com/${pullRequest.headRepository}.git`
@@ -340,9 +360,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
-      return await run({ ...auth, path: checkout })
+      operation.signal.throwIfAborted()
+      return await run({ ...auth, path: checkout, signal: operation.signal })
     }
     finally {
+      operation.close()
       await rm(checkout, { force: true, recursive: true })
     }
   }
