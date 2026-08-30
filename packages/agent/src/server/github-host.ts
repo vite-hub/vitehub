@@ -43,6 +43,7 @@ export interface GitHubHostAccess {
 }
 
 export interface GitHubHostPullRequest {
+  headRef?: string
   headRepository?: string
   headSha: string
   number: number
@@ -78,7 +79,7 @@ export interface GitHubHost {
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
   ensureGraphQLBudget(repository: string, options?: GitHubHostCheckoutOptions): Promise<GitHubGraphQLRateLimit>
   isRateLimitError(error: unknown): boolean
-  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
+  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
 
 class GitHubRateLimitError extends Error {
@@ -215,8 +216,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return token
   }
 
-  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
-    const config = await credentials(input)
+  async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess> {
+    const config = await credentials({ signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
     const appOwner = String(config.owner || "").trim().toLowerCase()
@@ -236,36 +237,25 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const numericInstallationId = positiveInteger(installationId, "GitHub App installationId")
         const key = `${numericAppId}:${numericInstallationId}:${privateKey}`
         if (input.refresh || !appToken || appTokenKey !== key || appToken.expiresAt <= Date.now() + 60_000) {
-          const controller = new AbortController()
-          const abort = () => controller.abort(input.signal?.reason)
-          const timeout = input.timeout === undefined ? undefined : setTimeout(() => controller.abort(), input.timeout)
-          if (input.signal?.aborted) abort()
-          else input.signal?.addEventListener("abort", abort, { once: true })
-          try {
-            const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
-              headers: {
-                accept: "application/vnd.github+json",
-                authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
-                "user-agent": options.userAgent || "vitehub",
-              },
-              method: "POST",
-              signal: controller.signal,
-            })
-            if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
-            const body: unknown = await response.json()
-            const responseToken = isRuntimeRecord(body) ? body.token : undefined
-            const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
-            if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
-            appToken = {
-              expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
-              token: responseToken,
-            }
-            appTokenKey = key
+          const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
+            headers: {
+              accept: "application/vnd.github+json",
+              authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
+              "user-agent": options.userAgent || "vitehub",
+            },
+            method: "POST",
+            signal: input.signal,
+          })
+          if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
+          const body: unknown = await response.json()
+          const responseToken = isRuntimeRecord(body) ? body.token : undefined
+          const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
+          if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
+          appToken = {
+            expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
+            token: responseToken,
           }
-          finally {
-            if (timeout !== undefined) clearTimeout(timeout)
-            input.signal?.removeEventListener("abort", abort)
-          }
+          appTokenKey = key
         }
         token = appToken.token
       }
@@ -294,6 +284,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       env.GIT_COMMITTER_EMAIL = identity.email
     }
     return { env, token }
+  }
+
+  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
+    const operation = controlledOperation(input)
+    try {
+      return await scopedAccess({ ...input, signal: operation.signal, timeout: undefined })
+    }
+    finally {
+      operation.close()
+    }
   }
 
   async function command(
@@ -358,7 +358,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   async function withPullRequestCheckout<T>(
     pullRequest: GitHubHostPullRequest,
-    run: (checkout: GitHubHostAccess & { path: string, signal: AbortSignal }) => Promise<T>,
+    run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>,
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
@@ -378,10 +378,26 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ? `https://github.com/${pullRequest.headRepository}.git`
         : "disabled://pull-request-head-repository-unavailable"
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
+      if (pullRequest.headRepository) {
+        if (!pullRequest.headRef) throw new Error("A pull request headRef is required when headRepository is supplied.")
+        await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
+      }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       operation.signal.throwIfAborted()
-      return await run({ ...auth, path: checkout, signal: operation.signal })
+      const push = async () => {
+        const refreshed = await access({
+          refresh: true,
+          repository: pullRequest.headRepository || pullRequest.repository,
+          signal: operation.signal,
+        })
+        await exec("git", ["-C", checkout, "push", "origin"], {
+          env: { ...process.env, ...refreshed.env },
+          maxBuffer,
+          signal: operation.signal,
+        })
+      }
+      return await run({ ...auth, path: checkout, push, signal: operation.signal })
     }
     finally {
       operation.close()

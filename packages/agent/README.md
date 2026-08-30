@@ -141,11 +141,12 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` clones over HTTPS, checks out the pull request's pushable branch, configures Git to use the resolved token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` clones over HTTPS, checks out the pull request's pushable branch, configures Git to use the resolved token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. Use the callback's `push()` after long-running work so the host refreshes GitHub App credentials before pushing. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
-await github.withPullRequestCheckout(pullRequest, async ({ env, path, signal }) => {
+await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
   await runAgent({ cwd: path, env, signal })
+  await push()
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
 
