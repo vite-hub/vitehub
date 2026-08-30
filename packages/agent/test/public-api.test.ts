@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 
 import { expect, it } from "vitest"
+import manifest from "../package.json" with { type: "json" }
 
 const moduleSpecifierPattern = /(?:\bfrom\s*|(?:\bimport|\brequire)\s*\(?\s*)["']([^"']+)["']/g
 
@@ -66,13 +67,11 @@ it("pins Effect to the Agent implementation dependency without leaking runtime f
       .filter(path => /\.[cm]?js$/.test(path))
       .map(path => readFile(new URL(path, dist), "utf8")),
   )).join("\n")
-  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as Record<string, Record<string, unknown> | undefined>
-
   expect(javascript).not.toContain("FiberFailure")
-  expect(manifest.dependencies?.effect).toBe("catalog:effect")
-  expect(manifest.devDependencies?.effect).toBeUndefined()
-  expect(manifest.optionalDependencies?.effect).toBeUndefined()
-  expect(manifest.peerDependencies?.effect).toBeUndefined()
+  expect(manifest).toMatchObject({ dependencies: { effect: "catalog:effect" } })
+  expect(manifest).not.toMatchObject({ devDependencies: { effect: expect.anything() } })
+  expect(manifest).not.toMatchObject({ optionalDependencies: { effect: expect.anything() } })
+  expect(manifest).not.toMatchObject({ peerDependencies: { effect: expect.anything() } })
   expect(JSON.stringify(manifest.exports)).not.toContain("effect")
 })
 

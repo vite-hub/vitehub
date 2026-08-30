@@ -5,7 +5,11 @@ import highlighter from "#mdc-highlighter"
 type HastNode = {
   type: string
   tagName?: string
-  properties?: Record<string, unknown>
+  properties?: {
+    [key: string]: unknown
+    className?: string | string[]
+    language?: string
+  }
   children?: HastNode[]
   value?: string
 }
@@ -303,7 +307,7 @@ const agentProperties: Record<AgentPropertyKey, {
     to: "/docs/agents/channels/",
   },
 }
-const agentPropertyOrder = Object.keys(agentProperties) as AgentPropertyKey[]
+const agentPropertyOrder: AgentPropertyKey[] = ["driver", "runtime", "workspace", "capabilities", "channels"]
 
 const driverOptions = [
   { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
@@ -546,7 +550,7 @@ function syntaxHighlightPlugin() {
     function visit(node: HastNode) {
       const language = node.properties?.language
 
-      if (node.tagName === "pre" && typeof language === "string" && language !== "text") {
+      if (node.tagName === "pre" && language && language !== "text") {
         tasks.push(highlighter(nodeText(node), language, syntaxThemes).then((result) => {
           const className = Array.isArray(node.properties?.className)
             ? node.properties.className.join(" ")
@@ -560,6 +564,7 @@ function syntaxHighlightPlugin() {
           }
 
           if (code) {
+            // SAFETY: The highlighter returns the same recursive HAST node shape used by this renderer.
             code.children = result.tree as HastNode[]
           }
 
@@ -680,11 +685,9 @@ function channelItemsFor(currentKey: string) {
 }
 
 async function addProperty(value: unknown) {
-  if (typeof value !== "string" || !agentPropertyOrder.includes(value as AgentPropertyKey)) {
-    return
-  }
+  const key = agentPropertyOrder.find(key => key === value)
+  if (!key) return
 
-  const key = value as AgentPropertyKey
   if (!selectedAgentConfig.value.visiblePropertyKeys.includes(key)) {
     selectedAgentConfig.value.visiblePropertyKeys.push(key)
   }
@@ -710,15 +713,14 @@ function removeProperty(key: AgentPropertyKey) {
 }
 
 async function addCapability(value: unknown) {
-  if (typeof value !== "string" || selectedAgentConfig.value.capabilityKeys.includes(value)) {
-    return
-  }
+  const key = capabilityOptions.find(option => option.key === value)?.key
+  if (!key || selectedAgentConfig.value.capabilityKeys.includes(key)) return
 
-  if (value === "access") {
-    selectedAgentConfig.value.capabilityKeys.unshift(value)
+  if (key === "access") {
+    selectedAgentConfig.value.capabilityKeys.unshift(key)
   }
   else {
-    selectedAgentConfig.value.capabilityKeys.push(value)
+    selectedAgentConfig.value.capabilityKeys.push(key)
   }
   await nextTick()
   capabilitySelectionKey.value = undefined
@@ -729,11 +731,10 @@ function removeCapability(index: number) {
 }
 
 async function addChannel(value: unknown) {
-  if (typeof value !== "string" || selectedAgentConfig.value.channelKeys.includes(value)) {
-    return
-  }
+  const key = channelOptions.find(option => option.key === value)?.key
+  if (!key || selectedAgentConfig.value.channelKeys.includes(key)) return
 
-  selectedAgentConfig.value.channelKeys.push(value)
+  selectedAgentConfig.value.channelKeys.push(key)
   await nextTick()
   channelSelectionKey.value = undefined
 }
