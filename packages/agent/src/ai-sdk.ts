@@ -892,26 +892,32 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   const hasFullStream = "fullStream" in result
   if (hasStream || hasFullStream) {
     const sharedSynthesis: { task?: Promise<Awaited<ReturnType<typeof synthesizeWorkspaceFallbackFromEvidence>>> } = {}
-    const descriptor = (property: "fullStream" | "stream"): PropertyDescriptor => ({
-      configurable: true,
-      enumerable: true,
-      get() {
-        const source = Reflect.get(result, property)
-        if (!isAsyncIterable(source)) return source
-        return toReadableAsyncIterableStream(withWorkspaceFallbackFullStream(
-          source,
-          model,
-          context,
-          fallback.maxToolResults,
-          capturedEvidence,
-          fallbackUsageCapture,
-          usageCaptures,
-          onSynthesis,
-          sharedSynthesis,
-          fallbackCallInput,
-        ), { highWaterMark: 0 })
-      },
-    })
+    const descriptor = (property: "fullStream" | "stream"): PropertyDescriptor => {
+      let wrapped: PropertyDescriptor | undefined
+      return {
+        configurable: true,
+        enumerable: true,
+        get() {
+          if (!wrapped) {
+            const source = Reflect.get(result, property)
+            if (!isAsyncIterable(source)) return source
+            wrapped = teeingAsyncIterableStreamDescriptor(withWorkspaceFallbackFullStream(
+              source,
+              model,
+              context,
+              fallback.maxToolResults,
+              capturedEvidence,
+              fallbackUsageCapture,
+              usageCaptures,
+              onSynthesis,
+              sharedSynthesis,
+              fallbackCallInput,
+            ))
+          }
+          return wrapped.get?.call(this)
+        },
+      }
+    }
     const toUIMessageStream = Reflect.get(result, "toUIMessageStream")
     let wrapped: T
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
