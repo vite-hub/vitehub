@@ -443,6 +443,40 @@ describe("Provider Output finalizer", () => {
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
+  it.runIf(process.platform !== "win32")("does not snapshot Cloudflare output when required persisted ownership is absent", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const unsupportedEntry = join(outputRoot, "unsupported-pipe")
+    await mkdir(outputRoot, { recursive: true })
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      execFileAsync("mkfifo", [unsupportedEntry]),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        cleanup: {
+          cloudflare: {
+            requirePersistedOwnership: true,
+            wranglerConfigOwnership: {
+              arrays: { kv_namespaces: { key: "binding", values: [] } },
+            },
+            wranglerConfigOwnershipFiles: { kv_namespaces: ".vitehub-kv-bindings.json" },
+          },
+        },
+        clientOutDir: "dist/client",
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).resolves.toBeUndefined()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    expect(existsSync(unsupportedEntry)).toBe(true)
+  })
+
   it.runIf(process.platform !== "win32")("removes a partial Cloudflare backup when backup creation fails", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

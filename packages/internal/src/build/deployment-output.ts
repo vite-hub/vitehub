@@ -635,8 +635,7 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
   signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
-  if (cleanup.requirePersistedOwnership && !Object.values(cleanup.wranglerConfigOwnershipFiles ?? {})
-    .some(fileName => existsSync(resolveProviderOutputOwnershipFile(outputRoot, fileName)))) return
+  if (!shouldRunCloudflareDeploymentOutputCleanup(outputRoot, cleanup)) return
   const wranglerConfigOwnership = await resolvePersistedProviderOutputOwnership(
     outputRoot,
     cleanup.wranglerConfigOwnership,
@@ -657,6 +656,11 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
     const code = (error as NodeJS.ErrnoException).code
     if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error
   }
+}
+
+function shouldRunCloudflareDeploymentOutputCleanup(outputRoot: string, cleanup: CloudflareProviderDeploymentCleanup): boolean {
+  return !cleanup.requirePersistedOwnership || Object.values(cleanup.wranglerConfigOwnershipFiles ?? {})
+    .some(fileName => existsSync(resolveProviderOutputOwnershipFile(outputRoot, fileName)))
 }
 
 async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup, signal?: AbortSignal): Promise<void> {
@@ -729,8 +733,10 @@ async function writeProviderDeploymentOutputsNow(
     const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
     if (resolve(outputRoot) === clientDir) cleanup = { ...cleanup, fileNames: [] }
     else if (transaction?.cloudflareWritten) cleanup = { ...cleanup, fileNames: [] }
-    cleanupPaths.push(outputRoot)
-    cleanups.push(async () => await cleanupCloudflareDeploymentOutput(options.rootDir, cleanup, signal))
+    if (shouldRunCloudflareDeploymentOutputCleanup(outputRoot, cleanup)) {
+      cleanupPaths.push(outputRoot)
+      cleanups.push(async () => await cleanupCloudflareDeploymentOutput(options.rootDir, cleanup, signal))
+    }
   }
   if (!options.netlify && options.cleanup?.netlify) {
     const cleanup = options.cleanup.netlify
@@ -837,9 +843,10 @@ async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploym
 async function withProviderDeploymentOutputRootTransaction<T>(
   rootDir: string,
   operation: (transaction: ProviderDeploymentOutputRootTransaction) => Promise<T>,
+  options: { snapshotDefaultCloudflareRoot?: boolean } = {},
 ): Promise<T> {
   const roots = [
-    createDefaultCloudflareOutputRoot(rootDir),
+    ...(options.snapshotDefaultCloudflareRoot === false ? [] : [createDefaultCloudflareOutputRoot(rootDir)]),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/agent/netlify-function.mjs"),
@@ -1139,7 +1146,7 @@ export async function finalizeProviderDeploymentOutputs(
                   rejectReady(error)
                   throw error
                 }
-              })
+              }, { snapshotDefaultCloudflareRoot: rootContributions.some(contribution => contribution.owner !== "kv") })
             })
             void write.catch(rejectReady)
             return { readiness, write }
