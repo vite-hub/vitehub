@@ -171,6 +171,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
           : successfulTerminal
             ? operationName(observation, observation.attributes ?? {})
             : "error";
+    const deniedApproval = isDeniedApproval(operation, observation.attributes ?? {});
     const target = operationTarget(operation, observation.attributes ?? {}, invocation);
     const durationMs =
       successfulTool || terminalTool
@@ -199,13 +200,15 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       operation: recovered ? "recovery" : operation,
       sequence: observation.sequence,
       startMs: at - durationMs,
-      status: successfulTerminal
-        ? "completed"
-        : cancelled
-          ? "cancelled"
-          : recovered
-            ? "recovered"
-            : "failed",
+      status: deniedApproval
+        ? "failed"
+        : successfulTerminal
+          ? "completed"
+          : cancelled
+            ? "cancelled"
+            : recovered
+              ? "recovered"
+              : "failed",
     });
   }
 

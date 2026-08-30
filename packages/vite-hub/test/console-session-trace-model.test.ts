@@ -166,6 +166,13 @@ describe("Console session trace model", () => {
     ).toBe(true);
     expect(
       isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "approval.approved": false, "approval.id": "approval" },
+        name: "agent.approval.decision",
+        sequence: 3,
+      }),
+    ).toBe(true);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
         name: "agent.stream.finish",
         sequence: 3,
       }),

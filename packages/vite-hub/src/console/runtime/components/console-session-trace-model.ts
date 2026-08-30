@@ -97,7 +97,9 @@ export function isStandaloneSuccessfulLifecycleObservation(
   });
   return (
     hasStepIdentity &&
-    (observation.name.endsWith(".finish") || observation.name.endsWith(".completed"))
+    (observation.name.endsWith(".finish") ||
+      observation.name.endsWith(".completed") ||
+      observation.name === "agent.approval.decision")
   );
 }
 
