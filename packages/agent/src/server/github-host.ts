@@ -191,6 +191,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   async function credentials(input: GitHubHostCheckoutOptions): Promise<GitHubHostCredentials> {
     const operation = controlledOperation(input)
     try {
+      operation.signal.throwIfAborted()
       const pending = Promise.resolve().then(() => options.credentials({ signal: operation.signal }))
       return await waitForCaller(pending, { signal: operation.signal })
     }

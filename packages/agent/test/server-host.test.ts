@@ -59,6 +59,16 @@ esac
 }
 
 describe("GitHub host", () => {
+  it("does not resolve credentials for a pre-aborted operation", async () => {
+    const credentials = vi.fn(() => Promise.reject(new Error("resolver should not run")))
+    const host = createGitHubHost({ credentials })
+    const controller = new AbortController()
+    controller.abort(new Error("already cancelled"))
+
+    await expect(host.access({ signal: controller.signal })).rejects.toThrow("already cancelled")
+    expect(credentials).not.toHaveBeenCalled()
+  })
+
   it("parses GitHub GraphQL rate limits", () => {
     expect(parseGraphQLRateLimit({ resources: { graphql: { remaining: 1_234, reset: 1_800 } } }, 900)).toEqual({
       checkedAt: 900,
