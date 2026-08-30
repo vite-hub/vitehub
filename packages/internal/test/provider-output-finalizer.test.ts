@@ -13,6 +13,7 @@ import {
   captureProviderDeploymentOutputGeneration,
   contributeProviderDeploymentOutput,
   createDefaultCloudflareOutputRoot,
+  createDefaultVercelOutputRoot,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
   resetProviderDeploymentOutputs,
@@ -443,15 +444,19 @@ describe("Provider Output finalizer", () => {
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
-  it.runIf(process.platform !== "win32")("does not snapshot Cloudflare output when required persisted ownership is absent", async () => {
+  it.runIf(process.platform !== "win32")("does not snapshot provider output when required persisted ownership is absent", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
     const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
-    const unsupportedEntry = join(outputRoot, "unsupported-pipe")
-    await mkdir(outputRoot, { recursive: true })
+    const vercelOutputRoot = createDefaultVercelOutputRoot(rootDir)
+    const unsupportedEntries = [
+      join(outputRoot, "unsupported-pipe"),
+      join(vercelOutputRoot, "unsupported-pipe"),
+    ]
+    await Promise.all([mkdir(outputRoot, { recursive: true }), mkdir(vercelOutputRoot, { recursive: true })])
     await Promise.all([
       writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
-      execFileAsync("mkfifo", [unsupportedEntry]),
+      ...unsupportedEntries.map(path => execFileAsync("mkfifo", [path])),
     ])
     contributeProviderDeploymentOutput(catalog, {
       owner: "kv",
@@ -474,7 +479,7 @@ describe("Provider Output finalizer", () => {
     await expect(finalizeProviderDeploymentOutputs(catalog)).resolves.toBeUndefined()
 
     await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
-    expect(existsSync(unsupportedEntry)).toBe(true)
+    for (const unsupportedEntry of unsupportedEntries) expect(existsSync(unsupportedEntry)).toBe(true)
   })
 
   it.runIf(process.platform !== "win32")("removes a partial Cloudflare backup when backup creation fails", async () => {

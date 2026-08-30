@@ -843,10 +843,10 @@ async function restoreProviderDeploymentOutputSnapshot(snapshot: ProviderDeploym
 async function withProviderDeploymentOutputRootTransaction<T>(
   rootDir: string,
   operation: (transaction: ProviderDeploymentOutputRootTransaction) => Promise<T>,
-  options: { snapshotDefaultCloudflareRoot?: boolean } = {},
+  options: { snapshotInitialRoots?: boolean } = {},
 ): Promise<T> {
   const roots = [
-    ...(options.snapshotDefaultCloudflareRoot === false ? [] : [createDefaultCloudflareOutputRoot(rootDir)]),
+    createDefaultCloudflareOutputRoot(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/agent/netlify-function.mjs"),
@@ -922,7 +922,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     },
   }
   try {
-    await transaction.snapshot(roots)
+    if (options.snapshotInitialRoots !== false) await transaction.snapshot(roots)
     const result = await operation(transaction)
     await rm(transactionRoot, { force: true, recursive: true })
     return result
@@ -1146,7 +1146,7 @@ export async function finalizeProviderDeploymentOutputs(
                   rejectReady(error)
                   throw error
                 }
-              }, { snapshotDefaultCloudflareRoot: rootContributions.some(contribution => contribution.owner !== "kv") })
+              }, { snapshotInitialRoots: rootContributions.some(contribution => contribution.owner !== "kv") })
             })
             void write.catch(rejectReady)
             return { readiness, write }
