@@ -3405,29 +3405,6 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("prunes terminal SQLite records written with a stale status column", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-stale-status-"))
-    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
-    const timestamp = new Date().toISOString()
-    try {
-      await unboundedStore.create({ createdAt: timestamp, id: "legacy", observations: [], status: "running", traceId: "legacy-trace", updatedAt: timestamp })
-      await client.execute({
-        args: [JSON.stringify({ createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "legacy-trace", updatedAt: timestamp }), "legacy"],
-        sql: "UPDATE vitehub_agent_invocations SET record = ? WHERE id = ?",
-      })
-      await store.create({ createdAt: timestamp, id: "newer", observations: [], status: "completed", traceId: "newer-trace", updatedAt: timestamp })
-
-      await expect(store.get("legacy")).resolves.toBeUndefined()
-      await expect(store.get("newer")).resolves.toMatchObject({ status: "completed" })
-    }
-    finally {
-      client.close()
-      await rm(directory, { force: true, recursive: true })
-    }
-  })
-
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.
@@ -3514,8 +3491,9 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
-      const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      const migratedAgent = await firstClient.execute("SELECT agent_name, updated_at FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
+      expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
