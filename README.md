@@ -16,8 +16,8 @@ flowchart TD
     capacity -- Yes --> agent["Start one coding agent"]
     agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
     work --> outcome{"Outcome"}
-    outcome -- Repaired --> review["Push one commit and request review"]
-    review --> park["Record the observed pull request fingerprint"]
+    outcome -- Repaired --> pushed["Push one commit"]
+    pushed --> park["Record the observed pull request fingerprint"]
     outcome -- Waiting --> park
     outcome -- Ready --> merge["Merge and delete the source branch"]
     outcome -- Obsolete --> close["Close the pull request"]
@@ -31,7 +31,7 @@ flowchart TD
 1. **Discover changed pull requests.** The [demand reconciler](server/plugins/babysitter-demand.ts) reads up to 100 open pull requests from each configured GitHub repository. Wakeups coalesce while a scan is active. The 30-second scan repairs missed wakeups and new process startup always performs a fresh scan.
 2. **Queue before admission.** Each selected pull request gets a disposable checkout verified against the observed head SHA, then creates a pending ViteHub Agent Invocation. One shared capacity object covers every repository and every checkout-specific Agent Definition. The queue is FIFO and bounded at 100 pending invocations.
 3. **Adapt to the host.** `BABYSITTER_MAX_OWNERS` is the hard ceiling. On Linux, the process adapter reads cgroup memory limits, `memory.high` events, and 10-second CPU and memory PSI. It preserves 1 GiB of memory, estimates 1 GiB per additional owner, pauses admission above the pressure thresholds, resumes through lower thresholds, and adds at most one slot per sample. Hosts without readable cgroup signals use process-available memory. If sampling fails, admission falls back to one owner. Running owners are never preempted when pressure rises.
-4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, requests review once, and exits without polling for that review.
+4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once and exits. Repository automation owns review initiation; Babysitter consumes any actionable findings it delivers.
 5. **Wake only when useful.** Every successful pass on an open pull request records its observed fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later reconciliations skip it until a commit, comment, check result, review, or metadata change updates that fingerprint. Failed, timed-out, or otherwise unfinished runs remain eligible for retry.
 
 ## Requirements
@@ -44,6 +44,7 @@ flowchart TD
 - `git` and a GitHub repository you want Babysitter to watch. Babysitter launches the owner in an exact-head checkout without installing the watched project's dependencies; adapt the [agent prompt](server/agents/babysitter/prompt.template.md) if the owner needs package-manager-specific setup.
 - [`gh`](https://cli.github.com/) CLI. For production, configure a GitHub App with Contents, Issues, and Pull requests read/write access plus Actions, Checks, Commit statuses, and Metadata read access. Install it on every repository Babysitter watches. Local development can fall back to `GITHUB_TOKEN` or an authenticated `gh` CLI.
 - An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
+- `bubblewrap` on Linux. Codex can fall back to its bundled copy, but installing the host package removes the fallback warning and makes the sandbox prerequisite explicit.
 
 ## Start Babysitter
 
@@ -93,6 +94,10 @@ Linux cgroup and `/proc` fields are optional. Babysitter still runs on hosts tha
 Before discovery, Babysitter checks the authenticated GitHub GraphQL budget and preserves a 1,500-point reserve. When the installation falls below that reserve, new GitHub work stays queued until the reported reset time instead of starting owners that are guaranteed to fail.
 
 `GET /api/health` reports the hard ceiling, current effective concurrency, active and queued invocations, the latest admission reason, whether capacity sampling has degraded to its fallback, and whether GitHub budget pressure is deferring discovery.
+
+The health response also reports stale active invocation records. Any pending or running record older than the current service process degrades health because startup recovery should have marked it failed.
+
+Before deploying a systemd release, build and test the exact commit, then run the service's pre-start verification against the unit and drop-in paths systemd will load. Keep one canonical release override so a stale drop-in cannot shadow the intended build.
 
 On a systemd host, follow the events with:
 

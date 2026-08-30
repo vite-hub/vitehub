@@ -21,14 +21,15 @@ test('keeps a stack-locked child open without blocking its parent merge', async 
   assert.match(prompt, /delete the source branch only when no open child still uses it as a base/i)
 })
 
-test('ends a repair pass after one commit, push, and review request', async () => {
+test('ends a repair pass after one commit and push', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
   assert.match(prompt, /for one pass, then stop/)
   assert.match(prompt, /at most one new commit/)
   assert.match(prompt, /push once/)
-  assert.match(prompt, /request at most one `@codex review`/)
-  assert.match(prompt, /Stop after the review request while real exact-head checks or review are pending/)
+  assert.match(prompt, /Review initiation belongs to repository automation/)
+  assert.match(prompt, /Stop after the repair push while required exact-head checks or Pullfrog review are pending/)
+  assert.doesNotMatch(prompt, /@codex review/)
   assert.doesNotMatch(prompt, /repeat until the merge gate holds/)
 })
 
@@ -96,12 +97,6 @@ test('uses Pullfrog exact-head evidence without blocking on terminal service fai
   assert.match(prompt, /Existing actionable Pullfrog findings remain feedback and must be repaired/)
 })
 
-test('does not request duplicate reviews for the same head', async () => {
-  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
-
-  assert.match(prompt, /Do not request another review when that exact head already has a review request/)
-})
-
 test('keeps OTLP observability bounded and terminal-only', async () => {
   const agent = await readFile(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
 
@@ -137,25 +132,25 @@ test('pushes an evidence-backed repair when focused validation needs forbidden b
   assert.match(prompt, /Do not build or return `retry` solely for that missing local output/)
 })
 
-test('yields pending checks and reviews to the next schedule', async () => {
+test('yields pending required checks and Pullfrog review to the next schedule', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
-  assert.match(prompt, /checks or reviews are pending/)
+  assert.match(prompt, /required checks or Pullfrog review are pending/)
   assert.match(prompt, /stop unchanged/)
   assert.match(prompt, /GitHub state change wakes the next pass/)
 })
 
-test('merges on repository gates without a Codex fallback review', async () => {
+test('treats independently delivered Codex findings as feedback instead of a merge gate', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
   assert.match(prompt, /On a later pass, merge immediately when the exact-head merge gate holds/)
   assert.match(prompt, /passing required checks, no merge conflict, and no actionable or unresolved feedback/)
   assert.match(prompt, /Optional pending, stuck, or externally failed checks do not block this gate/)
   assert.match(prompt, /Do not wait for an optional check/)
-  assert.match(prompt, /Codex `eyes` reaction without a later terminal result means a requested review is pending/)
-  assert.match(prompt, /Codex quota, error, or unavailable result is non-blocking/)
-  assert.match(prompt, /do not launch a fallback review/)
+  assert.match(prompt, /Codex review is independently configured repository automation/)
+  assert.match(prompt, /absence, pending state, quota limit, error, or unavailability is not a merge gate/)
   assert.match(prompt, /Existing actionable Codex findings remain feedback and must be repaired/)
+  assert.doesNotMatch(prompt, /@codex review/)
   assert.doesNotMatch(prompt, /positive exact-head Codex or read-only fallback review/)
   assert.doesNotMatch(prompt, /permits one read-only fallback review/)
 })
