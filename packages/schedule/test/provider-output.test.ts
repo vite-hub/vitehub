@@ -291,7 +291,7 @@ describe("schedule provider output", () => {
     })).rejects.toThrow()
 
     expect(await readFile(denoCron, "utf8")).toBe(publishedSource)
-    expect(existsSync(`${denoCron}.vitehub-input-tmp`)).toBe(false)
+    expect(existsSync(`${denoCron}.vitehub-input-tmp.mjs`)).toBe(false)
     expect(existsSync(`${denoCron}.vitehub-tmp`)).toBe(false)
   })
 

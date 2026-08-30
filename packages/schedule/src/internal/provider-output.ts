@@ -700,7 +700,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
-    const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp`
+    const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
     const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
     try {
       await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
