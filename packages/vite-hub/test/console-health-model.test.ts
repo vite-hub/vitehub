@@ -37,4 +37,13 @@ describe("Console Health model", () => {
       ).toBe(false);
     },
   );
+
+  it("rejects aggregate outcomes above the workload total", () => {
+    expect(
+      isConsoleHealth({
+        ...health,
+        workload: { ...health.workload, active: 1, completed: 1, failed: 1 },
+      }),
+    ).toBe(false);
+  });
 });

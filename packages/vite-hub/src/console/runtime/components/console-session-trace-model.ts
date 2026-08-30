@@ -149,6 +149,21 @@ export function invocationSpanStatus(
   return "running";
 }
 
+export function invocationOutcomeTimestamp(
+  status: "cancelled" | "completed" | "failed" | "pending" | "running",
+  timestamps: {
+    cancelledAt?: string;
+    completedAt?: string;
+    failedAt?: string;
+    updatedAt?: string;
+  },
+): string | undefined {
+  if (status === "cancelled") return timestamps.cancelledAt ?? timestamps.updatedAt;
+  if (status === "completed") return timestamps.completedAt ?? timestamps.updatedAt;
+  if (status === "failed") return timestamps.failedAt ?? timestamps.updatedAt;
+  return timestamps.updatedAt;
+}
+
 export function pairedToolTerminal<Observation extends TraceObservationIdentity>(
   start: Observation,
   observations: Observation[],
@@ -175,8 +190,7 @@ export function correlatedLifecycleObservations<Observation extends TraceObserva
       observation.sequence >= start.sequence &&
       observation.sequence <= endSequence &&
       traceEventId(observation) === identity &&
-      (!isLifecycleStartObservation(observation.name) ||
-        observation.sequence === start.sequence) &&
+      (!isLifecycleStartObservation(observation.name) || observation.sequence === start.sequence) &&
       (!isLifecycleTerminalObservation(observation.name) ||
         observation.sequence === finish?.sequence),
   );

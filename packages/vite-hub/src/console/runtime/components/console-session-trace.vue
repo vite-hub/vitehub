@@ -10,6 +10,7 @@ import {
   isStandaloneFailureObservation,
   isTerminalTaskObservation,
   isTerminalToolObservation,
+  invocationOutcomeTimestamp,
   invocationSpanStatus,
   invocationTerminalNames,
   lifecycleTerminalNames,
@@ -262,15 +263,12 @@ function pairedSpan(
   const events = correlatedLifecycleObservations(start, finish, observations);
   const attributes = Object.assign({}, ...events.map((event) => event.attributes ?? {}));
   const startMs = timestamp(start.timestamp);
-  const observedEndMs = finish
-    ? timestamp(finish.timestamp)
-    : timestamp(
-        invocation.completedAt ||
-          invocation.failedAt ||
-          invocation.cancelledAt ||
-          invocation.updatedAt,
-      );
   const operation = operationName(start, attributes);
+  const persistedEnd =
+    operation === "invoke_agent"
+      ? invocationOutcomeTimestamp(invocation.status, invocation)
+      : undefined;
+  const observedEndMs = timestamp(persistedEnd || finish?.timestamp || invocation.updatedAt);
   const target = operationTarget(operation, attributes, invocation);
   const status = spanStatus(finish, attributes, invocation, operation);
   const durationMs = Math.max(0, traceDurationMs(operation, attributes, observedEndMs - startMs));
@@ -302,10 +300,10 @@ function pairedTerminal(
     start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name)
       ? invocationTerminalNames(invocation.status)
       : start.name === "agent.task.started"
-      ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
-      : start.name === "agent.approval.request"
-        ? ["agent.approval.decision"]
-        : lifecycleTerminalNames(start.name);
+        ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
+        : start.name === "agent.approval.request"
+          ? ["agent.approval.decision"]
+          : lifecycleTerminalNames(start.name);
   if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
     return pairedToolTerminal(start, observations);
   return pairedLifecycleTerminal(start, observations, terminalNames);
@@ -316,10 +314,8 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
   const finish = observations.find((observation) => observation.name === "agent.invocation.finish");
   const startMs = timestamp(start?.timestamp || invocation.startedAt || invocation.createdAt);
   const endMs = timestamp(
-    finish?.timestamp ||
-      invocation.completedAt ||
-      invocation.failedAt ||
-      invocation.cancelledAt ||
+    invocationOutcomeTimestamp(invocation.status, invocation) ||
+      finish?.timestamp ||
       invocation.updatedAt,
   );
   return {

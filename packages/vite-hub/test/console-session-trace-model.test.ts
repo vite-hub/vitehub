@@ -9,6 +9,7 @@ import {
   isStandaloneFailureObservation,
   isStandaloneSuccessfulLifecycleObservation,
   isTerminalToolObservation,
+  invocationOutcomeTimestamp,
   invocationSpanStatus,
   invocationTerminalNames,
   standaloneSuccessfulLifecycleSequences,
@@ -80,11 +81,8 @@ describe("Console session trace model", () => {
       "agent.invocation.completed",
     ]);
     expect(
-      pairedLifecycleTerminal(
-        observations[0]!,
-        observations,
-        invocationTerminalNames("completed"),
-      )?.sequence,
+      pairedLifecycleTerminal(observations[0]!, observations, invocationTerminalNames("completed"))
+        ?.sequence,
     ).toBe(3);
     expect(invocationTerminalNames("failed")).toEqual([
       "agent.invocation.error",
@@ -101,11 +99,8 @@ describe("Console session trace model", () => {
       lifecycleTerminalNames("agent.invocation.start"),
     );
     expect(
-      pairedLifecycleTerminal(
-        observations[0]!,
-        observations,
-        invocationTerminalNames("cancelled"),
-      )?.sequence,
+      pairedLifecycleTerminal(observations[0]!, observations, invocationTerminalNames("cancelled"))
+        ?.sequence,
     ).toBe(2);
   });
 
@@ -117,6 +112,19 @@ describe("Console session trace model", () => {
     expect(invocationSpanStatus("pending")).toBe("running");
   });
 
+  it("uses the persisted timestamp for each terminal Agent Invocation outcome", () => {
+    const timestamps = {
+      cancelledAt: "2026-08-30T00:00:03.000Z",
+      completedAt: "2026-08-30T00:00:01.000Z",
+      failedAt: "2026-08-30T00:00:02.000Z",
+      updatedAt: "2026-08-30T00:00:04.000Z",
+    };
+
+    expect(invocationOutcomeTimestamp("completed", timestamps)).toBe(timestamps.completedAt);
+    expect(invocationOutcomeTimestamp("failed", timestamps)).toBe(timestamps.failedAt);
+    expect(invocationOutcomeTimestamp("cancelled", timestamps)).toBe(timestamps.cancelledAt);
+  });
+
   it("selects persisted-outcome terminals for the started lifecycle alias", () => {
     const observations = [
       { name: "agent.invocation.started", sequence: 1 },
@@ -125,11 +133,8 @@ describe("Console session trace model", () => {
     ];
 
     expect(
-      pairedLifecycleTerminal(
-        observations[0]!,
-        observations,
-        invocationTerminalNames("completed"),
-      )?.sequence,
+      pairedLifecycleTerminal(observations[0]!, observations, invocationTerminalNames("completed"))
+        ?.sequence,
     ).toBe(3);
   });
 

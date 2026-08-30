@@ -24,7 +24,10 @@ const workloadCountSchema = v.pipe(
   v.check((value) => Number.isSafeInteger(value) && value >= 0),
 );
 const healthSchema = v.object({
-  checkedAt: v.pipe(v.string(), v.check((value) => Number.isFinite(Date.parse(value)))),
+  checkedAt: v.pipe(
+    v.string(),
+    v.check((value) => Number.isFinite(Date.parse(value))),
+  ),
   diagnostics: v.array(diagnosticSchema),
   status: v.picklist(["degraded", "healthy"]),
   summary: v.string(),
@@ -40,7 +43,8 @@ const healthSchema = v.object({
       (workload) =>
         workload.active <= workload.total &&
         workload.completed <= workload.total &&
-        workload.failed <= workload.total,
+        workload.failed <= workload.total &&
+        workload.active + workload.completed + workload.failed <= workload.total,
     ),
   ),
 });
