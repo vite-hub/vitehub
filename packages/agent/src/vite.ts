@@ -1394,11 +1394,19 @@ interface EveExtensionManifest {
   requires?: unknown
 }
 
-const supportedEveExtensionContracts: Record<string, number> = {
-  config: 1,
-  dynamicTool: 8,
-  extension: 1,
-  tool: 5,
+const supportedEveExtensionContracts: Record<number, Record<string, number>> = {
+  1: {
+    config: 1,
+    dynamicTool: 8,
+    extension: 1,
+    tool: 5,
+  },
+  2: {
+    config: 1,
+    dynamicTool: 20,
+    extension: 1,
+    tool: 20,
+  },
 }
 
 async function resolveEveExtensionPackage(
@@ -1420,11 +1428,14 @@ async function resolveEveExtensionPackage(
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
-        if (manifest.kind !== "eve-extension" || manifest.formatVersion !== 1 || !manifest.requires || typeof manifest.requires !== "object") {
+        const contracts = typeof manifest.formatVersion === "number"
+          ? supportedEveExtensionContracts[manifest.formatVersion]
+          : undefined
+        if (manifest.kind !== "eve-extension" || !contracts || !manifest.requires || typeof manifest.requires !== "object") {
           throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
         }
         for (const [contract, version] of Object.entries(manifest.requires)) {
-          if (supportedEveExtensionContracts[contract] !== version) {
+          if (contracts[contract] !== version) {
             throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
           }
         }

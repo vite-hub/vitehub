@@ -191,12 +191,14 @@ async function resolveEveTools(
       const events = Object.entries(exported.events)
         .filter(([, handler]) => typeof handler === "function")
         .map(([event]) => event)
-      if (events.some(event => event !== "session.started")) {
+      if (events.some(event => event !== "session.started" && event !== "step.started") || events.length > 1) {
         throw new Error(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} uses unsupported events: ${events.join(", ")}.`)
       }
+      const event = events[0]
+      if (!event) continue
       const sessionId = eveSessionId(context)
-      const handler = exported.events["session.started"]
-      const resolved = await handler?.({ type: "session.started" }, {
+      const handler = exported.events[event]
+      const resolved = await handler?.({ type: event }, {
         channel: {
           kind: context.run?.origin,
           metadata: context.invoker.meta,
