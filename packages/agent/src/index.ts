@@ -192,6 +192,7 @@ import type {
 import type {
   AgentInvocationController,
   AgentInvocationSnapshot,
+  BackedAgentInvocationOptions,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
@@ -6464,7 +6465,7 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
     }
     return snapshot
   }
-  return createBackedAgentInvocationController<TOutput | Response>({
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -6476,10 +6477,13 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    parentAbortSignal,
     result: Promise.resolve(run),
-    settled,
-  })
+  }
+  if (settled) {
+    controllerOptions.settled = settled
+    if (parentAbortSignal) controllerOptions.parentAbortSignal = parentAbortSignal
+  }
+  return createBackedAgentInvocationController(controllerOptions)
 }
 
 function createInlineAgentInvocationController<
