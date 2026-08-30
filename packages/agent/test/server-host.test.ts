@@ -364,11 +364,12 @@ describe("GitHub host", () => {
     })
 
     const access = host.access({ repository: "vite-hub/vitehub", timeout: 20 })
+    const rejection = expect(access).rejects.toThrow(/abort|timed out|timeout/i)
     await vi.advanceTimersByTimeAsync(15)
     resolveCredentials?.()
     await vi.advanceTimersByTimeAsync(5)
 
-    await expect(access).rejects.toThrow(/abort|timed out|timeout/i)
+    await rejection
   })
 
   it("cancels checkout commands and removes the temporary checkout", async () => {
