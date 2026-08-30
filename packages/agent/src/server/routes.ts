@@ -4905,6 +4905,12 @@ async function handleChatSdkMessage(
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
+    const messages = scopeCurrentChatUiMessage(
+      await chatTriggerMessages(thread, message, options, messageContext),
+      message.id,
+      input.run?.runId || delivery.delivery.id,
+    )
+    input = { ...input, messages }
     const authorizationInput = await withParsedAgentMessageMeta(
       // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
       agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
@@ -4923,25 +4929,6 @@ async function handleChatSdkMessage(
       ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
     }, invoker)
 
-    const messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext),
-      message.id,
-      input.run?.runId || delivery.delivery.id,
-    )
-    const transportSessionId = input.run?.threadId ?? input.run?.runId
-    const selectedSessionId = resolveChatSessionId(messages, options?.sessions, input.session)
-    const providerSessionId = transportSessionId && selectedSessionId
-      ? `${transportSessionId}:chat-session:${selectedSessionId}`
-      : transportSessionId
-    if (providerSessionId) {
-      input = {
-        ...input,
-        context: {
-          ...input.context,
-          "chat.sessionId": providerSessionId,
-        },
-      }
-    }
     const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
       await recordChannelDeliveryEvidence(delivery, { type: "rejected" })

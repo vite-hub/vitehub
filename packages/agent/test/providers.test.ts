@@ -17406,6 +17406,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
     const runs: string[][] = []
     const sessionIds: Array<string | undefined> = []
+    const invokerSessionIds: Array<string | undefined> = []
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
@@ -17421,6 +17422,12 @@ describe("server helpers", () => {
           },
         }),
       ],
+      invoker: {
+        resolve: ({ context, defaultInvoker }) => {
+          invokerSessionIds.push(context.get("chat.sessionId"))
+          return defaultInvoker
+        },
+      },
       driver: {
         run: ({ input, messages }) => {
           runs.push(messages.map(getMessageText))
@@ -17457,6 +17464,7 @@ describe("server helpers", () => {
     expect(runs[1]).toEqual(["what marker did I ask you to remember?"])
     expect(attachmentFetchData).toHaveBeenCalledOnce()
     expect(sessionIds[1]).toBe(sessionIds[0])
+    expect(invokerSessionIds).toEqual(sessionIds)
   })
 
   it("ends explicit trigger history at the webhook message", async () => {
