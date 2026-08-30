@@ -65,11 +65,12 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
         const replacement = typeof alias.find === "string"
           ? `${alias.replacement}${args.path.slice(alias.find.length)}`
           : args.path.replace(alias.find, alias.replacement)
-        return build.resolve(replacement, {
+        const result = await build.resolve(replacement, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
           pluginData: Object.assign(
+            {},
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- esbuild exposes pluginData as unknown, and this boundary preserves only object-shaped metadata.
             args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {},
             { [resolvingAlias]: true },
@@ -77,6 +78,9 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           resolveDir: args.resolveDir,
           with: args.with,
         })
+        const pluginData = Object.assign({}, result.pluginData)
+        Reflect.deleteProperty(pluginData, resolvingAlias)
+        return { ...result, pluginData }
       })
     },
   }
