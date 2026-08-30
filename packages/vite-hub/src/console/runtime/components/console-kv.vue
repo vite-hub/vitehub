@@ -167,7 +167,10 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
-    selectedKey.value = currentSelection !== undefined && keys.value.includes(currentSelection) ? currentSelection : keys.value[0];
+    const selection = options.keepSelection && selectedKey.value !== currentSelection
+      ? selectedKey.value
+      : currentSelection;
+    selectedKey.value = selection !== undefined && keys.value.includes(selection) ? selection : keys.value[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
