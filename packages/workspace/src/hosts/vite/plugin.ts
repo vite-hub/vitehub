@@ -334,6 +334,10 @@ function sourceImportsFeedingWorkspaceStore(
               })
             }
           },
+          ExportAllDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            if (typeof specifier === "string") imports.push({ importedName: exportedName, specifier })
+          },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
             if (typeof specifier !== "string") return
@@ -341,7 +345,7 @@ function sourceImportsFeedingWorkspaceStore(
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
               const binding = path.scope.getBinding(imported.local.name)
               const referenceReachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
-                ? babelPathReachesExportedStore(reference)
+                ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
                 : (() => {
                     for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
                       if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
@@ -364,6 +368,23 @@ function sourceImportsFeedingWorkspaceStore(
                 specifier,
               })
             }
+          },
+          VariableDeclarator(path: BabelNodePath) {
+            if (
+              path.node.id?.type !== "Identifier"
+              || !path.node.id.name
+              || path.node.init?.type !== "CallExpression"
+              || path.node.init.callee?.type !== "Identifier"
+              || path.node.init.callee.name !== "require"
+              || path.node.init.arguments?.length !== 1
+            ) return
+            const specifier = path.node.init.arguments[0]?.value
+            if (typeof specifier !== "string") return
+            const binding = path.scope.getBinding(path.node.id.name)
+            const reachesRequestedExport = binding?.referencePaths?.some(reference => exportedName === "default"
+              ? babelPathReachesExportedStore(reference) || babelPathReachesDefaultExport(reference)
+              : babelPathOrBindingIsExported(reference, exportedName))
+            if (reachesRequestedExport) imports.push({ importedName: "default", specifier })
           },
         },
       })],
