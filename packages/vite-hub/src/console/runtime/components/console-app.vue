@@ -10,6 +10,7 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { isConsoleHealth } from "./console-health-model";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
 import type {
@@ -226,7 +227,7 @@ async function detectHostCapabilities(): Promise<void> {
       method: "GET",
       signal: controller.signal,
     });
-    const available = response.ok && isHealth(await response.json());
+    const available = response.ok && isConsoleHealth(await response.json());
     if (capabilitiesRequest === controller) healthAvailable.value = available;
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
@@ -234,22 +235,6 @@ async function detectHostCapabilities(): Promise<void> {
   } finally {
     if (capabilitiesRequest === controller) capabilitiesRequest = undefined;
   }
-}
-
-function isHealth(value: unknown): boolean {
-  const health = record(value);
-  const workload = record(health?.workload);
-  return (
-    (health?.status === "healthy" || health?.status === "degraded") &&
-    stringValue(health.checkedAt) !== undefined &&
-    Number.isFinite(Date.parse(stringValue(health.checkedAt) || "")) &&
-    stringValue(health.summary) !== undefined &&
-    Array.isArray(health.diagnostics) &&
-    workload !== undefined &&
-    ["active", "completed", "failed", "snapshots", "total"].every(
-      (key) => numericValue(workload[key]) !== undefined,
-    )
-  );
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

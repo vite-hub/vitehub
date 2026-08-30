@@ -411,14 +411,7 @@ function spanStatus(
     finish?.name.endsWith(".cancelled")
   )
     return "cancelled";
-  if (!finish)
-    return invocation.status === "failed"
-      ? "failed"
-      : invocation.status === "cancelled"
-        ? "cancelled"
-        : invocation.status === "completed"
-          ? "completed"
-          : "running";
+  if (!finish) return "running";
   const rawOutput = record(attributes["tool.output"]);
   const output = record(rawOutput?.item) ?? rawOutput;
   const exitCode = numeric(output?.exitCode);

@@ -91,7 +91,19 @@ describe("Console session trace model", () => {
       "agent.invocation.abort",
       "agent.invocation.cancel",
       "agent.invocation.cancelled",
+      "agent.invocation.error",
+      "agent.invocation.failed",
     ]);
+    expect(invocationTerminalNames("pending")).toEqual(
+      lifecycleTerminalNames("agent.invocation.start"),
+    );
+    expect(
+      pairedLifecycleTerminal(
+        observations[0]!,
+        observations,
+        invocationTerminalNames("cancelled"),
+      )?.sequence,
+    ).toBe(2);
   });
 
   it("uses recorded tool duration before observation timestamps", () => {

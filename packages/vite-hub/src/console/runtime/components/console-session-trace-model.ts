@@ -116,7 +116,7 @@ export function lifecycleTerminalNames(startName: string): string[] {
 }
 
 export function invocationTerminalNames(
-  status: "cancelled" | "completed" | "failed" | "running",
+  status: "cancelled" | "completed" | "failed" | "pending" | "running",
 ): string[] {
   if (status === "completed") return ["agent.invocation.finish", "agent.invocation.completed"];
   if (status === "failed") return ["agent.invocation.error", "agent.invocation.failed"];
@@ -125,6 +125,8 @@ export function invocationTerminalNames(
       "agent.invocation.abort",
       "agent.invocation.cancel",
       "agent.invocation.cancelled",
+      "agent.invocation.error",
+      "agent.invocation.failed",
     ];
   return lifecycleTerminalNames("agent.invocation.start");
 }

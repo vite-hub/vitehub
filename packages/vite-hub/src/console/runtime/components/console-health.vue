@@ -1,48 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import * as v from "valibot";
+import { isConsoleHealth, type ConsoleHealth } from "./console-health-model";
 
-type Diagnostic = {
-  detail?: string;
-  label: string;
-  status: "neutral" | "ok" | "warning";
-  value: string;
-};
-type Health = {
-  checkedAt: string;
-  diagnostics: Diagnostic[];
-  status: "degraded" | "healthy";
-  summary: string;
-  workload: { active: number; completed: number; failed: number; snapshots: number; total: number };
-};
-
-const diagnosticSchema = v.object({
-  detail: v.optional(v.string()),
-  label: v.string(),
-  status: v.picklist(["neutral", "ok", "warning"]),
-  value: v.string(),
-});
-const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite));
-const healthSchema = v.object({
-  checkedAt: v.pipe(
-    v.string(),
-    v.check((value) => Number.isFinite(Date.parse(value))),
-  ),
-  diagnostics: v.array(diagnosticSchema),
-  status: v.picklist(["degraded", "healthy"]),
-  summary: v.string(),
-  workload: v.object({
-    active: finiteNumberSchema,
-    completed: finiteNumberSchema,
-    failed: finiteNumberSchema,
-    snapshots: finiteNumberSchema,
-    total: finiteNumberSchema,
-  }),
-});
+type Diagnostic = ConsoleHealth["diagnostics"][number];
 
 const props = defineProps<{ endpoint: string }>();
 
-const health = ref<Health>();
+const health = ref<ConsoleHealth>();
 const error = ref<string>();
 const loading = ref(true);
 const refreshing = ref(false);
@@ -103,7 +67,8 @@ async function load() {
     const response = await fetch(props.endpoint, { signal: controller.signal });
     if (!response.ok) throw new Error(`Health request failed with status ${response.status}.`);
     const payload: unknown = await response.json();
-    if (!isHealth(payload)) throw new Error("The host returned an unsupported health payload.");
+    if (!isConsoleHealth(payload))
+      throw new Error("The host returned an unsupported health payload.");
     if (healthRequest === controller) {
       health.value = payload;
       error.value = undefined;
@@ -119,10 +84,6 @@ async function load() {
       refreshing.value = false;
     }
   }
-}
-
-function isHealth(value: unknown): value is Health {
-  return v.safeParse(healthSchema, value).success;
 }
 
 onMounted(() => {
