@@ -1335,6 +1335,30 @@ describe("hubWorkspace", () => {
     await expect(closeBundle.handler()).resolves.toBeUndefined()
   })
 
+  it("resolves factored definition-level Cloudflare Artifacts bindings", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `const definition = {`,
+      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" },`,
+      `}`,
+      `export default definition`,
+      ``,
+    ].join("\n"))
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([
+      { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
+    ])
+  })
+
   it("does not import unrelated Workspace Definitions while inspecting Cloudflare Artifacts", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
