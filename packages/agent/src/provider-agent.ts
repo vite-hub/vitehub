@@ -23,7 +23,7 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -1110,12 +1110,29 @@ function latestUserMessages(messages: Message[]): Message[] {
 function providerPrompt(messages: Message[], resumed: boolean, prompt?: string): string | undefined {
   if (!messages.length) return prompt?.trim() || undefined
   const selected = resumed ? latestUserMessages(messages) : messages
-  if (selected.length === 1 && selected[0]?.role === "user") return getMessageText(selected[0]).trim() || undefined
+  if (selected.length === 1 && selected[0]?.role === "user") return providerMessageContent(selected[0]).trim() || undefined
   const content = selected.flatMap((message) => {
-    const text = getMessageText(message).trim()
+    const text = providerMessageContent(message).trim()
     return text ? [`<message role="${message.role}">\n${text}\n</message>`] : []
   }).join("\n")
   return content || prompt?.trim() || undefined
+}
+
+function providerMessageContent(message: Message): string {
+  return message.parts.flatMap((part) => {
+    if (part.type === "text") return part.text
+    if (isAttachmentPart(part)) {
+      return JSON.stringify({ mediaType: part.mediaType, name: part.name, type: part.type, url: part.url })
+    }
+    if (part.type === "error") return part.error
+    if (part.type === "source") return part.url || part.title || ""
+    if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: part.type })
+    if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: part.type })
+    if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
+    if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
+    if (part.type === "data" || part.type.startsWith("data-")) return JSON.stringify(part.data)
+    return []
+  }).filter(Boolean).join("\n")
 }
 
 function attachmentId(threadId: string): string {
@@ -1142,10 +1159,8 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
   return bytes
 }
 
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, replayHistory: boolean) {
-  const parts = replayHistory
-    ? context.messages.flatMap(message => message.parts.filter(isAttachmentPart))
-    : currentInputAttachments(context.messages, context.runtime.run?.messageId)
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number) {
+  const parts = currentInputAttachments(context.messages, context.runtime.run?.messageId)
   if (!parts.length) return
   let remaining = maxBytes
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
@@ -1658,7 +1673,7 @@ async function* runProvider<
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, !preservesProviderSession),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,

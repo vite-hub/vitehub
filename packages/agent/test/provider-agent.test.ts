@@ -1523,20 +1523,22 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       messages: [
-        { parts: [{ text: "hello", type: "text" }, { fetchData: fetchHistoricalImage, mediaType: "image/png", type: "image" }], role: "user" },
-        { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "hello", type: "text" }, { fetchData: fetchHistoricalImage, mediaType: "image/png", name: "diagram.png", type: "image" }], role: "user" },
+        { parts: [{ id: "call-1", input: { path: "notes.txt" }, name: "read_file", state: "running", type: "tool-call" }], role: "assistant" },
+        { parts: [{ id: "call-1", name: "read_file", output: { text: "first answer" }, state: "completed", type: "tool-result" }], role: "tool" },
+        { parts: [{ data: { selection: "first answer" }, type: "data-selection" }, { title: "Notes", type: "source", url: "https://example.com/notes" }], role: "assistant" },
         { parts: [{ text: "continue", type: "text" }], role: "user" },
       ],
       prompt: "continue",
     }) as never)
 
     expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
-    expect(fetchHistoricalImage).toHaveBeenCalledOnce()
+    expect(fetchHistoricalImage).not.toHaveBeenCalled()
     expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
-      attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
-      input: '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
+      input: '<message role="user">\nhello\n{"mediaType":"image/png","name":"diagram.png","type":"image"}\n</message>\n<message role="assistant">\n{"input":{"path":"notes.txt"},"toolCallId":"call-1","toolName":"read_file","type":"tool-call"}\n</message>\n<message role="tool">\n{"output":{"text":"first answer"},"toolCallId":"call-1","toolName":"read_file","type":"tool-result"}\n</message>\n<message role="assistant">\n{"selection":"first answer"}\nhttps://example.com/notes\n</message>\n<message role="user">\ncontinue\n</message>',
       threadId,
     }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(second.attachmentsDirectory as string, { force: true, recursive: true })
   })
