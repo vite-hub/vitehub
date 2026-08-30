@@ -202,6 +202,7 @@ const codexCredentialProcessIdentity = processStartIdentity(process.pid)
 const codexCredentialProcessNamespace = readlink("/proc/self/ns/pid").catch(() => undefined)
 const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
 const codexCredentialSeedMaxBytes = 65
+const codexCredentialAuthMaxBytes = 1_048_576
 const codexCredentialConfigMaxBytes = 1_048_576
 const codexCredentialNextFilePattern = /^\.(?:auth\.json|config\.toml|\.vitehub-seed\.sha256)-[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\.next$/i
 let codexCredentialScavenging = Promise.resolve()
@@ -496,7 +497,7 @@ async function openCodexProfileHome(profile: string, credentials: string): Promi
   const authPath = join(homePath, "auth.json")
   const auth = await lstat(authPath).catch(() => undefined)
   if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}`)
-  const persistedCredentialsAreValid = auth?.isFile() && !auth.isSymbolicLink()
+  const persistedCredentialsAreValid = auth?.isFile() && !auth.isSymbolicLink() && auth.size <= codexCredentialAuthMaxBytes
     ? await readFile(authPath, "utf8")
         .then((value) => {
           const parsed: unknown = JSON.parse(value)

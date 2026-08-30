@@ -329,6 +329,29 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("repairs oversized persisted credentials without reading them", async () => {
+    const profile = `provider-oversized-auth-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    try {
+      runtime("thread-oversized-auth-first", [event("turn.completed", "thread-oversized-auth-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-oversized-auth-first") as never)
+      await writeFile(join(homePath, "auth.json"), "a".repeat(1_048_577), { mode: 0o600 })
+
+      runtime("thread-oversized-auth-repair", [event("turn.completed", "thread-oversized-auth-repair", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-oversized-auth-repair") as never)
+
+      await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
   it("removes abandoned credential writes when reopening a named profile", async () => {
     const profile = `provider-abandoned-write-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
