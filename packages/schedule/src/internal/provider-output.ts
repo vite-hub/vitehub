@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { builtinModules } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
@@ -700,6 +701,23 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
     await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
+    try {
+      await bundleEsmEntry(artifacts.denoCronFile, stagedDenoCronFile, {
+        alias: options.bundleAlias,
+        external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
+        format: "esm",
+        packages: "external",
+        platform: "neutral",
+        plugins: [createScheduleDefinitionAliasPlugin()],
+        rootDir: options.rootDir,
+        signal: options.signal,
+      })
+      await rename(stagedDenoCronFile, artifacts.denoCronFile)
+    }
+    finally {
+      await rm(stagedDenoCronFile, { force: true })
+    }
     options.signal?.throwIfAborted()
     await writeCloudflareScheduleOutput({
       bundleAlias: options.bundleAlias,

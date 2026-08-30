@@ -273,6 +273,8 @@ describe("schedule provider output", () => {
 
     expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).not.toContain("./registry.mjs")
+    expect(source).toContain("handler: () => \"ok\"")
   })
 
   it("can route Deno cron provider wake output through a preset facade", async () => {
