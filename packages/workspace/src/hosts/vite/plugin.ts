@@ -109,14 +109,37 @@ function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boole
   return binding?.referencePaths?.some(babelPathIsExported) ?? false
 }
 
+function babelPathReachesExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (current.node.type === "ExportNamedDeclaration" || current.node.type === "ExportDefaultDeclaration") return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesExport(reference, seen))) return true
+    }
+  }
+  return false
+}
+
 function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boolean {
   for (let current = path.parentPath; current; current = current.parentPath) {
-    if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") return true
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current) === "store"
+      && babelPathReachesExport(current)
+    ) return true
     if (
       current.node.type === "VariableDeclarator"
       && current.node.id?.type === "Identifier"
-      && current.node.id.name === "store"
-      && babelPathOrBindingIsExported(current, current.node.id.name)
+      && (
+        (current.node.id.name === "store" && babelPathOrBindingIsExported(current, current.node.id.name))
+        || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => (
+          reference.parentPath?.node.type === "ObjectProperty"
+          && babelPropertyName(reference.parentPath) === "store"
+          && babelPathReachesExport(reference.parentPath)
+        ))
+      )
     ) return true
     if (current.node.type === "ExportDefaultDeclaration") return true
     if (current.node.type === "FunctionDeclaration") {
