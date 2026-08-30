@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process"
+import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { createSign } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 
 const exec = promisify(execFile)
 const GITHUB_RATE_LIMIT_FALLBACK_MS = 5 * 60_000
@@ -40,6 +43,11 @@ export interface GitHubHostPullRequest {
   repository: string
 }
 
+export interface GitHubHostCheckoutOptions {
+  signal?: AbortSignal
+  timeout?: number
+}
+
 export interface GitHubGraphQLRateLimit {
   checkedAt: number
   remaining: number
@@ -52,7 +60,7 @@ export interface GitHubHost {
   command(args: string[], input?: { cwd?: string, env?: NodeJS.ProcessEnv, repository?: string }): Promise<{ stderr: string, stdout: string }>
   ensureGraphQLBudget(repository: string): Promise<GitHubGraphQLRateLimit>
   isRateLimitError(error: unknown): boolean
-  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>): Promise<T>
+  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
 
 class GitHubRateLimitError extends Error {
@@ -70,7 +78,7 @@ class GitHubRateLimitError extends Error {
 }
 
 function secret(value: GitHubHostSecret | undefined): string | undefined {
-  return typeof value === "string" ? value : value?.unseal()
+  return hasRuntimeType(value, "string") ? value : value?.unseal()
 }
 
 function positiveInteger(value: string, name: string): number {
@@ -94,18 +102,18 @@ function owner(repository: string): string {
 }
 
 function rateLimitMessage(error: unknown): boolean {
-  const stderr = typeof error === "object" && error !== null && "stderr" in error ? String(error.stderr) : ""
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
   const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
-  return /rate limit (?:already )?exceeded/i.test(message)
+  return /(?:rate limit[^\n]*exceeded|exceeded[^\n]*rate limit)/i.test(message)
 }
 
 export function parseGraphQLRateLimit(value: unknown, checkedAt: number = Date.now()): GitHubGraphQLRateLimit {
-  const resources = typeof value === "object" && value !== null && "resources" in value ? value.resources : undefined
-  const graphql = typeof resources === "object" && resources !== null && "graphql" in resources ? resources.graphql : undefined
-  const remaining = typeof graphql === "object" && graphql !== null && "remaining" in graphql ? graphql.remaining : undefined
-  const reset = typeof graphql === "object" && graphql !== null && "reset" in graphql ? graphql.reset : undefined
-  if (!Number.isSafeInteger(remaining) || typeof remaining !== "number" || remaining < 0
-    || !Number.isSafeInteger(reset) || typeof reset !== "number" || reset < 1) {
+  const resources = isRuntimeRecord(value) ? value.resources : undefined
+  const graphql = isRuntimeRecord(resources) ? resources.graphql : undefined
+  const remaining = isRuntimeRecord(graphql) ? graphql.remaining : undefined
+  const reset = isRuntimeRecord(graphql) ? graphql.reset : undefined
+  if (!hasRuntimeType(remaining, "number") || !Number.isSafeInteger(remaining) || remaining < 0
+    || !hasRuntimeType(reset, "number") || !Number.isSafeInteger(reset) || reset < 1) {
     throw new TypeError("GitHub did not return a valid GraphQL rate limit.")
   }
   return { checkedAt, remaining, resetAt: reset * 1_000 }
@@ -162,11 +170,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           })
           if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
           const body: unknown = await response.json()
-          const responseToken = typeof body === "object" && body !== null && "token" in body ? body.token : undefined
-          const expiresAt = typeof body === "object" && body !== null && "expires_at" in body ? body.expires_at : undefined
-          if (typeof responseToken !== "string") throw new Error("GitHub App token response did not include a token.")
+          const responseToken = isRuntimeRecord(body) ? body.token : undefined
+          const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
+          if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
           appToken = {
-            expiresAt: typeof expiresAt === "string" ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
+            expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
             token: responseToken,
           }
           appTokenKey = key
@@ -178,17 +186,26 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       token = await fallbackToken(config)
     }
 
-    return {
-      env: {
-        GH_TOKEN: token,
-        GITHUB_TOKEN: token,
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_TERMINAL_PROMPT: "0",
-        ...(identity.login ? { GIT_AUTHOR_NAME: identity.login, GIT_COMMITTER_NAME: identity.login } : {}),
-        ...(identity.email ? { GIT_AUTHOR_EMAIL: identity.email, GIT_COMMITTER_EMAIL: identity.email } : {}),
-      },
-      token,
+    const env: Record<string, string> = {
+      GH_TOKEN: token,
+      GITHUB_TOKEN: token,
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_VALUE_1: "!gh auth git-credential",
+      GIT_TERMINAL_PROMPT: "0",
     }
+    if (identity.login) {
+      env.GIT_AUTHOR_NAME = identity.login
+      env.GIT_COMMITTER_NAME = identity.login
+    }
+    if (identity.email) {
+      env.GIT_AUTHOR_EMAIL = identity.email
+      env.GIT_COMMITTER_EMAIL = identity.email
+    }
+    return { env, token }
   }
 
   async function command(
@@ -197,11 +214,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   ): Promise<{ stderr: string, stdout: string }> {
     const auth = await access({ repository: input.repository })
     try {
-      return await exec("gh", args, {
-        ...(input.cwd ? { cwd: input.cwd } : {}),
+      const execOptions: ExecFileOptionsWithStringEncoding = {
+        encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env },
         maxBuffer,
-      })
+      }
+      if (input.cwd) execOptions.cwd = input.cwd
+      return await exec("gh", args, execOptions)
     }
     catch (error) {
       if (input.repository && rateLimitMessage(error)) {
@@ -246,6 +265,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   async function withPullRequestCheckout<T>(
     pullRequest: GitHubHostPullRequest,
     run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>,
+    options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     try {
@@ -254,14 +274,15 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         repository: pullRequest.headRepository || pullRequest.repository,
       })
       const env = { ...process.env, ...auth.env }
-      await exec("gh", ["repo", "clone", pullRequest.repository, checkout, "--", "--filter=blob:none", "--no-checkout"], { env, maxBuffer })
-      await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository, "--detach"], { cwd: checkout, env, maxBuffer })
-      await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], { maxBuffer })
+      const commandOptions = { env, maxBuffer, signal: options.signal, timeout: options.timeout }
+      await exec("gh", ["repo", "clone", `https://github.com/${pullRequest.repository}.git`, checkout, "--", "--filter=blob:none", "--no-checkout"], commandOptions)
+      await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository, "--detach"], { ...commandOptions, cwd: checkout })
+      await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       const pushUrl = pullRequest.headRepository
         ? `https://github.com/${pullRequest.headRepository}.git`
         : "disabled://pull-request-head-repository-unavailable"
-      await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], { maxBuffer })
-      const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], { maxBuffer })).stdout.trim()
+      await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
+      const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       return await run({ ...auth, path: checkout })
     }

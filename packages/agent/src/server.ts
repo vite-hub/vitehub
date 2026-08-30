@@ -10,6 +10,7 @@ export type {
   GitHubGraphQLRateLimit,
   GitHubHost,
   GitHubHostAccess,
+  GitHubHostCheckoutOptions,
   GitHubHostCredentials,
   GitHubHostOptions,
   GitHubHostPullRequest,

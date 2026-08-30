@@ -2,20 +2,35 @@ import type { AgentInvocationRecord, AgentInvocationStore } from "../invocations
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
-  options: { before?: number, limit?: number, message?: string } = {},
+  options: { before?: number, claimLeaseMs?: number, limit?: number, message?: string } = {},
 ): Promise<number> {
-  const records = await store.list({ limit: options.limit ?? 100, status: ["pending", "running"] })
   const before = options.before ?? Date.now()
-  const interrupted = records.invocations.filter((invocation) => {
-    const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
-    return Number.isFinite(startedAt) && startedAt < before
-  })
-  await Promise.all(interrupted.map(invocation => store.update(invocation.id, {
-    error: { message: options.message || "The host stopped before this Agent Invocation finished." },
-    status: "failed",
-    timestamp: new Date().toISOString(),
-  })))
-  return interrupted.length
+  const claimLeaseMs = options.claimLeaseMs ?? 30_000
+  const limit = options.limit ?? 100
+  let cursor: string | undefined
+  let failed = 0
+  do {
+    const records = await store.list({ cursor, limit, status: ["pending", "running"] })
+    for (const invocation of records.invocations) {
+      const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
+      if (!Number.isFinite(startedAt) || startedAt >= before) continue
+      const claimId = `recovery_${globalThis.crypto.randomUUID()}`
+      if (!await store.claim(invocation.id, claimId, claimLeaseMs)) continue
+      try {
+        const updated = await store.update(invocation.id, {
+          error: { message: options.message || "The host stopped before this Agent Invocation finished." },
+          status: "failed",
+          timestamp: new Date().toISOString(),
+        }, claimId)
+        if (updated?.status === "failed") failed += 1
+      }
+      finally {
+        await store.release(invocation.id, claimId)
+      }
+    }
+    cursor = records.cursor
+  } while (cursor)
+  return failed
 }
 
 export function summarizeAgentInvocationWorkload(

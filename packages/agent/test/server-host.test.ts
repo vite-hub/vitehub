@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto"
-import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -20,6 +20,9 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   process.env.PATH = originalPath
   delete process.env.VITEHUB_TEST_HEAD_SHA
+  delete process.env.VITEHUB_TEST_CLONE_DELAY
+  delete process.env.VITEHUB_TEST_COMMAND_LOG
+  delete process.env.VITEHUB_TEST_RATE_LIMIT
   await Promise.all([...temporaryDirectories].map(path => rm(path, { force: true, recursive: true })))
   temporaryDirectories.clear()
 })
@@ -29,6 +32,16 @@ async function installFakeGitHubCommands(): Promise<void> {
   temporaryDirectories.add(root)
   await Promise.all([
     writeFile(join(root, "gh"), `#!/bin/sh
+if [ -n "$VITEHUB_TEST_COMMAND_LOG" ]; then
+  printf 'gh %s|%s|%s\\n' "$*" "$GIT_CONFIG_VALUE_1" "$GH_TOKEN" >> "$VITEHUB_TEST_COMMAND_LOG"
+fi
+if [ -n "$VITEHUB_TEST_RATE_LIMIT" ]; then
+  printf '%s\\n' "$VITEHUB_TEST_RATE_LIMIT" >&2
+  exit 1
+fi
+if [ "$1" = "repo" ] && [ "$2" = "clone" ] && [ -n "$VITEHUB_TEST_CLONE_DELAY" ]; then
+  sleep "$VITEHUB_TEST_CLONE_DELAY"
+fi
 if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
   printf '%s\\n' '{"resources":{"graphql":{"remaining":100,"reset":2000000000}}}'
 fi
@@ -121,8 +134,26 @@ describe("GitHub host", () => {
     expect(host.budget()).toEqual({ limited: true, remaining: 100, resetAt: 2_000_000_000_000 })
   })
 
+  it("classifies documented secondary rate limits", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+
+    let failure: unknown
+    try {
+      await host.command(["api", "graphql"], { repository: "vite-hub/vitehub" })
+    }
+    catch (error) {
+      failure = error
+    }
+    expect(host.isRateLimitError(failure)).toBe(true)
+  })
+
   it("verifies the exact pull-request head and removes the temporary checkout", async () => {
     await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
     process.env.VITEHUB_TEST_HEAD_SHA = "expected-head"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
     let checkout = ""
@@ -139,6 +170,10 @@ describe("GitHub host", () => {
     })).resolves.toBe("complete")
 
     await expect(access(checkout)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(commandLog, "utf8")).resolves.toContain(
+      "gh repo clone https://github.com/vite-hub/vitehub.git",
+    )
+    await expect(readFile(commandLog, "utf8")).resolves.toContain("!gh auth git-credential|token")
 
     await expect(host.withPullRequestCheckout({
       headSha: "expected-head",
@@ -149,6 +184,23 @@ describe("GitHub host", () => {
       throw new Error("callback failed")
     })).rejects.toThrow("callback failed")
     await expect(access(checkout)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("cancels checkout commands and removes the temporary checkout", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_CLONE_DELAY = "10"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+    const controller = new AbortController()
+    const prefix = "vitehub-vite-hub-vitehub-pr-125-"
+    const before = new Set((await readdir(tmpdir())).filter(path => path.startsWith(prefix)))
+    setTimeout(() => controller.abort(), 20)
+
+    await expect(host.withPullRequestCheckout({
+      headSha: "expected-head",
+      number: 125,
+      repository: "vite-hub/vitehub",
+    }, async () => undefined, { signal: controller.signal })).rejects.toMatchObject({ code: "ABORT_ERR" })
+    expect((await readdir(tmpdir())).filter(path => path.startsWith(prefix) && !before.has(path))).toEqual([])
   })
 })
 
@@ -175,6 +227,29 @@ describe("Agent Invocation host recovery", () => {
       status: "failed",
     })
     await expect(Promise.resolve(store.get("new-running"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("recovers every page without taking work claimed by another host", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    for (let index = 0; index < 101; index += 1) {
+      store.create({
+        createdAt,
+        id: `old-${index}`,
+        observations: [],
+        status: "running",
+        traceId: `trace-${index}`,
+        updatedAt: createdAt,
+      })
+    }
+    await store.claim("old-100", "live-host", 60_000)
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      limit: 25,
+    })).resolves.toBe(100)
+    await expect(Promise.resolve(store.get("old-0"))).resolves.toMatchObject({ status: "failed" })
+    await expect(Promise.resolve(store.get("old-100"))).resolves.toMatchObject({ status: "running" })
   })
 
   it("summarizes current and stale work", () => {
