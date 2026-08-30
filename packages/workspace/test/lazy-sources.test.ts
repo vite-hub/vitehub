@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { WorkspaceStore } from "../src/index.ts"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
@@ -830,6 +831,38 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
   })
 
+  it("preserves complete aggregate totals after a partial refresh failure", async () => {
+    let revision = "one"
+    let failSecond = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-failed-aggregates",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() { return ["a.md", "b.md"] },
+          async getItem(key) {
+            if (key === "b.md" && failSecond) throw new Error("temporary source failure")
+            return { key, path: key, content: key === "a.md" ? revision : "b" }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    revision = "three"
+    failSecond = true
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ bytes: 6, files: 2, status: "error" })],
+    })
+    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+      bytes: 6,
+      files: 2,
+      status: "error",
+    })
+  })
+
   it("checkpoints completed source items when materialization is canceled", async () => {
     const abort = new AbortController()
     let cancel = true
@@ -1250,6 +1283,175 @@ describe("lazy sources", () => {
     expect(maxActiveReads).toBe(1)
     await expect(store.stat("b.bin")).resolves.toBeUndefined()
     await expect(store.stat("c.bin")).resolves.toBeUndefined()
+  })
+
+  it("keeps cache-hit aggregates after scoped materialization", async () => {
+    const files = new Map([["a.md", "# A\n"]])
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-cache",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() { return [...files.keys()] },
+          async getItem(key) { return { key, path: key, content: files.get(key) || "" } },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    files.set("b.md", "# B\n")
+    await expect(view.materializeSources({ path: "docs/b.md", sources: ["docs"] })).resolves.toMatchObject({ bytes: 4, files: 1 })
+
+    const progress: unknown[] = []
+    await expect(view.materializeSources({
+      details: "paths",
+      onProgress(event) { progress.push(event) },
+      sources: ["docs"],
+    })).resolves.toMatchObject({
+      bytes: 8,
+      files: 2,
+      sources: [{
+        bytes: 8,
+        counts: { added: 0, removed: 0, unchanged: 2, updated: 0 },
+        files: 2,
+        paths: [
+          { path: "docs/a.md", status: "unchanged" },
+          { path: "docs/b.md", status: "unchanged" },
+        ],
+      }],
+    })
+    expect(progress.at(-1)).toMatchObject({ bytes: 8, files: 2, status: "completed" })
+  })
+
+  it("counts streamed bytes when the Store omits size", async () => {
+    const store = createLocalWorkspaceStore(await createRoot())
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => {
+      const result = await writeFileStream(path, file)
+      return { ...result, size: undefined }
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-size",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() { return ["asset.bin"] },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.enqueue(new Uint8Array([3, 4]))
+                  controller.close()
+                },
+              }),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{ bytes: 5, status: "ready" }],
+    })
+    const readFile = vi.spyOn(store, "readFile")
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 5,
+      sources: [{
+        bytes: 5,
+        counts: { added: 0, removed: 0, unchanged: 1, updated: 0 },
+        paths: [{ path: "docs/asset.bin", status: "unchanged" }],
+      }],
+    })
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("rejects streaming Stores that omit the required digest", async () => {
+    const store = createLocalWorkspaceStore(await createRoot())
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => {
+      const { digest: _, ...result } = await writeFileStream(path, file)
+      // SAFETY: This fixture deliberately removes the required digest to exercise runtime validation.
+      return result as Awaited<ReturnType<NonNullable<WorkspaceStore["writeFileStream"]>>>
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-digest",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getKeys() { return ["asset.bin"] },
+          async getItem(key) {
+            return { key, contentStream: new Blob(["content"]).stream() }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ error: "[vitehub] Workspace Store writeFileStream() must return a content digest.", status: "error" }],
+    })
+  })
+
+  it("keeps scoped bytes aligned with the persisted snapshot after Store drift", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-scoped-byte-drift",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          async getKeys() { return ["a.md"] },
+          async getItem(key) { return { key, content: "# A\n" } },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    await store.rm("docs/a.md")
+    await expect(view.materializeSources({ path: "docs/a.md", sources: ["docs"] })).resolves.toMatchObject({ bytes: 4, files: 1 })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      bytes: 4,
+      files: 1,
+      sources: [{ bytes: 4, files: 1 }],
+    })
+  })
+
+  it("reports materialized file attribute changes as updates", async () => {
+    let mediaType: string | undefined
+    let metadata = { category: "draft" }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "materialization-attribute-deltas",
+      sources: {
+        docs: custom({
+          cache: false,
+          materialize: "lazy",
+          async getItems() {
+            return [{ key: "a.md", path: "a.md", content: "# Same\n", mediaType, metadata }]
+          },
+          async getKeys() { return ["a.md"] },
+          async getItem(key) { return { key, path: key, content: "# Same\n", mediaType, metadata } },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+    mediaType = "text/markdown"
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 0, updated: 1 } }],
+    })
+    metadata = { category: "published" }
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 0, updated: 1 } }],
+    })
+    await expect(view.materializeSources({ details: "paths", sources: ["docs"] })).resolves.toMatchObject({
+      sources: [{ counts: { added: 0, removed: 0, unchanged: 1, updated: 0 } }],
+    })
   })
 
   it("uses a complete source snapshot after materialization", async () => {

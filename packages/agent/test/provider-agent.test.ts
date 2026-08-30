@@ -72,6 +72,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 import { createProviderAgentAdapter, localWorkspaceHost, restrictWindowsCodexCredentialHome } from "../src/provider-agent.ts"
+import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
@@ -2664,7 +2665,15 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
       readFile: vi.fn(async () => new Uint8Array()),
     }
-    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: "",
+      sources: [],
+    }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2676,10 +2685,76 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       workspaceMode: "write",
     }) as never)
 
-    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ paths: undefined, target: expect.any(String) }))
+    expect(materializeSources).toHaveBeenCalledWith(expect.objectContaining({ onProgress: expect.any(Function), path: "" }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ materializeSources: false, onProgress: expect.any(Function), paths: undefined, target: expect.any(String) }))
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ writeBack: expect.anything() }))
     expect(session.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "chore: save provider work" }))
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
+    const threadId = "thread-workspace-materialization-cancellation"
+    const abort = new AbortController()
+    let releaseActive!: () => void
+    let activeSettled = false
+    const active = new Promise<void>(resolve => releaseActive = resolve)
+    const materializeSources = vi.fn(async ({ path }: { path: string }) => {
+      if (path === "docs/a.md") {
+        await active
+        activeSettled = true
+        throw abort.signal.reason
+      }
+      throw abort.signal.reason
+    })
+    const workspace = { fs: {}, materializeSources, tools: {} }
+    const runContext = context(threadId, {
+      input: { abortSignal: abort.signal, prompt: "hello" },
+      workspace,
+      workspaceDefinition: { name: "docs" },
+      workspaceMaterializationPaths: ["docs/a.md", "docs/b.md"],
+    })
+    runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
+    // SAFETY: This test fixture supplies the trusted access context expected by the helper.
+    markTrustedWorkspaceAccessScope(runContext.context as never)
+
+    // SAFETY: This test fixture supplies the complete provider generation context.
+    const generation = createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    await vi.waitFor(() => expect(materializeSources).toHaveBeenCalledTimes(2))
+    abort.abort(new DOMException("Canceled", "AbortError"))
+    await Promise.resolve()
+    expect(activeSettled).toBe(false)
+    releaseActive()
+    await expect(generation).rejects.toThrow("Canceled")
+    expect(activeSettled).toBe(true)
+  })
+
+  it("keeps session materialization enabled after selected Source errors", async () => {
+    const threadId = "thread-workspace-materialization-error"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: "",
+      sources: [{ source: "docs", status: "error" }],
+    }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { name: "docs" },
+    }) as never)
+
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
   })
 
   it("keeps colocated Skills readable and out of Workspace writeback", async () => {
@@ -2831,7 +2906,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(session.close).toHaveBeenCalledOnce()
   })
 
-  it("does not write back a read-only Workspace", async () => {
+  it("keeps session materialization and disables writeback for a read-only Workspace", async () => {
     const threadId = "thread-workspace-read"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
@@ -2856,6 +2931,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(session.diff).not.toHaveBeenCalled()
     expect(session.commit).not.toHaveBeenCalled()
     expect(workspace.startSession).toHaveBeenCalledWith(expect.objectContaining({ writeBack: false }))
+    expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(readAgentWorkspaceDiff(runContext.context as never)).toBeUndefined()
     expect(session.close).toHaveBeenCalledOnce()

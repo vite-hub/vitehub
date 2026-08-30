@@ -370,6 +370,121 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("inspect")).toEqual([["agent"], ["workspace"]]);
   });
 
+  it("keeps a failed delivery's error inspectable beside its captured reply", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Partially delivered reply.",
+          "channel.effect.kind": "reply",
+          "error.message": "Telegram disconnected",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
+
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reply failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
+    expect(delivery.get("summary").element.tagName).toBe("SUMMARY");
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Partially delivered reply.");
+    expect(delivery.get(".vh-invocation-delivery__body").element.parentElement).toBe(delivery.element);
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Telegram disconnected");
+    expect(delivery.findAll(".vh-invocation-event__markdown")).toHaveLength(1);
+  });
+
+  it("does not present a failed non-reply delivery error as sent content", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "failed-reaction",
+      observations: [{
+        attributes: {
+          "channel.effect.kind": "reaction",
+          "error.message": "Reaction delivery failed",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "error" as const,
+      }],
+      status: "failed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(invocationActivityTitle(invocationActivities(invocation)[0]!)).toBe("Reaction failed");
+    expect(invocationActivities(invocation)[0]?.status).toBe("failed");
+    expect(delivery.find(".vh-invocation-delivery__body").exists()).toBe(false);
+    await delivery.get("summary").trigger("click");
+    expect(delivery.get(".vh-invocation-event__failure").text()).toBe("Reaction delivery failed");
+    expect(delivery.find(".vh-invocation-event__body").exists()).toBe(false);
+  });
+
+  it("discloses truncation beside a visible delivery body", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "truncated-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "Bounded reply.",
+          "channel.effect.kind": "reply",
+          "vitehub.observation.truncated": true,
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const delivery = wrapper.get('[data-kind="delivery"]');
+
+    expect(delivery.find("summary").exists()).toBe(false);
+    expect(delivery.get(".vh-invocation-delivery__body").text()).toBe("Bounded reply.");
+    expect(wrapper.get('[data-activity-id="trace-truncated"] .vh-invocation-event__title').text()).toBe("Trace content was truncated");
+  });
+
+  it("preserves Markdown-significant whitespace in captured delivery bodies", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "indented-delivery",
+      observations: [{
+        attributes: {
+          "channel.effect.content": "    delivered as code\n",
+          "channel.effect.kind": "reply",
+        },
+        name: "agent.channel.delivery",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const delivery = mount(AgentInvocation, { props: { invocation } }).get('[data-kind="delivery"]');
+
+    expect(delivery.get(".vh-invocation-delivery__body .vh-invocation-event__markdown").element.textContent)
+      .toBe("    delivered as code\n");
+  });
+
   it("includes failure in a collapsed activity's accessible text", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -467,10 +582,22 @@ describe("Agent Invocation UI", () => {
       id: "completed-thread",
       observations: [
         { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
-        { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" as const },
-        { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 3, timestamp, type: "run" as const },
-        { attributes: { "channel.effect.kind": "telegram.message.sent" }, name: "agent.channel.delivery", sequence: 4, timestamp, type: "run" as const },
-        { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 5, timestamp, type: "lifecycle" as const },
+        { attributes: { "channel.effect.intent": "started", "channel.effect.kind": "reaction" }, name: "agent.channel.delivery", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "shell", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 3, timestamp, type: "run" as const },
+        { attributes: { "tool.id": "shell", "tool.output": "passed", "tool.name": "shell" }, name: "agent.tool.finish", sequence: 4, timestamp, type: "run" as const },
+        {
+          attributes: {
+            "channel.delivery.provider": "telegram",
+            "channel.effect.content": "The Telegram reply body.",
+            "channel.effect.kind": "reply",
+          },
+          name: "agent.channel.delivery",
+          sequence: 5,
+          timestamp,
+          type: "run" as const,
+        },
+        { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 6, timestamp, type: "lifecycle" as const },
+        { attributes: { "tool.id": "verify", "tool.output": "clean", "tool.name": "verify" }, name: "agent.tool.finish", sequence: 7, timestamp, type: "run" as const },
       ],
       startedAt: timestamp,
       status: "cancelled" as const,
@@ -486,13 +613,38 @@ describe("Agent Invocation UI", () => {
     expect(rows.map(row => row.classes().find(name => name.startsWith("vh-invocation-") && name !== "vh-invocation-activities"))).toEqual([
       "vh-invocation-message",
       "vh-invocation-activity",
+      "vh-invocation-activity",
       "vh-invocation-work",
       "vh-invocation-message",
     ]);
     expect(rows[1]!.attributes("data-kind")).toBe("delivery");
-    expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 5s");
+    expect(rows[2]!.attributes("data-kind")).toBe("delivery");
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(1);
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
-    expect(rows[3]!.text()).toContain("Done.");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Verify");
+    expect(rows[4]!.text()).toContain("Done.");
+    expect(rows[2]!.get('[data-icon="message"]').attributes("data-icon")).toBe("message");
+    expect(rows[2]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
+  });
+
+  it("keeps adjacent completed lifecycle activities grouped", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "completed-groups",
+      observations: [
+        { attributes: { "message.content": "Run it.", "message.id": "user", "message.role": "user" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.first", sequence: 2, timestamp, type: "run" as const },
+        { attributes: { "vitehub.activity.group": "github-completion" }, name: "github.second", sequence: 3, timestamp, type: "run" as const },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+
+    expect(wrapper.findAll(".vh-invocation-lifecycle")).toHaveLength(1);
+    expect(wrapper.findAll(".vh-invocation-lifecycle li")).toHaveLength(2);
   });
 
   it("keeps anonymous assistant turns on either side of a tool in sequence", () => {
@@ -552,6 +704,41 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[data-role="user"] .vh-visually-hidden').text()).toBe("User message");
     expect(wrapper.get('[data-role="assistant"] .vh-visually-hidden').text()).toBe("Assistant message");
     expect(wrapper.get('[data-role="tool"] .vh-visually-hidden').text()).toBe("Tool message");
+  });
+
+  it("keeps completed multi-turn conversations outside work summaries", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      completedAt: timestamp,
+      createdAt: timestamp,
+      id: "multi-turn-invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Follow-up question", type: "text" }], role: "user" },
+            { id: "assistant-2", parts: [{ text: "Final answer", type: "text" }], role: "assistant" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(0);
+    expect(wrapper.findAll(".vh-invocation-message").map(message => message.text())).toEqual([
+      expect.stringContaining("First question"),
+      expect.stringContaining("First answer"),
+      expect.stringContaining("Follow-up question"),
+      expect.stringContaining("Final answer"),
+    ]);
   });
 
   it("derives commands from direct provider payloads", () => {
@@ -1897,11 +2084,23 @@ describe("Agent Invocation UI", () => {
       observations: [
         {
           attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
+            "vitehub.activity.kind": "preparation",
+            "vitehub.activity.title": "Materializing workspace",
+          },
+          name: "vitehub.workspace.materialization.start",
+          sequence: 1,
+          timestamp,
+          type: "lifecycle" as const,
+        },
+        {
+          attributes: {
+            "step.id": "vitehub.workspace.materialization:[\"docs\",\"\"]",
             "vitehub.activity.kind": "preparation",
             "vitehub.activity.title": "Workspace materialized",
           },
-          name: "vitehub.workspace.materialized",
-          sequence: 1,
+          name: "vitehub.workspace.materialization.completed",
+          sequence: 2,
           timestamp,
           type: "lifecycle" as const,
         },
@@ -1911,12 +2110,12 @@ describe("Agent Invocation UI", () => {
             "channel.effect.kind": "reaction",
           },
           name: "vitehub.channel.delivery",
-          sequence: 2,
+          sequence: 3,
           timestamp,
           type: "lifecycle" as const,
         },
       ],
-      status: "completed" as const,
+      status: "running" as const,
       traceId: "trace",
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
@@ -1924,6 +2123,7 @@ describe("Agent Invocation UI", () => {
     const activities = invocationActivities(invocation);
     expect(activities.map(activity => activity.kind)).toEqual(["preparation", "delivery"]);
     expect(activities.map(invocationActivityTitle)).toEqual(["Workspace materialized", "Reacted with eyes"]);
+    expect(activities[0]?.status).toBe("completed");
   });
 
   it("groups preparation, links the pull request, and emits inspector targets", async () => {
@@ -1956,7 +2156,7 @@ describe("Agent Invocation UI", () => {
             "vitehub.activity.title": "Workspace materialized",
             "vitehub.inspect.target": "workspace",
           },
-          name: "vitehub.workspace.materialized",
+          name: "vitehub.workspace.materialization.completed",
           sequence: 2,
           timestamp,
           type: "lifecycle" as const,
@@ -2084,7 +2284,7 @@ describe("Agent Invocation UI", () => {
 
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
-    expect(wrapper.find(".vh-invocation-activities > .vh-invocation-message[data-role=\"assistant\"]").exists()).toBe(false);
+    expect(messages.at(-1)!.attributes("data-role")).toBe("user");
   });
 
   it("renders truncation after work when the latest user has no response", () => {
