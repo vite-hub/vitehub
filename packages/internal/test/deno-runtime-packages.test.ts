@@ -82,8 +82,10 @@ export {
     expect(collectDenoRuntimePackageNames(`
 import café from "unicode-default"
 import * as 配置 from "unicode-namespace"
+import \\u0065scaped from "unicode-escaped-default"
+import * as \\u{914D}\\u7F6E from "unicode-escaped-namespace"
 export { 値 as value } from "unicode-export"
-`)).toEqual(["unicode-default", "unicode-export", "unicode-namespace"])
+`)).toEqual(["unicode-default", "unicode-escaped-default", "unicode-escaped-namespace", "unicode-export", "unicode-namespace"])
   })
 
   it("does not cross semicolonless statement boundaries while finding static imports", () => {

@@ -107,7 +107,13 @@ function collectCreateRequireAliases(source: string): Set<string> {
   return aliases
 }
 
-const staticFromPattern = /(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*)?|[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*))?)\s*\bfrom\b\s*["']([^"']+)["']/gmu
+const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const bindingIdentifier = `${identifierStart}${identifierContinue}*`
+const staticFromPattern = new RegExp(
+  String.raw`(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
+  "gmu",
+)
 
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
@@ -1196,7 +1202,15 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
       catch (reclaimError) {
         // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
         if ((reclaimError as NodeJS.ErrnoException).code === "EEXIST") {
-          const reclaimer = Number.parseInt(await readFile(reclaimPath, "utf8").catch(() => ""), 10)
+          const claimedReclaimPath = `${reclaimPath}.orphan.${process.pid}.${randomUUID()}`
+          try {
+            await rename(reclaimPath, claimedReclaimPath)
+          }
+          catch (claimError) {
+            if ((claimError as NodeJS.ErrnoException).code === "ENOENT") continue
+            throw claimError
+          }
+          const reclaimer = Number.parseInt(await readFile(claimedReclaimPath, "utf8").catch(() => ""), 10)
           let reclaimerAlive = Number.isSafeInteger(reclaimer) && reclaimer > 0
           if (reclaimerAlive) {
             try { process.kill(reclaimer, 0) }
@@ -1207,9 +1221,13 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
             }
           }
           if (reclaimerAlive) {
+            await rename(claimedReclaimPath, reclaimPath).catch((restoreError) => {
+              if ((restoreError as NodeJS.ErrnoException).code !== "EEXIST") throw restoreError
+            })
+            await rm(claimedReclaimPath, { force: true })
             throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized.`)
           }
-          await rm(reclaimPath, { force: true })
+          await rm(claimedReclaimPath, { force: true })
           continue
         }
         throw reclaimError
