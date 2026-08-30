@@ -138,7 +138,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({
+    ...vitehub({
       preset: 'cloudflare',
       browser: true,
     }),
