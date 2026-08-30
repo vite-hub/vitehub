@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
-
-import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
 import { resolve } from "pathe"
@@ -184,7 +182,8 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const args = options.args || process.argv.slice(2)
   const stdout = options.stdout || process.stdout
   if (args[0] === "-v" || args[0] === "--version") {
-    stdout.write(`${cliPackageManifest.version}\n`)
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+    stdout.write(`${manifest.version}\n`)
     return 0
   }
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -63,13 +63,19 @@ describe("ViteHub CLI", () => {
     expect(loadConfig).not.toHaveBeenCalled()
   })
 
-  it("prints the version through the built binary outside a project", async () => {
+  it("prints the installed manifest version through the built binary outside a project", async () => {
     const rootDir = await createTempDir()
-    const { stderr, stdout } = await execFileAsync(process.execPath, [resolve(import.meta.dirname, "../dist/index.js"), "--version"], {
+    const packageDir = join(rootDir, "package")
+    await mkdir(packageDir, { recursive: true })
+    await cp(resolve(import.meta.dirname, "../dist"), join(packageDir, "dist"), { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(packageDir, "node_modules"), "dir")
+
+    const { stderr, stdout } = await execFileAsync(process.execPath, [join(packageDir, "dist/index.js"), "--version"], {
       cwd: rootDir,
     })
 
-    expect(stdout).toBe(`${cliPackageManifest.version}\n`)
+    expect(stdout).toBe("0.0.0-preview.1174\n")
     expect(stderr).toBe("")
   })
 
