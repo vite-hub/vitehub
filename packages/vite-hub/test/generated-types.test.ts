@@ -1319,7 +1319,6 @@ describe("framework generated types", () => {
     const oldRestart = vi.fn(() => oldRestartFinished)
     configureServer(plugin, { restartReplacesEnvironments: () => false })({
       config: { logger: { error: vi.fn() } },
-      environments: {},
       restart: oldRestart,
       watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
     })
