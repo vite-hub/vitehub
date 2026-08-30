@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@github-tools/eve-extension": "0.3.0",
-    "@octokit/auth-app": "8.3.0",
     "ai": "7.0.38",
     "eve": "^0.31.3",
     "h3": "^2.0.1-rc.25",

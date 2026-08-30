@@ -3,11 +3,12 @@ import { promisify } from 'node:util'
 import { useServerEnv } from '#vitehub/env/server'
 import { defineEventHandler } from 'h3'
 import { createAgentInspectionMetadata } from 'vite-hub/agent'
+import { summarizeAgentInvocationWorkload } from 'vite-hub/agent/server'
 import babysitterAgent from '../agents/babysitter/agent.ts'
 import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
-import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
+import { github } from '../github.ts'
 import { invocations } from '../invocations.ts'
 
 const exec = promisify(execFile)
@@ -21,16 +22,16 @@ export default defineEventHandler(async () => {
   const repositories = resolveRepositories(configuredRepositories, repository)
   const ownerLimit = resolveMaxOwners(maxOwners)
   const capacity = createAgentInspectionMetadata(babysitterAgent).config?.driver.capacity
-  const githubBudget = githubGraphQLRateLimitSnapshot()
-  const [github, codex, recent] = await Promise.all([
+  const githubBudget = github.budget()
+  const [githubDiagnostic, codex, recent] = await Promise.all([
     checkGitHub(),
     checkCodex(),
     invocations.list({ limit: 100 }).catch(() => ({ invocations: [] })),
   ])
-  const counts = summarizeInvocationWorkload(recent.invocations, Date.now() - process.uptime() * 1_000)
-  const healthy = github.status === 'ok' && codex.status === 'ok' && counts.stale === 0
+  const counts = summarizeAgentInvocationWorkload(recent.invocations, Date.now() - process.uptime() * 1_000)
+  const healthy = githubDiagnostic.status === 'ok' && codex.status === 'ok' && counts.stale === 0
   const diagnostics: Diagnostic[] = [
-    github,
+    githubDiagnostic,
     {
       label: 'GitHub budget',
       status: githubBudget.limited ? 'warning' : 'ok',
@@ -71,7 +72,7 @@ export default defineEventHandler(async () => {
 
 async function checkGitHub(): Promise<Diagnostic> {
   try {
-    await githubToken({ fallback: true })
+    await github.access({ fallback: true })
     return { label: 'GitHub', status: 'ok', value: 'Connected', detail: 'Credentials available' }
   }
   catch {
@@ -95,21 +96,4 @@ function formatUptime(seconds: number) {
   if (minutes < 60) return `Up for ${minutes}m`
   const hours = Math.floor(minutes / 60)
   return `Up for ${hours}h ${minutes % 60}m`
-}
-
-function summarizeInvocationWorkload(
-  recent: readonly { createdAt: string, startedAt?: string, status: string }[],
-  processStartedAt: number,
-) {
-  const counts = { active: 0, completed: 0, failed: 0, stale: 0, total: recent.length }
-  for (const invocation of recent) {
-    if (invocation.status === 'pending' || invocation.status === 'running') {
-      const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
-      if (Number.isFinite(startedAt) && startedAt < processStartedAt) counts.stale += 1
-      else counts.active += 1
-    }
-    else if (invocation.status === 'completed') counts.completed += 1
-    else if (invocation.status === 'failed') counts.failed += 1
-  }
-  return counts
 }

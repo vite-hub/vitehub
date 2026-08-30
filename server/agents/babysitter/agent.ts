@@ -1,16 +1,17 @@
-import github from '@github-tools/eve-extension'
+import githubCapability from '@github-tools/eve-extension'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
 import * as agentChannels from 'vite-hub/agent/channels'
 import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
-import { createCheckoutGitEnvironment } from '../../babysitter.checkout.ts'
 import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
 import { consoleClient } from '../../console.ts'
-import { githubAgentEnvironment, githubToken } from '../../github.ts'
+import { github as githubHost } from '../../github.ts'
 import { invocations } from '../../invocations.ts'
 
-const capabilityToken = await githubToken({ fallback: true })
+type GitHubAccess = Awaited<ReturnType<typeof githubHost.access>>
+
+const capabilityAccess = await githubHost.access({ fallback: true })
 const maxOwners = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
 export const ownerCapacity = createProcessAgentCapacity({
   concurrency: maxOwners,
@@ -26,12 +27,12 @@ export const ownerCapacity = createProcessAgentCapacity({
   queue: { maxPending: 100 },
   rampUp: 1,
 })
-const capabilities = [diagnostics({ resources: nodeRuntimeResources() }), title({
+const createCapabilities = (token: string) => [diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
     return context.pullRequestTitle
   },
-}), github({
+}), githubCapability({
   exclude: [
     'addPullRequestComment',
     'createPullRequestReview',
@@ -41,7 +42,7 @@ const capabilities = [diagnostics({ resources: nodeRuntimeResources() }), title(
     'updatePullRequestComment',
   ],
   preset: 'code-review',
-  token: capabilityToken,
+  token,
 }), ...(consoleClient
   ? [otlp({
       content: { inputs: true, instructions: true, outputs: true },
@@ -50,16 +51,17 @@ const capabilities = [diagnostics({ resources: nodeRuntimeResources() }), title(
       resource: { 'service.namespace': 'vitehub' },
     })]
   : [])] as const
-const createDriver = (token: string, checkout?: string) => codexDriver({
+const capabilities = createCapabilities(capabilityAccess.token)
+const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
   capacity: ownerCapacity,
   env: {
     NODE_OPTIONS: '--max-old-space-size=1024',
-    ...githubAgentEnvironment(token),
-    ...(checkout ? createCheckoutGitEnvironment(checkout) : {}),
+    ...access.env,
+    ...(checkout ? { GIT_DIR: `${checkout}/.git`, GIT_WORK_TREE: '.' } : {}),
   },
   model: 'gpt-5.6-sol',
 })
-const driver = createDriver(capabilityToken)
+const driver = createDriver(capabilityAccess)
 
 const settings = {
   capabilities,
@@ -71,11 +73,12 @@ const settings = {
   name: 'babysitter',
 } as const
 
-export function createBabysitterAgent(checkout: string, token: string) {
+export function createBabysitterAgent(checkout: string, access: GitHubAccess) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
   return defineAgent({
     ...settings,
-    driver: createDriver(token, checkout),
+    capabilities: createCapabilities(access.token),
+    driver: createDriver(access, checkout),
     workspace: {
       commit: true,
       mode: 'write',

@@ -5,8 +5,7 @@ import { createBabysitterAgent } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import promptTemplate from './agents/babysitter/prompt.template.md?raw'
-import { withPullRequestCheckout } from './babysitter.checkout.ts'
-import { ensureGitHubGraphQLBudget, githubToken, isGitHubRateLimitError, runGitHub } from './github.ts'
+import { github } from './github.ts'
 import {
   logOperationalError,
   logOperationalEvent,
@@ -80,8 +79,12 @@ export async function reconcileBabysitterWork(reason: string) {
       ...owner,
     })
     try {
-      const token = await githubToken({ refresh: true, repository })
-      await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
+      await github.withPullRequestCheckout({
+        headRepository: pullRequest.headRepository?.nameWithOwner,
+        headSha: pullRequest.headRefOid,
+        number: pullRequest.number,
+        repository,
+      }, async ({ path: checkout, ...access }) => {
         const context = {
           pullRequestHead: pullRequest.headRefOid,
           pullRequestNumber: pullRequest.number,
@@ -91,7 +94,7 @@ export async function reconcileBabysitterWork(reason: string) {
           pullRequestTitle: pullRequest.title,
           pullRequestUrl: pullRequest.url,
         }
-        const agent = createBabysitterAgent(checkout, token)
+        const agent = createBabysitterAgent(checkout, access)
         const prompt = await renderPrompt({ blocker, context })
         const result = await runScheduledAgent(agent, {
           ...schedule,
@@ -137,7 +140,7 @@ export async function reconcileBabysitterWork(reason: string) {
       }
     }
     catch (error) {
-      if (isGitHubRateLimitError(error)) {
+      if (github.isRateLimitError(error)) {
         outcome = 'deferred'
         logOperationalEvent('babysitter.owner.deferred', { reason: 'github-rate-limit', ...owner })
       }
@@ -201,14 +204,14 @@ async function readCompletion(key: string) {
 
 async function listPullRequests(repository: string) {
   try {
-    await ensureGitHubGraphQLBudget(repository)
+    await github.ensureGraphQLBudget(repository)
   }
   catch (error) {
-    if (isGitHubRateLimitError(error)) return []
+    if (github.isRateLimitError(error)) return []
     throw error
   }
   const [result, feedback] = await Promise.all([
-    runGitHub(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
+    github.command(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
     readOpenPullRequestFeedback(repository),
   ])
   const pullRequests = JSON.parse(result.stdout) as PullRequest[]
@@ -219,9 +222,9 @@ async function listPullRequests(repository: string) {
 }
 
 async function readPullRequest(repository: string, number: number) {
-  await ensureGitHubGraphQLBudget(repository)
+  await github.ensureGraphQLBudget(repository)
   const [result, feedback] = await Promise.all([
-    runGitHub(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
+    github.command(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
     readPullRequestFeedback(repository, number),
   ])
   return await readRequiredCheckState(repository, {
@@ -233,7 +236,7 @@ async function readPullRequest(repository: string, number: number) {
 async function readOpenPullRequestFeedback(repository: string) {
   const [owner, name] = repository.split('/') as [string, string]
   const query = 'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number comments(last:1){totalCount nodes{id}} reviews(last:1){totalCount nodes{id}}}}}}'
-  const result = await runGitHub(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `query=${query}`], { repository })
+  const result = await github.command(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `query=${query}`], { repository })
   const nodes = JSON.parse(result.stdout)?.data?.repository?.pullRequests?.nodes
   return new Map<number, PullRequestFeedback>((Array.isArray(nodes) ? nodes : []).flatMap((node: unknown) => {
     const parsed = parsePullRequestFeedbackNode(node)
@@ -244,7 +247,7 @@ async function readOpenPullRequestFeedback(repository: string) {
 async function readPullRequestFeedback(repository: string, number: number) {
   const [owner, name] = repository.split('/') as [string, string]
   const query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){comments(last:1){totalCount nodes{id}} reviews(last:1){totalCount nodes{id}}}}}'
-  const result = await runGitHub(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`, '-f', `query=${query}`], { repository })
+  const result = await github.command(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`, '-f', `query=${query}`], { repository })
   return parseFeedback(JSON.parse(result.stdout)?.data?.repository?.pullRequest)
 }
 
@@ -282,7 +285,7 @@ async function readRequiredCheckState(repository: string, pullRequest: PullReque
 async function readRequiredChecks(repository: string, number: number) {
   const args = ['pr', 'checks', String(number), '--repo', repository, '--required', '--json', 'bucket,name,state,workflow']
   try {
-    const result = await runGitHub(args, { repository })
+    const result = await github.command(args, { repository })
     return parseRequiredChecks(result.stdout, result.stderr)
   }
   catch (error) {

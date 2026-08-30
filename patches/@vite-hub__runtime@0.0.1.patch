@@ -1,0 +1,92 @@
+diff --git a/dist/node.d.ts b/dist/node.d.ts
+index 4dca1f0996d3273ec745c2fbe1097383388f97ad..ecd4810f1c301bd54b7a3fad247dea0b57e0010a 100644
+--- a/dist/node.d.ts
++++ b/dist/node.d.ts
+@@ -10,5 +10,15 @@ interface NodeRuntimeResourceInspectorOptions {
+ }
+ declare function resolveLinuxCgroupV2Path(mountinfo: string, membership: string): string | undefined;
+ declare function nodeRuntimeResources(options?: NodeRuntimeResourceInspectorOptions): RuntimeResourceInspector;
++interface ProcessReconcilerOptions {
++  intervalMs: number;
++  onError?: (error: unknown, reason: string) => void | Promise<void>;
++  repairReason?: string;
++  run: (reason: string) => void | Promise<void>;
++}
++declare function createProcessReconciler(options: ProcessReconcilerOptions): {
++  close: () => Promise<void>;
++  wake: (reason: string) => void;
++};
+ //#endregion
+-export { NodeRuntimeResourceInspectorOptions, nodeRuntimeResources, resolveLinuxCgroupV2Path };
+\ No newline at end of file
++export { NodeRuntimeResourceInspectorOptions, ProcessReconcilerOptions, createProcessReconciler, nodeRuntimeResources, resolveLinuxCgroupV2Path };
+diff --git a/dist/node.js b/dist/node.js
+index 0bc3e6b88fa881aaf7885739abd32c4a0d49f128..a03a400453517e609e6695075c39fc47a4915c2f 100644
+--- a/dist/node.js
++++ b/dist/node.js
+@@ -208,5 +208,64 @@ function nodeRuntimeResources(options = {}) {
+ 		};
+ 	} };
+ }
++function createProcessReconciler(options) {
++	if (!Number.isFinite(options.intervalMs) || options.intervalMs <= 0) throw new TypeError("Process reconciler intervalMs must be positive.");
++	let closed = false;
++	let reason = "coalesced";
++	let rerun = false;
++	let running;
++	let timer;
++	const scheduleRepair = () => {
++		if (closed || timer) return;
++		timer = setTimeout(() => {
++			timer = void 0;
++			wake(options.repairReason || "repair");
++		}, options.intervalMs);
++		timer.unref?.();
++	};
++	const execute = async () => {
++		if (running) {
++			rerun = true;
++			return running;
++		}
++		running = (async () => {
++			do {
++				rerun = false;
++				const currentReason = reason;
++				reason = "coalesced";
++				try {
++					await options.run(currentReason);
++				} catch (error) {
++					await options.onError?.(error, currentReason);
++				}
++			} while (!closed && rerun);
++		})().finally(() => {
++			running = void 0;
++			if (!closed && rerun) queueMicrotask(() => void execute());
++			else scheduleRepair();
++		});
++		return running;
++	};
++	const wake = (nextReason) => {
++		if (closed) return;
++		reason = nextReason;
++		if (timer) clearTimeout(timer);
++		timer = void 0;
++		if (running) {
++			rerun = true;
++			return;
++		}
++		queueMicrotask(() => void execute());
++	};
++	return {
++		async close() {
++			closed = true;
++			if (timer) clearTimeout(timer);
++			timer = void 0;
++			await running;
++		},
++		wake
++	};
++}
+ //#endregion
+-export { nodeRuntimeResources, resolveLinuxCgroupV2Path };
++export { createProcessReconciler, nodeRuntimeResources, resolveLinuxCgroupV2Path };
