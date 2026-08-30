@@ -61,7 +61,7 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(workspace.value ? (["workspace"] as const) : []),
+  ...(workspace.value || workspaceError.value ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();

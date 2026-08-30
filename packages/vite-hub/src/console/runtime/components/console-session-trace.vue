@@ -118,7 +118,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
     result.push({
-      activityId: id,
+      activityId: activityId(observation),
       attributes: { ...observation.attributes },
       depth: 1,
       durationMs: 0,
@@ -158,7 +158,7 @@ function pairedSpan(
   const target = operationTarget(operation, attributes, invocation);
   const status = spanStatus(finish, attributes, invocation, operation);
   return {
-    activityId: id,
+    activityId: activityId(start),
     attributes,
     depth: operation === "invoke_agent" ? 0 : 1,
     description: spanDescription(attributes),
@@ -212,7 +212,7 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
       invocation.updatedAt,
   );
   return {
-    activityId: start ? eventId(start) : invocation.id,
+    activityId: start ? activityId(start) : invocation.id,
     attributes: { ...start?.attributes, ...finish?.attributes },
     depth: 0,
     durationMs: Math.max(
@@ -246,6 +246,20 @@ function eventId(observation: Observation) {
     stringAttribute(observation, "model.call.id") ||
     stringAttribute(observation, "agent.invocation.id") ||
     `${observation.name}:${observation.sequence}`
+  );
+}
+
+function activityId(observation: Observation) {
+  const attributes = observation.attributes ?? {};
+  const messageId = attributes["message.id"];
+  return String(
+    attributes["step.id"] ??
+      attributes["tool.id"] ??
+      attributes["approval.id"] ??
+      attributes["model.call.id"] ??
+      (messageId
+        ? `${String(messageId)}:${String(attributes["message.phase"] ?? "message")}`
+        : `observation:${observation.sequence}`),
   );
 }
 
@@ -291,7 +305,14 @@ function spanStatus(
         : finish
           ? "completed"
           : "running";
-  if (!finish) return "running";
+  if (!finish)
+    return invocation.status === "failed"
+      ? "failed"
+      : invocation.status === "cancelled"
+        ? "cancelled"
+        : invocation.status === "completed"
+          ? "completed"
+          : "running";
   const rawOutput = record(attributes["tool.output"]);
   const output = record(rawOutput?.item) ?? rawOutput;
   const exitCode = numeric(output?.exitCode);

@@ -61,12 +61,7 @@ const outcomes = computed(() =>
       }))
     : [],
 );
-const primaryDiagnostics = computed(
-  () =>
-    health.value?.diagnostics.filter((item) =>
-      ["GitHub", "Codex", "Scheduler"].includes(item.label),
-    ) ?? [],
-);
+const primaryDiagnostics = computed(() => health.value?.diagnostics ?? []);
 
 function readinessLabel(status: Diagnostic["status"]) {
   if (status === "ok") return "Ready";
