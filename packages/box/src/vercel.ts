@@ -190,7 +190,7 @@ async function loadVercelSandbox() {
   try {
     const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
     return async (options: VercelSandboxCreateOptions) =>
-      await Sandbox.create(options as Parameters<typeof Sandbox.create>[0]) as unknown as VercelSandboxInstance;
+      await Sandbox.create(options);
   } catch (error) {
     throw new Error(
       `[vitehub] The vercel Box runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}`,
@@ -199,7 +199,7 @@ async function loadVercelSandbox() {
 }
 
 function isMissingFile(error: unknown) {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function createVercelSession(
