@@ -68,9 +68,12 @@ interface InternalWorkflowModuleOptions {
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
   for (const [index, alias] of config.resolve.alias.entries()) {
-    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
+    if (!(alias.find instanceof RegExp)) {
       aliases[alias.find] = alias.replacement
-      if (!alias.find.endsWith("/")) {
+      if (alias.find.endsWith("/")) {
+        aliases[`${alias.find}/`] = alias.replacement
+      }
+      else {
         aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
       }
     }

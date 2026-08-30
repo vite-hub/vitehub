@@ -130,9 +130,12 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
   for (const [index, alias] of config.resolve.alias.entries()) {
-    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
+    if (!(alias.find instanceof RegExp)) {
       aliases[alias.find] = alias.replacement
-      if (!alias.find.endsWith("/")) {
+      if (alias.find.endsWith("/")) {
+        aliases[`${alias.find}/`] = alias.replacement
+      }
+      else {
         aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
       }
     }
@@ -679,6 +682,9 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }))
         const retainedAliases = Object.fromEntries(Object.entries(aliases)
           .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const bundleExternal = workflow
+          ? ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"]
+          : undefined
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
           owner: "schedule",
@@ -687,7 +693,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
             signal.throwIfAborted()
             await generateProviderOutputsWithinLock({
               bundleAlias: retainedAliases,
-              ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
+              bundleExternal,
               clientOutDir: resolve(config.root, config.build.outDir),
               definitions: retainedDefinitions,
               crons,
