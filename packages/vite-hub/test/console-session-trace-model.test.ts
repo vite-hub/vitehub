@@ -103,6 +103,13 @@ describe("Console session trace model", () => {
     ).toBe(true);
     expect(
       isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "gen_ai.tool.call.id": "provider-tool" },
+        name: "agent.tool.finish",
+        sequence: 1,
+      }),
+    ).toBe(true);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
         attributes: { "model.call.id": "model" },
         name: "agent.model.finish",
         sequence: 1,
@@ -217,6 +224,34 @@ describe("Console session trace model", () => {
 
     expect(
       pairedLifecycleTerminal(observations[1]!, observations, ["agent.model.finish"])?.sequence,
+    ).toBe(3);
+  });
+
+  it("pairs overlapping same-identity lifecycles in sequence order", () => {
+    const observations = [
+      { attributes: { "model.call.id": "model" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 3 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 4 },
+    ];
+
+    expect(
+      pairedLifecycleTerminal(observations[0]!, observations, ["agent.model.finish"])?.sequence,
+    ).toBe(3);
+    expect(
+      pairedLifecycleTerminal(observations[1]!, observations, ["agent.model.finish"])?.sequence,
+    ).toBe(4);
+  });
+
+  it("does not let an unrelated lifecycle with the same identity consume a terminal", () => {
+    const observations = [
+      { attributes: { "step.id": "shared" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "step.id": "shared" }, name: "agent.task.started", sequence: 2 },
+      { attributes: { "step.id": "shared" }, name: "agent.model.finish", sequence: 3 },
+    ];
+
+    expect(
+      pairedLifecycleTerminal(observations[0]!, observations, ["agent.model.finish"])?.sequence,
     ).toBe(3);
   });
 });

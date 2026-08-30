@@ -85,12 +85,16 @@ export function isStandaloneSuccessfulLifecycleObservation(
   observation: TraceObservationIdentity,
 ): boolean {
   const attributes = observation.attributes ?? {};
-  const hasStepIdentity = ["step.id", "tool.id", "approval.id", "model.call.id"].some(
-    (key) => {
-      const result = v.safeParse(stringSchema, attributes[key]);
-      return result.success && result.output.length > 0;
-    },
-  );
+  const hasStepIdentity = [
+    "step.id",
+    "tool.id",
+    "gen_ai.tool.call.id",
+    "approval.id",
+    "model.call.id",
+  ].some((key) => {
+    const result = v.safeParse(stringSchema, attributes[key]);
+    return result.success && result.output.length > 0;
+  });
   return (
     hasStepIdentity &&
     (observation.name.endsWith(".finish") || observation.name.endsWith(".completed"))
@@ -131,19 +135,29 @@ export function pairedLifecycleTerminal<Observation extends TraceObservationIden
   terminalNames: string[],
 ): Observation | undefined {
   const identity = traceEventId(start);
-  const nextStart = observations.find(
-    (observation) =>
-      observation.sequence > start.sequence &&
+  if (!isLifecycleStartObservation(start.name))
+    return observations.find(
+      (observation) =>
+        observation.sequence > start.sequence &&
+        terminalNames.includes(observation.name) &&
+        traceEventId(observation) === identity,
+    );
+
+  const pendingStarts: Observation[] = [];
+  for (const observation of observations) {
+    if (traceEventId(observation) !== identity) continue;
+    if (
       isLifecycleStartObservation(observation.name) &&
-      traceEventId(observation) === identity,
-  );
-  return observations.find(
-    (observation) =>
-      observation.sequence > start.sequence &&
-      (nextStart === undefined || observation.sequence < nextStart.sequence) &&
-      terminalNames.includes(observation.name) &&
-      traceEventId(observation) === identity,
-  );
+      lifecycleTerminalNames(observation.name).some((name) => terminalNames.includes(name))
+    ) {
+      pendingStarts.push(observation);
+      continue;
+    }
+    if (!terminalNames.includes(observation.name)) continue;
+    const pairedStart = pendingStarts.shift();
+    if (pairedStart?.sequence === start.sequence) return observation;
+  }
+  return undefined;
 }
 
 export function standaloneSuccessfulLifecycleSequences(
