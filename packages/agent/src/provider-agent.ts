@@ -1107,22 +1107,22 @@ function latestUserMessages(messages: Message[]): Message[] {
   return index === -1 ? messages.slice(-1) : messages.slice(index)
 }
 
-function providerPrompt(messages: Message[], resumed: boolean, prompt?: string): string | undefined {
+function providerPrompt(messages: Message[], resumed: boolean, prompt?: string, replayAttachments = false): string | undefined {
   if (!messages.length) return prompt?.trim() || undefined
   const selected = resumed ? latestUserMessages(messages) : messages
-  if (selected.length === 1 && selected[0]?.role === "user") return providerMessageContent(selected[0]).trim() || undefined
+  if (selected.length === 1 && selected[0]?.role === "user") return providerMessageContent(selected[0], false).trim() || undefined
   const content = selected.flatMap((message) => {
-    const text = providerMessageContent(message).trim()
+    const text = providerMessageContent(message, replayAttachments).trim()
     return text ? [`<message role="${message.role}">\n${text}\n</message>`] : []
   }).join("\n")
   return content || prompt?.trim() || undefined
 }
 
-function providerMessageContent(message: Message): string {
+function providerMessageContent(message: Message, includeAttachments: boolean): string {
   return message.parts.flatMap((part) => {
     if (part.type === "text") return part.text
-    if (isAttachmentPart(part)) {
-      return JSON.stringify({ mediaType: part.mediaType, name: part.name, type: part.type, url: part.url })
+    if (includeAttachments && isAttachmentPart(part)) {
+      return JSON.stringify({ mediaType: part.mediaType, name: part.name, type: part.type })
     }
     if (part.type === "error") return part.error
     if (part.type === "source") return part.url || part.title || ""
@@ -1130,7 +1130,10 @@ function providerMessageContent(message: Message): string {
     if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: part.type })
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
     if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
-    if (part.type === "data" || part.type.startsWith("data-")) return JSON.stringify(part.data)
+    if (part.type === "data" || part.type.startsWith("data-")) {
+      if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
+      return JSON.stringify(part.data)
+    }
     return []
   }).filter(Boolean).join("\n")
 }
@@ -1679,7 +1682,8 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    const prompt = providerPrompt(context.messages, resumed, context.prompt) || (attachments?.length ? "Inspect the attached image." : undefined)
+    const replayAttachments = !preservesProviderSession && context.messages.length > 1
+    const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
     if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
@@ -1792,8 +1796,8 @@ async function* runProvider<
           : new Error("[vitehub] Provider Agent Driver deferred runtime cleanup timed out."))
       })())
     }
-    const cleanupTask = (async () => {
-      const finalizeWorkspace = async () => {
+    let workspaceFinalization: Promise<void> | undefined
+    const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
         try {
           for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
         }
@@ -1814,7 +1818,9 @@ async function* runProvider<
         finally {
           releaseWorkspaceCleanup?.()
         }
-      }
+      })()
+    const toolCleanup = Promise.resolve().then(() => toolServer?.close())
+    const cleanupTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
         : Promise.resolve()
@@ -1826,7 +1832,7 @@ async function* runProvider<
             .finally(() => runtimeCleanupSettled = true)
       const runtimeAndToolCleanup = await Promise.allSettled([
         runtimeCleanup,
-        toolServer?.close(),
+        toolCleanup,
       ])
       for (const result of runtimeAndToolCleanup) {
         const repeatsInvocationFailure = caught !== undefined
@@ -1879,7 +1885,10 @@ async function* runProvider<
         catch (releaseError) {
           cleanupErrors.push(releaseError)
         }
-        forcedRootCleanup = cleanupTask.finally(cleanupRoot)
+        forcedRootCleanup = toolCleanup
+          .catch(() => undefined)
+          .then(finalizeWorkspace)
+          .finally(cleanupRoot)
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)
       }

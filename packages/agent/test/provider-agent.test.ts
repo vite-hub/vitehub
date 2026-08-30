@@ -1516,6 +1516,7 @@ cli_auth_credentials_store = "keyring"
     })
     const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const fetchHistoricalImage = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const fetchLaterHistoricalImage = vi.fn(async () => new Uint8Array([4, 5, 6]))
     const adapter = createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1526,7 +1527,8 @@ cli_auth_credentials_store = "keyring"
         { parts: [{ text: "hello", type: "text" }, { fetchData: fetchHistoricalImage, mediaType: "image/png", name: "diagram.png", type: "image" }], role: "user" },
         { parts: [{ id: "call-1", input: { path: "notes.txt" }, name: "read_file", state: "running", type: "tool-call" }], role: "assistant" },
         { parts: [{ id: "call-1", name: "read_file", output: { text: "first answer" }, state: "completed", type: "tool-result" }], role: "tool" },
-        { parts: [{ data: { selection: "first answer" }, type: "data-selection" }, { title: "Notes", type: "source", url: "https://example.com/notes" }], role: "assistant" },
+        { parts: [{ data: { selection: "first answer" }, type: "data-selection" }, { data: { context: "kept" }, type: "data-chat-user-message-context" }, { title: "Notes", type: "source", url: "https://example.com/notes" }], role: "assistant" },
+        { parts: [{ fetchData: fetchLaterHistoricalImage, mediaType: "image/jpeg", name: "second.jpg", type: "image", url: "https://assets.example/second.jpg?token=secret" }], role: "user" },
         { parts: [{ text: "continue", type: "text" }], role: "user" },
       ],
       prompt: "continue",
@@ -1534,8 +1536,9 @@ cli_auth_credentials_store = "keyring"
 
     expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
     expect(fetchHistoricalImage).not.toHaveBeenCalled()
+    expect(fetchLaterHistoricalImage).not.toHaveBeenCalled()
     expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
-      input: '<message role="user">\nhello\n{"mediaType":"image/png","name":"diagram.png","type":"image"}\n</message>\n<message role="assistant">\n{"input":{"path":"notes.txt"},"toolCallId":"call-1","toolName":"read_file","type":"tool-call"}\n</message>\n<message role="tool">\n{"output":{"text":"first answer"},"toolCallId":"call-1","toolName":"read_file","type":"tool-result"}\n</message>\n<message role="assistant">\n{"selection":"first answer"}\nhttps://example.com/notes\n</message>\n<message role="user">\ncontinue\n</message>',
+      input: '<message role="user">\nhello\n{"mediaType":"image/png","name":"diagram.png","type":"image"}\n</message>\n<message role="assistant">\n{"input":{"path":"notes.txt"},"toolCallId":"call-1","toolName":"read_file","type":"tool-call"}\n</message>\n<message role="tool">\n{"output":{"text":"first answer"},"toolCallId":"call-1","toolName":"read_file","type":"tool-result"}\n</message>\n<message role="assistant">\n{"context":"kept"}\nhttps://example.com/notes\n</message>\n<message role="user">\n{"mediaType":"image/jpeg","name":"second.jpg","type":"image"}\n</message>\n<message role="user">\ncontinue\n</message>',
       threadId,
     }))
     expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
