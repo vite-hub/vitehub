@@ -17797,7 +17797,11 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter({ missingIncomingMessageId: true })
+    const adapter = createTestChatAdapter({
+      bypassIdLessMessageDedupe: true,
+      missingIncomingMessageId: true,
+      persistThreadHistory: true,
+    })
     const historicalMessage = (text: string) => new Message({
       attachments: [],
       author: {
@@ -17848,26 +17852,24 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-
-    await expect(
-      handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-          body: JSON.stringify({
-            update_id: 22,
-            message: {
-              chat: { id: 456, type: "private" },
-              date: 1781092822,
-              from: { first_name: "Maxi", id: 123, username: "maxi" },
-              text: "current id-less",
-            },
-          }),
-          method: "POST",
+    const request = (updateId: number, text: string, date: number) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: updateId,
+          message: {
+            chat: { id: 456, type: "private" },
+            date,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            text,
+          },
         }),
-        "telegram",
-      ),
-    ).resolves.toMatchObject({ status: 200 })
+        method: "POST",
+      })
 
-    expect(runs).toEqual([["nearest id-less", "current id-less"]])
+    await expect(handler(request(23, "newer id-less", 1_781_092_823), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(22, "current id-less", 1_781_092_822), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    expect(runs).toEqual([["newer id-less"], ["nearest id-less", "current id-less"]])
   })
 
   it("keeps distinct durable id-less messages with the current fingerprint", async () => {

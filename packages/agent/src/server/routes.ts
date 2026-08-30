@@ -4087,6 +4087,7 @@ async function chatTriggerMessages(
     : -1
   const durableContainsCurrent = durableCurrentIndexBeforeBoundary >= 0
   const fetchedAfterCurrent: ChatSdkMessage[] = []
+  const fetchedAfterIdLessCurrent: ChatSdkMessage[] = []
   const fetchedBeforeCurrent: ChatSdkMessage[] = []
   let foundCurrent = false
   let scanned = 0
@@ -4138,6 +4139,7 @@ async function chatTriggerMessages(
             ? structuralCurrentIndices[0] ?? -1
             : -1
       if (currentIndex >= 0) {
+        fetchedAfterIdLessCurrent.push(...idLessCandidates.slice(0, currentIndex))
         for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
           fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
         }
@@ -4173,6 +4175,30 @@ async function chatTriggerMessages(
   } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
+  }
+  if (!message.id && fetchedAfterIdLessCurrent.length > 0) {
+    const futureDurableIndices = new Set<number>()
+    for (const future of fetchedAfterIdLessCurrent) {
+      const idMatches = future.id
+        ? durable.flatMap((item, index) => (item.id === future.id ? [index] : []))
+        : []
+      if (idMatches.length === 1) {
+        futureDurableIndices.add(idMatches[0]!)
+        continue
+      }
+      const exactMatches = durable.flatMap((item, index) => (isExactChatSdkDelivery(item, future) ? [index] : []))
+      if (exactMatches.length === 1) {
+        futureDurableIndices.add(exactMatches[0]!)
+        continue
+      }
+      const futureRawKey = chatRawDeliveryKey(future)
+      const structuralMatches = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, future) ? [index] : []))
+      const rawAndStructuralMatches = futureRawKey === undefined
+        ? structuralMatches
+        : structuralMatches.filter((index) => chatRawDeliveryKey(durable[index]!) === futureRawKey)
+      if (rawAndStructuralMatches.length === 1) futureDurableIndices.add(rawAndStructuralMatches[0]!)
+    }
+    durable = durable.filter((_, index) => !futureDurableIndices.has(index))
   }
   const exactDurableCurrentIndices = message.id
     ? []
