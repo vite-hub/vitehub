@@ -32,11 +32,14 @@ const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
-  const replacements = new Map(entries
-    .filter(([specifier]) => !specifier.endsWith("/"))
-    .map(([specifier, replacement]) => [isAbsolute(specifier) ? resolve(specifier) : specifier, replacement]))
-  const prefixes = entries
-    .filter(([specifier]) => specifier.endsWith("/"))
+  const resolvedEntries = entries.map(([specifier, replacement]) => {
+    const prefix = specifier.endsWith("/")
+    return {
+      prefix,
+      replacement,
+      specifier: isAbsolute(specifier) ? `${resolve(specifier)}${prefix ? "/" : ""}` : specifier,
+    }
+  })
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
@@ -49,11 +52,13 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
         const canonicalSpecifier = isAbsolute(normalizedSpecifier)
           ? await realpath(normalizedSpecifier).catch(() => normalizedSpecifier)
           : normalizedSpecifier
-        const replacement = replacements.get(normalizedSpecifier) ?? replacements.get(canonicalSpecifier)
-        const prefix = prefixes.find(([candidate]) => normalizedSpecifier.startsWith(candidate))
-          ?? prefixes.find(([candidate]) => canonicalSpecifier.startsWith(candidate))
-        const matchedSpecifier = prefix && canonicalSpecifier.startsWith(prefix[0]) ? canonicalSpecifier : normalizedSpecifier
-        const target = replacement ?? (prefix ? `${prefix[1]}${matchedSpecifier.slice(prefix[0].length)}` : undefined)
+        const match = resolvedEntries.find(({ prefix, specifier }) => prefix
+          ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(specifier)
+          : normalizedSpecifier === specifier || canonicalSpecifier === specifier)
+        const matchedSpecifier = match && canonicalSpecifier.startsWith(match.specifier) ? canonicalSpecifier : normalizedSpecifier
+        const target = match?.prefix
+          ? `${match.replacement}${matchedSpecifier.slice(match.specifier.length)}`
+          : match?.replacement
         if (!target) return
         return build.resolve(target, {
           importer: args.importer,
