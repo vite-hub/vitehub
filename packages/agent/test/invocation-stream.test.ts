@@ -48,6 +48,22 @@ describe("Agent Invocation Stream", () => {
     expect(body.locked).toBe(false)
   })
 
+  it.each([
+    ["before the first read", false],
+    ["during a pending read", true],
+  ])("cancels the invocation when its iterator throws %s", async (_label, startRead) => {
+    const failure = new Error("consumer failed")
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const events = readAgentInvocationStream(body)
+    const next = startRead ? events.next() : undefined
+
+    await expect(events.throw(failure)).rejects.toBe(failure)
+    if (next) await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(failure)
+    expect(body.locked).toBe(false)
+  })
+
   it("forwards reader failures to the paired invocation signal", async () => {
     let signal: AbortSignal | undefined
     const response = createAgentInvocationStreamResponse(async (emit, runSignal) => {

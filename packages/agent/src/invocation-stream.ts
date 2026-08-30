@@ -123,7 +123,18 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
       if (cancellationFailed) throw cancellationError
       return result
     },
-    throw: events.throw.bind(events),
+    async throw(cause) {
+      if (!completed) {
+        cancellation ||= reader.cancel(cause)
+        await cancellation.catch(() => undefined)
+      }
+      try {
+        return await events.throw(cause)
+      }
+      finally {
+        releaseReader()
+      }
+    },
   }
 }
 
