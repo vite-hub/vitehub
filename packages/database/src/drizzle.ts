@@ -2,7 +2,7 @@ import schema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
 
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
 
@@ -25,8 +25,10 @@ type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: RuntimeDatabaseEntry<typeof schema>
 } & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
+// SAFETY: generated registry declarations specialize the runtime database lookup by name.
 export const databases = runtimeDatabases as RuntimeDatabaseLookup
 
+// SAFETY: generated schema declarations specialize the default runtime database schema.
 export const db = runtimeDb as DrizzleRuntimeDatabase<typeof schema>
 
 export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {

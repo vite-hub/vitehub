@@ -314,6 +314,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
         ].map(name => {
+          // SAFETY: requiredPeerVersions covers every required peer not packed by this contract.
           const spec = specs[name] || requiredPeerVersions[name as keyof typeof requiredPeerVersions]
           if (!spec) throw new Error(`Missing required peer spec for ${name}`)
           return [name, spec]
@@ -493,24 +494,7 @@ async function packageModuleDiagnostics(
     ])],
   }
   const program = ts.createProgram(rootNames, options)
-  return declarationDiagnostics(program, packageName)
-}
-
-function declarationDiagnostics(program: ts.Program, packageName?: string) {
-  return ts.getPreEmitDiagnostics(program).filter(diagnostic =>
-    packageName !== "@vite-hub/database" || !isKnownDrizzleTypeScript6Diagnostic(diagnostic),
-  )
-}
-
-function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
-  const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
-  if (!path.includes("/node_modules/drizzle-orm/")) return false
-  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-  return (diagnostic.code === 2307 && /Cannot find module '(?:gel|mysql2(?:\/promise)?)'/.test(message))
-    || ([2420, 2515].includes(diagnostic.code) && /(?:getSQL|generatedAlwaysAs)/.test(message))
-    || (diagnostic.code === 2416 && message.includes("generatedAlwaysAs"))
-    || (diagnostic.code === 2344 && /Type '(?:string|\w+SetOperatorExcludedMethods)' does not satisfy the constraint/.test(message))
-    || (diagnostic.code === 2559 && /Role' has no properties in common with type '.+RoleConfig'/.test(message))
+  return ts.getPreEmitDiagnostics(program)
 }
 
 describe("published declaration diagnostics", () => {
