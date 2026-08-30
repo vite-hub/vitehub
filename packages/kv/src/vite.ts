@@ -146,9 +146,30 @@ interface NitroCloudflareKVTarget {
   }
 }
 
-function getNitroCloudflareKVBindings(target: unknown): string[] {
+function getNitroCloudflareKVNamespaces(target: unknown): Array<{ binding: string, id?: string }> {
   if (!isPlainObject(target)) return []
-  return (target as NitroCloudflareKVTarget).cloudflare?.wrangler?.kv_namespaces?.map(namespace => namespace.binding) ?? []
+  const cloudflare = Reflect.get(target, "cloudflare")
+  if (!isPlainObject(cloudflare)) return []
+  const wrangler = Reflect.get(cloudflare, "wrangler")
+  if (!isPlainObject(wrangler)) return []
+  const namespaces: unknown = Reflect.get(wrangler, "kv_namespaces")
+  if (!Array.isArray(namespaces)) return []
+  return namespaces.flatMap((namespace) => {
+    if (!isPlainObject(namespace)) return []
+    const binding: unknown = Reflect.get(namespace, "binding")
+    const id: unknown = Reflect.get(namespace, "id")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro extension data crosses an untyped Vite boundary and binding must be a string.
+    if (typeof binding !== "string") return []
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro namespace IDs are optional strings at this extension boundary.
+    if (id !== undefined && typeof id !== "string") return []
+    const parsed: { binding: string, id?: string } = { binding }
+    if (id !== undefined) parsed.id = id
+    return [parsed]
+  })
+}
+
+function getResolvedNitroConfig(config: ResolvedConfig): unknown {
+  return Reflect.get(config, "nitro")
 }
 
 function reconcileNitroCloudflareKV(
@@ -279,17 +300,17 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         const clientOutDir = resolved.build.outDir
         const wranglerConfig = nitroOwned ? undefined : createCloudflareKVWranglerConfig(getConfig().kv)
         const nextBindings = wranglerConfig?.kv_namespaces?.map(binding => binding.binding) ?? []
-        const nitroBindings = nitroOwned
-          ? [...new Set([
-              ...getNitroCloudflareKVBindings(nitroOptions),
-              ...getNitroCloudflareKVBindings(resolved.nitro),
-            ])]
+        const nitroNamespaces = nitroOwned
+          ? [...new Map([
+              ...getNitroCloudflareKVNamespaces(nitroOptions),
+              ...getNitroCloudflareKVNamespaces(getResolvedNitroConfig(resolved)),
+            ].map(namespace => [JSON.stringify([namespace.binding, namespace.id]), namespace])).values()]
           : []
         const wranglerConfigOwnership = {
           arrays: {
             kv_namespaces: {
               key: "binding",
-              retainOnCleanup: nitroBindings,
+              retainOnCleanup: nitroNamespaces,
               values: nextBindings,
             },
           },

@@ -398,7 +398,7 @@ describe("provider deployment outputs", () => {
     await mkdir(cloudflareDir, { recursive: true })
     await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
       kv_namespaces: [
-        { binding: "CURRENT", id: "current-namespace" },
+        { binding: "CURRENT", id: "stale-namespace" },
         { binding: "STALE", id: "stale-namespace" },
       ],
     }, null, 2)}\n`)
@@ -410,7 +410,7 @@ describe("provider deployment outputs", () => {
             arrays: {
               kv_namespaces: {
                 key: "binding",
-                retainOnCleanup: ["CURRENT"],
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
                 values: ["CURRENT", "STALE"],
               },
             },
@@ -421,6 +421,27 @@ describe("provider deployment outputs", () => {
       rootDir,
     })
 
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
+    })
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
+                values: ["CURRENT", "STALE"],
+              },
+            },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
     })

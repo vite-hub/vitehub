@@ -481,7 +481,7 @@ describe("KV Vite output", () => {
       import("../src/vite.ts"),
     ])
 
-    await build({
+    const nitroConfig = {
       appType: "custom",
       build: {
         emptyOutDir: false,
@@ -495,7 +495,6 @@ describe("KV Vite output", () => {
       configFile: false,
       kv: { driver: "fs-lite" },
       logLevel: "silent",
-      // SAFETY: Vite preserves provider-owned Nitro configuration as an open custom field.
       nitro: {
         cloudflare: {
           wrangler: {
@@ -505,7 +504,9 @@ describe("KV Vite output", () => {
       },
       plugins: [hubKv()],
       root: rootDir,
-    })
+    }
+    // SAFETY: Vite preserves provider-owned Nitro configuration as an open custom field.
+    await build(nitroConfig as Parameters<typeof build>[0])
 
     const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
     expect(wrangler.kv_namespaces).toEqual([{ binding: "KV", id: "manual-namespace" }])

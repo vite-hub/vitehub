@@ -379,11 +379,20 @@ describe("hubKv", () => {
       expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV" }])
 
       const nitro = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
-      await testHook(nitro.configResolved, configResolvedContract)({ build: { outDir: "dist" }, command: "build", nitro: {}, plugins: [{ name: "nitro:main" }], root })
+      await testHook(nitro.configResolved, configResolvedContract)({
+        build: { outDir: "dist" },
+        command: "build",
+        nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "nitro-id" }] } } },
+        plugins: [{ name: "nitro:main" }],
+        root,
+      })
       await runCloseBundle(nitro)
 
-      expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV" }])
+      expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV", id: "nitro-id" }])
       expect(existsSync(join(outputRoot, ".vitehub-kv-bindings.json"))).toBe(false)
+
+      await runCloseBundle(nitro)
+      expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV", id: "nitro-id" }])
     }
     finally {
       await rm(root, { force: true, recursive: true })
