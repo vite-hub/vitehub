@@ -1084,6 +1084,7 @@ load("@img/sharp-linux-x64/sharp.node")
       '(() => require("missing-feature")).apply(null)\n',
       '!function () { require("missing-feature") }()\n',
       'try { require("missing-feature") } finally { cleanup() }\n',
+      'const lazy = () => 0\nrequire("missing-feature")\n',
     ]) {
       const eagerRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-eager-require-"))
       await writeJson(join(eagerRoot, "package.json"), {})
@@ -1116,6 +1117,7 @@ load("@img/sharp-linux-x64/sharp.node")
     for (const source of [
       '(() => import("missing-feature")).call(null)\n',
       '(() => import("missing-feature")).apply(null)\n',
+      'const lazy = () => 0\nimport("missing-feature")\n',
     ]) {
       await writeFile(join(root, ".output/server/index.mjs"), source)
       await expect(finalizeDenoDeploymentOutput({ rootDir: root }), source).rejects.toThrow(

@@ -271,7 +271,8 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
+    expect(source).toContain("Deno.cron(cronName, cron")
+    expect(source).toContain("character.codePointAt(0).toString(16)")
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")

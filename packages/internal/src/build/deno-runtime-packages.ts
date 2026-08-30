@@ -218,6 +218,14 @@ function isGuardedConciseArrow(source: string, expressionStart: number, expressi
   const arrow = prefix.lastIndexOf("=>")
   if (arrow < 0 || /^\s*\{/.test(prefix.slice(arrow + 2))) return false
 
+  const precedingLines = prefix.slice(arrow + 2).split("\n")
+  if (precedingLines.length > 1) {
+    const completedLine = precedingLines.at(-2)!.trimEnd()
+    if (completedLine
+      && !/[([{,.:?+\-*/%&|^!~=<>]$/.test(completedLine)
+      && delimiterDepth(precedingLines.slice(0, -1).join("\n")) === 0) return false
+  }
+
   let parentheses = 0
   let brackets = 0
   let braces = 0
@@ -232,6 +240,15 @@ function isGuardedConciseArrow(source: string, expressionStart: number, expressi
   }
 
   return !/^\s*\)+\s*(?:(?:\?\.)?\s*\(|\.\s*(?:call|apply)\s*\()/.test(source.slice(expressionEnd))
+}
+
+function delimiterDepth(source: string): number {
+  let depth = 0
+  for (const character of source) {
+    if (character === "(" || character === "[" || character === "{") depth++
+    else if (character === ")" || character === "]" || character === "}") depth--
+  }
+  return depth
 }
 
 function tryBlockHasCatch(source: string, opening: number): boolean {
