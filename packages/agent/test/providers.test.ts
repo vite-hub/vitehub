@@ -12914,7 +12914,6 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({
       bypassIdLessMessageDedupe: true,
       missingIncomingMessageId: true,
-      persistThreadHistory: true,
     })
     const sharedHistory = new Message({
       attachments: [],
@@ -17493,11 +17492,6 @@ describe("server helpers", () => {
       return result
     }
     const sharedIdLessMessage = idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z")
-    sharedIdLessMessage.raw = { delivery: "shared-id-less" }
-    const deserializedSharedIdLessMessage = () => Object.assign(
-      idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
-      { raw: { delivery: "shared-id-less" } },
-    )
     let initializedChats = 0
     const adapter = createTestChatAdapter({
       onInitialize: (chat) => {
@@ -17527,7 +17521,7 @@ describe("server helpers", () => {
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        deserializedSharedIdLessMessage(),
+        sharedIdLessMessage,
         message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
       ],
     })
@@ -17555,7 +17549,7 @@ describe("server helpers", () => {
     // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
     adapter.fetchMessages.mockResolvedValue({
       messages: [
         ...Array.from({ length: 10 }, (_, index) =>
@@ -17571,7 +17565,7 @@ describe("server helpers", () => {
         ),
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        deserializedSharedIdLessMessage(),
+        sharedIdLessMessage,
         ...Array.from({ length: 987 }, (_, index) =>
           message(String(index + 100), `newer cached ${index}`, "2026-06-10T12:01:00.000Z"),
         ),
@@ -17970,7 +17964,7 @@ describe("server helpers", () => {
     await expect(handler(request(21, "intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request(22, "current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs.at(-1)).toEqual(["current id-less", "intervening id-less", "current id-less"])
+    expect(runs.at(-1)).toEqual(["current id-less", "ok", "intervening id-less", "ok", "current id-less"])
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {

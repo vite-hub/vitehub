@@ -4239,34 +4239,18 @@ async function chatTriggerMessages(
   if (!message.id) {
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }
-  const durableMessages = await Promise.all(durable.map((item, index) => {
-    if (index === durableCurrentIndex) return current
-    return toHistoryUiMessage(item)
-  }))
-  const fetchedMessages = fetchedNewestFirst.slice().reverse()
-  const durableRawKeyCounts = new Map<string, number>()
-  const fetchedRawKeyCounts = new Map<string, number>()
-  for (const [items, counts] of [[durableMessages, durableRawKeyCounts], [fetchedMessages, fetchedRawKeyCounts]] as const) {
-    for (const item of items) {
-      const source = historySource.get(item)
-      const key = source && !source.id ? chatRawDeliveryKey(source) : undefined
-      if (key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-  }
-  const durableMessageSet = new Set(durableMessages)
-  let messages = [...durableMessages, ...fetchedMessages].reduce<UIMessageLike[]>((deduped, item) => {
+  let messages = [
+    ...(await Promise.all(durable.map((item, index) => {
+      if (index === durableCurrentIndex) return current
+      return toHistoryUiMessage(item)
+    }))),
+    ...fetchedNewestFirst.slice().reverse(),
+  ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
       const source = historySource.get(item)
       const existing = source && deduped.findIndex((candidate) => {
         const candidateSource = historySource.get(candidate)
-        if (!candidateSource) return false
-        if (isExactChatSdkDelivery(candidateSource, source)) return true
-        if (durableMessageSet.has(candidate) === durableMessageSet.has(item)) return false
-        const rawKey = chatRawDeliveryKey(source)
-        return rawKey !== undefined &&
-          chatRawDeliveryKey(candidateSource) === rawKey &&
-          durableRawKeyCounts.get(rawKey) === 1 &&
-          fetchedRawKeyCounts.get(rawKey) === 1
+        return candidateSource && isExactChatSdkDelivery(candidateSource, source)
       })
       if (existing !== undefined && existing >= 0) {
         deduped[existing] = item
