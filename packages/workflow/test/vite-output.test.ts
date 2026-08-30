@@ -230,10 +230,13 @@ it("rewrites JSON-escaped Windows paths when publishing retained Workflow source
   const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow-generations\test\sources`
   const publishedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
   const contents = `import step from ${JSON.stringify(`${retainedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`
+  const workspaceRoot = JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support`)
 
   expect(rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
-    `import step from "file:///C:/project/.vitehub/workflow/sources/server/workflows/cleanup/01-cleanup.ts"`,
+    `import step from ${JSON.stringify(`${publishedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`,
   )
+  expect(rewriteRetainedSourceImportPaths(workspaceRoot, retainedSourcesDir, publishedSourcesDir))
+    .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
   expect(rewriteRetainedSourceImportPaths(`${retainedSourcesDir}-external\\workflow.ts`, retainedSourcesDir, publishedSourcesDir))
     .toBe(`${retainedSourcesDir}-external\\workflow.ts`)
 })

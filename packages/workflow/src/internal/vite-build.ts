@@ -828,12 +828,9 @@ function createVercelNativeWorkflowContents(
 export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
   const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
   const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
-  const publishedWindowsFileUrl = /^[A-Za-z]:\\/.test(publishedSourcesDir)
-    ? `file:///${publishedSourcesDir.replaceAll("\\", "/")}`
-    : undefined
   const replacements = [
     [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
-    [`${serializedRetainedSourcesDir}\\\\`, publishedWindowsFileUrl ? `${publishedWindowsFileUrl}/` : `${serializedPublishedSourcesDir}\\\\`],
+    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
     [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
     [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
     [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
