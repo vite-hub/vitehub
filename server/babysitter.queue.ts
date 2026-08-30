@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
 export const retryCooldownMs = 15 * 60 * 1000
+export const maxRetryCooldownMs = 6 * 60 * 60 * 1000
 export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v3'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
 const retryFingerprintPattern = /^retry:v1:(\d+):([0-9a-f]+)$/
+const retryBackoffFingerprintPattern = /^retry:v2:(\d+):(\d+):([0-9a-f]+)$/
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestFeedback = {
@@ -205,14 +207,34 @@ export function retryPassFingerprint(
   policyFingerprint: string,
   now = Date.now(),
   observedPullRequest: PullRequest = pullRequest,
+  previousCompletion?: unknown,
 ) {
   const fingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
-  return fingerprint ? `retry:v1:${now + retryCooldownMs}:${fingerprint}` : undefined
+  if (!fingerprint) return undefined
+  const previousAttempt = retryCompletionState(previousCompletion, fingerprint)?.attempt ?? 0
+  const attempt = previousAttempt + 1
+  const cooldown = Math.min(retryCooldownMs * 2 ** Math.min(previousAttempt, 5), maxRetryCooldownMs)
+  return `retry:v2:${attempt}:${now + cooldown}:${fingerprint}`
 }
 
 function retryCompletionActive(completed: unknown, fingerprint: string, now: number) {
-  const match = typeof completed === 'string' ? completed.match(retryFingerprintPattern) : null
-  return Boolean(match && match[2] === fingerprint && Number(match[1]) > now)
+  const retry = retryCompletionState(completed, fingerprint)
+  return Boolean(retry && retry.deadline > now)
+}
+
+function retryCompletionState(completed: unknown, fingerprint: string) {
+  if (typeof completed !== 'string') return
+  const backoff = completed.match(retryBackoffFingerprintPattern)
+  if (backoff?.[3] === fingerprint) {
+    const attempt = Number(backoff[1])
+    const deadline = Number(backoff[2])
+    if (Number.isSafeInteger(attempt) && attempt > 0 && Number.isSafeInteger(deadline)) return { attempt, deadline }
+  }
+  const retry = completed.match(retryFingerprintPattern)
+  if (retry?.[2] === fingerprint) {
+    const deadline = Number(retry[1])
+    if (Number.isSafeInteger(deadline)) return { attempt: 1, deadline }
+  }
 }
 
 function passResultText(result: unknown) {

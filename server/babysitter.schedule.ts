@@ -269,7 +269,8 @@ export async function reconcileBabysitterWork(reason: string) {
       }
       else if (current.state === 'OPEN') {
         outcome = 'retry'
-        const retryFingerprint = retryPassFingerprint(repository, current, policyFingerprint, Date.now(), pullRequest)
+        const previousCompletion = await readCompletion(job.completionKey)
+        const retryFingerprint = retryPassFingerprint(repository, current, policyFingerprint, Date.now(), pullRequest, previousCompletion)
         if (retryFingerprint) {
           const [error] = await kv.set(job.completionKey, retryFingerprint)
           if (error) throw error

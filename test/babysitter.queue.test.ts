@@ -320,6 +320,30 @@ test('cools down explicit retries while waking immediately for state changes', a
     now + retryCooldownMs,
   )).length, 1)
 
+  const secondRetry = retryPassFingerprint(
+    'vite-hub/vitehub',
+    current,
+    policyFingerprint,
+    now + retryCooldownMs,
+    current,
+    retry,
+  )
+  assert.equal(typeof secondRetry, 'string')
+  assert.deepEqual(await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [current],
+    async () => secondRetry,
+    policyFingerprint,
+    now + retryCooldownMs * 3 - 1,
+  ), [])
+  assert.equal((await selectPullRequestJobs(
+    ['vite-hub/vitehub'],
+    async () => [current],
+    async () => secondRetry,
+    policyFingerprint,
+    now + retryCooldownMs * 3,
+  )).length, 1)
+
   const changed = { ...current, feedback: { comments: { count: 1, latestId: 'new-comment' }, reviews: { count: 0, latestId: null } } }
   assert.equal((await selectPullRequestJobs(
     ['vite-hub/vitehub'],

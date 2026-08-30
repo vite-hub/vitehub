@@ -46,7 +46,8 @@ test('reads required checks when an optional check has already failed', async ()
 test('persists a cooldown after an explicit retry pass', async () => {
   const runner = await readFile(new URL('../server/babysitter.schedule.ts', import.meta.url), 'utf8')
 
-  assert.match(runner, /const retryFingerprint = retryPassFingerprint\(repository, current, policyFingerprint, Date\.now\(\), pullRequest\)/)
+  assert.match(runner, /const previousCompletion = await readCompletion\(job\.completionKey\)/)
+  assert.match(runner, /const retryFingerprint = retryPassFingerprint\(repository, current, policyFingerprint, Date\.now\(\), pullRequest, previousCompletion\)/)
   assert.match(runner, /kv\.set\(job\.completionKey, retryFingerprint\)/)
 })
 
