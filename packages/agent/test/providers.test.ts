@@ -12024,6 +12024,192 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
+  it("streams queued finish replies after the primary response without eager buffering", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let consumed = false
+    const observe = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      hooks: {
+        "agent:finish": event => event.reply((async function* () {
+          expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", {
+            markdown: "Agent output",
+          })
+          yield "Streamed "
+          yield "reply"
+          consumed = true
+        })()),
+        "hook:observe": observe,
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_034), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(consumed).toBe(true)
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      name: "channel:delivery-effect",
+      outcome: "success",
+    }))
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", {
+      markdown: "Streamed reply",
+    })
+  })
+
+  it("traces failed and skipped queued finish replies", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.editMessage.mockRejectedValueOnce(new Error("stream edit failed"))
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+      hooks: {
+        "agent:finish": (event) => [
+          event.reply((async function* () {
+            yield "Partial reply"
+          })()),
+          event.reply("Skipped reply"),
+        ],
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("stream edit failed")
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Partial reply",
+          "error.message": "stream edit failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "",
+          "channel.effect.skipped": "Skipped after an earlier queued reply failed: stream edit failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(3)
+  })
+
+  it("traces queued finish replies skipped when the primary response fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("primary post failed"))
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+      hooks: {
+        "agent:finish": event => event.reply("Queued reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(91_037), "telegram")).rejects.toThrow("primary post failed")
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Queued reply",
+          "channel.effect.skipped": "Skipped before queued reply delivery: primary post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
+  })
+
+  it("defers static queued finish reply traces until delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("static post failed"))
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "manual" },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+      hooks: {
+        "agent:finish": event => event.reply({
+          artifacts: [{
+            alt: "Result report",
+            path: "reports/result.md",
+            placement: "link",
+            url: "https://assets.example/reports/result.md",
+          }],
+          body: "Static reply",
+        }),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    await expect(handler(chatWebhookRequest(91_036), "telegram")).rejects.toThrow("static post failed")
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "Static reply\n\n[Result report](<https://assets.example/reports/result.md>)",
+          "error.message": "static post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+    })
+  })
+
   it("delivers only explicit manual replies after deleting the placeholder", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -16027,7 +16213,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      await expect(handler(chatWebhookRequest(91_035), "telegram")).rejects.toThrow("model timeout")
+      await expect(handler(chatWebhookRequest(91_135), "telegram")).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([
         {
           output: { changes: 1 },
@@ -16042,9 +16228,9 @@ describe("server helpers", () => {
   })
 
   it.each([
-    ["streamed text", { stream: true }, 91_033],
+    ["streamed text", { stream: true }, 91_133],
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    ["phased replies", { commentary: "hidden" as const, stream: false }, 91_034],
+    ["phased replies", { commentary: "hidden" as const, stream: false }, 91_134],
   ])("exposes completed tool results to automatic %s error fallbacks", async (_delivery, messages, messageId) => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -16084,8 +16270,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = handler(chatWebhookRequest(messageId), "telegram")
-      await expect(response).rejects.toThrow("model timeout")
+      await expect(handler(chatWebhookRequest(messageId), "telegram")).rejects.toThrow("model timeout")
       expect(completedToolResults).toEqual([
         {
           output: { changes: 1 },
@@ -18052,9 +18237,11 @@ describe("server helpers", () => {
 
   it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const finish = vi.fn(async (event) => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const chat = event.extensions.get("chat") as { provider?: string; sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
@@ -18076,6 +18263,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
+      invocations,
       driver: { run: () => ({ text: "agent answer" }) },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -18106,6 +18294,18 @@ describe("server helpers", () => {
     })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", {
       markdown: "side message via telegram",
+    })
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.content": "side message via telegram",
+          "channel.effect.kind": "reply",
+          "channel.effect.supported": true,
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
     })
   })
 
