@@ -10,6 +10,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 import ts from "typescript"
 import { array, boolean, object, optional, parse, record, string } from "valibot"
+import { parse as parseYaml } from "yaml"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
@@ -76,7 +77,9 @@ async function installedVersion(path: string) {
 }
 
 async function requiredPeerSpecs() {
+  const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...workflowCatalog,
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
@@ -86,6 +89,23 @@ async function requiredPeerSpecs() {
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }
+}
+
+async function catalogDependencySpecs(catalogName: string, names: readonly string[]) {
+  const workspace: unknown = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
+  const catalogs = workspace && typeof workspace === "object" && "catalogs" in workspace
+    ? workspace.catalogs
+    : undefined
+  const catalog = catalogs && typeof catalogs === "object" && catalogName in catalogs
+    ? catalogs[catalogName as keyof typeof catalogs]
+    : undefined
+  if (!catalog || typeof catalog !== "object") throw new Error(`Missing ${catalogName} dependency catalog`)
+
+  return Object.fromEntries(names.map((name) => {
+    const spec = name in catalog ? catalog[name as keyof typeof catalog] : undefined
+    if (typeof spec !== "string") throw new Error(`Missing ${name} in ${catalogName} dependency catalog`)
+    return [name, spec]
+  }))
 }
 
 function requiredDependency(manifest: { dependencies?: Record<string, string> }, name: string) {
@@ -627,6 +647,25 @@ describe("published declaration diagnostics", () => {
     )
     expect(fixtureSpecs).toMatchObject({ ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
     expect(fixtureSpecs).not.toHaveProperty("evalite")
+    expect(fixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("provides install specs for Workflow's optional declaration peers", async () => {
+    const peerSpecs = await requiredPeerSpecs()
+    const fixtureSpecs = mixedPeerFixtureSpecs(
+      "@vite-hub/workflow",
+      "vite",
+      [],
+      ["@vite-hub/database", "@workflow/builders", "openworkflow", "vite", "workflow"],
+      { "@vite-hub/database": "file:database.tgz" },
+      { ...peerSpecs, openworkflow: "0.9.0", vite: "8.0.8" },
+    )
+
+    expect(fixtureSpecs).toMatchObject({
+      "@vite-hub/database": "file:database.tgz",
+      "@workflow/builders": "5.0.0-beta.35",
+      workflow: "5.0.0-beta.35",
+    })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
 

@@ -142,8 +142,7 @@
     "mountx": "catalog:workspace",
     "minimatch": "catalog:workspace",
     "mrmime": "catalog:workspace",
-    "ofetch": "catalog:unjs",
-    "vite": "catalog:vite"
+    "ofetch": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -155,6 +154,7 @@
     "ocache": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
