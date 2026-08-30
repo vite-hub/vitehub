@@ -23,7 +23,7 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -1142,8 +1142,10 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
   return bytes
 }
 
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number) {
-  const parts = currentInputAttachments(context.messages, context.runtime.run?.messageId)
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, replayHistory: boolean) {
+  const parts = replayHistory
+    ? context.messages.flatMap(message => message.parts.filter(isAttachmentPart))
+    : currentInputAttachments(context.messages, context.runtime.run?.messageId)
   if (!parts.length) return
   let remaining = maxBytes
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
@@ -1656,7 +1658,7 @@ async function* runProvider<
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     const attachments = await waitForProviderOperation(
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, !preservesProviderSession),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,

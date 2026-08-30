@@ -111,16 +111,13 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `kind` | Required tagged provider name: `"codex"` or `"claude-code"`. |
 | `credentialProfile` | Codex-only stable credential Home name. Requires `credentials`; persists under `.vitehub/data/codex/<credentialProfile>`. |
 | `credentials` | Codex-only `auth.json` string, sealed Server Env value, or invocation-time resolver. Inspection reports that a source is configured without resolving or checking the value. |
-| `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. |
-| `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"` override. |
+| `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. Requires an explicit `model`. |
+| `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"` override. Requires an explicit `model`. |
 | `model` | Optional provider model id. |
 | `env` | Explicit environment values passed to the local provider process. ViteHub otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
-| `credentials` | Codex-only `auth.json` JSON, sealed value, or invocation-time resolver. |
-| `reasoningEffort` | Codex-only reasoning effort. Requires an explicit `model`. |
-| `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"`. Requires an explicit `model`. |
 | `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
 | `output` | Optional structured Agent output contract. |
 | `capacity` | Optional process-local static or adaptive concurrency and queue limits. |

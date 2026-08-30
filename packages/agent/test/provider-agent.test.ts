@@ -1515,6 +1515,7 @@ cli_auth_credentials_store = "keyring"
       turnResumeCursor: "deleted-home-cursor",
     })
     const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchHistoricalImage = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const adapter = createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1522,7 +1523,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId, {
       messages: [
-        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "hello", type: "text" }, { fetchData: fetchHistoricalImage, mediaType: "image/png", type: "image" }], role: "user" },
         { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
         { parts: [{ text: "continue", type: "text" }], role: "user" },
       ],
@@ -1530,10 +1531,14 @@ cli_auth_credentials_store = "keyring"
     }) as never)
 
     expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(fetchHistoricalImage).toHaveBeenCalledOnce()
     expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ mimeType: "image/png", sizeBytes: 3, type: "image" })],
       input: '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
       threadId,
     }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(second.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
   it("clears a provider cursor when the invocation fails", async () => {
