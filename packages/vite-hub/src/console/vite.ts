@@ -355,11 +355,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Service configuration crosses Vite's open user-config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
         : options.rateLimitScanDirs
@@ -494,11 +496,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? databaseDiscoveryRoot
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? rateLimitDiscoveryRoot
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
         : rateLimitScanDirs

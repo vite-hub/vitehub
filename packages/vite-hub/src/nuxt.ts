@@ -42,12 +42,14 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
 }
 
 function configuredProjectRoot(root: string, value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? resolve(root, value.projectRoot)
     : undefined
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading scan directories.
   return value && typeof value === "object" && "scanDirs" in value && Array.isArray(value.scanDirs)
     ? value.scanDirs.filter((entry): entry is string => typeof entry === "string")
     : undefined
