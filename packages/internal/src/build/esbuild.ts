@@ -29,6 +29,10 @@ const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
+function normalizePathSeparators(path: string): string {
+  return path.replaceAll("\\", "/")
+}
+
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
@@ -36,8 +40,12 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
     const prefix = specifier.endsWith("/")
     return {
       prefix,
-      replacement,
-      specifier: isAbsolute(specifier) ? `${resolve(specifier)}${prefix ? "/" : ""}` : specifier,
+      replacement: isAbsolute(replacement)
+        ? `${normalizePathSeparators(resolve(replacement))}${/[\\/]$/.test(replacement) ? "/" : ""}`
+        : replacement,
+      specifier: isAbsolute(specifier)
+        ? `${normalizePathSeparators(resolve(specifier))}${prefix ? "/" : ""}`
+        : specifier,
     }
   })
   return {
@@ -48,9 +56,9 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
         const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
-        const normalizedSpecifier = isAbsolute(specifier) ? resolve(specifier) : specifier
+        const normalizedSpecifier = isAbsolute(specifier) ? normalizePathSeparators(resolve(specifier)) : specifier
         const canonicalSpecifier = isAbsolute(normalizedSpecifier)
-          ? await realpath(normalizedSpecifier).catch(() => normalizedSpecifier)
+          ? normalizePathSeparators(await realpath(normalizedSpecifier).catch(() => normalizedSpecifier))
           : normalizedSpecifier
         const match = resolvedEntries.find(({ prefix, specifier }) => prefix
           ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(specifier)
