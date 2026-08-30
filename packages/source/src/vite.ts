@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 import {
   resolveViteHubProjectRoot,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { findExportNames } from "mlly"
@@ -66,6 +67,7 @@ interface SourcePluginConfig {
   nitro?: unknown
   root?: string
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+  [VITEHUB_PROJECT_ROOT]?: string
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
@@ -380,8 +382,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
-  const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, {
+  const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
+    listener: GeneratedSourceHandlersListener
     projectRoot?: string
   }>()
   const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) => {
@@ -398,10 +401,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     }).catch(() => {})
     return preparation
   }
-  const refresh = async (viteRoot?: string) => {
-    const projectRoot = viteRoot
-      ? resolveViteHubProjectRoot(viteRoot)
-      : latestProjectRoot
+  const refresh = async (viteConfig?: SourcePluginConfig) => {
+    const projectRoot = viteConfig?.[VITEHUB_PROJECT_ROOT]
+      ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+      : viteConfig?.root
+        ? resolveViteHubProjectRoot(viteConfig.root)
+        : latestProjectRoot
     if (!projectRoot) return
     await prepareSources({
       projectRoot,
@@ -412,13 +417,15 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     listener: GeneratedSourceHandlersListener,
     listenerOptions: GeneratedSourceHandlersListenerOptions = {},
   ) => {
-    generatedHandlersListeners.set(listener, {
+    const registration = {
       ...listenerOptions,
+      listener,
       projectRoot: listenerOptions.projectRoot
         ? resolve(listenerOptions.projectRoot)
         : latestProjectRoot,
-    })
-    return () => generatedHandlersListeners.delete(listener)
+    }
+    generatedHandlersListeners.add(registration)
+    return () => generatedHandlersListeners.delete(registration)
   }
   const bindUnresolvedListenerRoots = (root: string) => {
     for (const listenerOptions of generatedHandlersListeners.values()) {
@@ -453,7 +460,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
-      const projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+      const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
+        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+        : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
@@ -503,11 +512,13 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return transition
     },
     async configResolved(config) {
-      const projectRoot = resolveViteHubProjectRoot(config.root)
-      latestProjectRoot = projectRoot
-      bindUnresolvedListenerRoots(projectRoot)
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
+      const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
+        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+        : resolveViteHubProjectRoot(config.root)
+      latestProjectRoot = projectRoot
+      bindUnresolvedListenerRoots(projectRoot)
       const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
       const runTransition = async () => {
         const configuredState = configuredStateByRoot.get(projectRoot)
@@ -537,7 +548,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return transition
     },
     configureServer(server) {
-      const root = resolveViteHubProjectRoot(server.config.root ?? latestProjectRoot ?? process.cwd())
+      const viteConfig = server.config as SourcePluginConfig
+      const root = viteConfig[VITEHUB_PROJECT_ROOT]
+        ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+        : resolveViteHubProjectRoot(server.config.root ?? latestProjectRoot ?? process.cwd())
       const configuredState = configuredStateByRoot.get(root)
       const lifecycleServerDirs = configuredState?.serverDirs?.slice()
       let activeHandlerKey = configuredState?.handlerKey ?? "[]"
@@ -619,21 +633,21 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             return
           }
           if (handlerKey === activeHandlerKey) return
-          const listeners = [...generatedHandlersListeners].filter(([, listenerOptions]) =>
+          const listeners = [...generatedHandlersListeners].filter(listenerOptions =>
             listenerOptions.projectRoot === root,
           )
-          const passiveListeners = listeners.filter(([, listenerOptions]) =>
+          const passiveListeners = listeners.filter(listenerOptions =>
             !listenerOptions.handlesHostRestart,
           )
-          for (const [listener] of passiveListeners) {
+          for (const { listener } of passiveListeners) {
             void Promise.resolve()
               .then(() => listener(handlers))
               .catch(error => server.config.logger.error(String(error)))
           }
-          const hostRestartOwners = listeners.filter(([, listenerOptions]) =>
+          const hostRestartOwners = listeners.filter(listenerOptions =>
             listenerOptions.handlesHostRestart,
           )
-          const listenerResults = hostRestartOwners.map(async ([listener]) => {
+          const listenerResults = hostRestartOwners.map(async ({ listener }) => {
             try {
               await listener(handlers)
               return true
@@ -696,10 +710,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       server.watcher.on("unlink", refreshHost)
     },
     buildStart() {
-      return refresh(this.environment?.config.root)
+      return refresh(this.environment?.config as SourcePluginConfig | undefined)
     },
     buildEnd() {
-      return refresh(this.environment?.config.root)
+      return refresh(this.environment?.config as SourcePluginConfig | undefined)
     },
     closeBundle() {
       closeHostRefreshByEnvironment.get(this.environment)?.()

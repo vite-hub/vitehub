@@ -42,7 +42,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }
 })
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
@@ -102,6 +102,7 @@ function configResolved(plugin: Plugin) {
   return plugin.configResolved as (config: {
     nitro?: Record<string, unknown>
     root: string
+    [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
   }) => Promise<void>
 }
@@ -118,6 +119,7 @@ function config(plugin: Plugin) {
     nitro?: Record<string, unknown>
     root?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+    [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
   }) => Promise<{
     define?: Record<string, string>
@@ -167,7 +169,11 @@ function configureServer(
   const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
   if (!rawHook) throw new TypeError("Expected a configureServer hook.")
   type TestViteServer = {
-    config: { logger: { error: (message: string) => void } }
+    config: {
+      logger: { error: (message: string) => void }
+      root?: string
+      [VITEHUB_PROJECT_ROOT]?: string
+    }
     environments: Record<string, TestPluginEnvironment>
     restart: () => Promise<void>
     watcher: {
@@ -855,6 +861,58 @@ describe("framework generated types", () => {
 
     await rm(collection)
     await listeners.get("unlink")?.(collection)
+
+    expect(observer).toHaveBeenCalledWith([])
+  })
+
+  it("uses the framework project root when Vite runs from a nested root", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    const viteConfig = { root: viteRoot, [VITEHUB_PROJECT_ROOT]: root }
+    await config(plugin)(viteConfig)
+    await configResolved(plugin)(viteConfig)
+    const observer = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const watcherAdd = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() }, ...viteConfig },
+      restart: vi.fn(async () => {}),
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "server")])
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+    expect(observer).toHaveBeenCalledWith([])
+  })
+
+  it("keeps duplicate listener registrations independently removable", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await mkdir(dirname(secondCollection), { recursive: true })
+    await writeFile(secondCollection, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    const observer = vi.fn(async () => {})
+    const removeFirst = plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: first.root })
+    plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: second.root })
+    await config(plugin)({ root: first.root })
+    await config(plugin)({ root: second.root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() }, root: second.root },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    removeFirst()
+    await rm(secondCollection)
+    await listeners.get("unlink")?.(secondCollection)
 
     expect(observer).toHaveBeenCalledWith([])
   })
