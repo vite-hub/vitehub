@@ -90,6 +90,34 @@ it("excludes nested generated output directories from retained workspaces", asyn
   await expect(readFile(join(retainedWorkspace, "playground", "vite", ".vitest-tmp", "project", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("retains configured roots beneath nested generated output directories", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-root-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "playground", "vite", ".vitest-tmp", "project")
+  const handler = join(rootDir, "server", "workflows", "support.ts")
+  const shared = join(rootDir, "server", "shared.ts")
+  const unrelated = join(workspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(unrelated), { recursive: true })])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, 'export { value } from "../../shared"\n'),
+    writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(unrelated, "throw new Error('generated test must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  const retainedWorkspace = join(retained.resolve(rootDir), "..", "..", "..", "..")
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("../../shared")
+  await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("retained")
+  await expect(readFile(join(retainedWorkspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)

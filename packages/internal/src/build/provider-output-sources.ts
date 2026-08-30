@@ -115,7 +115,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const retainedRoots = new Map(roots.map((root, index) => [root, resolve(artifactDir, String(index))]))
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
-    const requested = paths.filter(path => pathContains(root, path))
+    const requested = [...paths, ...configuredRoots].filter(path => pathContains(root, path))
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")
     try {
