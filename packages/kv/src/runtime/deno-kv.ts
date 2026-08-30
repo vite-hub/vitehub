@@ -7,6 +7,7 @@ type ViteHubDenoKVKey = [string]
 interface DenoKVEntry<T = unknown> {
   key: DenoKVKey
   value: T | null
+  versionstamp: string | null
 }
 
 interface DenoKV {
@@ -91,7 +92,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return iterator.cursor ? { keys, cursor: iterator.cursor } : { keys }
     },
     async hasItem(key) {
-      return (await (await open()).get(toDenoKey(key))).value !== null
+      return (await (await open()).get(toDenoKey(key))).versionstamp !== null
     },
     async removeItem(key) {
       await (await open()).delete(toDenoKey(key))

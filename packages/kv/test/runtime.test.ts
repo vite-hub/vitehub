@@ -86,6 +86,7 @@ function createDenoOpenKvMock() {
       // SAFETY: The mock accepts and returns the single-string key shape used by this adapter.
       key: [key] as [string],
       value: data.has(key) ? data.get(key) : null,
+      versionstamp: data.has(key) ? "00000000000000010000" : null,
     }),
     list: async function* () {
       for (const [key, value] of data) {
@@ -331,7 +332,7 @@ describe("kv runtime", () => {
   })
 
   it("maps the KV Store surface onto native Deno KV without exposing queue or watch handles", async () => {
-    const { close, openKv } = createDenoOpenKvMock()
+    const { close, data, openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
 
@@ -343,9 +344,12 @@ describe("kv runtime", () => {
     await storage.setItem("users:42:profile", { name: "Ada" })
     await storage.setItem("users:42:prefs", { theme: "system" })
     await storage.setItem("users:7:profile", { name: "Grace" })
+    data.set("nullable", null)
 
     expect(await storage.getItem("users:42:profile")).toEqual({ name: "Ada" })
     expect(await storage.hasItem("users:42:prefs")).toBe(true)
+    expect(await driver.getItem("nullable")).toBeNull()
+    expect(await driver.hasItem?.("nullable", {})).toBe(true)
     expect(await storage.getKeys("users:42:")).toEqual(["users:42:prefs", "users:42:profile"])
     expect(driver.enqueue).toBeUndefined()
     expect(driver.listenQueue).toBeUndefined()
