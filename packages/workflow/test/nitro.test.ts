@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
 
 import { expect, it } from "vitest"
 
@@ -38,6 +39,8 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
       .find(candidate => candidate.name === "vitehub-workflow-cloudflare-exports")!
     const moduleId = plugin.resolveId("virtual:vitehub-workflow-cloudflare-exports")
     expect(plugin.load(moduleId)).toContain("installViteHubWorkflowRuntime()")
+    const workflowFile = join(agentDir, "agent.ts")
+    expect(plugin.resolveId(pathToFileURL(workflowFile).href)).toBe(workflowFile)
     const renderChunk = typeof plugin.renderChunk === "function" ? plugin.renderChunk : plugin.renderChunk.handler
     expect(renderChunk.call({}, "export default {}", { fileName: "index.js", isEntry: true })).toMatchObject({
       code: expect.stringMatching(/export \{ ViteHub.*Workflow \} from '\.\/workflow-cloudflare-exports\.mjs'/),

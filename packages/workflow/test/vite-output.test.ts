@@ -155,6 +155,8 @@ it("rewrites JSON-escaped Windows paths when publishing retained Workflow source
   expect(rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
     `import step from ${JSON.stringify(`${publishedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`,
   )
+  expect(rewriteRetainedSourceImportPaths(`${retainedSourcesDir}-external\\workflow.ts`, retainedSourcesDir, publishedSourcesDir))
+    .toBe(`${retainedSourcesDir}-external\\workflow.ts`)
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {
@@ -162,8 +164,8 @@ it("preserves staged Workflow imports from configured external server directorie
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
   const externalServerDir = join(rootDir, "..", `${basename(rootDir)}-external-server`)
-  const externalWorkflowDir = join(externalServerDir, "workflows", "external")
-  const externalHandler = join(externalServerDir, "external.workflow.ts")
+  const externalWorkflowDir = join(externalServerDir, "workflows", "external-native")
+  const externalHandler = join(externalServerDir, "external-handler.workflow.ts")
   const externalStep = join(externalWorkflowDir, "01-external.ts")
   tempDirs.push(externalServerDir)
   await mkdir(retainedRoot, { recursive: true })

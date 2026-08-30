@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
@@ -656,6 +656,7 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
     },
     resolveId(id: string) {
       if (id === moduleId) return resolvedModuleId
+      if (id.startsWith("file:")) return fileURLToPath(id)
     },
     load(id: string) {
       if (id !== resolvedModuleId) return
@@ -827,10 +828,14 @@ function createVercelNativeWorkflowContents(
 export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
   const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
   const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
-  return contents
-    .replaceAll(pathToFileURL(retainedSourcesDir).href, pathToFileURL(publishedSourcesDir).href)
-    .replaceAll(serializedRetainedSourcesDir, serializedPublishedSourcesDir)
-    .replaceAll(retainedSourcesDir, publishedSourcesDir)
+  const replacements = [
+    [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
+    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
+    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
+    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
+    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
+  ] as const
+  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
 }
 
 function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition, vercelNativeFiles: Record<string, string> = {}) {
