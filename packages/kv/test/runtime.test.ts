@@ -249,12 +249,12 @@ describe("kv runtime", () => {
   })
 
   it("maps atomic operations to native Upstash commands", async () => {
-    upstashGetdel = vi.fn(async () => "single-use")
+    upstashGetdel = vi.fn(async () => '"single-use"')
     upstashEval = vi.fn(async () => 1)
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
     const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
 
-    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe("single-use")
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe('"single-use"')
     await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
     expect(upstashGetdel).toHaveBeenCalledWith("verification")
     expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
@@ -478,6 +478,8 @@ describe("kv runtime", () => {
     const storage = createHostedKVStorage({ store: { driver: "deno-kv", path: ":memory:" } })
     await storage.setItem("json-string", "123")
     await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe("123")
+    await storage.setItem("object", { atomic: true })
+    await expect(storage.getAndDeleteItem?.("object")).resolves.toEqual({ atomic: true })
   })
 
   it("starts a fresh Deno counter window after replacement or deletion", async () => {
@@ -505,6 +507,20 @@ describe("kv runtime", () => {
     await driver.incrementItem?.("clear-me", 60)
     await driver.clear?.("clear", {})
     expect(data.has("clear-me:vitehub:increment-expiry")).toBe(false)
+  })
+
+  it("resets an expired Deno counter before incrementing", async () => {
+    const { data, openKv, setOptions } = createDenoOpenKvMock()
+    // SAFETY: This test provides the only Deno API used by the runtime adapter.
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
+
+    data.set("attempts", 8)
+    data.set("attempts:vitehub:increment-expiry", Date.now() - 1)
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
+    expect(setOptions).toHaveLength(2)
+    expect(setOptions.every(options => options?.expireIn && options.expireIn > 59_000)).toBe(true)
   })
 
   it("bounds and resumes fs-lite listing across directories", async () => {

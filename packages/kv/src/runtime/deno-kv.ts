@@ -148,14 +148,16 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       const expireIn = normalizeTTL(ttl)
       while (true) {
         const [entry, expiryEntry] = await Promise.all([kv.get(resolvedKey), kv.get<number>(expiryKey)])
-        const current = entry.versionstamp === null ? 0 : parseCounterValue(entry.value)
-        if (!Number.isSafeInteger(current)) throw new TypeError(`Atomic KV increment requires an integer value at "${key}".`)
         const now = Date.now()
         const created = entry.versionstamp === null
         const trackedExpiry = expiryEntry.versionstamp !== null
-        const expiresAt = created || !trackedExpiry ? now + expireIn : Number(expiryEntry.value)
-        if (!Number.isSafeInteger(expiresAt)) throw new TypeError(`Atomic KV increment has invalid expiry metadata at "${key}".`)
-        const remaining = Math.max(1, expiresAt - now)
+        const previousExpiry = trackedExpiry ? Number(expiryEntry.value) : undefined
+        if (trackedExpiry && !Number.isSafeInteger(previousExpiry)) throw new TypeError(`Atomic KV increment has invalid expiry metadata at "${key}".`)
+        const expired = previousExpiry !== undefined && previousExpiry <= now
+        const current = created || expired ? 0 : parseCounterValue(entry.value)
+        if (!Number.isSafeInteger(current)) throw new TypeError(`Atomic KV increment requires an integer value at "${key}".`)
+        const expiresAt = created || expired || previousExpiry === undefined ? now + expireIn : previousExpiry
+        const remaining = expiresAt - now
         const transaction = kv.atomic().check(entry).check(expiryEntry)
         if (!created && !trackedExpiry) {
           const result = await transaction.set(resolvedKey, current + 1).commit()

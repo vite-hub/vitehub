@@ -33,6 +33,19 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
   return config
 }
 
+function deserializeValue(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosted drivers return the serialized representation written by unstorage.
+  if (typeof value !== "string") return value
+  if (value === "undefined") return undefined
+  try {
+    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This mirrors unstorage's JSON value decoding and never trusts the result structurally.
+    return JSON.parse(value)
+  }
+  catch {
+    return value
+  }
+}
+
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): RuntimeStorage {
   return createNamedHostedKVStorage(config, "default")
 }
@@ -51,7 +64,7 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   storage.listKeys = options => driver.listKeys(options)
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem
-  if (getAndDeleteItem) storage.getAndDeleteItem = key => getAndDeleteItem(normalizeKey(key))
+  if (getAndDeleteItem) storage.getAndDeleteItem = async key => deserializeValue(await getAndDeleteItem(normalizeKey(key)))
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   return storage
 }
