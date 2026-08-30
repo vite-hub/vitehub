@@ -1,4 +1,5 @@
-import { access, opendir } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { opendir } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
@@ -9,11 +10,12 @@ import type { KVRuntimeDriver } from "./driver.ts"
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
+  const continuations = new Map<string, { iterator: AsyncGenerator<string>; timeout: NodeJS.Timeout }>()
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
     const root = resolve(options.base)
     const keys: string[] = []
 
-    async function* walk(directory: string, after: string[] = []): AsyncGenerator<string> {
+    async function* walk(directory: string): AsyncGenerator<string> {
       let entries
       try {
         entries = await opendir(directory)
@@ -22,68 +24,40 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
         if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
         throw error
       }
-      let afterEntry = after[0] === undefined
       for await (const entry of entries) {
-        const afterName = after[0]
-        let isAfterEntry = afterEntry
-        if (!afterEntry) {
-          if (entry.name < (afterName ?? "")) continue
-          isAfterEntry = entry.name !== afterName
-          afterEntry = true
-        }
         const path = join(directory, entry.name)
         if (entry.isDirectory()) {
-          yield* walk(path, isAfterEntry ? [] : after.slice(1))
+          yield* walk(path)
           continue
         }
-        if (entry.isFile() && isAfterEntry) yield relative(root, path)
+        if (entry.isFile()) yield relative(root, path)
       }
     }
 
-    const decoded = cursor
-      ? JSON.parse(decodeURIComponent(cursor)) as { offset: number; path: string }
-      : { offset: 0, path: "" }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cursors are untrusted request input.
-    if (!Number.isInteger(decoded.offset) || decoded.offset < 0 || typeof decoded.path !== "string") {
-      throw new TypeError("Invalid fs-lite KV cursor.")
-    }
-    let after = decoded.path === "" ? [] : decoded.path.split("/")
-    let restartSkip = 0
-    if (after.some(part => part === "" || part === "." || part === "..")) {
-      throw new TypeError("Invalid fs-lite KV cursor.")
-    }
-    if (after.length > 0) {
-      try {
-        await access(join(root, ...after))
-      }
-      catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          after = []
-          restartSkip = Math.max(0, decoded.offset - 1)
-        }
-        else throw error
-      }
+    const continuation = cursor ? continuations.get(cursor) : undefined
+    const iterator = continuation?.iterator ?? (cursor ? undefined : walk(root))
+    if (!iterator) throw new TypeError("Invalid or expired fs-lite KV cursor.")
+    if (cursor && continuation) {
+      clearTimeout(continuation.timeout)
+      continuations.delete(cursor)
     }
     let scanned = 0
-    for await (const path of walk(root, after)) {
+    while (scanned < limit) {
+      const entry = await iterator.next()
+      if (entry.done) return { keys }
+      const path = entry.value
       scanned++
-      if (restartSkip > 0) {
-        restartSkip--
-        continue
-      }
       const key = path.split(sep).join(":")
       if (key.startsWith(prefix)) keys.push(key)
-      if (scanned === limit) {
-        return {
-          keys,
-          cursor: encodeURIComponent(JSON.stringify({
-            offset: decoded.offset + scanned,
-            path: path.split(sep).join("/"),
-          })),
-        }
-      }
     }
-    return { keys }
+    const nextCursor = randomUUID()
+    const timeout = setTimeout(() => {
+      continuations.delete(nextCursor)
+      void iterator.return(undefined)
+    }, 60_000)
+    timeout.unref()
+    continuations.set(nextCursor, { iterator, timeout })
+    return { keys, cursor: nextCursor }
   }
   return driver
 }

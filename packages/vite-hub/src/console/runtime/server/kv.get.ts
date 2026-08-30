@@ -113,16 +113,18 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
     if (typeof input === "bigint") {
-      const toJSON = (Object(input) as { toJSON?: (key: string) => unknown }).toJSON
+      const toJSON: unknown = Reflect.get(Object(input), "toJSON")
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
       if (typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key)
       throw new TypeError("Cannot serialize bigint as JSON.")
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
-    const object = input as object & { toJSON?: (key: string) => unknown }
+    const object = Object(input)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
-    if (typeof object.toJSON === "function") {
-      const replacement = object.toJSON(key)
+    const toJSON: unknown = Reflect.get(object, "toJSON")
+    if (typeof toJSON === "function") {
+      const replacement = toJSON.call(input, key)
       if (replacement !== input) return serialize(replacement, depth, arrayValue, key)
     }
     if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
@@ -143,8 +145,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     let count = 0
     for (const key in object) {
       if (!Object.prototype.hasOwnProperty.call(object, key)) continue
-      // SAFETY: The own enumerable key came from this object, whose property values remain unknown.
-      const item = (object as Record<string, unknown>)[key]
+      const item: unknown = Reflect.get(object, key)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
       if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
       if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
@@ -231,8 +232,8 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   const limit = limitParameter(url.searchParams.get("limit"))
   const cursor = url.searchParams.get("cursor") || undefined
   const pageResult = await selected.storage.list({ cursor, limit, prefix })
-  const response = {
-    keys: [] as string[],
+  const response: { keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] } = {
+    keys: [],
     limit,
     prefix,
     store: selected.name,

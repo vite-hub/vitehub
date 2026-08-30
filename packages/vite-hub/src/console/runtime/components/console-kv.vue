@@ -138,6 +138,7 @@ async function loadValue(key = selectedKey.value): Promise<void> {
 
 async function loadKeys(options: { append?: boolean; keepSelection?: boolean } = {}): Promise<void> {
   listRequest?.abort();
+  const currentSelection = options.keepSelection ? selectedKey.value : undefined;
   const controller = new AbortController();
   listRequest = controller;
   listLoading.value = true;
@@ -159,8 +160,7 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
-    const current = options.keepSelection ? selectedKey.value : undefined;
-    selectedKey.value = current !== undefined && keys.value.includes(current) ? current : keys.value[0];
+    selectedKey.value = currentSelection !== undefined && keys.value.includes(currentSelection) ? currentSelection : keys.value[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
