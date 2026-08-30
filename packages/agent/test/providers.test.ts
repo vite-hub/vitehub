@@ -17414,7 +17414,7 @@ describe("server helpers", () => {
           },
           stream: false,
           sessions: { idleTimeoutMs: 60_000, strategy: "idle-timeout" },
-          threadHistory: { maxMessages: 25 },
+          threadHistory: {},
           webhooks: {
             telegram: {},
           },

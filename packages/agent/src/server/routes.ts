@@ -4080,8 +4080,10 @@ async function chatTriggerMessages(
   })
   const triggerHistory = resolveChatTriggerHistory(options)
   const triggerLimit = chatTriggerHistoryLimit(triggerHistory)
-  const configuredThreadLimit = isRuntimeObject(options?.threadHistory) && "maxMessages" in options.threadHistory
-    ? options.threadHistory.maxMessages
+  const configuredThreadLimit = isRuntimeObject(options?.threadHistory)
+    ? "maxMessages" in options.threadHistory
+      ? options.threadHistory.maxMessages
+      : 100
     : undefined
   const sessionHistoryLimit = options?.sessions && isRuntimeNumber(configuredThreadLimit) && Number.isFinite(configuredThreadLimit) && configuredThreadLimit > 0
     ? Math.floor(configuredThreadLimit)
