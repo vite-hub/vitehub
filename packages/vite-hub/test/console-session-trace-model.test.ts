@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isDeniedApproval,
+  isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
 } from "../src/console/runtime/components/console-session-trace-model";
@@ -42,5 +43,11 @@ describe("Console session trace model", () => {
     expect(traceDurationMs("execute_tool", { "tool.durationMs": 42 }, 0)).toBe(42);
     expect(traceDurationMs("invoke_agent", { "invocation.durationMs": 17 }, 0)).toBe(17);
     expect(traceDurationMs("execute_tool", {}, 9)).toBe(9);
+  });
+
+  it("recognizes terminal Provider task observations without a start", () => {
+    expect(isTerminalTaskObservation("agent.task.failed")).toBe(true);
+    expect(isTerminalTaskObservation("agent.task.cancelled")).toBe(true);
+    expect(isTerminalTaskObservation("agent.task.completed")).toBe(false);
   });
 });

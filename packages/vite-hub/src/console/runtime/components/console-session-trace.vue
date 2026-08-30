@@ -3,6 +3,7 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
+  isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
 } from "./console-session-trace-model";
@@ -116,12 +117,16 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   );
 
   for (const observation of observations) {
-    if (!observation.name.endsWith(".error")) continue;
+    if (!observation.name.endsWith(".error") && !isTerminalTaskObservation(observation.name))
+      continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
+    const cancelled = observation.name === "agent.task.cancelled";
+    const operation = isTerminalTaskObservation(observation.name) ? "run_task" : "error";
+    const target = operationTarget(operation, observation.attributes ?? {}, invocation);
     result.push({
       activityId: activityId(observation),
       attributes: { ...observation.attributes },
@@ -129,16 +134,21 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       durationMs: 0,
       endMs: at,
       eventNames: [observation.name],
-      icon: recovered ? "i-lucide-circle-check" : "i-lucide-circle-alert",
+      icon: cancelled
+        ? "i-lucide-ban"
+        : recovered
+          ? "i-lucide-circle-check"
+          : "i-lucide-circle-alert",
       id: `${id}:error:${observation.sequence}`,
-      name:
-        recovered && observation.name === "agent.stream.error"
+      name: target
+        ? `${operation} ${target}`
+        : recovered && observation.name === "agent.stream.error"
           ? "Stream recovered"
           : humanize(observation.name),
-      operation: recovered ? "recovery" : "error",
+      operation: recovered ? "recovery" : operation,
       sequence: observation.sequence,
       startMs: at,
-      status: recovered ? "recovered" : "failed",
+      status: cancelled ? "cancelled" : recovered ? "recovered" : "failed",
     });
   }
 

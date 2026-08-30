@@ -414,12 +414,17 @@ watch(
     selectedAgentName,
     isUsageRoute,
   ],
-  async ([requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute]) => {
+  async (
+    [requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute],
+    previous,
+  ) => {
     if (usageRoute) {
       selectedInvocationId.value = undefined;
       return;
     }
-    if (requestedInvocation || requestedAgent) showSessions();
+    const routeChanged =
+      !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
+    if ((requestedInvocation || requestedAgent) && routeChanged) showSessions();
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
       requestedInvocation || (agentRouteReady ? firstInvocation : undefined);

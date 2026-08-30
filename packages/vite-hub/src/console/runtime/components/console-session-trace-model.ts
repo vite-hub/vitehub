@@ -39,3 +39,7 @@ export function isDeniedApproval(
 ): boolean {
   return operation === "tool_approval" && attributes["approval.approved"] === false;
 }
+
+export function isTerminalTaskObservation(name: string): boolean {
+  return name === "agent.task.failed" || name === "agent.task.cancelled";
+}
