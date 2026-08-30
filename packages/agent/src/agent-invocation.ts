@@ -228,6 +228,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     removeParentAbortListener?.()
     removeParentAbortListener = undefined
   }
+  const readTerminalSnapshot = (): AgentInvocationSnapshot<TOutput> | undefined => terminalSnapshot
   const observeTerminalSnapshot = (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot && isTerminalAgentInvocationStatus(snapshot.status)) {
       terminalSnapshot ??= snapshot
@@ -259,7 +260,12 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
         return { id: options.id, invocation: { ...terminalSnapshot }, outcome: "invalid-state" }
       }
       try {
-        const snapshot = observeTerminalSnapshot(await options.cancel())
+        const providerSnapshot = await options.cancel()
+        const settledTerminalSnapshot = readTerminalSnapshot()
+        if (settledTerminalSnapshot) {
+          return { id: options.id, invocation: { ...settledTerminalSnapshot }, outcome: "invalid-state" }
+        }
+        const snapshot = observeTerminalSnapshot(providerSnapshot)
         if (!snapshot) return { id: options.id, outcome: "unavailable" }
         return {
           id: options.id,
@@ -270,6 +276,10 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
         }
       }
       catch (error) {
+        const settledTerminalSnapshot = readTerminalSnapshot()
+        if (settledTerminalSnapshot) {
+          return { id: options.id, invocation: { ...settledTerminalSnapshot }, outcome: "invalid-state" }
+        }
         return { id: options.id, outcome: options.errorOutcome(error) }
       }
     },
@@ -290,6 +300,12 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
       return output
     }
     catch (error) {
+      const authoritativeSnapshot = readTerminalSnapshot()
+      if (authoritativeSnapshot?.status === "cancelled") {
+        throw new DOMException("The invocation was cancelled.", "AbortError")
+      }
+      if (authoritativeSnapshot?.status === "failed") throw authoritativeSnapshot.error
+      if (authoritativeSnapshot?.status === "completed") return authoritativeSnapshot.output as TResult
       if (error instanceof DOMException && error.name === "AbortError") {
         observeTerminalSnapshot({ id: options.id, status: "cancelled" })
       }

@@ -675,6 +675,36 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it.each([
+    ["rejects", () => Promise.reject(new Error("cancellation unavailable"))],
+    ["returns no snapshot", () => Promise.resolve(undefined)],
+  ])("prefers settled backed state when overlapping cancellation %s", async (_description, cancel) => {
+    let releaseCancellation!: () => void
+    const cancellationReleased = new Promise<void>((resolve) => {
+      releaseCancellation = resolve
+    })
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => {
+        await cancellationReleased
+        return cancel()
+      },
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      result: () => Promise.resolve("done"),
+      startResult: Promise.resolve(),
+    })
+
+    const cancellation = controller.cancel()
+    await expect(controller.result).resolves.toBe("done")
+    releaseCancellation()
+    await expect(cancellation).resolves.toEqual({
+      id: "child",
+      invocation: { id: "child", output: "done", status: "completed" },
+      outcome: "invalid-state",
+    })
+  })
+
   it("rejects an overlapping backed result when cancellation settles first", async () => {
     let releaseResult!: () => void
     const resultReleased = new Promise<void>((resolve) => {
@@ -708,6 +738,34 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       invocation: { id: "child", status: "cancelled" },
       outcome: "invalid-state",
+    })
+  })
+
+  it("preserves cancellation when an overlapping backed result rejects", async () => {
+    let rejectResult!: (error: Error) => void
+    const resultObservation = new Promise<never>((_resolve, reject) => {
+      rejectResult = reject
+    })
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => ({ id: "child", status: "cancelled" }),
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      result: () => resultObservation,
+      startResult: Promise.resolve(),
+    })
+
+    const result = controller.result
+    await expect(controller.cancel()).resolves.toEqual({
+      id: "child",
+      invocation: { id: "child", status: "cancelled" },
+      outcome: "accepted",
+    })
+    rejectResult(new Error("result unavailable"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    await expect(controller.inspect()).resolves.toEqual({
+      invocation: { id: "child", status: "cancelled" },
+      outcome: "available",
     })
   })
 
