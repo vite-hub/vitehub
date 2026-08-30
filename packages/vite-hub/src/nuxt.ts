@@ -1114,7 +1114,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...options,
         kv: resolvedKV,
         preset: plan.preset,
-        queue: replayConfig.queue ?? options.queue,
+        queue: effectiveQueue === undefined ? undefined : replayConfig.queue ?? effectiveQueue,
         workflow: replayConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)

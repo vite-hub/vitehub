@@ -1133,7 +1133,7 @@ describe("ViteHub Nuxt integration", () => {
 
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain('"file":"email.queue.ts"')
-      expect(generated).not.toContain("preview.queue.ts")
+      expect(generated).toContain('"file":"app/preview.queue.ts"')
     }
     finally {
       await rm(rootQueue, { force: true })
