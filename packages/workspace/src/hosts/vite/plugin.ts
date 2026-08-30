@@ -109,14 +109,14 @@ function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boole
   return binding?.referencePaths?.some(babelPathIsExported) ?? false
 }
 
-function babelPathReachesExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
+function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
   if (seen.has(path)) return false
   seen.add(path)
   for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
-    if (current.node.type === "ExportNamedDeclaration" || current.node.type === "ExportDefaultDeclaration") return true
+    if (current.node.type === "ExportDefaultDeclaration") return true
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
-      if (binding?.referencePaths?.some(reference => babelPathReachesExport(reference, seen))) return true
+      if (binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference, seen))) return true
     }
   }
   return false
@@ -127,7 +127,7 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
     if (
       current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
-      && babelPathReachesExport(current)
+      && babelPathReachesDefaultExport(current)
     ) return true
     if (
       current.node.type === "VariableDeclarator"
@@ -137,7 +137,7 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
         || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => (
           reference.parentPath?.node.type === "ObjectProperty"
           && babelPropertyName(reference.parentPath) === "store"
-          && babelPathReachesExport(reference.parentPath)
+          && babelPathReachesDefaultExport(reference.parentPath)
         ))
       )
     ) return true
@@ -256,7 +256,7 @@ async function sourceModuleMayUseCloudflareArtifacts(
     if (
       defaultImport
       && /^[A-Za-z_$][\w$]*$/.test(defaultImport)
-      && !new RegExp(`\\bstore\\s*(?::\\s*${defaultImport}\\b|(?=[,}]))`).test(loaded.source)
+      && !sourceIdentifierFeedsWorkspaceStore(loaded.source, defaultImport)
     ) continue
     const specifier = match[2]!
     const resolvedModule = specifier.startsWith(".")
@@ -267,6 +267,26 @@ async function sourceModuleMayUseCloudflareArtifacts(
     if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited)) return true
   }
   return false
+}
+
+function sourceIdentifierFeedsWorkspaceStore(source: string, identifier: string): boolean {
+  const candidates = new Set([identifier])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const candidate of candidates) {
+      const aliasPattern = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${candidate}\\b`, "g")
+      for (const match of source.matchAll(aliasPattern)) {
+        if (candidates.has(match[1]!)) continue
+        candidates.add(match[1]!)
+        changed = true
+      }
+    }
+  }
+  return [...candidates].some(candidate => (
+    new RegExp(`\\bstore\\s*:\\s*${candidate}\\b`).test(source)
+    || (candidate === "store" && /\bstore\s*(?=[,}])/.test(source))
+  ))
 }
 
 function vercelFunctionRuntimePackages() {
