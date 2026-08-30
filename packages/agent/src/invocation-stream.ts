@@ -47,7 +47,8 @@ function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEve
 }
 
 export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
   let completed = false
   let error: unknown
   let pending = ""
@@ -55,10 +56,11 @@ export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array
     for (;;) {
       const { done, value } = await reader.read()
       if (done) {
+        pending += decoder.decode()
         completed = true
         break
       }
-      pending += value
+      pending += decoder.decode(value, { stream: true })
       const lines = pending.split("\n")
       pending = lines.pop() || ""
       for (const line of lines) {
