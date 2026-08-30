@@ -617,6 +617,7 @@ describe("GitHub host", () => {
     temporaryDirectories.add(commandLog)
     process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
     process.env.VITEHUB_TEST_HEAD_SHA = "expected-head"
+    process.env.GH_HOST = "enterprise.example.com"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
     let checkout = ""
 
@@ -636,7 +637,9 @@ describe("GitHub host", () => {
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
       "gh repo clone https://github.com/vite-hub/vitehub.git",
     )
-    await expect(readFile(commandLog, "utf8")).resolves.toContain("gh pr checkout 123 --repo vite-hub/vitehub|")
+    await expect(readFile(commandLog, "utf8")).resolves.toContain(
+      "gh pr checkout 123 --repo vite-hub/vitehub|||github.com",
+    )
     await expect(readFile(commandLog, "utf8")).resolves.not.toContain("--detach")
     await expect(readFile(commandLog, "utf8")).resolves.toContain("!gh auth git-credential|token")
     await expect(readFile(commandLog, "utf8")).resolves.toContain(

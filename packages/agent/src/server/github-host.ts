@@ -550,7 +550,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         repository: pullRequest.headRepository || pullRequest.repository,
         signal: operation.signal,
       })
-      const env = { ...process.env, ...auth.env }
+      const env = { ...process.env, ...auth.env, GH_HOST: "github.com" }
       const commandOptions = { env, maxBuffer, signal: operation.signal }
       await exec("gh", ["repo", "clone", `https://github.com/${pullRequest.repository}.git`, checkout, "--", "--filter=blob:none", "--no-checkout"], commandOptions)
       await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository], { ...commandOptions, cwd: checkout })
