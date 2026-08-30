@@ -141,14 +141,12 @@ async function copyPackageToNodeModules(
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
   }
   const packageKey = `${name}\0${resolvedPackageJsonPath}`
-
-  if (!copied.has(packageKey)) {
-    copied.add(packageKey)
-    const targetDir = join(outputNodeModules, ...name.split("/"))
-    await rm(targetDir, { force: true, recursive: true })
-    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
-    if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
-  }
+  if (copied.has(packageKey)) return
+  copied.add(packageKey)
+  const targetDir = join(outputNodeModules, ...name.split("/"))
+  await rm(targetDir, { force: true, recursive: true })
+  const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
+  if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
 
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
