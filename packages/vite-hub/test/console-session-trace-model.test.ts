@@ -9,6 +9,7 @@ import {
   isStandaloneFailureObservation,
   isStandaloneSuccessfulLifecycleObservation,
   isTerminalToolObservation,
+  invocationSpanStatus,
   invocationTerminalNames,
   standaloneSuccessfulLifecycleSequences,
   isTerminalTaskObservation,
@@ -106,6 +107,30 @@ describe("Console session trace model", () => {
         invocationTerminalNames("cancelled"),
       )?.sequence,
     ).toBe(2);
+  });
+
+  it("applies persisted Agent Invocation outcomes without a terminal observation", () => {
+    expect(invocationSpanStatus("completed")).toBe("completed");
+    expect(invocationSpanStatus("failed")).toBe("failed");
+    expect(invocationSpanStatus("cancelled")).toBe("cancelled");
+    expect(invocationSpanStatus("running")).toBe("running");
+    expect(invocationSpanStatus("pending")).toBe("running");
+  });
+
+  it("selects persisted-outcome terminals for the started lifecycle alias", () => {
+    const observations = [
+      { name: "agent.invocation.started", sequence: 1 },
+      { name: "agent.invocation.error", sequence: 2 },
+      { name: "agent.invocation.completed", sequence: 3 },
+    ];
+
+    expect(
+      pairedLifecycleTerminal(
+        observations[0]!,
+        observations,
+        invocationTerminalNames("completed"),
+      )?.sequence,
+    ).toBe(3);
   });
 
   it("uses recorded tool duration before observation timestamps", () => {

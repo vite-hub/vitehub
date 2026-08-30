@@ -28,13 +28,21 @@ const healthSchema = v.object({
   diagnostics: v.array(diagnosticSchema),
   status: v.picklist(["degraded", "healthy"]),
   summary: v.string(),
-  workload: v.object({
-    active: workloadCountSchema,
-    completed: workloadCountSchema,
-    failed: workloadCountSchema,
-    snapshots: workloadCountSchema,
-    total: workloadCountSchema,
-  }),
+  workload: v.pipe(
+    v.object({
+      active: workloadCountSchema,
+      completed: workloadCountSchema,
+      failed: workloadCountSchema,
+      snapshots: workloadCountSchema,
+      total: workloadCountSchema,
+    }),
+    v.check(
+      (workload) =>
+        workload.active <= workload.total &&
+        workload.completed <= workload.total &&
+        workload.failed <= workload.total,
+    ),
+  ),
 });
 
 export function isConsoleHealth(value: unknown): value is ConsoleHealth {

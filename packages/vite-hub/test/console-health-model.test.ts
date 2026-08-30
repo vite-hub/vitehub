@@ -25,4 +25,16 @@ describe("Console Health model", () => {
       expect(isConsoleHealth({ ...health, workload: { ...health.workload, active } })).toBe(false);
     },
   );
+
+  it.each(["active", "completed", "failed"] as const)(
+    "rejects %s above the workload total",
+    (outcome) => {
+      expect(
+        isConsoleHealth({
+          ...health,
+          workload: { ...health.workload, [outcome]: health.workload.total + 1 },
+        }),
+      ).toBe(false);
+    },
+  );
 });

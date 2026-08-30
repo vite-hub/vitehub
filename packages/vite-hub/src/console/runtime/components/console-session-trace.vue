@@ -10,6 +10,7 @@ import {
   isStandaloneFailureObservation,
   isTerminalTaskObservation,
   isTerminalToolObservation,
+  invocationSpanStatus,
   invocationTerminalNames,
   lifecycleTerminalNames,
   pairedLifecycleTerminal,
@@ -261,7 +262,14 @@ function pairedSpan(
   const events = correlatedLifecycleObservations(start, finish, observations);
   const attributes = Object.assign({}, ...events.map((event) => event.attributes ?? {}));
   const startMs = timestamp(start.timestamp);
-  const observedEndMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
+  const observedEndMs = finish
+    ? timestamp(finish.timestamp)
+    : timestamp(
+        invocation.completedAt ||
+          invocation.failedAt ||
+          invocation.cancelledAt ||
+          invocation.updatedAt,
+      );
   const operation = operationName(start, attributes);
   const target = operationTarget(operation, attributes, invocation);
   const status = spanStatus(finish, attributes, invocation, operation);
@@ -291,7 +299,7 @@ function pairedTerminal(
   invocation: AgentInvocationView,
 ): Observation | undefined {
   const terminalNames =
-    start.name === "agent.invocation.start"
+    start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name)
       ? invocationTerminalNames(invocation.status)
       : start.name === "agent.task.started"
       ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
@@ -330,14 +338,7 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
     operation: "invoke_agent",
     sequence: start?.sequence ?? 0,
     startMs,
-    status:
-      invocation.status === "failed"
-        ? "failed"
-        : invocation.status === "cancelled"
-          ? "cancelled"
-          : invocation.status === "running" || invocation.status === "pending"
-            ? "running"
-            : "completed",
+    status: invocationSpanStatus(invocation.status),
   };
 }
 
@@ -396,14 +397,7 @@ function spanStatus(
   operation: string,
 ): SpanStatus {
   if (isDeniedApproval(operation, attributes)) return "failed";
-  if (operation === "invoke_agent")
-    return invocation.status === "failed"
-      ? "failed"
-      : invocation.status === "cancelled"
-        ? "cancelled"
-        : finish
-          ? "completed"
-          : "running";
+  if (operation === "invoke_agent") return invocationSpanStatus(invocation.status);
   if (finish?.name.endsWith(".error")) return "failed";
   if (finish?.name.endsWith(".failed")) return "failed";
   if (

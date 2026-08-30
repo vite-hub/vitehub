@@ -140,6 +140,15 @@ export function invocationTerminalNames(
   return lifecycleTerminalNames("agent.invocation.start");
 }
 
+export function invocationSpanStatus(
+  status: "cancelled" | "completed" | "failed" | "pending" | "running",
+): "cancelled" | "completed" | "failed" | "running" {
+  if (status === "failed") return "failed";
+  if (status === "cancelled") return "cancelled";
+  if (status === "completed") return "completed";
+  return "running";
+}
+
 export function pairedToolTerminal<Observation extends TraceObservationIdentity>(
   start: Observation,
   observations: Observation[],
