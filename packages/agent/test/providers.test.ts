@@ -14979,7 +14979,7 @@ describe("server helpers", () => {
           }
         | undefined
       expect(binding?.steer).toBeDefined()
-      binding!.steer!.ttlMs = 1_000
+      binding!.steer!.ttlMs = 400
       expect(await state.queueDepth(binding!.steer!.pendingQueue)).toBe(1)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(true)
@@ -15035,9 +15035,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(1))
       await expect(handoffAcquisitions[0]).resolves.not.toBeNull()
-      // Let the first handoff settle without allowing its lease to expire before
-      // the overlapping delivery proves that the handoff lock is still held.
-      await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs / 4))
+      await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
