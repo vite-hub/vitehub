@@ -1,6 +1,14 @@
 import { createStorage } from "unstorage"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 
-export function createCloudflareKVStorage(options: Record<string, unknown>): unknown {
-  return createStorage({ driver: createDriver(options) })
+import type { Driver } from "unstorage"
+
+type CloudflareKVDriverOptions = Parameters<typeof createDriver>[0]
+
+export function createCloudflareKVDriver(options: CloudflareKVDriverOptions): Driver {
+  return createDriver(options)
+}
+
+export function createCloudflareKVStorage(options: CloudflareKVDriverOptions): unknown {
+  return createStorage({ driver: createCloudflareKVDriver(options) })
 }

@@ -64,6 +64,25 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("keeps runtime chunks independent of the build-time Vite entry", async () => {
+    const distDir = resolve(import.meta.dirname, "../dist")
+    const files = (await readdir(distDir, { recursive: true, withFileTypes: true }))
+      .filter(entry => entry.isFile() && entry.name.endsWith(".js"))
+      .map(entry => join(entry.parentPath, entry.name))
+    const buildEntryImports = (
+      await Promise.all(
+        files.map(async file => ({
+          file,
+          importsBuildEntry: (await readFile(file, "utf8")).includes('from "./vite.js"'),
+        })),
+      )
+    )
+      .filter(result => result.importsBuildEntry)
+      .map(result => result.file.slice(distDir.length + 1))
+
+    expect(buildEntryImports).toEqual([])
+  })
+
   it("serializes provider output finalization after other post hooks", async () => {
     const plugin = (await import("../src/vite.ts")).hubKv()
 

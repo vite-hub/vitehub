@@ -24,8 +24,8 @@ const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<Pro
 async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<Driver> {
   switch (store.driver) {
     case "cloudflare-kv-binding": {
-      const { default: factory } = await import("unstorage/drivers/cloudflare-kv-binding")
-      return factory(store)
+      const { createCloudflareKVDriver } = await import("./cloudflare-kv.ts")
+      return createCloudflareKVDriver(store)
     }
     case "deno-kv": {
       const { default: factory } = await import("./deno-kv.ts")
