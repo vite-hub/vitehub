@@ -5787,6 +5787,7 @@ describe("agent message protocol", () => {
           yield { id: "approval-1", name: "deploy", type: "approval-request" }
           yield { data: { requestId: "input-1", status: "requested" }, type: "data-agent-input" }
           yield { approved: false, id: "approval-1", type: "approval-decision" }
+          yield { data: { plan: [{ status: "completed", step: "Read files" }, { status: "inProgress", step: "Run tests" }] }, type: "data-agent-plan" }
           yield { data: { answers: { scope: "workspace" }, requestId: "input-1", status: "resolved" }, type: "data-agent-input" }
           yield { phase: "final", role: "assistant", text: "Finished the review.", type: "text-delta" }
           yield { type: "finish" }
@@ -5798,10 +5799,11 @@ describe("agent message protocol", () => {
       run: {
         activity: {
           links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],
+          runId: "run-1",
           target: { id: "work-1" },
         },
         channelId: "work",
-        runId: "run-1",
+        runId: "provider-run-1",
       },
       runtime: "unknown",
       waitUntil,
@@ -5809,11 +5811,18 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
-    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "waiting", "waiting", "running", "completed"])
+    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "waiting", "running", "completed"])
     expect(updates[2]?.tasks).toEqual([
       { status: "in-progress", title: "Read files" },
       { status: "pending", title: "Run tests" },
     ])
+    expect(updates[4]).toMatchObject({
+      status: "waiting",
+      tasks: [
+        { status: "completed", title: "Read files" },
+        { status: "in-progress", title: "Run tests" },
+      ],
+    })
     expect(updates.at(-1)).toMatchObject({
       agentName: "reviewer",
       links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],

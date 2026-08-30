@@ -1190,6 +1190,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
   fetcher: typeof fetch,
   apiBaseUrl: string,
   headers: Record<string, string>,
+  token: string,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
 ): Promise<GitHubActivityIdentity> {
@@ -1200,6 +1201,10 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     if (login) return { login }
   }
   if (app) return githubAppIdentity(app, context)
+  const processEnv = globalThis.process?.env
+  if (processEnv?.GITHUB_TOKEN === token && !processEnv.VITEHUB_GITHUB_TOKEN && !processEnv.GH_TOKEN) {
+    return { login: "github-actions[bot]" }
+  }
   throw new Error("[vitehub] GitHub Agent activity could not resolve the authenticated identity.")
 }
 
@@ -1337,7 +1342,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
       const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
-      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, app, context)
+      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
       const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {

@@ -1169,7 +1169,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   } = {
     agentName: definition?.name || context.agentIdentity?.name,
     links: [...run.activity.links || []],
-    runId: run.runId,
+    runId: run.activity.runId || run.runId,
     status: initialStatus,
     summary: "",
     tasks: initialTasks,
@@ -6759,9 +6759,18 @@ export async function startAgentInvocation<
   options: { runId?: string } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
+  const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
+    ? {
+        ...invocationContext,
+        run: {
+          ...invocationContext.run,
+          activity: { ...invocationContext.run.activity, runId: invocationContext.run.runId },
+        },
+      }
+    : invocationContext
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
-    invocationContext,
+    workflowContext,
     input,
     { fresh: true },
   )

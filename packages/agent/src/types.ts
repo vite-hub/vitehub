@@ -244,6 +244,7 @@ export interface AgentActivityTask {
 
 export interface AgentRunActivity {
   links?: readonly AgentActivityLink[]
+  runId?: string
   target: AgentActivityTarget
 }
 

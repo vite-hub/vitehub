@@ -165,6 +165,40 @@ describe("agent channels", () => {
     expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
   })
 
+  it("reuses GitHub Actions bot activity when its installation token cannot resolve /user", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ message: "Resource not accessible by integration" }, { status: 403 })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "github-actions[bot]" } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-actions", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-actions" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("bounds the complete serialized GitHub activity comment", async () => {
     const { github } = await import("../src/channels.ts")
     let storedBody = ""
