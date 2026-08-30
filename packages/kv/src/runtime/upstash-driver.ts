@@ -1,6 +1,3 @@
-import { Buffer } from "node:buffer"
-import { randomUUID } from "node:crypto"
-
 import createDriver from "unstorage/drivers/upstash"
 
 import type { KVListOptions, KVListPage, ResolvedUpstashKVStoreConfig } from "../types.ts"
@@ -40,7 +37,7 @@ function escapeRedisGlob(value: string): string {
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => UpstashClient }
-  const continuations = new Map<string, { bytes: number; cursor: number; keys: string[]; timeout: NodeJS.Timeout }>()
+  const continuations = new Map<string, { bytes: number; cursor: number; keys: string[]; timeout: ReturnType<typeof setTimeout> }>()
   const maximumContinuations = 32
   const maximumContinuationBytes = 1024 * 1024
   let continuationBytes = 0
@@ -54,7 +51,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   }
 
   function retainContinuation(keys: string[], providerCursor: number): string {
-    const bytes = keys.reduce((total, key) => total + Buffer.byteLength(key), 0)
+    const bytes = keys.reduce((total, key) => total + new TextEncoder().encode(key).byteLength, 0)
     if (bytes > maximumContinuationBytes) {
       throw new RangeError("Upstash KV scan overflow exceeds the continuation size limit.")
     }
@@ -63,7 +60,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
       if (!oldestCursor) break
       releaseContinuation(oldestCursor)
     }
-    const cursor = randomUUID()
+    const cursor = globalThis.crypto.randomUUID()
     const timeout = setTimeout(() => releaseContinuation(cursor), 15 * 60_000)
     // SAFETY: Node timers expose unref while web-runtime timers are numbers; the optional call keeps both hosts valid.
     ;(timeout as { unref?: () => void }).unref?.()

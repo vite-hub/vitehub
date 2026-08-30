@@ -668,7 +668,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("prefers top-level KV configuration over retained plugin options", async () => {
-    const retainedOptions: KVModuleOptions = {
+    let retainedOptions: KVModuleOptions = {
       stores: {
         default: { driver: "fs-lite" },
         sessions: { driver: "fs-lite" },
@@ -677,6 +677,9 @@ describe("ViteHub Nuxt integration", () => {
     const retained = createNuxt(true, [{
       name: "@vite-hub/kv/vite",
       api: { getConfig: () => ({ kv: retainedOptions }) },
+      configResolved(config) {
+        retainedOptions = config.kv as KVModuleOptions
+      },
     }])
     retained.nuxt.options.vite.kv = {
       stores: {
