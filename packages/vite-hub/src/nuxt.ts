@@ -428,11 +428,13 @@ async function installConsole(
       ...(sections.includes("usage")
         ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
         : []),
-      {
-        file: join(consoleRuntimeRoot, "pages/kv.vue"),
-        name: "vitehub-console-kv",
-        path: "/_vitehub/kv",
-      },
+      ...(sections.includes("kv")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/kv.vue"),
+            name: "vitehub-console-kv",
+            path: "/_vitehub/kv",
+          }]
+        : []),
       ...(sections.includes("workflows")
         ? [{
             file: join(consoleRuntimeRoot, "pages/workflows.vue"),

@@ -166,7 +166,7 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const kvEnabled = sections.includes("kv")
-  const definitionsEnabled = sections.includes("workflows")
+  const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -261,6 +261,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   })
 
   function resolveKVRegistration(kv: unknown): void {
+    if (!options.resolveKVStores) {
+      sections = options.sections ?? []
+      kvStores = options.kvStores ?? []
+      return
+    }
     const resolvedKVStores = options.resolveKVStores?.(kv)
     sections = (options.sections ?? []).filter(section => section !== "kv")
     if (resolvedKVStores !== false) sections = [...sections, "kv"]
@@ -294,7 +299,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     const handlers = Array.isArray(nitro.handlers)
       ? nitro.handlers.filter(handler => handler?.handler !== definitionsHandler)
       : []
-    if (sections.includes("workflows")) {
+    if (consoleDefinitionSectionIds.some(section => sections.includes(section))) {
       const conflictingHandler = handlers.find(handler => handler?.route === route)
       if (conflictingHandler) {
         throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
