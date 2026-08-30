@@ -318,6 +318,7 @@ describe("framework package contract", () => {
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8")
     expect(consoleKVRoute).toContain(`sections.includes("kv")`)
     expect(consoleKVRoute).toContain(`v-if="available"`)
+    expect(consoleKVRoute).toContain("Try again")
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     const consoleProvider = readFileSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`, "utf8")
     expect(consoleProvider).toContain("injectTooltipProviderContext(null)")

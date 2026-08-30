@@ -21,6 +21,12 @@ function success<TResult>(value: TResult): KVResult<TResult> {
   return [null, value]
 }
 
+function failure(message: string, cause?: unknown): KVResult<never> {
+  const error = Object.assign(new Error(message), cause === undefined ? {} : { cause })
+  // SAFETY: The handler under test consumes only the error message and cause from this failed KV result.
+  return [error as Exclude<KVResult<never>[0], null>, undefined]
+}
+
 function event(query = "", method = "GET", body?: unknown): ConsoleRequestEvent {
   return {
     method,
@@ -197,7 +203,7 @@ describe("Console KV inspection", () => {
       type: "bytes",
       value: "ab".repeat(128 * 1_024),
     })
-    expect(encode.mock.calls.reduce((maximum, [value]) => Math.max(maximum, value.length), 0)).toBeLessThanOrEqual(2)
+    expect(encode.mock.calls.reduce((maximum, [value]) => Math.max(maximum, value?.length ?? 0), 0)).toBeLessThanOrEqual(2)
     expect(writes).not.toHaveBeenCalled()
   })
 
@@ -213,7 +219,7 @@ describe("Console KV inspection", () => {
 
   it("exposes configured stores when the selected store cannot list keys", async () => {
     const { storage } = memoryKV({ cache: new Map(), default: new Map() })
-    storage.list = async () => [new Error("default unavailable"), undefined]
+    storage.list = async () => failure("default unavailable")
     installConsoleKV("/project", storage, ["default", "cache"])
 
     await expect(kvHandler(event())).resolves.toMatchObject({
@@ -227,7 +233,7 @@ describe("Console KV inspection", () => {
   it("identifies only expired cursors as retryable", async () => {
     const { storage } = memoryKV({ default: new Map() })
     const expiredCause = Object.assign(new Error("expired"), { code: "KV_CURSOR_EXPIRED" })
-    storage.list = async () => [Object.assign(new Error("list unavailable"), { cause: expiredCause }), undefined]
+    storage.list = async () => failure("list unavailable", expiredCause)
     installConsoleKV("/project", storage)
 
     await expect(kvHandler(event("?cursor=continuation"))).resolves.toMatchObject({

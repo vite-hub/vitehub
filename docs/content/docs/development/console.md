@@ -195,7 +195,7 @@ The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Defini
 
 Production Console builds with Agents currently require `preset: 'node'` because the fallback journal uses local SQLite. The Node preset supports the build, but it does not make `.vitehub/data/console.sqlite` persistent: the host must provide durable storage that survives process and deployment replacement. The file is also local to one replica and is not shared across replicas. Other presets can run the Agent Console during development. Their production builds fail while Agents are exposed in the Console, so ViteHub does not write the journal to storage that may disappear between requests or deployments. A KV-only Console does not have this storage restriction.
 
-The Console API accepts `GET` requests only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The Console API uses `GET` for bounded listings and metadata, and a JSON-body `POST` to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 

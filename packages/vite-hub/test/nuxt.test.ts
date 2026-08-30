@@ -11,8 +11,6 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
-import { hubKv } from "@vite-hub/kv/vite"
-
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
@@ -670,12 +668,16 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("prefers top-level KV configuration over retained plugin options", async () => {
-    const retained = createNuxt(true, [hubKv({
+    const retainedOptions: KVModuleOptions = {
       stores: {
         default: { driver: "fs-lite" },
         sessions: { driver: "fs-lite" },
       },
-    })])
+    }
+    const retained = createNuxt(true, [{
+      name: "@vite-hub/kv/vite",
+      api: { getConfig: () => ({ kv: retainedOptions }) },
+    }])
     retained.nuxt.options.vite.kv = {
       stores: {
         cache: { driver: "fs-lite" },

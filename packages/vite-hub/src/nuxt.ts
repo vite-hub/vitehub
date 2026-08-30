@@ -798,6 +798,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
+    kv?: KVModuleOptions
   }
   if (envConfig && Object.values(envConfig).some(Boolean)) {
     const existingEnv = viteConfig.env ?? {}
@@ -1048,6 +1049,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       projectRoot,
       viteRoot,
       consoleSections,
+      consoleKVStores,
       resolvedConsoleFixture,
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       !nuxt.options.vitehubCliDiscovery,
