@@ -10,6 +10,7 @@ import { consoleSectionDetails } from "../sections";
 const props = defineProps<{
   active?: ConsoleSectionId;
   collapsed: boolean;
+  exclude?: ConsoleSectionId[];
   sectionsBase: string;
 }>();
 
@@ -17,7 +18,9 @@ const route = useRoute();
 const router = useRouter();
 const sections = ref<ConsoleSectionId[]>([]);
 const items = computed(() =>
-  sections.value.map((section) => ({ id: section, ...consoleSectionDetails[section] })),
+  sections.value
+    .filter((section) => !props.exclude?.includes(section))
+    .map((section) => ({ id: section, ...consoleSectionDetails[section] })),
 );
 
 async function openSection(section: ConsoleSectionId): Promise<void> {

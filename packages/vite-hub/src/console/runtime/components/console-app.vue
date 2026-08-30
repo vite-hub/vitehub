@@ -642,6 +642,7 @@ onBeforeUnmount(() => {
           <ConsolePrimitiveSwitcher
             :active="isUsageRoute ? 'usage' : 'agents'"
             :collapsed="collapsed"
+            :exclude="['usage']"
             :sections-base="sectionsBase"
           />
           <UTooltip

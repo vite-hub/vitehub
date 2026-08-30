@@ -270,7 +270,18 @@ async function applyRouteSelection(): Promise<void> {
   const store = route.query.store;
   const key = route.query.key;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
-  if (typeof store !== "string") return;
+  if (typeof store !== "string") {
+    if (selectedStore.value === "default" && selectedKey.value === undefined) return;
+    applyingRouteSelection = true;
+    selectedStore.value = "default";
+    selectedKey.value = undefined;
+    try {
+      await loadKeys();
+    } finally {
+      applyingRouteSelection = false;
+    }
+    return;
+  }
   if (typeof key !== "string") {
     if (selectedStore.value === store && selectedKey.value === undefined) return;
     applyingRouteSelection = true;
