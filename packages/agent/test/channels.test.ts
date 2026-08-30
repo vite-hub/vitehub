@@ -33,6 +33,68 @@ function githubIssueCommentPayload(body = "/review please") {
 }
 
 describe("agent channels", () => {
+  it("creates and updates one GitHub Agent activity comment with session history", async () => {
+    const { github } = await import("../src/channels.ts")
+    let stored: { body: string, id: number } | undefined
+    const methods: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
+      if (method === "GET") {
+        const comments = url.searchParams.get("page") === "2" || !stored
+          ? []
+          : [{ body: stored.body, id: stored.id }]
+        return new Response(JSON.stringify(comments), { headers: { "content-type": "application/json" } })
+      }
+      const body = JSON.parse(String(init?.body)) as { body: string }
+      stored = { body: body.body, id: 7 }
+      return new Response(JSON.stringify(stored), { headers: { "content-type": "application/json" }, status: method === "POST" ? 201 : 200 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const update = channel.activity?.update
+      if (!update) throw new Error("Missing GitHub Agent activity updater.")
+      const context = (runId: string, status: "completed" | "running") => ({
+        activity: {
+          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }],
+          runId,
+          status,
+          ...(status === "completed" ? { summary: "Review complete." } : {}),
+          tasks: [{ status: status === "completed" ? "completed" : "in-progress", title: "Review changes" }],
+        },
+        channel,
+        memo: vi.fn(),
+        run: { runId },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      })
+
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "running") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "completed") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "running") as never)
+
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
+      expect(stored?.body).toContain("agent-running-0969da")
+      expect(stored?.body).toContain("- [ ] ⏳ Review changes")
+      expect(stored?.body).toContain("https://console.test/invocations/run-2")
+      expect(stored?.body).toContain("<summary>Previous sessions</summary>")
+      expect(stored?.body).toContain("https://console.test/invocations/run-1")
+      expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("uses normalized finish context text for default GitHub PR replies", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({ pullRequest: true })

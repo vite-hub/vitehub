@@ -130,6 +130,8 @@ import {
 } from "./workspace-agent.ts"
 
 import type {
+  AgentActivityStatus,
+  AgentActivityTask,
   AgentAdapter,
   AgentAdapterFactory,
   AgentAdapterRunContext,
@@ -1119,6 +1121,93 @@ function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+type ActiveAgentActivity = {
+  event(event: StreamEvent): Promise<void>
+  update(status: AgentActivityStatus, error?: unknown): Promise<void>
+}
+
+function agentActivityTasks(value: unknown): AgentActivityTask[] | undefined {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.plan)) return
+  return value.plan.flatMap((item) => {
+    if (!isRuntimeRecord(item)) return []
+    const title = [item.step, item.title, item.description].find(value => hasRuntimeType(value, "string") && value.trim())
+    if (!hasRuntimeType(title, "string")) return []
+    const rawStatus = hasRuntimeType(item.status, "string") ? item.status.replaceAll(/[^a-z]/gi, "").toLowerCase() : "pending"
+    const status = rawStatus === "completed" || rawStatus === "complete" || rawStatus === "done"
+      ? "completed"
+      : rawStatus === "inprogress" || rawStatus === "running" || rawStatus === "active"
+        ? "in-progress"
+        : "pending"
+    return [{ status, title: title.trim() } satisfies AgentActivityTask]
+  })
+}
+
+function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
+  definition: AgentDefinition<TRuntimeConfig> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): ActiveAgentActivity | undefined {
+  const run = context.run
+  const channel = run?.channelId ? definition?.channels?.[run.channelId] : undefined
+  if (!run?.activity || !channel?.activity) return
+  let state = {
+    agentName: definition?.name || context.agentIdentity?.name,
+    links: [...run.activity.links || []],
+    runId: run.runId,
+    status: "queued" as AgentActivityStatus,
+    summary: "",
+    tasks: [] as AgentActivityTask[],
+  }
+  let delivery = Promise.resolve()
+  let lastSnapshot: string | undefined
+  const publish = async (status: AgentActivityStatus, error?: unknown) => {
+    state = { ...state, status }
+    const snapshot = {
+      ...state,
+      ...(error === undefined ? {} : { error: agentErrorMessage(error) }),
+      ...(state.summary ? { summary: state.summary } : {}),
+      tasks: [...state.tasks],
+    }
+    const fingerprint = JSON.stringify(snapshot)
+    if (fingerprint === lastSnapshot) {
+      await delivery
+      return
+    }
+    lastSnapshot = fingerprint
+    delivery = delivery.catch(() => {}).then(async () => {
+      try {
+        await channel.activity!.update({
+          ...createAgentCallbackContext(context),
+          activity: snapshot,
+          channel,
+          target: run.activity!.target,
+        })
+      }
+      catch (deliveryError) {
+        if (lastSnapshot === fingerprint) lastSnapshot = undefined
+        console.error(new Error("[vitehub] Agent activity delivery failed.", { cause: deliveryError }))
+      }
+    })
+    await delivery
+  }
+  return {
+    async event(event) {
+      if (event.type === "text-delta" && event.phase !== "commentary" && event.role !== "user") {
+        state.summary = `${state.summary}${event.text}`.slice(-12_000)
+        return
+      }
+      if (event.type === "data-agent-plan") {
+        const tasks = agentActivityTasks(event.data)
+        if (tasks) state.tasks = tasks
+        await publish(state.status === "waiting" ? "waiting" : "running")
+        return
+      }
+      if (event.type === "approval-request") await publish("waiting")
+      else if (event.type === "approval-decision" && event.approved) await publish("running")
+    },
+    update: publish,
+  }
 }
 
 async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -2168,6 +2257,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -3535,6 +3625,7 @@ type InvocationRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = {
+  activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   context: AgentInvocationContextStore
@@ -3589,21 +3680,24 @@ function maybeTraceAgentStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
-  if (!context.runtimeContext.traceLog) return stream
+  if (!context.runtimeContext.traceLog && !context.activity) return stream
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-  const tracer = createAgentStreamEventTracer(toTraceContext(context))
+  const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   return (async function* () {
     try {
       for await (const event of stream) {
         const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
-        if (normalized) await tracer.write(normalized)
+        if (normalized) {
+          await tracer?.write(normalized)
+          await context.activity?.event(normalized)
+        }
         yield event
       }
     }
     finally {
-      await tracer.flush()
+      await tracer?.flush()
     }
   })()
 }
@@ -5049,10 +5143,9 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
-      error,
-    )
+    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed"
+    await context.activity?.update(status, error)
+    await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
       throwingCloseError = true
       throw closeError
@@ -5062,10 +5155,9 @@ async function finishAgentInvocation<
     if (outcomeFailed) await traceFinishError(error, "outcome")
     if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
-      failed ? error : finishError,
-    )
+    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : "failed"
+    await context.activity?.update(status, failed ? error : finishError)
+    await context.invocationJournal?.finish(status, failed ? error : finishError)
     if (closeError !== undefined && !throwingCloseError) {
       throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
     }
@@ -5380,6 +5472,7 @@ async function executeAgentInvocationWithCapacityLease<
   options: AgentInvocationExecutionOptions,
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
+  activity?: ActiveAgentActivity,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const definition = hasAgentDefinition(agent)
@@ -5388,6 +5481,7 @@ async function executeAgentInvocationWithCapacityLease<
     : undefined
   const invocation = preparedInvocation
     ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
+  invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -6405,6 +6499,8 @@ async function executeAgentInvocation<
     }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
+  const activity = createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
+  await activity?.update("queued")
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
@@ -6420,7 +6516,8 @@ async function executeAgentInvocation<
     }
     if (preparedInvocation?.handledResponse) {
       await invocationJournal?.running()
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+      await activity?.update("running")
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
     }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
@@ -6433,15 +6530,18 @@ async function executeAgentInvocation<
       await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error
   }
   if (!release) {
     await invocationJournal?.running()
+    await activity?.update("running")
     try {
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
     }
     catch (error) {
       await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
       throw error
     }
   }
@@ -6454,6 +6554,7 @@ async function executeAgentInvocation<
   }
   try {
     await invocationJournal?.running()
+    await activity?.update("running")
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
       holdCapacity: true,
@@ -6466,10 +6567,11 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    }, preparedInvocation, invocationJournal)
+    }, preparedInvocation, invocationJournal, activity)
   }
   catch (error) {
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     releaseOnce()
     throw error
   }

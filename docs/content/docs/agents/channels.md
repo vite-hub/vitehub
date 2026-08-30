@@ -31,6 +31,48 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
 
+## Publish Agent activity without opening a chat
+
+Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. GitHub keeps one managed issue or pull-request comment, updates its status from queued through completion, renders normalized harness plans as a task list, and preserves earlier session links under a collapsed section.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export const agent = defineAgent({
+  channels: {
+    github: github({
+      activity: true,
+      app: true,
+      webhooks: false,
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+Select the Channel and its destination when the application starts the invocation. Links are application-owned; use them for the current session, memory, or another inspection surface.
+
+```ts
+import { runScheduledAgent } from 'vite-hub/agent'
+
+await runScheduledAgent(agent, schedule, {
+  run: {
+    activity: {
+      links: [
+        { label: 'Session', url: sessionUrl },
+        { label: 'Memory', url: memoryUrl },
+      ],
+      target: { repository: 'acme/storefront', issue: 42 },
+    },
+    channelId: 'github',
+    runId: schedule.runId,
+  },
+}, { prompt: 'Converge this pull request.' })
+```
+
+The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.
+
 ## Connect a web chat
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.

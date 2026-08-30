@@ -931,6 +931,25 @@ describe("Eve extension capabilities", () => {
     )).rejects.toThrow("cannot be referenced outside its static Capability mount")
   })
 
+  it("ignores the imported side of an aliased non-extension import", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        import { github as githubChannel } from "@vite-hub/agent/channels"
+        export default defineAgent({
+          capabilities: [github()],
+          channels: { github: githubChannel({ activity: true }) },
+        })
+      `,
+      parseAst,
+      async source => source === "@github-tools/eve-extension",
+    )
+
+    expect(transformed).toContain("__vitehubEveExtensionCapability(")
+    expect(transformed).toContain("githubChannel({ activity: true })")
+  })
+
   it("rejects extension factory references inside mount config", async () => {
     await expect(transformEveExtensionCapabilities(
       `

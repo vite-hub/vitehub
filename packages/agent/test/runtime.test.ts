@@ -5765,6 +5765,88 @@ describe("agent message protocol", () => {
     })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
   })
 
+  it("projects invocation status, harness plans, approvals, and final text through the active Channel", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const updates: Array<Record<string, unknown>> = []
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              updates.push(structuredClone(activity) as unknown as Record<string, unknown>)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => (async function* () {
+          yield { data: { plan: [{ status: "inProgress", step: "Read files" }, { status: "pending", step: "Run tests" }] }, type: "data-agent-plan" }
+          yield { id: "approval-1", name: "deploy", type: "approval-request" }
+          yield { approved: true, id: "approval-1", type: "approval-decision" }
+          yield { phase: "final", role: "assistant", text: "Finished the review.", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+      name: "reviewer",
+    })
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        activity: {
+          links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],
+          target: { id: "work-1" },
+        },
+        channelId: "work",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "running", "completed"])
+    expect(updates[2]?.tasks).toEqual([
+      { status: "in-progress", title: "Read files" },
+      { status: "pending", title: "Run tests" },
+    ])
+    expect(updates.at(-1)).toMatchObject({
+      agentName: "reviewer",
+      links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],
+      runId: "run-1",
+      status: "completed",
+      summary: "Finished the review.",
+    })
+  })
+
+  it("projects setup failures without replacing the Agent error", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const failure = new Error("driver failed")
+    const statuses: string[] = []
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              statuses.push(activity.status)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => { throw failure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { activity: { target: "work-1" }, channelId: "work", runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(failure)
+    expect(statuses).toEqual(["queued", "running", "failed"])
+  })
+
   it("enables equivalent generated routes for shorthand and explicit Web Chat Channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

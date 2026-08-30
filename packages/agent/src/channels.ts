@@ -17,6 +17,9 @@ import type {
 } from "./delivery-artifacts.ts"
 
 import type {
+  AgentActivityStatus,
+  AgentActivityTask,
+  AgentActivityUpdate,
   AgentCallbackContext,
   AgentCapabilityDefinition,
   AgentChatFinishExtension,
@@ -70,6 +73,14 @@ export type {
 } from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
+  AgentActivityLink,
+  AgentActivityStatus,
+  AgentActivityTask,
+  AgentActivityTaskStatus,
+  AgentActivityTarget,
+  AgentActivityUpdate,
+  AgentChannelActivityContext,
+  AgentChannelActivityDefinition,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
@@ -362,6 +373,7 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
 
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
+  activity?: boolean
   app?: true | GitHubAppOptions<TRuntimeConfig>
   pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
 }
@@ -1126,6 +1138,150 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
     nextUrl = githubApiNextPageUrl(response.headers.get("link")) || githubApiPageUrl(url, ++page)
   }
   return limit > 0 ? items.slice(0, limit) : []
+}
+
+const githubActivityMarker = "<!-- vitehub-agent-activity:"
+const githubActivityHistoryLimit = 10
+
+interface GitHubActivityTarget {
+  installationId?: number
+  issue: number
+  repository: string
+}
+
+interface GitHubActivityHistoryEntry {
+  links: readonly { label: string, url: string }[]
+  runId: string
+}
+
+interface GitHubActivityCommentState {
+  current?: GitHubActivityHistoryEntry
+  history: readonly GitHubActivityHistoryEntry[]
+}
+
+function githubActivityTarget(value: unknown): GitHubActivityTarget {
+  if (!isRecord(value)) throw new TypeError("[vitehub] GitHub Agent activity requires a target with repository and issue.")
+  const repository = maybeString(value.repository)
+  const issue = maybeNumber(value.issue)
+  const installationId = maybeNumber(value.installationId)
+  if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository) || !Number.isSafeInteger(issue) || issue! < 1) {
+    throw new TypeError("[vitehub] GitHub Agent activity requires a target with repository and issue.")
+  }
+  return { repository, issue: issue!, ...(installationId ? { installationId } : {}) }
+}
+
+function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
+  if (!hasRuntimeType(body, "string")) return { history: [] }
+  const encoded = body.match(/<!-- vitehub-agent-activity:([A-Za-z0-9_-]+) -->/)?.[1]
+  if (!encoded) return { history: [] }
+  try {
+    const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"))
+    if (!isRecord(value)) return { history: [] }
+    const entries = (items: unknown): GitHubActivityHistoryEntry[] => Array.isArray(items)
+      ? items.flatMap((item) => {
+          if (!isRecord(item) || !maybeString(item.runId) || !Array.isArray(item.links)) return []
+          const links = item.links.flatMap(link => isRecord(link) && maybeString(link.label) && maybeString(link.url)
+            ? [{ label: maybeString(link.label)!, url: maybeString(link.url)! }]
+            : [])
+          return [{ links, runId: maybeString(item.runId)! }]
+        })
+      : []
+    return {
+      current: entries(value.current ? [value.current] : [])[0],
+      history: entries(value.history).slice(0, githubActivityHistoryLimit),
+    }
+  }
+  catch {
+    return { history: [] }
+  }
+}
+
+function encodeGithubActivityState(state: GitHubActivityCommentState): string {
+  return `${githubActivityMarker}${Buffer.from(JSON.stringify(state)).toString("base64url")} -->`
+}
+
+function githubActivityBadge(status: AgentActivityStatus): string {
+  const values: Record<AgentActivityStatus, { color: string, label: string }> = {
+    cancelled: { color: "6e7781", label: "cancelled" },
+    completed: { color: "1f883d", label: "completed" },
+    failed: { color: "d1242f", label: "failed" },
+    queued: { color: "6e7781", label: "queued" },
+    running: { color: "0969da", label: "running" },
+    waiting: { color: "bf8700", label: "waiting for input" },
+  }
+  const value = values[status]
+  return `![Agent: ${value.label}](https://img.shields.io/badge/agent-${encodeURIComponent(value.label)}-${value.color})`
+}
+
+function githubActivityTask(task: AgentActivityTask): string {
+  if (task.status === "completed") return `- [x] ${task.title}`
+  if (task.status === "in-progress") return `- [ ] ⏳ ${task.title}`
+  return `- [ ] ${task.title}`
+}
+
+function githubActivityLinks(links: readonly { label: string, url: string }[]): string {
+  return links.map(link => `[${link.label}](<${link.url}>)`).join(" · ")
+}
+
+function renderGithubActivity(
+  activity: AgentActivityUpdate,
+  state: GitHubActivityCommentState,
+): string {
+  const sections = [
+    encodeGithubActivityState(state),
+    githubActivityBadge(activity.status),
+  ]
+  if (activity.links.length) sections.push(githubActivityLinks(activity.links))
+  if (activity.tasks.length) sections.push(activity.tasks.map(githubActivityTask).join("\n"))
+  if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
+  else if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
+  if (state.history.length) {
+    const history = state.history
+      .filter(entry => entry.links.length)
+      .map(entry => `<li>${githubActivityLinks(entry.links)}</li>`)
+      .join("\n")
+    if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`)
+  }
+  return sections.join("\n\n")
+}
+
+function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+): NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]> {
+  const options = githubAppOptions(app) || {}
+  return {
+    async update(context) {
+      const target = githubActivityTarget(context.target)
+      const fetcher = options.fetch || fetch
+      const token = await githubPullRequestMetadataToken(app, context, target.installationId)
+      if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
+      const headers = githubApiHeaders(token, options.userAgent)
+      const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
+      const commentsUrl = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}/comments?sort=created&direction=desc`
+      const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 100)
+      const existing = comments.find(comment => isRecord(comment)
+        && maybeNumber(comment.id)
+        && hasRuntimeType(comment.body, "string")
+        && comment.body.includes(githubActivityMarker))
+      const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
+      const current = { links: context.activity.links, runId: context.activity.runId }
+      const state: GitHubActivityCommentState = previous.current?.runId === current.runId
+        ? { current, history: previous.history }
+        : {
+            current,
+            history: [previous.current, ...previous.history]
+              .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
+              .slice(0, githubActivityHistoryLimit),
+          }
+      const body = renderGithubActivity(context.activity, state)
+      const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined
+      await githubApi(fetcher, commentId ? `${apiBaseUrl}/repos/${target.repository}/issues/comments/${commentId}` : commentsUrl, {
+        body: JSON.stringify({ body }),
+        headers,
+        method: commentId ? "PATCH" : "POST",
+      })
+    },
+  }
 }
 
 function githubApiPageUrl(url: string, page: number): string {
@@ -2111,7 +2267,7 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  const { app: appOptions, pullRequest, ...channelOptions } = options
+  const { activity, app: appOptions, pullRequest, ...channelOptions } = options
   const app = githubAppOptions(appOptions)
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
@@ -2128,6 +2284,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     : undefined
   return defineChannel("github", {
     ...channelOptions,
+    activity: activity ? githubAgentActivity(appOptions) : undefined,
     capabilities: [
       ...(workspaceCapability ? [workspaceCapability] : []),
       ...channelOptions.capabilities || [],
