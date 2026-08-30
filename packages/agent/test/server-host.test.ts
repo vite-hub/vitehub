@@ -209,6 +209,20 @@ describe("GitHub host", () => {
     expect(host.budget()).toEqual({ limited: true, remaining: 100, resetAt: 2_000_000_000_000 })
   })
 
+  it("shares fallback-token GraphQL budgets across repository owners", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    const host = createGitHubHost({ credentials: () => ({ token: "shared-token" }), reserve: 0 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub")
+    await host.ensureGraphQLBudget("contributor/fork")
+
+    const commands = await readFile(commandLog, "utf8")
+    expect(commands.match(/gh api rate_limit/g)).toHaveLength(1)
+  })
+
   it("keeps shared GraphQL budget waiters independently cancellable", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"

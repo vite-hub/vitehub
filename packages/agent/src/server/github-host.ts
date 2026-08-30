@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
-import { createSign } from "node:crypto"
+import { createHash, createSign } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -118,6 +118,10 @@ function appJwt(appId: number, privateKey: string): string {
 
 function owner(repository: string): string {
   return repository.split("/", 1)[0]!.toLowerCase()
+}
+
+function rateLimitKey(token: string): string {
+  return createHash("sha256").update(token).digest("base64url")
 }
 
 function rateLimitMessage(error: unknown): boolean {
@@ -301,8 +305,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     input: GitHubHostCommandOptions = {},
   ): Promise<{ stderr: string, stdout: string }> {
     const operation = controlledOperation(input)
+    let auth: GitHubHostAccess | undefined
     try {
-      const auth = await access({ repository: input.repository, signal: operation.signal })
+      auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env },
@@ -313,9 +318,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return await exec("gh", args, execOptions)
     }
     catch (error) {
-      if (input.repository && rateLimitMessage(error)) {
+      if (auth && input.repository && rateLimitMessage(error)) {
         const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
-        limits.set(owner(input.repository), limit)
+        limits.set(rateLimitKey(auth.token), limit)
         throw new GitHubRateLimitError(input.repository, limit, error)
       }
       throw error
@@ -326,23 +331,49 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   async function ensureGraphQLBudget(repository: string, options: GitHubHostCheckoutOptions = {}): Promise<GitHubGraphQLRateLimit> {
-    if (options.signal?.aborted) throw abortError(options.signal.reason)
-    const key = owner(repository)
-    const now = Date.now()
-    const cached = limits.get(key)
-    if (cached && cached.resetAt > now && cached.remaining < reserve) throw new GitHubRateLimitError(repository, cached)
-    if (cached && now - cached.checkedAt < cacheMs) return cached
-    const pending = checks.get(key)
-    if (pending) return await waitForCaller(pending, options)
-    const check = (async () => {
-      const result = await command(["api", "rate_limit"], { repository, timeout: graphQLCheckTimeout })
-      const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-      limits.set(key, limit)
-      if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
-      return limit
-    })().finally(() => checks.delete(key))
-    checks.set(key, check)
-    return await waitForCaller(check, options)
+    const operation = controlledOperation(options)
+    try {
+      operation.signal.throwIfAborted()
+      const auth = await scopedAccess({ repository, signal: operation.signal })
+      const key = rateLimitKey(auth.token)
+      const now = Date.now()
+      const cached = limits.get(key)
+      if (cached && cached.resetAt > now && cached.remaining < reserve) throw new GitHubRateLimitError(repository, cached)
+      if (cached && now - cached.checkedAt < cacheMs) return cached
+      const pending = checks.get(key)
+      if (pending) return await waitForCaller(pending, { signal: operation.signal })
+      const check = (async () => {
+        const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
+        try {
+          const result = await exec("gh", ["api", "rate_limit"], {
+            encoding: "utf8",
+            env: { ...process.env, ...auth.env },
+            maxBuffer,
+            signal: checkOperation.signal,
+          })
+          const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
+          limits.set(key, limit)
+          if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
+          return limit
+        }
+        catch (error) {
+          if (rateLimitMessage(error)) {
+            const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
+            limits.set(key, limit)
+            throw new GitHubRateLimitError(repository, limit, error)
+          }
+          throw error
+        }
+        finally {
+          checkOperation.close()
+        }
+      })().finally(() => checks.delete(key))
+      checks.set(key, check)
+      return await waitForCaller(check, { signal: operation.signal })
+    }
+    finally {
+      operation.close()
+    }
   }
 
   function budget(): { limited: false } | { limited: true, remaining: number, resetAt: number } {
