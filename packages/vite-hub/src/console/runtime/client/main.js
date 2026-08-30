@@ -15,6 +15,7 @@ import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
 
 const sectionsBase = "/api/_vitehub/console/sections";
+const hostBase = "";
 
 const router = createRouter({
   history: createWebHistory("/_vitehub/"),
@@ -42,6 +43,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
+        hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
         usageBase: "/api/_vitehub/console/usage",
@@ -57,6 +59,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
+        hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
         usageBase: "/api/_vitehub/console/usage",
@@ -72,6 +75,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
+        hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
         usageBase: "/api/_vitehub/console/usage",
@@ -100,6 +104,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
+        hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
         usageBase: "/api/_vitehub/console/usage",

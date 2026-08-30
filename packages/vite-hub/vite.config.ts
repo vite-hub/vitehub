@@ -70,6 +70,14 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-health-model.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-health.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-home.vue",
         to: "dist/console/runtime/components",
       },
@@ -95,6 +103,26 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-usage-summary.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-code-preview.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-inspector.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-trace-model.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-trace.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session.css",
         to: "dist/console/runtime/components",
       },
       {

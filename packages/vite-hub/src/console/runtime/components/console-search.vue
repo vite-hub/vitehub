@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useCollection } from "vite-hub/source/client"
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useCollection } from "vite-hub/source/client";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
@@ -14,16 +14,16 @@ import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route
 import { consoleSectionDetails } from "../sections"
 
 interface ConsoleSearchFilter {
-  search?: string
+  search?: string;
 }
 
 interface ConsoleSearchItem {
-  agentName?: string
-  context: string
-  excerpt?: string
-  id: string
-  status: AgentInvocationListItem["status"]
-  updatedAt: string
+  agentName?: string;
+  context: string;
+  excerpt?: string;
+  id: string;
+  status: AgentInvocationListItem["status"];
+  updatedAt: string;
 }
 
 interface ConsoleDefinitionSearchItem {
@@ -40,7 +40,11 @@ interface ConsoleKVSearchItem {
 
 declare global {
   interface ViteHubCollectionMap {
-    "vitehub-console-search": Collection<ConsoleSearchItem, ConsoleSearchFilter, ConsoleSearchFilter>
+    "vitehub-console-search": Collection<
+      ConsoleSearchItem,
+      ConsoleSearchFilter,
+      ConsoleSearchFilter
+    >;
   }
 }
 
@@ -67,24 +71,25 @@ const navigationError = ref<unknown>()
 const sessionSearchEnabled = ref(false)
 let navigationRequest: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
 
-const agentsEnabled = computed(() => sections.value.includes("agents"))
-const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value)
-const inactiveSearchFilter: ConsoleSearchFilter = {}
+const agentsEnabled = computed(() => sections.value.includes("agents"));
+const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value);
+const inactiveSearchFilter: ConsoleSearchFilter = {};
 const searchFilter = computed<ConsoleSearchFilter>(() => {
-  if (!agentsEnabled.value || !sessionSearchEnabled.value) return inactiveSearchFilter
-  return debouncedSearchTerm.value ? { search: debouncedSearchTerm.value } : {}
-})
+  if (!agentsEnabled.value || !sessionSearchEnabled.value) return inactiveSearchFilter;
+  return debouncedSearchTerm.value ? { search: debouncedSearchTerm.value } : {};
+});
 const sessionSearch = useCollection("vitehub-console-search", {
   filter: searchFilter,
   immediate: false,
   limit: 12,
   request: (_endpoint, options) => requestConsole(props.searchBase, options),
-})
+});
 const sessionItems = computed<CommandPaletteItem[]>(() =>
   sessionSearch.pending.value
     ? []
-    : sessionSearch.items.value.map(item => ({
+    : sessionSearch.items.value.map((item) => ({
         description: itemDescription(item),
         disabled: !item.agentName,
         icon: "i-ph-chat-text-light",
@@ -131,7 +136,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         label: "All primitives",
         onSelect: () => selectPage("vitehub-console"),
       },
-      ...sections.value.map(section => ({
+      ...sections.value.map((section) => ({
         icon: consoleSectionDetails[section].icon,
         label: consoleSectionDetails[section].label,
         onSelect: () => selectPage(consoleSectionDetails[section].routeName),
@@ -166,12 +171,14 @@ const groups = computed<CommandPaletteGroup[]>(() => [
       }]
     : []),
   ...(agentsEnabled.value
-    ? [{
-        id: "sessions",
-        ignoreFilter: true,
-        items: sessionItems.value,
-        label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions",
-      }]
+    ? [
+        {
+          id: "sessions",
+          ignoreFilter: true,
+          items: sessionItems.value,
+          label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions",
+        },
+      ]
     : []),
 ])
 const loading = computed(() =>
@@ -181,7 +188,7 @@ const loading = computed(() =>
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
-    : undefined
+    : undefined;
 }
 
 function errorMessage(error: unknown): string | undefined {
@@ -189,17 +196,17 @@ function errorMessage(error: unknown): string | undefined {
     ? error.message
     : error
       ? "The console could not load this data."
-      : undefined
+      : undefined;
 }
 
 function itemDescription(item: ConsoleSearchItem): string {
-  const updatedAt = new Date(item.updatedAt).valueOf()
+  const updatedAt = new Date(item.updatedAt).valueOf();
   const age = Number.isFinite(updatedAt)
     ? `${relativeDuration(Math.max(0, Date.now() - updatedAt))} ago`
-    : undefined
+    : undefined;
   return [item.agentName, item.status, age, item.excerpt ? undefined : item.context]
     .filter(Boolean)
-    .join(" · ")
+    .join(" · ");
 }
 
 function strings(value: unknown): string[] {
@@ -276,10 +283,13 @@ async function loadNavigation(discoverContent = false): Promise<void> {
       const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
       const names = Array.isArray(agentsValue?.agents)
-        ? agentsValue.agents.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
-        : []
-      if (navigationRequest !== controller) return
-      discoveredAgentNames.value = [...new Set(names)]
+        ? agentsValue.agents.filter((name): name is string => {
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
+            return typeof name === "string" && Boolean(name.trim());
+          })
+        : [];
+      if (navigationRequest !== controller) return;
+      discoveredAgentNames.value = [...new Set(names)];
     }
     if (discoverContent) await loadContent(installed, controller.signal)
     navigationError.value = undefined
@@ -290,23 +300,25 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   }
   finally {
     if (navigationRequest === controller) {
-      navigationRequest = undefined
-      navigationLoading.value = false
+      navigationRequest = undefined;
+      navigationLoading.value = false;
     }
   }
 }
 
 async function selectPage(routeName: string): Promise<void> {
-  open.value = false
-  await router.push({ name: resolveConsoleRouteName(route.name, routeName) })
+  open.value = false;
+  emit("selectPage");
+  await router.push({ name: resolveConsoleRouteName(route.name, routeName) });
 }
 
 async function selectAgent(name: string): Promise<void> {
-  open.value = false
+  open.value = false;
+  emit("selectSession");
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
-  })
+  });
 }
 
 async function selectDefinition(item: ConsoleDefinitionSearchItem): Promise<void> {
@@ -326,39 +338,40 @@ async function selectKVKey(item: ConsoleKVSearchItem): Promise<void> {
 }
 
 async function selectSession(item: ConsoleSearchItem): Promise<void> {
-  if (!item.agentName) return
-  open.value = false
+  if (!item.agentName) return;
+  open.value = false;
+  emit("selectSession");
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(item.agentName), invocation: item.id },
-  })
+  });
 }
 
 watch(searchTerm, (value) => {
-  if (searchTimer) clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    debouncedSearchTerm.value = value.trim()
-  }, 150)
-})
+    debouncedSearchTerm.value = value.trim();
+  }, 150);
+});
 
 watch(debouncedSearchTerm, () => {
   if (open.value) void loadNavigation(true)
 })
 
 watch(open, async (value) => {
-  if (!value) return
-  await loadNavigation(true)
-  if (!agentsEnabled.value) return
-  if (sessionSearchEnabled.value) await sessionSearch.refresh()
-  else sessionSearchEnabled.value = true
-})
+  if (!value) return;
+  await loadNavigation(true);
+  if (!agentsEnabled.value) return;
+  if (sessionSearchEnabled.value) await sessionSearch.refresh();
+  else sessionSearchEnabled.value = true;
+});
 
-onMounted(() => void loadNavigation())
+onMounted(() => void loadNavigation());
 
 onBeforeUnmount(() => {
-  navigationRequest?.abort()
-  if (searchTimer) clearTimeout(searchTimer)
-})
+  navigationRequest?.abort();
+  if (searchTimer) clearTimeout(searchTimer);
+});
 </script>
 
 <template>

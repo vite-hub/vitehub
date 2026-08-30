@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   AgentInvocation,
-  AgentInvocationInspector,
   AgentInvocationList,
   agentInvocationContext,
   agentInvocationExternalUrl,
@@ -11,6 +10,7 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { isConsoleHealth } from "./console-health-model";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
 import type {
@@ -28,9 +28,12 @@ import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
+import ConsoleHealth from "./console-health.vue";
+import ConsoleMark from "./console-mark.vue";
+import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import ConsoleUsageSummary from "./console-usage-summary.vue";
+import "./console-session.css";
 
 const route = useRoute();
 const router = useRouter();
@@ -39,6 +42,7 @@ const props = defineProps<{
   apiBase: string;
   definitionsBase: string;
   kvBase: string;
+  hostBase: string;
   searchBase: string;
   sectionsBase: string;
   usageBase: string;
@@ -54,12 +58,22 @@ const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
+const detailsMaximized = ref(false);
+const inspectorTab = ref<"details" | "trace" | "workspace">("details");
+const inspectorActiveSurface = ref("view:details");
+const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["details"]);
+const inspectorOpenPaths = ref<string[]>([]);
+const inspectorSelectedPath = ref<string>();
+const inspectorWorkspaceIdentity = ref<string>();
+const activePage = ref<"health" | "sessions">("sessions");
+const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
+let capabilitiesRequest: AbortController | undefined;
 const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
 const detailPollInterval = computed(() =>
   pageVisible.value && selectedInvocationId.value ? 3_000 : false,
@@ -154,7 +168,6 @@ const selectedProject = computed(() =>
 const selectedExternalUrl = computed(() =>
   selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
 );
-const invocationUsage = computed(() => record(invocationView.value)?.usage);
 const splitterItems: SplitterItem[] = [
   {
     id: "thread",
@@ -183,10 +196,64 @@ function selectActivity(id: string): void {
   });
 }
 
+function closeDetails(): void {
+  detailsOpen.value = false;
+  detailsMaximized.value = false;
+}
+
+async function showHealth(): Promise<void> {
+  if (isUsageRoute.value) {
+    await router.push(
+      selectedAgentName.value
+        ? {
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+          }
+        : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") },
+    );
+  }
+  activePage.value = "health";
+  closeDetails();
+  sessionsOpen.value = false;
+}
+
+function showSessions(): void {
+  activePage.value = "sessions";
+}
+
+async function detectHostCapabilities(): Promise<void> {
+  capabilitiesRequest?.abort();
+  const controller = new AbortController();
+  capabilitiesRequest = controller;
+  try {
+    const response = await fetch(`${props.hostBase}/api/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    const available = response.ok && isConsoleHealth(await response.json());
+    if (capabilitiesRequest === controller) healthAvailable.value = available;
+  } catch (error) {
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
+    if (capabilitiesRequest === controller) healthAvailable.value = false;
+  } finally {
+    if (capabilitiesRequest === controller) capabilitiesRequest = undefined;
+  }
+}
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
+  return typeof value === "string" ? value : undefined;
+}
+
+function numericValue(value: unknown): number | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function invocationConfiguration(value: unknown): AgentInvocationConfiguration | undefined {
@@ -220,6 +287,7 @@ async function selectInvocation(
 ): Promise<void> {
   const agentName = invocation.agent?.trim() || selectedAgentName.value;
   if (!agentName) return;
+  showSessions();
   sessionsOpen.value = false;
   selectedAgentName.value = agentName;
   await router.push({
@@ -230,6 +298,7 @@ async function selectInvocation(
 
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
+  showSessions();
   selectedAgentName.value = name;
   selectedInvocationId.value = undefined;
   await router.push({
@@ -238,6 +307,22 @@ async function selectAgent(name: string): Promise<void> {
   });
 }
 
+async function toggleUsage(): Promise<void> {
+  showSessions();
+  sessionsOpen.value = false;
+  if (isUsageRoute.value) {
+    await router.push(
+      selectedAgentName.value
+        ? {
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+          }
+        : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") },
+    );
+    return;
+  }
+  await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
+}
 async function loadAgents(): Promise<void> {
   agentsRequest?.abort();
   const controller = new AbortController();
@@ -268,6 +353,7 @@ async function loadAgents(): Promise<void> {
 
 async function refresh(): Promise<void> {
   await Promise.all([
+    detectHostCapabilities(),
     loadAgents(),
     list.refresh(),
     selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
@@ -315,11 +401,17 @@ watch(
     selectedAgentName,
     isUsageRoute,
   ],
-  async ([requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute]) => {
+  async (
+    [requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute],
+    previous,
+  ) => {
     if (usageRoute) {
       selectedInvocationId.value = undefined;
       return;
     }
+    const routeChanged =
+      !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
+    if ((requestedInvocation || requestedAgent) && routeChanged) showSessions();
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
       requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
@@ -371,6 +463,14 @@ watch(
 
 watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
+  const identity = selectedInvocationId.value
+    ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
+    : undefined;
+  if (identity !== inspectorWorkspaceIdentity.value) {
+    inspectorWorkspaceIdentity.value = identity;
+    inspectorSelectedPath.value = undefined;
+    inspectorOpenPaths.value = [];
+  }
 });
 
 watch(
@@ -388,10 +488,12 @@ onMounted(() => {
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
   if (pageVisible.value) void loadAgents();
+  void detectHostCapabilities();
 });
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
+  capabilitiesRequest?.abort();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
   document.removeEventListener("visibilitychange", updatePageVisibility);
@@ -542,6 +644,32 @@ onBeforeUnmount(() => {
             :collapsed="collapsed"
             :sections-base="sectionsBase"
           />
+          <UTooltip
+            v-if="healthAvailable || activePage === 'health'"
+            :text="activePage === 'health' ? 'Back to sessions' : 'Health'"
+          >
+            <UButton
+              :icon="activePage === 'health' ? 'i-lucide-arrow-left' : 'i-lucide-heart-pulse'"
+              color="neutral"
+              :variant="activePage === 'health' ? 'soft' : 'ghost'"
+              size="xs"
+              :aria-label="activePage === 'health' ? 'Back to sessions' : 'Health'"
+              @click="activePage === 'health' ? showSessions() : void showHealth()"
+            />
+          </UTooltip>
+          <UTooltip :text="isUsageRoute ? 'Back to sessions' : 'Usage'">
+            <UButton
+              :block="!collapsed"
+              :class="collapsed ? '' : 'min-w-0 flex-1 justify-start'"
+              :icon="isUsageRoute ? 'i-lucide-arrow-left' : 'i-lucide-chart-no-axes-column'"
+              :label="collapsed ? undefined : isUsageRoute ? 'Sessions' : 'Usage'"
+              color="neutral"
+              :variant="isUsageRoute ? 'soft' : 'ghost'"
+              size="xs"
+              :aria-label="isUsageRoute ? 'Back to sessions' : 'Usage'"
+              @click="toggleUsage"
+            />
+          </UTooltip>
           <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
             <UButton
               class="ml-auto max-lg:hidden"
@@ -564,9 +692,19 @@ onBeforeUnmount(() => {
       :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
+      @select-session="showSessions"
+      @select-page="showSessions"
     />
 
     <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="sessionsOpen = true" />
+
+    <UDashboardPanel
+      v-else-if="activePage === 'health'"
+      id="agent-health"
+      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
+    >
+      <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
+    </UDashboardPanel>
 
     <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
@@ -678,8 +816,23 @@ onBeforeUnmount(() => {
                 { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
               ]"
             />
+            <ConsoleSessionInspector
+              v-if="isDesktop && detailsOpen && detailsMaximized"
+              :invocation="invocationView"
+              :maximized="true"
+              :workspace-base="`${hostBase}/api/invocations`"
+              v-model:tab="inspectorTab"
+              v-model:active-surface="inspectorActiveSurface"
+              v-model:open-views="inspectorOpenViews"
+              v-model:open-paths="inspectorOpenPaths"
+              v-model:selected-path="inspectorSelectedPath"
+              class="min-h-0 flex-1"
+              @close="closeDetails"
+              @focus-activity="selectActivity"
+              @toggle-maximized="detailsMaximized = false"
+            />
             <USplitter
-              v-if="isDesktop && detailsOpen"
+              v-else-if="isDesktop && detailsOpen"
               id="agent-session-layout"
               auto-save-id="vitehub-agent-session-layout"
               :items="splitterItems"
@@ -694,25 +847,19 @@ onBeforeUnmount(() => {
                 />
               </template>
               <template #details>
-                <AgentInvocationInspector
+                <ConsoleSessionInspector
                   :invocation="invocationView"
+                  :workspace-base="`${hostBase}/api/invocations`"
+                  v-model:tab="inspectorTab"
+                  v-model:active-surface="inspectorActiveSurface"
+                  v-model:open-views="inspectorOpenViews"
+                  v-model:open-paths="inspectorOpenPaths"
+                  v-model:selected-path="inspectorSelectedPath"
                   class="h-full"
-                  @select-activity="selectActivity"
-                >
-                  <template v-if="invocationUsage" #metadata>
-                    <ConsoleUsageSummary :usage="invocationUsage" />
-                  </template>
-                  <template #actions>
-                    <UButton
-                      icon="i-ph-sidebar-simple-light"
-                      color="neutral"
-                      variant="ghost"
-                      size="xs"
-                      aria-label="Close session details"
-                      @click="detailsOpen = false"
-                    />
-                  </template>
-                </AgentInvocationInspector>
+                  @close="closeDetails"
+                  @focus-activity="selectActivity"
+                  @toggle-maximized="detailsMaximized = true"
+                />
               </template>
               <template #resize-handle>
                 <span
@@ -735,25 +882,19 @@ onBeforeUnmount(() => {
               :ui="{ content: 'w-full max-w-sm p-0' }"
             >
               <template #content>
-                <AgentInvocationInspector
+                <ConsoleSessionInspector
                   :invocation="invocationView"
+                  :maximizable="false"
+                  :workspace-base="`${hostBase}/api/invocations`"
+                  v-model:tab="inspectorTab"
+                  v-model:active-surface="inspectorActiveSurface"
+                  v-model:open-views="inspectorOpenViews"
+                  v-model:open-paths="inspectorOpenPaths"
+                  v-model:selected-path="inspectorSelectedPath"
                   class="h-full"
-                  @select-activity="selectActivity"
-                >
-                  <template v-if="invocationUsage" #metadata>
-                    <ConsoleUsageSummary :usage="invocationUsage" />
-                  </template>
-                  <template #actions>
-                    <UButton
-                      icon="i-ph-x-light"
-                      color="neutral"
-                      variant="ghost"
-                      size="xs"
-                      aria-label="Close session details"
-                      @click="detailsOpen = false"
-                    />
-                  </template>
-                </AgentInvocationInspector>
+                  @close="closeDetails"
+                  @focus-activity="selectActivity"
+                />
               </template>
             </USlideover>
           </div>
