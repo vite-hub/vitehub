@@ -4,7 +4,7 @@ import type { KVListOptions, KVListPage, ResolvedUpstashKVStoreConfig } from "..
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface UpstashClient {
-  scan: (cursor: string, options: { count: number; match: string }) => Promise<[string, string[]]>
+  scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
 }
 
 interface UpstashCursor {
@@ -99,7 +99,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
         count: limit,
         match: `${escapeRedisGlob(prefix)}*`,
       })
-      providerCursor = scanned[0]
+      providerCursor = String(scanned[0])
       keys = [...new Set<string>(scanned[1])]
     }
     const pageKeys = keys.slice(0, limit)

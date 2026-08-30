@@ -524,8 +524,8 @@ describe("kv runtime", () => {
 
   it("keeps ordinary Upstash scan cursors portable across driver instances", async () => {
     upstashScan = vi.fn()
-      .mockResolvedValueOnce(["7", ["one", "one"]])
-      .mockResolvedValueOnce(["0", ["one", "two"]])
+      .mockResolvedValueOnce([7, ["one", "one"]])
+      .mockResolvedValueOnce([0, ["one", "two"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
     const firstDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
 
