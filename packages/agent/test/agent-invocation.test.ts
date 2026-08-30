@@ -272,6 +272,34 @@ describe("Agent Invocation controllers", () => {
     expect(() => structuredClone(result)).not.toThrow()
   })
 
+  it("preserves streamed result prototypes and property descriptors", async () => {
+    class ProviderResult {
+      fullStream = (async function* () {
+        yield { delta: "nested", type: "text-delta" }
+      })()
+
+      get requestId() {
+        return "request-1"
+      }
+    }
+    const providerResult = new ProviderResult()
+    Object.defineProperty(providerResult, "providerData", {
+      configurable: true,
+      value: "preserved",
+      writable: true,
+    })
+    const agent = defineAgent({
+      driver: { run: () => providerResult },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toBeInstanceOf(ProviderResult)
+    expect(result).toMatchObject({ providerData: "preserved", requestId: "request-1", text: "nested" })
+    expect(Object.getOwnPropertyDescriptor(result, "providerData")?.enumerable).toBe(false)
+    expect(result).not.toHaveProperty("fullStream")
+  })
+
   it("preserves non-plain cloneable raw child results", async () => {
     const raw = new Map([["providerData", "preserved"]])
     const agent = defineAgent({

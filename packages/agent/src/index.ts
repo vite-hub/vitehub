@@ -6722,19 +6722,34 @@ function createInlineAgentInvocationController<
           const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
             ? outcome.output
             : undefined
-          const completedPublicResult: Record<string, unknown> = completed ? { ...completed } : {}
-          omitAgentResultStreamSurfaces(completedPublicResult)
-          Reflect.deleteProperty(completedPublicResult, "raw")
+          const completedDescriptors = completed ? Object.getOwnPropertyDescriptors(completed) : {}
+          for (const property of agentResultStreamProperties) {
+            let value: unknown
+            try {
+              value = completed ? Reflect.get(completed, property) : undefined
+            }
+            catch {
+              value = undefined
+            }
+            if (isAsyncIterable(value) || hasRuntimeType(value, "function"))
+              Reflect.deleteProperty(completedDescriptors, property)
+          }
+          Reflect.deleteProperty(completedDescriptors, "raw")
           const definedMaterializedResult = Object.fromEntries(
             Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
           )
           if (hasExplicitRaw || (hasSanitizedRawCandidate && materializedRaw === undefined))
             Reflect.deleteProperty(definedMaterializedResult, "raw")
-          return {
-            ...completedPublicResult,
-            ...definedMaterializedResult,
-            ...(materializedRaw !== undefined ? { raw: materializedRaw } : {}),
-          }
+          return Object.defineProperties(
+            Object.create(completed ? Object.getPrototypeOf(completed) : Object.prototype),
+            {
+              ...completedDescriptors,
+              ...Object.getOwnPropertyDescriptors(definedMaterializedResult),
+              ...(materializedRaw !== undefined
+                ? { raw: { configurable: true, enumerable: true, value: materializedRaw, writable: true } }
+                : {}),
+            },
+          )
         }
         // SAFETY: the completed lifecycle output uses the controller's declared public result union.
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
