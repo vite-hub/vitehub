@@ -115,6 +115,12 @@ describe("public package export contracts", () => {
     expect(source).toMatch(/fetch\(input: Request \| URL \| string, init\?: RequestInit\): Promise<Response>/)
   })
 
+  it("keeps Sandbox's public request contract limited to readable payloads", () => {
+    const source = readFileSync(join(packageDir("sandbox"), "src/internal/shared/request-payload.ts"), "utf8")
+    expect(source).toMatch(/json: \(\) => Promise<unknown>/)
+    expect(source).not.toMatch(/json\?:/)
+  })
+
   it("points every contract at a built artifact", () => {
     for (const contract of publicPackageExportContracts) {
       const info = packageInfos.find(info => info.packageName === contract.packageName)!

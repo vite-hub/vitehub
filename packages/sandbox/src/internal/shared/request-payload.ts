@@ -2,7 +2,7 @@ import { readBody, type H3Event } from 'h3'
 
 export interface RequestPayloadEvent {
   req: {
-    json?: () => Promise<unknown>
+    json: () => Promise<unknown>
   }
 }
 
