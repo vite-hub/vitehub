@@ -539,7 +539,6 @@ async function prepareCodexCredentialHome<
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<CodexCredentialHome | undefined> {
   if (options.provider !== "codex") return
-  await runCodexCredentialHomeScavenger()
   if (options.credentials === undefined) return
   if (process.platform === "win32") {
     throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
@@ -566,7 +565,6 @@ async function prepareCodexCredentialHome<
   }
   if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
 
-  const credentials = await resolveCredentials()
   const key = `${process.cwd()}:${profile}`
   const unavailableReason = unavailableCodexCredentialProfiles.get(key)
   if (unavailableReason !== undefined) {
@@ -574,6 +572,7 @@ async function prepareCodexCredentialHome<
   }
   const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.input.abortSignal)
   try {
+    const credentials = await waitForProviderOperation(resolveCredentials(), context.input.abortSignal)
     const unavailableReason = unavailableCodexCredentialProfiles.get(key)
     if (unavailableReason !== undefined) {
       throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
@@ -1432,6 +1431,9 @@ async function* runProvider<
     : context.input.abortSignal || timeoutSignal
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
+  if (options.provider === "codex") {
+    await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
+  }
   const transportSessionId = context.runtime.run?.threadId
   const chatSessionId = context.context.get("chat.sessionId")
   const sessionId = chatSessionId || transportSessionId

@@ -808,6 +808,7 @@ cli_auth_credentials_store = "keyring"
     const seeded = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: "seed-cursor",
     })
+    // SAFETY: The test context supplies the complete provider invocation contract.
     await adapter.generate(context(threadId) as never)
 
     let releasePrimary!: () => void
@@ -826,16 +827,19 @@ cli_auth_credentials_store = "keyring"
     })
 
     const primaryContext = context(threadId)
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const primaryInvocation = adapter.generate(primaryContext as never)
     await primaryRunning
     const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
     auxiliaryContext.context = primaryContext.context
+    // SAFETY: The test context supplies the complete provider invocation contract.
     const auxiliaryInvocation = adapter.generate(auxiliaryContext as never)
     await vi.waitFor(() => expect(auxiliary.startSession).toHaveBeenCalledOnce())
     releasePrimary()
     await Promise.all([primaryInvocation, auxiliaryInvocation])
 
     const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: The test context supplies the complete provider invocation contract.
     await adapter.generate(context(threadId) as never)
 
     expect(seeded.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
@@ -878,6 +882,33 @@ cli_auth_credentials_store = "keyring"
       await Promise.allSettled([next])
       await rm(homePath, { force: true, recursive: true })
     }
+  })
+
+  it("preserves named profile invocation order across credential resolution", async () => {
+    const profile = `provider-ordered-resolver-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    let finishFirstResolution!: (credentials: string) => void
+    const credentials = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>(resolve => finishFirstResolution = resolve))
+      .mockReturnValueOnce(JSON.stringify({ tokens: { access_token: "new" } }))
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    const firstThreadId = "thread-profile-ordered-resolver-first"
+    const secondThreadId = "thread-profile-ordered-resolver-second"
+    runtime(firstThreadId, [event("turn.completed", firstThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    runtime(secondThreadId, [event("turn.completed", secondThreadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: The test contexts supply the complete provider invocation contract.
+    const first = adapter.generate(context(firstThreadId) as never)
+    await vi.waitFor(() => expect(credentials).toHaveBeenCalledOnce())
+    // SAFETY: The test contexts supply the complete provider invocation contract.
+    const second = adapter.generate(context(secondThreadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(credentials).toHaveBeenCalledOnce()
+
+    finishFirstResolution(JSON.stringify({ tokens: { access_token: "old" } }))
+    await Promise.all([first, second])
+    await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toContain('"access_token":"new"')
+    await rm(homePath, { force: true, recursive: true })
   })
 
   it("removes an invocation-private Codex credential Home after runtime cleanup", async () => {
@@ -988,6 +1019,30 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges abandoned credentials before Workspace preparation fails", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const runContext = context("thread-scavenge-before-workspace-failure", {
+      workspace: {
+        fs: {},
+        startSession: vi.fn(async () => { throw new Error("workspace failed") }),
+        tools: {},
+      },
+    })
+
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("workspace failed")
     await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
