@@ -5,7 +5,7 @@ import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSnapshot, WorkspaceStore }
 const snapshotStatConcurrency = 16
 
 async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, visit: (value: T) => Promise<U>) {
-  const results = new Array<U>(values.length)
+  const results: U[] = []
   let next = 0
   await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
     while (next < values.length) {
