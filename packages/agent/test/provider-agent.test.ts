@@ -128,7 +128,7 @@ describe("Provider Agent Driver", () => {
   it("resolves object-form Codex credentials with the invocation context", async () => {
     const threadId = "thread-object-credentials"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const resolve = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
+    const resolve = vi.fn((_context: unknown) => JSON.stringify({ OPENAI_API_KEY: "private" }))
 
     await createProviderAgentAdapter({
       credentials: { resolve },
@@ -276,6 +276,7 @@ describe("Provider Agent Driver", () => {
     const profile = `provider-abandoned-write-${crypto.randomUUID()}`
     const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
     const abandonedAuth = join(homePath, `.auth.json-${crypto.randomUUID()}.next`)
+    const abandonedConfig = join(homePath, `.config.toml-${crypto.randomUUID()}.next`)
     const unrelatedFile = join(homePath, ".auth.json-manual.next")
     const adapter = createProviderAgentAdapter({
       credentialProfile: profile,
@@ -288,6 +289,7 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await adapter.generate(context("thread-abandoned-write-first") as never)
       await writeFile(abandonedAuth, '{"OPENAI_API_KEY":"old"}\n', { mode: 0o600 })
+      await writeFile(abandonedConfig, 'cli_auth_credentials_store = "keyring"\n', { mode: 0o600 })
       await writeFile(unrelatedFile, "preserve\n", { mode: 0o600 })
 
       runtime("thread-abandoned-write-reopen", [event("turn.completed", "thread-abandoned-write-reopen", { state: "completed" }, { turnId: "turn-1" })])
@@ -295,6 +297,7 @@ describe("Provider Agent Driver", () => {
       await adapter.generate(context("thread-abandoned-write-reopen") as never)
 
       await expect(access(abandonedAuth)).rejects.toThrow()
+      await expect(access(abandonedConfig)).rejects.toThrow()
       await expect(readFile(unrelatedFile, "utf8")).resolves.toBe("preserve\n")
     }
     finally {
