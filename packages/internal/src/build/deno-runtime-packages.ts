@@ -213,11 +213,25 @@ function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
 }
 
 function isGuardedConciseArrow(source: string, expressionStart: number, expressionEnd: number): boolean {
-  const statementStart = Math.max(source.lastIndexOf(";", expressionStart - 1), source.lastIndexOf("\n", expressionStart - 1)) + 1
+  const statementStart = source.lastIndexOf(";", expressionStart - 1) + 1
   const prefix = source.slice(statementStart, expressionStart)
   const arrow = prefix.lastIndexOf("=>")
-  if (arrow < 0 || /[,{]/.test(prefix.slice(arrow + 2))) return false
-  return !/^\s*\)+\s*(?:\?\.)?\s*\(/.test(source.slice(expressionEnd))
+  if (arrow < 0 || /^\s*\{/.test(prefix.slice(arrow + 2))) return false
+
+  let parentheses = 0
+  let brackets = 0
+  let braces = 0
+  for (const character of prefix.slice(arrow + 2)) {
+    if (character === "(") parentheses++
+    else if (character === ")") parentheses--
+    else if (character === "[") brackets++
+    else if (character === "]") brackets--
+    else if (character === "{") braces++
+    else if (character === "}") braces--
+    else if (character === "," && parentheses === 0 && brackets === 0 && braces === 0) return false
+  }
+
+  return !/^\s*\)+\s*(?:(?:\?\.)?\s*\(|\.\s*(?:call|apply)\s*\()/.test(source.slice(expressionEnd))
 }
 
 function tryBlockHasCatch(source: string, opening: number): boolean {

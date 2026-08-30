@@ -1058,6 +1058,15 @@ load("@img/sharp-linux-x64/sharp.node")
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot })).resolves.toBeUndefined()
 
+    for (const source of [
+      'const load = () =>\n  require("missing-feature")\n',
+      'const load = () => (prepare(), require("missing-feature"))\n',
+      'const load = () => ({ feature: require("missing-feature") })\n',
+    ]) {
+      await writeFile(join(conciseRoot, ".output/server/index.mjs"), source)
+      await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot }), source).resolves.toBeUndefined()
+    }
+
     const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-require-"))
     await writeJson(join(requiredRoot, "package.json"), {})
     await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
@@ -1071,6 +1080,8 @@ load("@img/sharp-linux-x64/sharp.node")
       '(() => { require("missing-feature") })()\n',
       '(() => require("missing-feature"))()\n',
       'const noop = () => 0, value = require("missing-feature")\n',
+      '(() => require("missing-feature")).call(null)\n',
+      '(() => require("missing-feature")).apply(null)\n',
       '!function () { require("missing-feature") }()\n',
       'try { require("missing-feature") } finally { cleanup() }\n',
     ]) {
@@ -1086,6 +1097,31 @@ load("@img/sharp-linux-x64/sharp.node")
 
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'function load() { return require("missing-feature") }\n(ready)()\n')
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
+  })
+
+  it("classifies multiline concise-arrow dynamic imports by execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-dynamic-"))
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+
+    for (const source of [
+      'const load = () =>\n  import("missing-feature")\n',
+      'const load = () => (prepare(), import("missing-feature"))\n',
+      'const load = () => ({ feature: import("missing-feature") })\n',
+    ]) {
+      await writeFile(join(root, ".output/server/index.mjs"), source)
+      await expect(finalizeDenoDeploymentOutput({ rootDir: root }), source).resolves.toBeUndefined()
+    }
+
+    for (const source of [
+      '(() => import("missing-feature")).call(null)\n',
+      '(() => import("missing-feature")).apply(null)\n',
+    ]) {
+      await writeFile(join(root, ".output/server/index.mjs"), source)
+      await expect(finalizeDenoDeploymentOutput({ rootDir: root }), source).rejects.toThrow(
+        "Could not resolve package.json for missing-feature",
+      )
+    }
   })
 
   it("rejects interpolated template imports before relocation", () => {
