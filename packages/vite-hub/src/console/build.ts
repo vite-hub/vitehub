@@ -159,18 +159,21 @@ function scheduleDefinition(
 }
 
 export async function discoverConsoleBuildCatalog(options: {
+  databaseDiscoveryRoot?: string
   discoveryRoot: string
   projectRoot: string
   queueDiscoveryRoot?: string
   sections: readonly ConsoleSectionId[]
+  scheduleDiscoveryRoot?: string
   serverDirs?: string[]
+  workspaceDiscoveryRoot?: string
   workflowDiscoveryRoot?: string
 }): Promise<ConsoleBuildCatalog> {
   const agents = options.sections.includes("agents")
     ? discoverAgentDefinitionEntries(options.discoveryRoot, options.serverDirs)
     : []
   const databases = options.sections.includes("databases")
-    ? discoverDatabaseDefinitions(options.discoveryRoot, {
+    ? discoverDatabaseDefinitions(options.databaseDiscoveryRoot ?? options.discoveryRoot, {
         serverDirs: options.serverDirs,
       }).map(definition => databaseDefinition(options.projectRoot, definition))
     : []
@@ -183,9 +186,9 @@ export async function discoverConsoleBuildCatalog(options: {
         .map(definition => workflowDefinition(options.projectRoot, definition))
     : []
   const workspaces = options.sections.includes("workspaces")
-    ? discoverViteWorkspaceDefinitions(options.discoveryRoot, {
+    ? discoverViteWorkspaceDefinitions(options.workspaceDiscoveryRoot ?? options.discoveryRoot, {
         serverDirs: options.serverDirs,
-        serverRootDir: options.projectRoot,
+        serverRootDir: options.workspaceDiscoveryRoot ?? options.projectRoot,
       }).map(definition => workspaceDefinition(options.projectRoot, definition))
     : []
   const sandboxes = options.sections.includes("sandboxes")
@@ -206,7 +209,7 @@ export async function discoverConsoleBuildCatalog(options: {
     : []
   const discoveredSchedules = options.sections.includes("schedules")
     ? discoverScheduleDefinitions({
-        rootDir: options.discoveryRoot,
+        rootDir: options.scheduleDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.serverDirs,
       })
     : []

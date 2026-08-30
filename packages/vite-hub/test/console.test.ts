@@ -929,6 +929,43 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("discovers definitions from each service project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-service-roots-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await mkdir(join(root, "packages/database/server/databases"), { recursive: true })
+      await mkdir(join(root, "packages/workspace/server/workspaces/docs/workspace"), { recursive: true })
+      await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
+      await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+      await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases", "workspaces", "schedules"],
+      })
+      const config = {
+        database: { projectRoot: "packages/database" },
+        root,
+        schedule: { projectRoot: "packages/schedule" },
+        workspace: { projectRoot: "packages/workspace" },
+      }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
+      expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
+      expect(generated).toContain('"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"}')
+      expect(generated).toContain('"file":"packages/schedule/server/schedules/adhoc.ts","name":"adhoc"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serializes discovered Sandbox Definition metadata without starting a Sandbox", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-sandbox-host-"))
     try {

@@ -261,15 +261,18 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let kvStores = options.kvStores ?? []
   const blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
+  let databaseDiscoveryRoot: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
   let serverDirs: string[] | undefined
+  let scheduleDiscoveryRoot: string | undefined
+  let workspaceDiscoveryRoot: string | undefined
   let fixture: string | undefined
   let cliDiscovery = false
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -333,14 +336,23 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        database?: unknown
         kv?: unknown
         queue?: unknown
+        schedule?: unknown
+        workspace?: unknown
         workflow?: unknown
         vitehubCliDiscovery?: true
       }
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+        ? resolve(root!, value.projectRoot)
+        : undefined
+      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
+      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
@@ -369,7 +381,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       if (!cliDiscovery && !fixture) {
         const initialSections = sections.filter(section => section !== "workflows")
-        const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
+        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -466,10 +478,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, workflow?: unknown }
+      const viteConfig = config as typeof config & { database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+        ? resolve(root!, value.projectRoot)
+        : undefined
+      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
+      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)
