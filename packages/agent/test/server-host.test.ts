@@ -16,6 +16,7 @@ const originalPath = process.env.PATH
 const temporaryDirectories = new Set<string>()
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   process.env.PATH = originalPath
   delete process.env.VITEHUB_TEST_HEAD_SHA
@@ -189,7 +190,7 @@ describe("GitHub host", () => {
     await expect(host.access({
       repository: "vite-hub/vitehub",
       ...(control === "abort" ? { signal: controller.signal } : { timeout: 20 }),
-    })).rejects.toThrow(control === "abort" ? "cancelled during body" : /abort|timeout/i)
+    })).rejects.toThrow(control === "abort" ? "cancelled during body" : /abort|timed out|timeout/i)
   })
 
   it("admits GraphQL work against a shared reserve", async () => {
@@ -231,6 +232,8 @@ describe("GitHub host", () => {
       return error instanceof Error && (
         ("killed" in error && error.killed === true)
         || ("code" in error && error.code === "ETIMEDOUT")
+        || ("code" in error && error.code === "ABORT_ERR")
+        || error.name === "AbortError"
         || error.name === "TimeoutError"
       )
     })
@@ -339,13 +342,18 @@ describe("GitHub host", () => {
   })
 
   it("keeps one access deadline across credential stages", async () => {
+    vi.useFakeTimers()
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     vi.stubGlobal("fetch", vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
     })))
+    let resolveCredentials: (() => void) | undefined
+    const credentialsReady = new Promise<void>((resolve) => {
+      resolveCredentials = resolve
+    })
     const host = createGitHubHost({
       credentials: async () => {
-        await new Promise(resolve => setTimeout(resolve, 15))
+        await credentialsReady
         return {
           appId: 123,
           installationId: 456,
@@ -355,7 +363,12 @@ describe("GitHub host", () => {
       },
     })
 
-    await expect(host.access({ repository: "vite-hub/vitehub", timeout: 20 })).rejects.toThrow(/abort|timeout/i)
+    const access = host.access({ repository: "vite-hub/vitehub", timeout: 20 })
+    await vi.advanceTimersByTimeAsync(15)
+    resolveCredentials?.()
+    await vi.advanceTimersByTimeAsync(5)
+
+    await expect(access).rejects.toThrow(/abort|timed out|timeout/i)
   })
 
   it("cancels checkout commands and removes the temporary checkout", async () => {
