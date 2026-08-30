@@ -45,6 +45,31 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
+  it("redirects relative imports that match absolute aliases", async () => {
+    const rootDir = await createTempDir()
+    const sourceDir = resolve(rootDir, "retained")
+    const entry = resolve(sourceDir, "entry.mjs")
+    const original = resolve(rootDir, "original.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(sourceDir, { recursive: true })
+    await Promise.all([
+      writeFile(entry, 'export { value } from "../original.mjs"\n', "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [original]: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+    expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
   it("creates nested output directories for cancellable bundles", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")

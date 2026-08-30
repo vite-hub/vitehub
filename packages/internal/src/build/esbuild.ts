@@ -36,7 +36,10 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
     name: "vitehub-resolved-alias",
     setup(build) {
       build.onResolve({ filter: /.*/ }, (args) => {
-        const replacement = replacements.get(isAbsolute(args.path) && args.resolveDir ? resolve(args.resolveDir, args.path) : args.path)
+        const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
+          ? resolve(args.resolveDir, args.path)
+          : args.path
+        const replacement = replacements.get(isAbsolute(specifier) ? resolve(specifier) : specifier)
         return replacement ? { path: replacement } : undefined
       })
     },
