@@ -232,7 +232,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
         })
       }
-      return await startVercelWorkflow(name, definition, payload)
+      return await startVercelWorkflow(name, definition, payload, resolveWaitUntil(event))
     },
   }
 }

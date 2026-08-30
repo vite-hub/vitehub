@@ -1876,6 +1876,8 @@ describe("workflow runtime", () => {
       start: vi.fn(async () => run),
     }
     setVercelWorkflowRuntimeLoader(async () => runtime)
+    const settlementTasks: Promise<unknown>[] = []
+    enterWorkflowRuntimeEvent({ waitUntil: (promise: PromiseLike<unknown>) => settlementTasks.push(Promise.resolve(promise)) })
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
@@ -1891,6 +1893,8 @@ describe("workflow runtime", () => {
 
     const pending = await runWorkflow("welcome", { message: "hello" })
     expect(pending).toMatchObject({ id: "wdk-1", provider: "vercel", status: "queued" })
+    expect(settlementTasks).toHaveLength(1)
+    await expect(settlementTasks[0]).resolves.toBeUndefined()
     expect(runtime.start).toHaveBeenCalledWith(native, [{ name: "welcome", payload: { message: "hello" }, provider: "vercel" }])
 
     status = "completed"

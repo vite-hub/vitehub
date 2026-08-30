@@ -245,7 +245,12 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
   }
 }
 
-export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(name: string, definition: WorkflowDefinition<TPayload, TResult>, payload?: TPayload): Promise<WorkflowRun<TPayload, TResult>> {
+export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(
+  name: string,
+  definition: WorkflowDefinition<TPayload, TResult>,
+  payload?: TPayload,
+  waitUntil?: (promise: Promise<unknown>) => void,
+): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
     throw createWorkflowError({
@@ -259,10 +264,11 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
     provider: "vercel",
   }
   const runtime = await getVercelWorkflowRuntime()
-  const id = await runWorkflowProviderOperation("vercel", "start", async () => {
+  const { id, run } = await runWorkflowProviderOperation("vercel", "start", async () => {
     const run = await runtime.start(native as never, [context])
-    return normalizeRunId(run.runId)
+    return { id: normalizeRunId(run.runId), run }
   })
+  waitUntil?.(Promise.resolve(run.returnValue).then(() => undefined, () => undefined))
   return {
     id,
     metadata: { workflow: name },
