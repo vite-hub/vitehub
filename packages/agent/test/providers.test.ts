@@ -17404,6 +17404,7 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ persistThreadHistory: true })
     const runs: string[][] = []
+    const sessionIds: Array<string | undefined> = []
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
@@ -17412,6 +17413,7 @@ describe("server helpers", () => {
             telegram: () => adapter as never,
           },
           stream: false,
+          sessions: { idleTimeoutMs: 60_000, strategy: "idle-timeout" },
           threadHistory: { maxMessages: 25 },
           webhooks: {
             telegram: {},
@@ -17419,8 +17421,9 @@ describe("server helpers", () => {
         }),
       ],
       driver: {
-        run: ({ messages }) => {
+        run: ({ input, messages }) => {
           runs.push(messages.map(getMessageText))
+          sessionIds.push(input.context?.["chat.sessionId"] as string | undefined)
           return `reply ${runs.length}`
         },
       },
@@ -17446,6 +17449,7 @@ describe("server helpers", () => {
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
+    expect(sessionIds[1]).toBe(sessionIds[0])
   })
 
   it("ends explicit trigger history at the webhook message", async () => {
@@ -17527,7 +17531,7 @@ describe("server helpers", () => {
     adapter.fetchMessages.mockResolvedValue({
       messages: [
         ...Array.from({ length: 10 }, (_, index) =>
-          message(String(index + 100), `old ${index}`, `2026-06-10T12:00:${String(index).padStart(2, "0")}.000Z`, [
+          message(String(index + 100), `old ${index}`, `2026-06-10T11:00:${String(index).padStart(2, "0")}.000Z`, [
             {
               fetchData: oldAttachmentFetch,
               mimeType: "text/plain",
@@ -17548,7 +17552,7 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "newer id-less cached", "current"]])
-    expect(oldAttachmentFetch).toHaveBeenCalledOnce()
+    expect(oldAttachmentFetch).not.toHaveBeenCalled()
   })
 
   it("exports authenticated Channel history with attachment data", async () => {

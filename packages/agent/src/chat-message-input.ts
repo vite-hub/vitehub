@@ -382,6 +382,11 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
+export function chatTriggerHistoryMaxAgeMs(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
+  if (!validChatTriggerHistory(triggerHistory)) return
+  return normalizedMaxAgeMs(triggerHistory.maxAgeMs)
+}
+
 function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {
   const maxAgeMs = normalizedMaxAgeMs(triggerHistory.maxAgeMs)
   if (maxAgeMs === undefined || messages.length < 2) return messages
