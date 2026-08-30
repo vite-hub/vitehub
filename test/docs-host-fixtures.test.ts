@@ -85,7 +85,12 @@ async function expectDenoLauncherToStart(appRoot: string) {
     ".output/main.ts",
   ], {
     cwd: appRoot,
-    env: { ...process.env, DENO_NO_UPDATE_CHECK: "1", HOST: "0.0.0.0", PORT: String(port) },
+    env: {
+      ...process.env,
+      DENO_NO_UPDATE_CHECK: "1",
+      NITRO_HOST: "0.0.0.0",
+      NITRO_PORT: String(port),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   })
   let output = ""
