@@ -82,6 +82,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["@vite-hub/workflow/vite", "vite"],
+      ["@vite-hub/workspace/nitro", "vite"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
       ["vite-hub/ui/nuxt", "vue"],
