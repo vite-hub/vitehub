@@ -190,12 +190,16 @@ async function loadVercelSandbox() {
   try {
     const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
     return async (options: VercelSandboxCreateOptions) =>
-      await Sandbox.create(options as Parameters<typeof Sandbox.create>[0]) as unknown as VercelSandboxInstance;
+      await Sandbox.create(options);
   } catch (error) {
     throw new Error(
       `[vitehub] The vercel Box runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}`,
     );
   }
+}
+
+function isMissingFile(error: unknown) {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function createVercelSession(
@@ -253,8 +257,9 @@ function createVercelSession(
         try {
           await fs.access(path, { signal: abortSignal });
           return true;
-        } catch {
-          return false;
+        } catch (error) {
+          if (isMissingFile(error)) return false;
+          throw error;
         }
       }
       return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` })).exitCode === 0;
@@ -324,7 +329,7 @@ function createVercelSession(
           : await instance.readFileToBuffer({ path }, { signal: abortSignal });
         return contents === null ? null : new Uint8Array(contents);
       } catch (error) {
-        if (!(await this.existsFile({ abortSignal, path }))) return null;
+        if (isMissingFile(error)) return null;
         throw error;
       }
     },
