@@ -1869,6 +1869,9 @@ importers:
       '@nuxt/kit':
         specifier: 4.4.8
         version: 4.4.8(magicast@0.5.4)
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1885,9 +1888,6 @@ importers:
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(patch_hash=9514e905b6e4cd1bc58382bfba42af1b69f3386a5ca40b6241e91aa47b05061d)(@pierre/theme@1.1.0)(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.3.1)
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.13.3
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

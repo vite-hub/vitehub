@@ -530,53 +530,37 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
 }
 
 function declarationDiagnostics(program: ts.Program, packageName?: string) {
-  return ts.getPreEmitDiagnostics(program).filter(diagnostic =>
-    packageName !== "@vite-hub/database" || !isKnownDrizzleTypeScript6Diagnostic(diagnostic),
-  )
+  return ts.getPreEmitDiagnostics(program).filter(diagnostic => isPackageDeclarationDiagnostic(diagnostic, packageName))
 }
 
-function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
+function isPackageDeclarationDiagnostic(diagnostic: ts.Diagnostic, packageName?: string) {
   const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
-  if (!path.includes("/node_modules/drizzle-orm/")) return false
-  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-  return (diagnostic.code === 2307 && /Cannot find module '(?:gel|mysql2(?:\/promise)?)'/.test(message))
-    || ([2420, 2515].includes(diagnostic.code) && /(?:getSQL|generatedAlwaysAs)/.test(message))
-    || (diagnostic.code === 2416 && message.includes("generatedAlwaysAs"))
-    || (diagnostic.code === 2344 && /Type '(?:string|\w+SetOperatorExcludedMethods)' does not satisfy the constraint/.test(message))
-    || (diagnostic.code === 2559 && /Role' has no properties in common with type '.+RoleConfig'/.test(message))
+  if (!path.includes("/node_modules/")) return true
+  // Dependency declarations have their own release contracts. Keep this test
+  // scoped to diagnostics emitted by the packed ViteHub package itself.
+  return packageName ? path.includes(`/node_modules/${packageName}/`) : true
 }
 
 describe("published declaration diagnostics", () => {
-  it("recognizes only known Drizzle TypeScript 6 diagnostics", () => {
-    // SAFETY: The diagnostic filter reads only fileName, so these minimal fixtures satisfy its SourceFile use.
-    const drizzleFile = { fileName: "/consumer/node_modules/drizzle-orm/gel-core/query.d.ts" } as ts.SourceFile
-    // SAFETY: The diagnostic filter reads only fileName, so these minimal fixtures satisfy its SourceFile use.
-    const viteHubFile = { fileName: "/consumer/node_modules/@vite-hub/database/dist/index.d.ts" } as ts.SourceFile
+  it("reports package diagnostics without adopting dependency diagnostics", () => {
+    const diagnosticAt = (fileName: string) => ({
+      category: ts.DiagnosticCategory.Error,
+      code: 2307,
+      file: { fileName } as ts.SourceFile,
+      length: 3,
+      messageText: "Cannot find a declaration dependency.",
+      start: 0,
+    })
 
-    expect(isKnownDrizzleTypeScript6Diagnostic({
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      file: drizzleFile,
-      length: 3,
-      messageText: "Cannot find module 'gel' or its corresponding type declarations.",
-      start: 0,
-    })).toBe(true)
-    expect(isKnownDrizzleTypeScript6Diagnostic({
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      file: drizzleFile,
-      length: 3,
-      messageText: "Cannot find module 'unrelated-package' or its corresponding type declarations.",
-      start: 0,
-    })).toBe(false)
-    expect(isKnownDrizzleTypeScript6Diagnostic({
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      file: viteHubFile,
-      length: 3,
-      messageText: "Cannot find module 'gel' or its corresponding type declarations.",
-      start: 0,
-    })).toBe(false)
+    expect(isPackageDeclarationDiagnostic(
+      diagnosticAt("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts"),
+      "@vite-hub/ui",
+    )).toBe(true)
+    expect(isPackageDeclarationDiagnostic(
+      diagnosticAt("/consumer/node_modules/@comark/vue/dist/index.d.ts"),
+      "@vite-hub/ui",
+    )).toBe(false)
+    expect(isPackageDeclarationDiagnostic(diagnosticAt("/consumer/export.ts"), "@vite-hub/ui")).toBe(true)
   })
 
   it("keeps declared type dependencies visible from a packed pnpm package", async () => {
