@@ -1243,6 +1243,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
         blob: consoleBlobEnabled,
+        database: replayConfig.database ?? options.database,
         kv: resolvedKV,
         preset: plan.preset,
         queue: effectiveQueue === false

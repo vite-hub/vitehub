@@ -749,6 +749,25 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("uses replay-resolved Database configuration for the Nuxt Console", async () => {
+    const development = createNuxt(true, [{
+      name: "vite-hub/database-replay",
+      config: (): UserConfig & { database?: boolean } => ({ database: false }),
+    }])
+
+    await viteHubNuxtModule({ console: true, database: true, preset: "node" }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+    const pages: Array<{ file: string; name: string; path: string }> = []
+    development.runPagesHook(pages)
+
+    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/databases" }))
+    expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
+  })
+
   it("uses the effective and replay-resolved Queue configuration for the Nuxt Console", async () => {
     const configured = createNuxt(true)
     configured.nuxt.options.vite.queue = false
