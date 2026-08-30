@@ -78,7 +78,10 @@ async function createDbBuildProject(prefix: string, options: { integrationConnec
     "  appType: 'custom',",
     "  build: {",
     "    outDir: 'dist/client',",
-    "    rollupOptions: { input: resolve(import.meta.dirname, 'src/server.ts') },",
+    "    rollupOptions: {",
+    "      external: ['@vite-hub/blob', '@vite-hub/database/drizzle'],",
+    "      input: resolve(import.meta.dirname, 'src/server.ts'),",
+    "    },",
     "    ssr: true,",
     "  },",
     ...(options.integrationConnection
@@ -237,8 +240,8 @@ async function writeStaleRuntimeFiles(rootDir: string, product: string, code: st
   }
 }
 
-async function runDbBuild(rootDir: string, env: NodeJS.ProcessEnv = {}) {
-  return execFileAsync("vp", ["build"], {
+async function runDbBuild(rootDir: string, env: NodeJS.ProcessEnv = {}, args: string[] = []) {
+  return execFileAsync("vp", ["build", ...args], {
     cwd: rootDir,
     env: {
       ...process.env,
@@ -385,34 +388,32 @@ describe("Vite db provider outputs", () => {
     expect(config.cloudflare).toEqual({ binding: "DB" })
   })
 
-  it("composes direct Blob and Database provider output in either plugin order", async () => {
-    for (const [label, plugins] of [
-      ["blob-db", "hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' }), hubDb()"],
-      ["db-blob", "hubDb(), hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' })"],
-    ]) {
-      const rootDir = await createDbBlobBuildProject(`vitehub-db-blob-${label}-`, plugins)
+  it.each([
+    ["blob-db", "hubBlob({ driver: 'vercel-blob', token: 'vercel_blob_rw_test' }), hubDb()"],
+    ["db-blob", "hubDb(), hubBlob({ driver: 'vercel-blob', token: 'vercel_blob_rw_test' })"],
+  ])("composes direct Blob and Database provider output in $0 order", { timeout: 60_000 }, async (label, plugins) => {
+    const rootDir = await createDbBlobBuildProject(`vitehub-db-blob-${label}-`, plugins)
 
-      await runDbBuild(rootDir, {
-        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://database.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
-      })
+    await runDbBuild(rootDir, {
+      TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    }, ["--configLoader", "runner"])
 
-      const cloudflareConfig = await readCloudflareConfig(rootDir)
-      const cloudflareWorker = await readCloudflareWorker(rootDir)
-      const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
-      const vercelServerCode = await readFile(vercelServer, "utf8")
+    const cloudflareConfig = await readCloudflareConfig(rootDir)
+    const cloudflareWorker = await readCloudflareWorker(rootDir)
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    const vercelServerCode = await readFile(vercelServer, "utf8")
 
-      expect(cloudflareConfig.r2_buckets).toContainEqual({ binding: "BLOB", bucket_name: "assets" })
-      expect(cloudflareConfig.d1_databases).toHaveLength(2)
-      expectNoRuntimeImport(cloudflareWorker, "@vite-hub/blob")
-      expectNoRuntimeImport(cloudflareWorker, "@vite-hub/database/drizzle")
-      expectNoRuntimeImport(vercelServerCode, "@vite-hub/blob")
-      expectNoRuntimeImport(vercelServerCode, "@vite-hub/database/drizzle")
-    }
-  }, 60_000)
+    expect(cloudflareConfig.d1_databases).toHaveLength(2)
+    expect(cloudflareWorker).toContain("vitehub-blob-worker")
+    expectNoRuntimeImport(cloudflareWorker, "@vite-hub/blob")
+    expectNoRuntimeImport(cloudflareWorker, "@vite-hub/database/drizzle")
+    expectNoRuntimeImport(vercelServerCode, "@vite-hub/blob")
+    expectNoRuntimeImport(vercelServerCode, "@vite-hub/database/drizzle")
+  })
 
   it("ignores stale sibling runtime files that were not prepared in the current build", async () => {
     const staleDatabaseMarker = "stale_database_runtime_marker"
