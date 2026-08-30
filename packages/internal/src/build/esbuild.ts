@@ -57,16 +57,34 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
         const aliases = await resolvedEntries
-        const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
+        let specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
-        const normalizedSpecifier = isAbsolute(specifier) ? normalizePathSeparators(resolve(specifier)) : specifier
-        const canonicalSpecifier = isAbsolute(normalizedSpecifier)
+        let normalizedSpecifier = isAbsolute(specifier) ? normalizePathSeparators(resolve(specifier)) : specifier
+        let canonicalSpecifier = isAbsolute(normalizedSpecifier)
           ? normalizePathSeparators(await realpath(normalizedSpecifier).catch(() => normalizedSpecifier))
           : normalizedSpecifier
-        const match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
+        let match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
           ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(canonicalAlias)
           : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
+        if (!match && !isAbsolute(specifier)) {
+          const resolved = await build.resolve(args.path, {
+            importer: args.importer,
+            kind: args.kind,
+            namespace: args.namespace,
+            pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+            resolveDir: args.resolveDir,
+            with: args.with,
+          })
+          if (!resolved.errors.length && !resolved.external && resolved.namespace === "file") {
+            specifier = resolved.path
+            normalizedSpecifier = normalizePathSeparators(resolve(specifier))
+            canonicalSpecifier = normalizePathSeparators(await realpath(normalizedSpecifier).catch(() => normalizedSpecifier))
+            match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
+              ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(canonicalAlias)
+              : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
+          }
+        }
         const matchedAlias = match && canonicalSpecifier.startsWith(match.canonicalSpecifier)
           ? match.canonicalSpecifier
           : match?.specifier
