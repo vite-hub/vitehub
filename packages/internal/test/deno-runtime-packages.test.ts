@@ -1032,6 +1032,8 @@ load("@img/sharp-linux-x64/sharp.node")
     for (const source of [
       'await import("missing-feature")\n',
       'const feature = import("missing-feature")\n',
+      '(() => import("missing-feature"))()\n',
+      'const noop = () => 0, feature = import("missing-feature")\n',
     ]) {
       await writeFile(join(requiredRoot, ".output/server/index.mjs"), source)
 
@@ -1067,6 +1069,8 @@ load("@img/sharp-linux-x64/sharp.node")
 
     for (const source of [
       '(() => { require("missing-feature") })()\n',
+      '(() => require("missing-feature"))()\n',
+      'const noop = () => 0, value = require("missing-feature")\n',
       '!function () { require("missing-feature") }()\n',
       'try { require("missing-feature") } finally { cleanup() }\n',
     ]) {
@@ -1075,10 +1079,13 @@ load("@img/sharp-linux-x64/sharp.node")
       await mkdir(join(eagerRoot, ".output/server"), { recursive: true })
       await writeFile(join(eagerRoot, ".output/server/index.mjs"), source)
 
-      await expect(finalizeDenoDeploymentOutput({ rootDir: eagerRoot })).rejects.toThrow(
+      await expect(finalizeDenoDeploymentOutput({ rootDir: eagerRoot }), source).rejects.toThrow(
         "Could not resolve package.json for missing-feature",
       )
     }
+
+    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'function load() { return require("missing-feature") }\n(ready)()\n')
+    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
   })
 
   it("rejects interpolated template imports before relocation", () => {

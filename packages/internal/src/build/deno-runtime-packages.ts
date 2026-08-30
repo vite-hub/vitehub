@@ -181,7 +181,7 @@ function collectOptionalDynamicPackageNames(source: string): Set<string> {
   const executableSource = maskInertImportText(source)
   const dynamicImports = findLiteralDynamicImports(executableSource)
   const dynamicNames = new Set(dynamicImports
-    .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start))
+    .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start, dynamicImport.literalEnd))
     .map(({ specifier }) => packageNameFromSpecifier(specifier))
     .filter((name): name is string => Boolean(name)))
   if (!dynamicNames.size) return dynamicNames
@@ -206,7 +206,18 @@ function findClosingBrace(source: string, opening: number): number | undefined {
 
 function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
   const closing = findClosingBrace(source, opening)
-  return closing !== undefined && /^\s*(?:\)\s*(?:\?\.)?\s*)?\(/.test(source.slice(closing + 1))
+  if (closing === undefined || !/^\s*(?:\)\s*(?:\?\.)?\s*)?\(/.test(source.slice(closing + 1)))
+    return false
+  const prefix = source.slice(0, opening).trimEnd()
+  return !/(?:^|[;\n])\s*(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^{};]*\)$/.test(prefix)
+}
+
+function isGuardedConciseArrow(source: string, expressionStart: number, expressionEnd: number): boolean {
+  const statementStart = Math.max(source.lastIndexOf(";", expressionStart - 1), source.lastIndexOf("\n", expressionStart - 1)) + 1
+  const prefix = source.slice(statementStart, expressionStart)
+  const arrow = prefix.lastIndexOf("=>")
+  if (arrow < 0 || /[,{]/.test(prefix.slice(arrow + 2))) return false
+  return !/^\s*\)+\s*(?:\?\.)?\s*\(/.test(source.slice(expressionEnd))
 }
 
 function tryBlockHasCatch(source: string, opening: number): boolean {
@@ -230,8 +241,7 @@ function collectOptionalRequirePackageNames(source: string): Set<string> {
       if (executableSource[index] === "{") openings.push(index)
       else if (executableSource[index] === "}") openings.pop()
     }
-    const statementPrefix = executableSource.slice(0, match.index).split(/[;\n]/).at(-1)!
-    const guarded = /=>[^{}]*$/.test(statementPrefix) || openings.some((opening) => {
+    const guarded = isGuardedConciseArrow(executableSource, match.index!, match.index! + match[0].length) || openings.some((opening) => {
       const prefix = executableSource.slice(0, opening).trimEnd()
       if (/\btry$/.test(prefix)) return tryBlockHasCatch(executableSource, opening)
       if (/\b(?:catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)) return true
@@ -1114,7 +1124,7 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   }
 }
 
-function isUnconditionalTopLevelExpression(source: string, expressionStart: number): boolean {
+function isUnconditionalTopLevelExpression(source: string, expressionStart: number, expressionEnd: number): boolean {
   let braceDepth = 0
   for (let index = 0; index < expressionStart; index++) {
     if (source[index] === "{") braceDepth++
@@ -1124,7 +1134,7 @@ function isUnconditionalTopLevelExpression(source: string, expressionStart: numb
   const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
   const precedingLine = source.slice(0, expressionStart).split("\n").at(-2)?.trim() ?? ""
   return !/(?:^|\s)(?:else\s+)?(?:if|for|while|with)\s*\(/.test(statementPrefix)
-    && !/=>/.test(statementPrefix)
+    && !isGuardedConciseArrow(source, expressionStart, expressionEnd)
     && !/^(?:else\s+)?(?:if|for|while|with)\s*\(/.test(precedingLine)
     && !/&&|\|\||\?\?|\?\./.test(statementPrefix)
     && !/(^|[^?])\?(?![?.])/.test(statementPrefix)
@@ -1133,9 +1143,9 @@ function isUnconditionalTopLevelExpression(source: string, expressionStart: numb
 function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
   const executableSource = maskInertImportText(source)
   if (findLiteralDynamicImports(executableSource)
-    .some(entry => entry.specifier === specifier && isUnconditionalTopLevelExpression(executableSource, entry.start))) return true
+    .some(entry => entry.specifier === specifier && isUnconditionalTopLevelExpression(executableSource, entry.start, entry.literalEnd))) return true
   return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
-    .some(match => cookImportSpecifier(match[2]!) === specifier && isUnconditionalTopLevelExpression(executableSource, match.index! + match[0].indexOf("import")))
+    .some(match => cookImportSpecifier(match[2]!) === specifier && isUnconditionalTopLevelExpression(executableSource, match.index! + match[0].indexOf("import"), match.index! + match[0].length))
 }
 
 function hasRelocatableStaticImport(source: string, specifier: string): boolean {
