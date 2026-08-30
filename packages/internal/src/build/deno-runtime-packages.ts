@@ -638,15 +638,12 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
   }
 }
 
-function normalizePeerRange(range: string, resolvedVersion: string | undefined): string | undefined {
+function normalizePeerRange(range: string): string | undefined {
   if (validRange(range)) return range
-  if (!resolvedVersion) return
-  if (range === "workspace:*") return "*"
-  if (range === "workspace:^") return `^${resolvedVersion}`
-  if (range === "workspace:~") return `~${resolvedVersion}`
+  if (range === "workspace:*" || range === "workspace:^" || range === "workspace:~") return "*"
   const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
   if (workspaceRange && validRange(workspaceRange)) return workspaceRange
-  return resolvedVersion
+  if (range === "catalog:" || range.startsWith("catalog:")) return "*"
 }
 
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
@@ -705,7 +702,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   if (outputNodeModules === rootOutputNodeModules) {
     const existingPath = rootPackagePaths.get(name)
-    const normalizedPeerRange = options.peerRange ? normalizePeerRange(options.peerRange, packageJson.version) : undefined
+    const normalizedPeerRange = options.peerRange ? normalizePeerRange(options.peerRange) : undefined
     const peerRanges = [...(existingPath?.peerRanges || []), ...(normalizedPeerRange ? [normalizedPeerRange] : [])]
     if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
       if (existingPath.version && peerRanges.every(range => satisfies(existingPath.version!, range))) {

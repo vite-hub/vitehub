@@ -1328,17 +1328,17 @@ import "z-peer-consumer"
   it("accepts compatible protocol peer ranges", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-protocol-peers-"))
     await writeJson(join(root, "package.json"), {})
-    for (const [name, peerRange] of [["peer-consumer-a", "workspace:^"], ["peer-consumer-b", "catalog:database"]]) {
+    for (const [name, peerRange, version] of [["peer-consumer-a", "workspace:^", "1.1.0"], ["peer-consumer-b", "catalog:database", "1.2.0"]]) {
       const consumerDir = join(root, "node_modules", name)
       await writeJson(join(consumerDir, "package.json"), { name, peerDependencies: { "shared-peer": peerRange }, version: "1" })
-      await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version: "1.2.0" })
+      await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version })
     }
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
-    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.2.0" })
+    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
   })
 
   it("does not replace an explicitly imported root package with a peer", async () => {
