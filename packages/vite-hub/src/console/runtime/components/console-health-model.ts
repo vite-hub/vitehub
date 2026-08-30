@@ -19,7 +19,10 @@ const diagnosticSchema = v.object({
   status: v.picklist(["neutral", "ok", "warning"]),
   value: v.string(),
 });
-const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite));
+const finiteNumberSchema = v.pipe(
+  v.number(),
+  v.check((value) => Number.isFinite(value)),
+);
 const healthSchema = v.object({
   checkedAt: v.pipe(v.string(), v.check((value) => Number.isFinite(Date.parse(value)))),
   diagnostics: v.array(diagnosticSchema),
