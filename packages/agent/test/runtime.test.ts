@@ -11232,7 +11232,7 @@ describe("agent message protocol", () => {
     })
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
-      "agent.stream.start",
+      "agent.stream.finish",
       "agent.invocation.cancelled",
     ])
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "cancelled" }])
