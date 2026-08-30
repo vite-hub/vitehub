@@ -308,6 +308,7 @@ describe("GitHub host", () => {
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
 
     const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.submit()
     reservation.settle(40)
     reservation.settle(30)
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 11 }))
@@ -319,6 +320,7 @@ describe("GitHub host", () => {
     const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
 
     const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.submit()
     process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "60"
     await new Promise(resolve => setTimeout(resolve, 10))
     await host.ensureGraphQLBudget("vite-hub/another", { cost: 1 })
@@ -333,6 +335,7 @@ describe("GitHub host", () => {
 
     const first = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
     await host.ensureGraphQLBudget("vite-hub/another", { cost: 30 })
+    first.submit()
     expect(() => first.settle(70)).toThrow("GitHub GraphQL actual cost cannot exceed its reserved cost.")
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
@@ -524,12 +527,15 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
-  it("classifies GraphQL commands after value-taking flags", async () => {
+  it.each([
+    ["long", ["api", "--preview", "scarlet-witch", "graphql"]],
+    ["short", ["api", "-p", "scarlet-witch", "graphql"]],
+  ])("classifies GraphQL commands after %s value-taking flags", async (_name, args) => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT = "API rate limit exceeded."
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
 
-    await expect(host.command(["api", "--preview", "scarlet-witch", "graphql"], { repository: "vite-hub/vitehub" }))
+    await expect(host.command(args, { repository: "vite-hub/vitehub" }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 

@@ -81,6 +81,7 @@ export interface GitHubGraphQLRateLimit {
 export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
   release(): void
   settle(actualCost: number): void
+  submit(): void
 }
 
 export interface GitHubHost {
@@ -146,7 +147,7 @@ function isGraphQLCommand(args: string[]): boolean {
   if (args[0] !== "api") return false
   const optionsWithValues = new Set([
     "--cache", "--field", "--header", "--hostname", "--input", "--jq", "--method", "--preview", "--raw-field", "--template",
-    "-F", "-H", "-X", "-f", "-q", "-t",
+    "-F", "-H", "-X", "-f", "-p", "-q", "-t",
   ])
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!
@@ -220,7 +221,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
   const limitVersions = new Map<string, number>()
-  const reservations = new Map<string, { points: number, resetAt: number }>()
+  const reservations = new Map<string, Set<{ points: number, resetAt: number, submittedAtVersion?: number }>>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
   let appToken: { expiresAt: number, token: string } | undefined
@@ -418,11 +419,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         }
         const reserved = { ...available, remaining: available.remaining - options.cost }
         const limitVersion = limitVersions.get(key) ?? 0
-        const outstanding = reservations.get(key)
-        reservations.set(key, {
-          points: (outstanding?.resetAt === available.resetAt ? outstanding.points : 0) + options.cost,
-          resetAt: available.resetAt,
-        })
+        const reservation = { points: options.cost, resetAt: available.resetAt } as {
+          points: number
+          resetAt: number
+          submittedAtVersion?: number
+        }
+        const outstanding = reservations.get(key) ?? new Set()
+        outstanding.add(reservation)
+        reservations.set(key, outstanding)
         limits.set(key, reserved)
         let settled = false
         const settle = (actualCost: number, released: boolean = false) => {
@@ -433,17 +437,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             throw new RangeError("GitHub GraphQL actual cost cannot exceed its reserved cost.")
           }
           if (settled) return
+          if (!released && reservation.submittedAtVersion === undefined) {
+            throw new Error("GitHub GraphQL reservations must be submitted before they are settled.")
+          }
+          if (released && reservation.submittedAtVersion !== undefined) {
+            throw new Error("Submitted GitHub GraphQL reservations cannot be released.")
+          }
           settled = true
           const outstanding = reservations.get(key)
-          if (outstanding?.resetAt !== reserved.resetAt) return
+          if (!outstanding?.delete(reservation)) return
+          if (outstanding.size === 0) reservations.delete(key)
           const releasedPoints = options.cost - actualCost
-          reservations.set(key, {
-            points: Math.max(0, outstanding.points - options.cost),
-            resetAt: outstanding.resetAt,
-          })
           const current = limits.get(key)
           if (current?.resetAt === reserved.resetAt) {
-            const refreshIncludesSettledQuery = !released && (limitVersions.get(key) ?? 0) !== limitVersion
+            const refreshIncludesSettledQuery = !released
+              && reservation.submittedAtVersion !== undefined
+              && (limitVersions.get(key) ?? 0) !== reservation.submittedAtVersion
             if (!refreshIncludesSettledQuery) {
               limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
             }
@@ -455,6 +464,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             settle(0, true)
           },
           settle,
+          submit() {
+            if (settled) throw new Error("Settled GitHub GraphQL reservations cannot be submitted.")
+            reservation.submittedAtVersion ??= limitVersions.get(key) ?? limitVersion
+          },
         }
       }
       if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)
@@ -471,16 +484,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-          const previousReservation = reservations.get(key)
-          const outstanding = previousReservation?.resetAt === limit.resetAt ? previousReservation.points : 0
+          const outstanding = [...(reservations.get(key) ?? [])]
+            .filter(reservation => reservation.resetAt === limit.resetAt && reservation.submittedAtVersion === undefined)
+            .reduce((points, reservation) => points + reservation.points, 0)
           const current = limits.get(key)
           const reconciled = current !== limitBeforeCheck
             && current !== undefined
             && current.resetAt > Date.now()
             && current.remaining <= limit.remaining
             ? current
-            : limit
-          reservations.set(key, { points: outstanding, resetAt: limit.resetAt })
+            : { ...limit, remaining: limit.remaining - outstanding }
           limitVersions.set(key, (limitVersions.get(key) ?? 0) + 1)
           limits.set(key, reconciled)
           return reconciled
