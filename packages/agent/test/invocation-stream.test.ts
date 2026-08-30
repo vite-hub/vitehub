@@ -38,6 +38,33 @@ describe("Agent Invocation Stream", () => {
     expect(body.locked).toBe(false)
   })
 
+  it("discards a partial line when its iterator closes during a pending read", async () => {
+    const cancel = vi.fn()
+    let markReading!: () => void
+    const reading = new Promise<void>((resolve) => {
+      markReading = resolve
+    })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      pull() {
+        markReading()
+      },
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"type":"done"'))
+      },
+    })
+    const events = readAgentInvocationStream(body)
+
+    const next = events.next()
+    await reading
+    const returned = events.return(undefined)
+
+    await expect(returned).resolves.toEqual({ done: true, value: undefined })
+    await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
   it("releases the reader when its iterator closes before the first read", async () => {
     const cancel = vi.fn()
     const body = new ReadableStream<Uint8Array>({ cancel })

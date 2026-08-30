@@ -53,6 +53,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
   let error: unknown
   let pending = ""
   let cancellation: Promise<void> | undefined
+  let interrupted = false
   let released = false
 
   function releaseReader(): void {
@@ -66,6 +67,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
       for (;;) {
         const { done, value } = await reader.read()
         if (done) {
+          if (interrupted) break
           pending += decoder.decode()
           completed = true
           break
@@ -109,6 +111,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
       let cancellationError: unknown
       let cancellationFailed = false
       if (!completed) {
+        interrupted = true
         try {
           cancellation ||= reader.cancel()
           await cancellation
@@ -125,6 +128,7 @@ export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): Asy
     },
     async throw(cause) {
       if (!completed) {
+        interrupted = true
         cancellation ||= reader.cancel(cause)
         await cancellation.catch(() => undefined)
       }
