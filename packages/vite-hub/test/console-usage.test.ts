@@ -141,7 +141,7 @@ describe("Console usage projection", () => {
       now: "2026-08-27T12:00:00.000Z",
       window: "24h",
     })).resolves.toMatchObject({
-      models: [{ model: "recorded-model", totalTokens: 10, totalTokensAvailable: false }],
+      models: [{ model: "recorded-model", totalTokens: 10, totalTokensAvailable: true }],
       partial: true,
       totals: { invocations: 2, totalTokens: 10, totalTokensAvailable: false },
     })
