@@ -71,6 +71,7 @@ interface ViteE2EComposerOptions {
   db?: ResolvedDBViteConfig
   hosting: HostedProvider
   kv?: false | ResolvedKVModuleOptions
+  providerImportAliases?: Record<string, string>
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
@@ -1521,6 +1522,7 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
     async config() {
       const artifacts = await prepareFeatureArtifacts(options)
       resolvedAlias = artifacts.alias
+      if (options.providerImportAliases) Object.assign(options.providerImportAliases, resolvedAlias)
       return {
         resolve: {
           alias: Object.entries(resolvedAlias)

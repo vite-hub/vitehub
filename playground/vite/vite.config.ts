@@ -91,6 +91,7 @@ export default defineConfig(async () => {
     ])
     const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
+    const providerImportAliases: Record<string, string> = {}
 
     return {
       ...baseConfig,
@@ -114,7 +115,7 @@ export default defineConfig(async () => {
         : {},
       kv: {},
       plugins: [
-        hubQueue(),
+        hubQueue({ providerImportAliases } as never),
         hubSchedule(),
         hubKv(),
         hubWorkflow(),
@@ -125,6 +126,7 @@ export default defineConfig(async () => {
         createViteE2EComposer({
           ...composerOptions,
           clientOutDir: "dist/client",
+          providerImportAliases,
           rootDir: import.meta.dirname,
           workspace: composerOptions.workspace,
         }),
