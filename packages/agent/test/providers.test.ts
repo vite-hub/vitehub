@@ -15035,7 +15035,8 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(1))
       await expect(handoffAcquisitions[0]).resolves.not.toBeNull()
-      await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
+      // The ownership-loss hook above releases the scope lock. Start the overlapping
+      // delivery immediately so this assertion does not depend on CI wall-clock load.
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
