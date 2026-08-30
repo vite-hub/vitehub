@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -109,8 +110,20 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
-  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, artifactDir)
+  const workflowFile = join(rootDir, "server", "workflows", "cleanup.workflow.ts")
+  const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup.workflow.ts")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await mkdir(join(retainedRoot, "server", "workflows"), { recursive: true })
+  await writeFile(workflowFile, "export default defineWorkflow(async () => undefined)\n")
+  await writeFile(retainedWorkflowFile, "export default defineWorkflow(async () => undefined)\n")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir, rootDir)
+
+  await expect(readFile(artifacts.registryFile, "utf8")).resolves.toContain(pathToFileURL(workflowFile).href)
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
+  await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
 
   await generateWorkflowProviderOutputs({
     artifacts,

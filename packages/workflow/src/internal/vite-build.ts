@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
@@ -11,7 +12,7 @@ import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agen
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -109,8 +110,6 @@ async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise
 const generatedRegistryFileName = "registry.mjs"
 const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
 const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`
-const packageDir = computePackageDir(import.meta.url)
-const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
@@ -727,7 +726,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
 }
 
 function renderRegistryImport(registryFile: string, file: string): string {
-  return `import(${JSON.stringify(createImportPath(registryFile, file))})`
+  return `import(${JSON.stringify(pathToFileURL(file).href)})`
 }
 
 function resolveAgentWorkspaceSourceRoot(file: string): string {
@@ -985,12 +984,12 @@ function renderProviderEntry(
 ) {
   const installVercelWorkflowRuntime = spec.name === "vercel" && framework
   const imports = [
-    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
+    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(`${workflowPackageName}/${spec.runtimeModule}`)}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
     ...(installVercelWorkflowRuntime ? [`import * as workflowApi from "workflow/api"`, `import * as workflowRuntime from "workflow/runtime"`] : []),
   ]
   if (spec.name === "cloudflare") {
-    imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-runner")))}`)
+    imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(`${workflowPackageName}/runtime/cloudflare-runner`)}`)
     imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (userAppEntry) {
@@ -1035,11 +1034,19 @@ export async function writeProviderEntries(
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
+  sourceRootDir = rootDir,
 ) {
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
+  const discoveredDefinitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
+  const definitions = definitionRootDir === sourceRootDir
+    ? discoveredDefinitions
+    : discoveredDefinitions.map(definition => ({
+        ...definition,
+        handler: resolve(sourceRootDir, relative(definitionRootDir, definition.handler)),
+        steps: definition.steps?.map(step => resolve(sourceRootDir, relative(definitionRootDir, step))),
+      }))
   const definitionNames = new Set(definitions.map(definition => definition.name))
   for (const definition of definitions) {
     if (definition.source !== "agent-workflow") continue
