@@ -199,3 +199,147 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
     },
   }
 }
+
+export type ProcessReconcilerStatus = "accepting" | "drained" | "draining" | "failed"
+
+export interface ProcessReconcilerRunContext {
+  track<T>(work: Promise<T>): Promise<T>
+}
+
+export interface ProcessReconcilerOptions {
+  intervalMs: number
+  onDrained?: () => Promise<void> | void
+  onError?: (error: unknown, reason: string) => Promise<void> | void
+  onQuiesce?: () => Promise<void> | void
+  repairReason?: string
+  run: (reason: string, context: ProcessReconcilerRunContext) => Promise<void> | void
+  signal?: false | NodeJS.Signals
+}
+
+export interface ProcessReconciler extends ProcessReconcilerRunContext {
+  close: () => Promise<void>
+  drain: () => Promise<void>
+  status: () => ProcessReconcilerStatus
+  wake: (reason: string) => void
+}
+
+export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
+  if (!Number.isFinite(options.intervalMs) || options.intervalMs <= 0) {
+    throw new TypeError("Process reconciler intervalMs must be positive.")
+  }
+
+  let closed = false
+  let drainPromise: Promise<void> | undefined
+  let queued = false
+  let reason = "coalesced"
+  let rerun = false
+  let running: Promise<void> | undefined
+  let status: ProcessReconcilerStatus = "accepting"
+  let timer: NodeJS.Timeout | undefined
+  const tracked = new Set<Promise<unknown>>()
+
+  const track: ProcessReconcilerRunContext["track"] = (work) => {
+    const promise = Promise.resolve(work)
+    tracked.add(promise)
+    void promise.finally(() => tracked.delete(promise)).catch(() => {})
+    return promise
+  }
+
+  const scheduleRepair = () => {
+    if (closed || timer) return
+    timer = setTimeout(() => {
+      timer = undefined
+      wake(options.repairReason || "repair")
+    }, options.intervalMs)
+    timer.unref?.()
+  }
+
+  const execute = async (): Promise<void> => {
+    queued = false
+    if (closed) return
+    if (running) {
+      rerun = true
+      return await running
+    }
+    running = (async () => {
+      do {
+        rerun = false
+        const currentReason = reason
+        reason = "coalesced"
+        try {
+          await options.run(currentReason, { track })
+        }
+        catch (error) {
+          await options.onError?.(error, currentReason)
+        }
+      } while (!closed && rerun)
+    })().finally(() => {
+      running = undefined
+      scheduleRepair()
+    })
+    return await running
+  }
+
+  const wake = (nextReason: string) => {
+    if (closed) return
+    reason = nextReason
+    if (timer) clearTimeout(timer)
+    timer = undefined
+    if (running) {
+      rerun = true
+      return
+    }
+    if (queued) return
+    queued = true
+    queueMicrotask(() => void execute().catch(() => {}))
+  }
+
+  const drain = (): Promise<void> => {
+    if (drainPromise) return drainPromise
+    drainPromise = (async () => {
+      status = "draining"
+      closed = true
+      const acceptedWork = [...tracked]
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      await options.onQuiesce?.()
+      await running
+      await Promise.all(new Set([...acceptedWork, ...tracked]))
+      while (tracked.size) await Promise.all(tracked)
+      status = "drained"
+      await options.onDrained?.()
+    })().catch((error) => {
+      status = "failed"
+      throw error
+    })
+    return drainPromise
+  }
+
+  const signal = options.signal === false ? undefined : options.signal
+  const listener = signal
+    ? () => {
+        void drain().catch(async (error) => {
+          try {
+            await options.onError?.(error, "drain")
+          }
+          catch {}
+        })
+      }
+    : undefined
+  if (signal && listener) process.on(signal, listener)
+
+  return {
+    async close() {
+      try {
+        await drain()
+      }
+      finally {
+        if (signal && listener) process.off(signal, listener)
+      }
+    },
+    drain,
+    status: () => status,
+    track,
+    wake,
+  }
+}

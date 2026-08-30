@@ -16,7 +16,7 @@ ViteHub packages and custom host integrations.
 | --------------------------------------------- | ------------------------- | --------------------------------------------------- |
 | A ViteHub application                         | `vite-hub`                | `vite-hub/runtime`                                  |
 | A reusable package or custom host integration | `@vite-hub/runtime`       | `@vite-hub/runtime`                                 |
-| Node resource diagnostics in either case      | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
+| Node diagnostics and process lifecycle        | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
 
 Use the `vite-hub` facade when it is already your application dependency. Install
 this owner package directly when the integration should depend only on Runtime's
@@ -32,6 +32,11 @@ pnpm add @vite-hub/runtime
 The package declares Node.js 24 or newer. Import the root entry for portable
 Runtime contracts. When inspected, the `/node` entry reads Node process
 information and, on Linux, `/proc` and cgroup v2 files.
+
+Long-lived Node services can also use `createProcessReconciler()` from the `/node`
+entry to coalesce event-driven work, run periodic repair, stop admission, and await
+tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
+manager should trigger that drain through the included `vitehub-drain` command.
 
 ## Get a first result
 
@@ -138,7 +143,7 @@ that inspect the Error instance.
 | Import                   | Provides                                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, and execution-authority APIs |
-| `@vite-hub/runtime/node` | Node process observations plus Linux host and cgroup v2 observations when supported                  |
+| `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
 
 Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
