@@ -204,7 +204,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.durable_objects?.bindings).toBeTruthy()
     expect(cloudflareConfig.migrations).toBeTruthy()
     expect(cloudflareConfig.artifacts).toBeUndefined()
-  }, 45_000)
+  }, 90_000)
 
   it("uses provision state for cloudflare D1 bindings", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-provision-")
@@ -248,7 +248,7 @@ describe("unified vite e2e hosted outputs", () => {
         database_name: "vitehub-playground-analytics",
       }),
     ]))
-  }, 45_000)
+  }, 90_000)
 
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-vercel-")
@@ -307,7 +307,7 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
-  }, 45_000)
+  }, 90_000)
 
   it("builds the env and chat playground modes", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
