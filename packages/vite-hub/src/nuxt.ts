@@ -1266,9 +1266,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         config,
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
+      const replayedDatabaseDiscoveryRoot = configuredProjectRoot(
+        viteRoot,
+        replayConfig.database ?? nuxt.options.vite?.database,
+      )
       const consoleCatalog = await discoverConsoleBuildCatalog({
-        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.database ?? nuxt.options.vite?.database)
-          ?? configuredDatabaseDiscoveryRoot,
+        databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot
+          ?? (replayedDatabaseDiscoveryRoot !== projectRoot || !nuxt.options.serverDir
+            ? replayedDatabaseDiscoveryRoot
+            : undefined),
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,

@@ -1226,6 +1226,7 @@ describe("ViteHub Nuxt integration", () => {
           { route: "/api/_vitehub/console/definitions" },
         ],
       })
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)

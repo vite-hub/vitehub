@@ -103,6 +103,7 @@ function sourceLabel(value: string): string {
 
 async function loadDefinitions(): Promise<void> {
   request?.abort();
+  const previousSelection = selectedName.value;
   definitions.value = [];
   selectedName.value = undefined;
   const controller = new AbortController();
@@ -115,8 +116,8 @@ async function loadDefinitions(): Promise<void> {
     }));
     if (request !== controller) return;
     definitions.value = installed;
-    selectedName.value = installed.some(definition => definition.name === selectedName.value)
-      ? selectedName.value
+    selectedName.value = installed.some(definition => definition.name === previousSelection)
+      ? previousSelection
       : installed[0]?.name;
     error.value = undefined;
   }
@@ -145,6 +146,7 @@ watch(filteredDefinitions, (available) => {
 watch(() => props.section, (section) => {
   rememberConsoleSection(section);
   filter.value = "";
+  selectedName.value = undefined;
   void loadDefinitions();
 });
 
