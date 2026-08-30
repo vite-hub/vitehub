@@ -7,6 +7,16 @@ import { publicPackageBinContracts, publicPackageExportContracts } from "./publi
 import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
 
 describe("public package export contracts", () => {
+  it("keeps Source handler declarations independent from H3", () => {
+    const server = readFileSync(join(packageDir("source"), "src/server.ts"), "utf8")
+    const content = readFileSync(join(packageDir("source"), "src/content.ts"), "utf8")
+
+    expect(server).toContain("): CollectionHandler")
+    expect(content).toContain("): ContentHandler")
+    expect(server).not.toContain("): ReturnType<typeof defineEventHandler>")
+    expect(content).not.toContain("): ReturnType<typeof defineEventHandler>")
+  })
+
   it("classifies every public root and subpath exactly once", () => {
     const expected = packageInfos.flatMap((info) => {
       const manifest = readPackageManifest(info.name)

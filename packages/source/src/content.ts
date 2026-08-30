@@ -14,6 +14,10 @@ import type {
 import type { H3Event } from "h3"
 import type { SourceItem, SourceName, SourceReader } from "./core/types.ts"
 
+export interface ContentHandler {
+  (event: unknown): Promise<unknown>
+}
+
 export interface ContentSourceOptions {
   prefix?: string
   schema?: JsonSchema
@@ -195,7 +199,7 @@ export function defineContent<
 /** Adapt a Comark Content Web handler to an H3/Nitro route. */
 export function defineContentHandler(
   content: Pick<ComarkContent, "handler">,
-): ReturnType<typeof defineEventHandler> {
+): ContentHandler {
   return defineEventHandler(async (event: H3Event) => {
     if (event.req instanceof Request) return await content.handler(event.req)
 
@@ -240,5 +244,5 @@ export function defineContentHandler(
       method,
       signal: abort.signal,
     }))
-  })
+  }) as ContentHandler
 }
