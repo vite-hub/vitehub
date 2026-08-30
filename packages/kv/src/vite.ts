@@ -25,7 +25,9 @@ const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
 const KV_ERRORS_IMPORT_ID = new URL(import.meta.url.endsWith(".ts") ? "./errors.ts" : "./errors.js", import.meta.url).href
 const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
-const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = "@vite-hub/kv/runtime/cloudflare-kv"
+const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
+  ? "@vite-hub/kv/runtime/cloudflare-kv"
+  : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
