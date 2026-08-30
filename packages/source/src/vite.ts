@@ -71,6 +71,63 @@ interface SourcePluginConfig {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
+interface GeneratedSourceArtifactsSnapshot {
+  files: Map<string, string>
+}
+
+async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<GeneratedSourceArtifactsSnapshot> {
+  const files = new Map<string, string>()
+  const fixedEntries = [
+    collectionTypesEntry,
+    collectionTypesPackageEntry,
+    legacyCollectionTypesEntry,
+    contentRouteEntry,
+  ]
+  for (const entry of fixedEntries) {
+    const path = resolve(projectRoot, entry)
+    try {
+      files.set(path, await readFile(path, "utf8"))
+    }
+    catch (error) {
+      if (!(error instanceof Error && Reflect.get(error, "code") === "ENOENT")) throw error
+    }
+  }
+  const routesDirectory = resolve(projectRoot, collectionRoutesDirectory)
+  try {
+    for (const entry of await readdir(routesDirectory, { withFileTypes: true })) {
+      if (entry.isFile()) {
+        const path = join(routesDirectory, entry.name)
+        files.set(path, await readFile(path, "utf8"))
+      }
+    }
+  }
+  catch (error) {
+    if (!(error instanceof Error && Reflect.get(error, "code") === "ENOENT")) throw error
+  }
+  return { files }
+}
+
+async function restoreGeneratedSourceArtifacts(
+  projectRoot: string,
+  snapshot: GeneratedSourceArtifactsSnapshot,
+): Promise<void> {
+  const routesDirectory = resolve(projectRoot, collectionRoutesDirectory)
+  await rm(routesDirectory, { force: true, recursive: true })
+  for (const entry of [
+    collectionTypesEntry,
+    collectionTypesPackageEntry,
+    legacyCollectionTypesEntry,
+    contentRouteEntry,
+  ]) {
+    const path = resolve(projectRoot, entry)
+    if (!snapshot.files.has(path)) await rm(path, { force: true })
+  }
+  for (const [path, contents] of snapshot.files) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, contents)
+  }
+}
+
 function methodsOverlap(left: string | undefined, right: string | undefined): boolean {
   return !left || !right || left.toLowerCase() === right.toLowerCase()
 }
@@ -621,6 +678,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             pausedHostRefreshRetryFile = file
             return
           }
+          const previousArtifacts = await snapshotGeneratedSourceArtifacts(root)
           const handlers = await prepareSources({ projectRoot: root, serverDirs: lifecycleServerDirs })
           if (serverClosed) return
           if (serverPaused) {
@@ -675,6 +733,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           if (serverClosed) return
           const hasHostRestartOwner = hostRestartOwners.length > 0
           if (hasHostRestartOwner && !hostRestartHandled) {
+            await restoreGeneratedSourceArtifacts(root, previousArtifacts)
             scheduleHostRefreshRetry(file)
             return
           }
@@ -684,10 +743,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
               await server.restart()
             }
             catch (error) {
+              await restoreGeneratedSourceArtifacts(root, previousArtifacts)
               scheduleHostRefreshRetry(file)
               throw error
             }
             if (server.environments === previousEnvironments) {
+              await restoreGeneratedSourceArtifacts(root, previousArtifacts)
               scheduleHostRefreshRetry(file)
               return
             }

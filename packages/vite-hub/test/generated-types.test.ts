@@ -1025,9 +1025,13 @@ describe("framework generated types", () => {
     expect(restartHost).toHaveBeenCalledWith([])
     expect(restart).not.toHaveBeenCalled()
     expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8"))
+      .resolves.toContain("meals")
 
     await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
     expect(restart).not.toHaveBeenCalled()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
 
     await listeners.get("unlink")?.(collection)
     expect(restartHost).toHaveBeenCalledTimes(2)
