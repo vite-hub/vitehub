@@ -55,6 +55,10 @@ export interface GitHubHostCheckoutOptions {
   timeout?: number
 }
 
+export interface GitHubGraphQLBudgetOptions extends GitHubHostCheckoutOptions {
+  cost: number
+}
+
 export interface GitHubHostCommandOptions extends GitHubHostCheckoutOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
@@ -77,7 +81,7 @@ export interface GitHubHost {
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
   budget(): { limited: false } | { limited: true, remaining: number, resetAt: number }
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
-  ensureGraphQLBudget(repository: string, options?: GitHubHostCheckoutOptions): Promise<GitHubGraphQLRateLimit>
+  ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLRateLimit>
   isRateLimitError(error: unknown): boolean
   withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
@@ -120,7 +124,7 @@ function owner(repository: string): string {
   return repository.split("/", 1)[0]!.toLowerCase()
 }
 
-function rateLimitKey(token: string): string {
+function fallbackRateLimitKey(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }
 
@@ -220,7 +224,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return token
   }
 
-  async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess> {
+  async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess & { rateLimitKey: string }> {
     const config = await credentials({ signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
@@ -229,16 +233,19 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const appValues = [appId, installationId, privateKey]
     const repositoryOwner = input.repository ? owner(input.repository) : undefined
     let token: string
+    let rateLimitKey: string
 
     if (appValues.some(Boolean)) {
       if (!appValues.every(Boolean)) throw new Error("GitHub App appId, installationId, and privateKey must be configured together.")
       if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = await fallbackToken(config, input)
+        rateLimitKey = fallbackRateLimitKey(token)
       }
       else {
         const numericAppId = positiveInteger(appId, "GitHub App appId")
         const numericInstallationId = positiveInteger(installationId, "GitHub App installationId")
+        rateLimitKey = `app:${numericAppId}:${numericInstallationId}`
         const key = `${numericAppId}:${numericInstallationId}:${privateKey}`
         if (input.refresh || !appToken || appTokenKey !== key || appToken.expiresAt <= Date.now() + 60_000) {
           const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
@@ -266,6 +273,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
     else {
       token = await fallbackToken(config, input)
+      rateLimitKey = fallbackRateLimitKey(token)
     }
 
     const env: Record<string, string> = {
@@ -287,7 +295,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       env.GIT_AUTHOR_EMAIL = identity.email
       env.GIT_COMMITTER_EMAIL = identity.email
     }
-    return { env, token }
+    return { env, rateLimitKey, token }
   }
 
   async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
@@ -305,7 +313,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     input: GitHubHostCommandOptions = {},
   ): Promise<{ stderr: string, stdout: string }> {
     const operation = controlledOperation(input)
-    let auth: GitHubHostAccess | undefined
+    let auth: Awaited<ReturnType<typeof scopedAccess>> | undefined
     try {
       auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
       const execOptions: ExecFileOptionsWithStringEncoding = {
@@ -320,7 +328,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     catch (error) {
       if (auth && input.repository && rateLimitMessage(error)) {
         const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
-        limits.set(rateLimitKey(auth.token), limit)
+        limits.set(auth.rateLimitKey, limit)
         throw new GitHubRateLimitError(input.repository, limit, error)
       }
       throw error
@@ -330,18 +338,28 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
-  async function ensureGraphQLBudget(repository: string, options: GitHubHostCheckoutOptions = {}): Promise<GitHubGraphQLRateLimit> {
+  async function ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLRateLimit> {
+    if (!Number.isSafeInteger(options.cost) || options.cost <= 0) throw new TypeError("GitHub GraphQL cost must be a positive integer.")
     const operation = controlledOperation(options)
     try {
       operation.signal.throwIfAborted()
       const auth = await scopedAccess({ repository, signal: operation.signal })
-      const key = rateLimitKey(auth.token)
+      const key = auth.rateLimitKey
       const now = Date.now()
       const cached = limits.get(key)
-      if (cached && cached.resetAt > now && cached.remaining < reserve) throw new GitHubRateLimitError(repository, cached)
-      if (cached && now - cached.checkedAt < cacheMs) return cached
+      const admit = (limit: GitHubGraphQLRateLimit): GitHubGraphQLRateLimit => {
+        const current = limits.get(key)
+        const available = current?.checkedAt === limit.checkedAt && current.remaining <= limit.remaining ? current : limit
+        if (available.resetAt > Date.now() && available.remaining - options.cost < reserve) {
+          throw new GitHubRateLimitError(repository, available)
+        }
+        const reserved = { ...available, remaining: available.remaining - options.cost }
+        limits.set(key, reserved)
+        return reserved
+      }
+      if (cached && now - cached.checkedAt < cacheMs) return admit(cached)
       const pending = checks.get(key)
-      if (pending) return await waitForCaller(pending, { signal: operation.signal })
+      if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
       const check = (async () => {
         const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
         try {
@@ -353,7 +371,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
           limits.set(key, limit)
-          if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
           return limit
         }
         catch (error) {
@@ -369,7 +386,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         }
       })().finally(() => checks.delete(key))
       checks.set(key, check)
-      return await waitForCaller(check, { signal: operation.signal })
+      return admit(await waitForCaller(check, { signal: operation.signal }))
     }
     finally {
       operation.close()

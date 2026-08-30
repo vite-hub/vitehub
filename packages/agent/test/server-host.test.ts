@@ -199,7 +199,7 @@ describe("GitHub host", () => {
 
     let failure: unknown
     try {
-      await host.ensureGraphQLBudget("vite-hub/vitehub")
+      await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
     }
     catch (error) {
       failure = error
@@ -216,11 +216,67 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
     const host = createGitHubHost({ credentials: () => ({ token: "shared-token" }), reserve: 0 })
 
-    await host.ensureGraphQLBudget("vite-hub/vitehub")
-    await host.ensureGraphQLBudget("contributor/fork")
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
+    await host.ensureGraphQLBudget("contributor/fork", { cost: 1 })
 
     const commands = await readFile(commandLog, "utf8")
     expect(commands.match(/gh api rate_limit/g)).toHaveLength(1)
+  })
+
+  it("reserves cached GraphQL budget before admitting more work", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }))
+      .resolves.toMatchObject({ remaining: 40 })
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("reserves shared GraphQL budget atomically", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const admissions = await Promise.allSettled([
+      host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }),
+      host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }),
+    ])
+
+    expect(admissions.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    const rejection = admissions.find(result => result.status === "rejected")
+    expect(rejection?.status === "rejected" && host.isRateLimitError(rejection.reason)).toBe(true)
+  })
+
+  it("keeps installation rate-limit state across token refresh", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+      token: `installation-token-${fetcher.mock.calls.length}`,
+    }), { status: 201 }))
+    vi.stubGlobal("fetch", fetcher)
+    const host = createGitHubHost({
+      credentials: () => ({
+        appId: 123,
+        installationId: 456,
+        owner: "vite-hub",
+        privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      }),
+    })
+
+    await expect(host.command(["api", "graphql"], { repository: "vite-hub/vitehub" }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    await host.access({ refresh: true, repository: "vite-hub/vitehub" })
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toBeNull()
   })
 
   it("keeps shared GraphQL budget waiters independently cancellable", async () => {
@@ -228,13 +284,13 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 0 })
     const firstController = new AbortController()
-    const first = host.ensureGraphQLBudget("vite-hub/vitehub", { signal: firstController.signal })
-    const second = host.ensureGraphQLBudget("vite-hub/another", { timeout: 20 })
+    const first = host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1, signal: firstController.signal })
+    const second = host.ensureGraphQLBudget("vite-hub/another", { cost: 1, timeout: 20 })
     firstController.abort(new Error("first cancelled"))
 
     await expect(first).rejects.toThrow("first cancelled")
     await expect(second).rejects.toThrow(/timed out/i)
-    await expect(host.ensureGraphQLBudget("vite-hub/third")).resolves.toMatchObject({ remaining: 100 })
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 })).resolves.toMatchObject({ remaining: 99 })
   })
 
   it("bounds and replaces a stalled shared GraphQL budget check", async () => {
@@ -242,7 +298,7 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "10"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), graphQLCheckTimeout: 20, reserve: 0 })
 
-    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).rejects.toSatisfy((error: unknown) => {
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })).rejects.toSatisfy((error: unknown) => {
       return error instanceof Error && (
         ("killed" in error && error.killed === true)
         || ("code" in error && error.code === "ETIMEDOUT")
@@ -252,7 +308,7 @@ describe("GitHub host", () => {
       )
     })
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = ""
-    await expect(host.ensureGraphQLBudget("vite-hub/vitehub")).resolves.toMatchObject({ remaining: 100 })
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })).resolves.toMatchObject({ remaining: 99 })
   })
 
   it("classifies documented secondary rate limits", async () => {
@@ -273,11 +329,11 @@ describe("GitHub host", () => {
   it("honors cancellation before using a cached GraphQL budget", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 0 })
-    await host.ensureGraphQLBudget("vite-hub/vitehub")
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
     const controller = new AbortController()
     controller.abort(new Error("cancelled before cached admission"))
 
-    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { signal: controller.signal }))
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1, signal: controller.signal }))
       .rejects.toThrow("cancelled before cached admission")
   })
 

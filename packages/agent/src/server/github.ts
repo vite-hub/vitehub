@@ -1,6 +1,7 @@
 export { createGitHubHost, parseGraphQLRateLimit } from "./github-host.ts"
 
 export type {
+  GitHubGraphQLBudgetOptions,
   GitHubGraphQLRateLimit,
   GitHubHost,
   GitHubHostAccess,
