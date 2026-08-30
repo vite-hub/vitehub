@@ -101,6 +101,36 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("preserves declaration order for overlapping prefix aliases", async () => {
+    const rootDir = await createTempDir()
+    const broadDir = resolve(rootDir, "broad")
+    const specificDir = resolve(rootDir, "specific")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(resolve(broadDir, "jobs"), { recursive: true }),
+      mkdir(specificDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(entry, 'export { value } from "@/jobs/task.mjs"\n', "utf8"),
+      writeFile(resolve(broadDir, "jobs/task.mjs"), "export const value = 'broad'\n", "utf8"),
+      writeFile(resolve(specificDir, "task.mjs"), "export const value = 'specific'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: {
+        "@/": `${broadDir}/`,
+        "@/jobs/": `${specificDir}/`,
+      },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("broad")
+    expect(await readFile(outfile, "utf8")).not.toContain("specific")
+  })
+
   it("creates nested output directories for cancellable bundles", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")

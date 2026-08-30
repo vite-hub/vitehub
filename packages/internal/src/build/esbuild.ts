@@ -37,7 +37,6 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
     .map(([specifier, replacement]) => [isAbsolute(specifier) ? resolve(specifier) : specifier, replacement]))
   const prefixes = entries
     .filter(([specifier]) => specifier.endsWith("/"))
-    .sort(([left], [right]) => right.length - left.length)
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
