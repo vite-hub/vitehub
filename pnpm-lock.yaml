@@ -606,6 +606,9 @@ importers:
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.117
+      '@iconify-json/ph':
+        specifier: catalog:ui
+        version: 1.2.2
       '@iconify-json/simple-icons':
         specifier: catalog:ui
         version: 1.2.90
@@ -1836,9 +1839,6 @@ importers:
       '@comark/vue':
         specifier: 0.6.2
         version: 0.6.2(shiki@4.3.1)(vue@3.5.40(typescript@6.0.3))
-      '@iconify-json/ph':
-        specifier: catalog:ui
-        version: 1.2.2
       '@nuxt/kit':
         specifier: 4.4.8
         version: 4.4.8(magicast@0.5.4)
