@@ -144,7 +144,10 @@ function secondaryRateLimitMessage(error: unknown): boolean {
 
 function isGraphQLCommand(args: string[]): boolean {
   if (args[0] !== "api") return false
-  const optionsWithValues = new Set(["--field", "--header", "--hostname", "--input", "--method", "--raw-field", "-F", "-H", "-X", "-f"])
+  const optionsWithValues = new Set([
+    "--cache", "--field", "--header", "--hostname", "--input", "--jq", "--method", "--preview", "--raw-field", "--template",
+    "-F", "-H", "-X", "-f", "-q", "-t",
+  ])
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!
     if (optionsWithValues.has(argument)) {
@@ -425,6 +428,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const settle = (actualCost: number, released: boolean = false) => {
           if (!Number.isSafeInteger(actualCost) || actualCost < 0) {
             throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer.")
+          }
+          if (actualCost > options.cost) {
+            throw new RangeError("GitHub GraphQL actual cost cannot exceed its reserved cost.")
           }
           if (settled) return
           settled = true

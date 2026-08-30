@@ -224,7 +224,7 @@ describe("GitHub host", () => {
     await host.ensureGraphQLBudget("contributor/fork", { cost: 1 })
 
     const commands = await readFile(commandLog, "utf8")
-    expect(commands.match(/gh api rate_limit/g)).toHaveLength(1)
+    expect(commands.match(/gh api --hostname github\.com rate_limit/g)).toHaveLength(1)
   })
 
   it("shares fallback GraphQL budgets across token rotation for one user", async () => {
@@ -327,13 +327,14 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 50 })
   })
 
-  it("settles underestimated GraphQL reservations with their actual cost", async () => {
+  it("rejects an actual GraphQL cost above its reservation", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
 
-    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
-    reservation.settle(70)
-    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 21 }))
+    const first = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    await host.ensureGraphQLBudget("vite-hub/another", { cost: 30 })
+    expect(() => first.settle(70)).toThrow("GitHub GraphQL actual cost cannot exceed its reserved cost.")
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
@@ -350,7 +351,7 @@ describe("GitHub host", () => {
     const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
     temporaryDirectories.add(commandLog)
     process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
-    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
 
     await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
 
@@ -369,7 +370,7 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_RESET = String(Math.floor(Date.now() / 1_000) + 60)
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }))
       .resolves.toMatchObject({ remaining: 40 })
-    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toHaveLength(2)
+    expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github\.com rate_limit/g)).toHaveLength(2)
   })
 
   it("reports an exact-reserve GraphQL budget as limited", async () => {
@@ -424,7 +425,7 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
 
     expect(fetcher).toHaveBeenCalledTimes(2)
-    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toBeNull()
+    expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github\.com rate_limit/g)).toBeNull()
   })
 
   it("preserves a secondary limit recorded during an installation budget check", async () => {
@@ -450,7 +451,7 @@ describe("GitHub host", () => {
 
     const admission = host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
     await vi.waitFor(async () => {
-      expect(await readFile(commandLog, "utf8")).toContain("gh api rate_limit")
+      expect(await readFile(commandLog, "utf8")).toContain("gh api --hostname github.com rate_limit")
     })
     await host.access({ refresh: true, repository: "vite-hub/vitehub" })
     process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
@@ -462,7 +463,7 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
 
     expect(fetcher).toHaveBeenCalledTimes(2)
-    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toHaveLength(1)
+    expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github\.com rate_limit/g)).toHaveLength(1)
   })
 
   it("keeps shared GraphQL budget waiters independently cancellable", async () => {
@@ -523,12 +524,12 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
-  it("classifies GraphQL commands with flags before the endpoint", async () => {
+  it("classifies GraphQL commands after value-taking flags", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT = "API rate limit exceeded."
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
 
-    await expect(host.command(["api", "--method", "POST", "graphql"], { repository: "vite-hub/vitehub" }))
+    await expect(host.command(["api", "--preview", "scarlet-witch", "graphql"], { repository: "vite-hub/vitehub" }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
