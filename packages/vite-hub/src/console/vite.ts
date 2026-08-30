@@ -255,7 +255,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -355,7 +355,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       if (!cliDiscovery && !fixture) {
         const initialSections = sections.filter(section => section !== "workflows")
-        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
+        const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,

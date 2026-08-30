@@ -2,9 +2,11 @@ import { relative } from "node:path"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { discoverQueueDefinitions } from "@vite-hub/queue/vite"
+import { discoverScheduleDefinitions, readScheduleDefinitionCrons } from "@vite-hub/schedule/vite"
 import { discoverWorkflowDefinitions } from "@vite-hub/workflow/vite"
 
 import type { DiscoveredQueueDefinition } from "@vite-hub/queue"
+import type { DiscoveredScheduleDefinition } from "@vite-hub/schedule"
 import type { DiscoveredWorkflowDefinition } from "@vite-hub/workflow"
 import type { ConsoleDefinitionCatalog, ConsoleDefinitionField, ConsoleDefinitionSummary } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -63,14 +65,40 @@ function queueDefinition(
   }
 }
 
-export function discoverConsoleBuildCatalog(options: {
+function scheduleDefinition(
+  projectRoot: string,
+  definition: DiscoveredScheduleDefinition,
+  crons: ReadonlyMap<string, string>,
+): ConsoleDefinitionSummary {
+  const cron = crons.get(definition.name)
+  const fields: ConsoleDefinitionField[] = [
+    { label: "Kind", value: definition.runtimeOnly ? "Runtime target" : "Static schedule" },
+  ]
+  if (cron) {
+    fields.push(
+      { label: "Cron", value: cron },
+      { label: "Time zone", value: "UTC" },
+    )
+  }
+  if (definition.allowRuntimeSchedules) {
+    fields.push({ label: "Runtime schedules", value: "Allowed" })
+  }
+  return {
+    fields,
+    file: relativeDefinitionFile(projectRoot, definition.handler),
+    name: definition.name,
+    source: definition.source || "schedule",
+  }
+}
+
+export async function discoverConsoleBuildCatalog(options: {
   discoveryRoot: string
   projectRoot: string
   queueDiscoveryRoot?: string
   sections: readonly ConsoleSectionId[]
   serverDirs?: string[]
   workflowDiscoveryRoot?: string
-}): ConsoleBuildCatalog {
+}): Promise<ConsoleBuildCatalog> {
   const agents = options.sections.includes("agents")
     ? discoverAgentDefinitionEntries(options.discoveryRoot, options.serverDirs)
     : []
@@ -88,9 +116,21 @@ export function discoverConsoleBuildCatalog(options: {
         serverDirs: options.serverDirs,
       }).map(definition => queueDefinition(options.projectRoot, definition))
     : []
+  const discoveredSchedules = options.sections.includes("schedules")
+    ? discoverScheduleDefinitions({
+        rootDir: options.discoveryRoot,
+        serverDirs: options.serverDirs,
+      })
+    : []
+  const scheduleCrons = discoveredSchedules.length > 0
+    ? await readScheduleDefinitionCrons(discoveredSchedules)
+    : new Map<string, string>()
+  const schedules = discoveredSchedules
+    .map(definition => scheduleDefinition(options.projectRoot, definition, scheduleCrons))
   const definitions: ConsoleDefinitionCatalog = {}
   if (options.sections.includes("workflows")) definitions.workflows = workflows
   if (options.sections.includes("queues")) definitions.queues = queues
+  if (options.sections.includes("schedules")) definitions.schedules = schedules
   return {
     agents,
     definitions,

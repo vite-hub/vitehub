@@ -455,6 +455,13 @@ async function installConsole(
             path: "/_vitehub/queues",
           }]
         : []),
+      ...(sections.includes("schedules")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/schedules.vue"),
+            name: "vitehub-console-schedules",
+            path: "/_vitehub/schedules",
+          }]
+        : []),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -516,7 +523,7 @@ async function installConsole(
     const discoverySections = canDiscoverWorkflows()
       ? sections
       : sections.filter(section => section !== "workflows")
-    const catalog = discoverConsoleBuildCatalog({
+    const catalog = await discoverConsoleBuildCatalog({
       discoveryRoot,
       projectRoot,
       queueDiscoveryRoot,
@@ -1133,7 +1140,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         config,
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
-      const consoleCatalog = discoverConsoleBuildCatalog({
+      const consoleCatalog = await discoverConsoleBuildCatalog({
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,

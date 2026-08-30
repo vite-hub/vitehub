@@ -405,6 +405,7 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/schedules.vue`)).toBe(true);
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`),
     ).toBe(true);
@@ -441,6 +442,7 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/kv");
     expect(consoleClient).toContain("/workflows");
     expect(consoleClient).toContain("/queues");
+    expect(consoleClient).toContain("/schedules");
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8"),
     ).toContain("vitehub-console");
@@ -457,6 +459,8 @@ describe("framework package contract", () => {
           console: { exposure: "host-managed" },
           kv: true,
           preset: "node",
+          queue: true,
+          schedule: true,
           workflow: true,
         })
         .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console");
