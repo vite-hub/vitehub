@@ -178,12 +178,20 @@ function isRootHelp(args: string[]): boolean {
   return args[0] === "-h" || args[0] === "--help"
 }
 
+function readPackageVersion(): string {
+  const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  const version = /"version"\s*:\s*"([^"\\]+)"/u.exec(manifest)?.[1]
+  if (!version) {
+    throw new TypeError("[vitehub] The installed @vite-hub/cli package manifest has no valid version.")
+  }
+  return version
+}
+
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
   const stdout = options.stdout || process.stdout
   if (args[0] === "-v" || args[0] === "--version") {
-    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
-    stdout.write(`${manifest.version}\n`)
+    stdout.write(`${readPackageVersion()}\n`)
     return 0
   }
 
