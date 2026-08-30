@@ -333,6 +333,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
                     if (
                       current.node.type === "VariableDeclarator"
                       && current.node.id?.type === "Identifier"
+                      && current.node.id.name
                       && (
                         (current.node.id.name === exportedName && babelPathOrBindingIsExported(current, exportedName))
                         || babelBindingIsExportedAs(current, current.node.id.name, exportedName)
@@ -466,11 +467,36 @@ function sourceImportsFeedingWorkspaceStore(
             }
           },
           VariableDeclarator(path: BabelNodePath) {
+            const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
+            if (
+              path.node.id?.type === "ObjectPattern"
+              && required?.type === "CallExpression"
+              && required.callee?.type === "Identifier"
+              && required.callee.name === "require"
+              && required.arguments?.length === 1
+            ) {
+              const specifier = required.arguments[0]?.value
+              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
+              if (typeof specifier !== "string") return
+              // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+              const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
+              for (const property of properties ?? []) {
+                const localName = (property.value as BabelNode | undefined)?.name
+                if (property.type !== "ObjectProperty" || typeof localName !== "string") continue
+                const reachesRequestedExport = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
+                  ? babelPathReachesExportedStore(reference)
+                  : babelPathOrBindingIsExported(reference, exportedName))
+                if (!reachesRequestedExport) continue
+                const importedName = property.key?.name ?? property.key?.value
+                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
+                if (typeof importedName === "string") imports.push({ importedName, specifier })
+              }
+              return
+            }
             if (
               path.node.id?.type !== "Identifier"
               || !path.node.id.name
             ) return
-            const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
             if (
               required?.type !== "CallExpression"
               || required.callee?.type !== "Identifier"
