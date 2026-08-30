@@ -164,14 +164,21 @@ describe("agent channels", () => {
   it("creates queued GitHub activity when a pull request opens", async () => {
     const { github } = await import("../src/channels.ts")
     let storedBody = ""
+    const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
-      if (init?.method === "GET") return Response.json([])
+      if (method === "GET") {
+        return Response.json(url.searchParams.get("page") === "2" || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
       const payload: unknown = JSON.parse(String(init?.body))
       if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
       storedBody = payload.body
-      return Response.json({ id: 7 }, { status: 201 })
+      return Response.json({ id: 7 }, { status: method === "POST" ? 201 : 200 })
     })
     vi.stubEnv("GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
@@ -180,16 +187,36 @@ describe("agent channels", () => {
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
       // SAFETY: This fixture supplies the callback fields consumed by GitHub activity initialization.
-      const result = await trigger.invoke({
+      const triggerContext = {
         agentCapabilities: [],
         agentIdentity: { name: "reviewer" },
         channel,
         trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
-      } as never, { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() })
+      } as never
+      const opened = { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() }
+      const result = await trigger.invoke(triggerContext, opened)
 
       expect(result).toBeInstanceOf(Response)
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
       expect(storedBody).toContain("agent-queued-6e7781")
+
+      // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "real-run", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "real-run" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+      const runningBody = storedBody
+      await trigger.invoke(triggerContext, opened)
+
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(methods.filter(method => method === "PATCH")).toHaveLength(1)
+      expect(storedBody).toBe(runningBody)
+      expect(storedBody).toContain("agent-running-0969da")
     }
     finally {
       vi.unstubAllGlobals()

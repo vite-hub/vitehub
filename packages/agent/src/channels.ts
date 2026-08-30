@@ -1337,8 +1337,9 @@ function renderGithubActivity(
 
 function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
-  trackActiveRuns = true,
+  mode: "initialize" | "lifecycle" = "lifecycle",
 ): NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]> {
+  const trackActiveRuns = mode === "lifecycle"
   const options = githubAppOptions(app) || {}
   return {
     async update(context) {
@@ -1362,6 +1363,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         const existing = owned[0]
+        if (mode === "initialize" && existing) return
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
         const current = { links: githubActivityLinksState(context.activity.links), runId, status: context.activity.status }
         const reconcileDuplicates = async () => {
@@ -2447,7 +2449,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 ): AgentChannelDefinition<TRuntimeConfig> {
   const { activity, app: appOptions, pullRequest, ...channelOptions } = options
   const activityDefinition = activity ? githubAgentActivity(appOptions) : undefined
-  const openedActivityDefinition = activity ? githubAgentActivity(appOptions, false) : undefined
+  const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : undefined
   const app = githubAppOptions(appOptions)
   const pullRequestOptions = pullRequest === true ? {} : pullRequest || {}
   const workspace = pullRequest ? githubPullRequestWorkspacePolicy(pullRequestOptions) : undefined
