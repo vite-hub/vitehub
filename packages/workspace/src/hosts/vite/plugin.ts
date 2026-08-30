@@ -208,6 +208,10 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
   for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
     if (
       current.node.type === "ObjectProperty"
+      && !["binding", "namespace", "provider", "store"].includes(String(babelPropertyName(current)))
+    ) return false
+    if (
+      current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
       && babelPropertyIsTopLevelDefaultExport(current)
     ) return true
@@ -216,6 +220,12 @@ function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<Babel
       if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
     }
     if (current.node.type === "FunctionDeclaration" && current.node.id?.name) {
+      let returned = false
+      for (let descendant: BabelNodePath | undefined = path; descendant && descendant !== current; descendant = descendant.parentPath) {
+        if (descendant.node.type === "ReturnStatement") returned = true
+        if (descendant !== path && (descendant.node.type === "FunctionDeclaration" || descendant.node.type === "FunctionExpression" || descendant.node.type === "ArrowFunctionExpression")) break
+      }
+      if (!returned) return false
       const binding = current.scope.getBinding(current.node.id.name)
       if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
     }
@@ -483,8 +493,8 @@ function sourceImportsFeedingWorkspaceStore(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   exportedName: string,
-): Array<{ importedName?: string, selectedName?: string, specifier: string }> {
-  const imports: Array<{ importedName?: string, selectedName?: string, specifier: string }> = []
+): Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> {
+  const imports: Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> = []
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -540,7 +550,7 @@ function sourceImportsFeedingWorkspaceStore(
                       : { importedName, specifier })
                   }
                   if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
-                    imports.push({ importedName: "default", specifier })
+                    imports.push({ importedName: "default", localName: imported.local.name, specifier })
                   }
                 }
                 continue
@@ -549,11 +559,44 @@ function sourceImportsFeedingWorkspaceStore(
               if (!references.length) continue
               imports.push({
                 importedName: imported.type === "ImportDefaultSpecifier" ? "default" : String(imported.imported?.name ?? imported.imported?.value),
+                localName: imported.local.name,
                 specifier,
               })
             }
           },
           VariableDeclarator(path: BabelNodePath) {
+            // SAFETY: Babel's AwaitExpression discriminator guarantees the argument field.
+            const awaitExpression = path.node.init as BabelNode & { argument?: BabelNode }
+            const awaited = path.node.init?.type === "AwaitExpression"
+              ? awaitExpression.argument
+              : path.node.init
+            if (
+              awaited?.type === "CallExpression"
+              && awaited.callee?.type === "Import"
+              && awaited.arguments?.length === 1
+            ) {
+              const specifier = awaited.arguments[0]?.value
+              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import arguments must be statically resolvable strings.
+              if (typeof specifier !== "string") return
+              if (path.node.id?.type === "ObjectPattern") {
+                // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+                const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
+                for (const property of properties ?? []) {
+                  if (property.type !== "ObjectProperty") continue
+                  // SAFETY: The ObjectProperty discriminator guarantees a Babel-compatible value node.
+                  const localName = (property.value as BabelNode | undefined)?.name
+                  if (!localName) continue
+                  const reaches = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
+                    ? babelPathReachesExportedStore(reference)
+                    : babelPathOrBindingIsExported(reference, exportedName))
+                  if (!reaches) continue
+                  const importedName = property.key?.name ?? property.key?.value
+                  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import destructuring keys cross the parser boundary.
+                  imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
+                }
+              }
+              return
+            }
             const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
             if (
               path.node.id?.type === "ObjectPattern"
@@ -620,11 +663,16 @@ function sourceImportsFeedingWorkspaceStore(
   return imports
 }
 
-function sourceInlineWorkspaceStoreOverrides(
+type InlineWorkspaceStoreOperation =
+  | { kind: "spread", localName: string }
+  | { kind: "property", name: string, value?: string }
+
+function sourceInlineWorkspaceStoreOperations(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-): Record<string, string> {
-  const overrides: Record<string, string> = {}
+  env: Record<string, string | undefined>,
+): InlineWorkspaceStoreOperation[] {
+  const operations: InlineWorkspaceStoreOperation[] = []
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -633,6 +681,19 @@ function sourceInlineWorkspaceStoreOverrides(
     babel: {
       plugins: [() => ({
         visitor: {
+          SpreadElement(path: BabelNodePath) {
+            const storeProperty = path.parentPath?.parentPath
+            // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
+            const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
+            if (
+              storeProperty?.node.type !== "ObjectProperty"
+              || babelPropertyName(storeProperty) !== "store"
+              || !babelPropertyIsTopLevelDefaultExport(storeProperty)
+              || argument?.type !== "Identifier"
+              || !argument.name
+            ) return
+            operations.push({ kind: "spread", localName: argument.name })
+          },
           ObjectProperty(path: BabelObjectPropertyPath) {
             const storeProperty = path.parentPath?.parentPath
             if (
@@ -641,26 +702,42 @@ function sourceInlineWorkspaceStoreOverrides(
               || !babelPropertyIsTopLevelDefaultExport(storeProperty)
             ) return
             const name = babelPropertyName(path)
-            const value = babelStringValue(path.node.value as BabelNode | undefined, path)
+            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
+            const valueNode = path.node.value as BabelNode | undefined
+            let value = babelStringValue(valueNode, path)
+            if (
+              value === undefined
+              && valueNode?.type === "MemberExpression"
+              && valueNode.object?.type === "MemberExpression"
+              && valueNode.object.object?.type === "Identifier"
+              && valueNode.object.object.name === "process"
+              && valueNode.object.property?.type === "Identifier"
+              && valueNode.object.property.name === "env"
+            ) {
+              const key = valueNode.property?.name ?? valueNode.property?.value
+              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
+              if (typeof key === "string") value = env[key]
+            }
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names and values cross the Babel boundary as unknown values.
-            if (typeof name === "string" && typeof value === "string") overrides[name] = value
+            if (typeof name === "string") operations.push({ kind: "property", name, value: typeof value === "string" ? value : undefined })
           },
         },
       })],
     },
   })
-  return overrides
+  return operations
 }
 
 async function loadFactoredCloudflareArtifactStore(
   definition: DiscoveredWorkspaceDefinition,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   resolveModule?: SourceModuleResolver,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<WorkspaceDefinitionInput["store"] | undefined> {
   const loaded = await readSourceModule(definition.path)
   if (!loaded) return
-  const overrides = sourceInlineWorkspaceStoreOverrides(loaded, loader)
-  for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
+  const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
+  for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
     if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
@@ -673,7 +750,20 @@ async function loadFactoredCloudflareArtifactStore(
       const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
-        return { ...store, ...overrides } as WorkspaceDefinitionInput["store"]
+        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
+        if (!operations.length) return store as WorkspaceDefinitionInput["store"]
+        const reconstructed: Record<string, unknown> = {}
+        for (const operation of operations) {
+          if (operation.kind === "spread") {
+            if (operation.localName === localName) Object.assign(reconstructed, store)
+            continue
+          }
+          if (operation.value === undefined) return
+          reconstructed[operation.name] = operation.value
+        }
+        if (reconstructed.provider !== "cloudflare-artifacts") return
+        // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
+        return reconstructed as WorkspaceDefinitionInput["store"]
       }
     }
     catch {}
@@ -785,7 +875,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     catch (error) {
       if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
       const store = inspection?.artifactsOnly
-        ? await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver)
+        ? await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
         : undefined
       if (!store) throw error
       loaded = { store }
