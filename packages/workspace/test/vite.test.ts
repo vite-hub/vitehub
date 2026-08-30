@@ -1440,6 +1440,35 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("resolves imported Cloudflare Artifacts providers from static export lists", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "workspace-provider.ts"), [
+      `const provider = "cloudflare-artifacts" as const`,
+      `export { provider }`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import { provider } from "./workspace-provider"`,
+      `export default {`,
+      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider },`,
+      `}`,
+      ``,
+    ].join("\n"))
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([
+      { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
+    ])
+  })
+
   it("does not import unrelated Workspace Definitions while inspecting Cloudflare Artifacts", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
@@ -1462,7 +1491,9 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import store from "#generated-workspace-store"`,
       `const providerNote = "cloudflare-artifacts"`,
+      `const deployment = { provider: "cloudflare-artifacts" }`,
       `console.log(providerNote)`,
+      `console.log(deployment)`,
       `export default { store }`,
       ``,
     ].join("\n"))

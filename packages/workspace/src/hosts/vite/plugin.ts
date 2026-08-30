@@ -71,6 +71,9 @@ interface BabelNode {
   name?: string
   object?: BabelNode
   property?: BabelNode
+  specifiers?: BabelNode[]
+  local?: BabelNode
+  exported?: BabelNode
   type?: string
   value?: BabelNode | unknown
 }
@@ -96,6 +99,14 @@ type SourceModuleResolver = (id: string, importer: string) => Promise<string | u
 
 function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
+}
+
+function babelPropertyBelongsToStore(path: BabelObjectPropertyPath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") return true
+    if (current.node.type === "FunctionDeclaration" || current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") return false
+  }
+  return false
 }
 
 function babelPathIsExported(path: BabelNodePath): boolean {
@@ -148,6 +159,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             const value = path.node.value as BabelNode | undefined
             if (
               babelPropertyName(path) === "provider"
+              && babelPropertyBelongsToStore(path)
               && babelStringValue(value, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
@@ -161,6 +173,12 @@ async function sourceModuleDeclaresCloudflareArtifacts(
               && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
+            }
+          },
+          ExportNamedDeclaration(path: BabelNodePath) {
+            for (const specifier of path.node.specifiers ?? []) {
+              if (specifier.exported?.name !== "provider" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
+              if (babelStringValue(specifier.local, path) === "cloudflare-artifacts") declaresCloudflareArtifacts = true
             }
           },
         },
