@@ -201,9 +201,8 @@ describe("vitehub", () => {
     const plugins = vitehub({ preset: "node" })
     const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
-    const config: Record<string, unknown> = {}
+    const config = await resolveConfig({}, "build") as unknown as Record<string, unknown>
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
-    config.command = "build"
     config.plugins = plugins
     callHook(output.configResolved, [config])
 
