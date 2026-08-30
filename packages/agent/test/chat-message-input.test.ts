@@ -187,8 +187,8 @@ describe("chat message trigger input", () => {
   it.each([null, -1])("fails closed when the runtime trigger history age bound is %s", (maxAgeMs) => {
     const triggerInput = JSON.parse(JSON.stringify({
       messages: [
-        { parts: [{ text: "one", type: "text" }], role: "user" },
-        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+        { createdAt: "2026-08-29T22:00:00.000Z", parts: [{ text: "one", type: "text" }], role: "user" },
+        { createdAt: "2026-08-29T22:00:00.000Z", parts: [{ text: "two", type: "text" }], role: "assistant" },
       ],
       triggerHistory: { maxAgeMs, maxMessages: 20, source: "thread" },
     }))
