@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { access, cp, link, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { access, cp, link, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -107,7 +107,7 @@ function collectCreateRequireAliases(source: string): Set<string> {
   return aliases
 }
 
-const staticFromPattern = /(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+[A-Za-z_$][\w$]*)?|[A-Za-z_$][\w$]*(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*))?)\s*\bfrom\b\s*["']([^"']+)["']/gm
+const staticFromPattern = /(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*)?|[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*))?)\s*\bfrom\b\s*["']([^"']+)["']/gmu
 
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
@@ -1164,6 +1164,16 @@ export async function finalizeDenoDeploymentOutput(
 async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promise<void>> {
   const lockPath = `${outputDir}.vitehub-lock`
   const reclaimPath = `${lockPath}.reclaim`
+  const publishLock = async () => {
+    const candidatePath = `${lockPath}.${process.pid}.${randomUUID()}`
+    try {
+      await writeFile(candidatePath, `${process.pid}\n`, { encoding: "utf8", flag: "wx" })
+      await link(candidatePath, lockPath)
+    }
+    finally {
+      await rm(candidatePath, { force: true })
+    }
+  }
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       await access(reclaimPath).then(() => {
@@ -1172,9 +1182,7 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
         // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       })
-      const lock = await open(lockPath, "wx")
-      await lock.writeFile(`${process.pid}\n`, "utf8")
-      await lock.close()
+      await publishLock()
       return () => rm(lockPath, { force: true })
     }
     catch (error) {
@@ -1222,9 +1230,7 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
         }
         if (ownerAlive) throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.`)
         await rm(lockPath, { force: true })
-        const lock = await open(lockPath, "wx")
-        await lock.writeFile(`${process.pid}\n`, "utf8")
-        await lock.close()
+        await publishLock()
         return async () => rm(lockPath, { force: true })
       }
       finally {

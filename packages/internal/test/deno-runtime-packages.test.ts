@@ -78,6 +78,14 @@ export {
 `)).toEqual(["multiline-export", "multiline-package"])
   })
 
+  it("finds static package imports with Unicode bindings", () => {
+    expect(collectDenoRuntimePackageNames(`
+import café from "unicode-default"
+import * as 配置 from "unicode-namespace"
+export { 値 as value } from "unicode-export"
+`)).toEqual(["unicode-default", "unicode-export", "unicode-namespace"])
+  })
+
   it("does not cross semicolonless statement boundaries while finding static imports", () => {
     expect(collectDenoRuntimePackageNames(`
 const from = 0
