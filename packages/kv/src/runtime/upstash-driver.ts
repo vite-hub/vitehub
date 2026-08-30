@@ -65,7 +65,8 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     }
     const cursor = randomUUID()
     const timeout = setTimeout(() => releaseContinuation(cursor), 15 * 60_000)
-    timeout.unref()
+    // SAFETY: Node timers expose unref while web-runtime timers are numbers; the optional call keeps both hosts valid.
+    ;(timeout as { unref?: () => void }).unref?.()
     continuations.set(cursor, { bytes, cursor: providerCursor, keys, timeout })
     continuationBytes += bytes
     while (continuations.size > maximumContinuations) {
