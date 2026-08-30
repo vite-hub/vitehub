@@ -17493,6 +17493,11 @@ describe("server helpers", () => {
       return result
     }
     const sharedIdLessMessage = idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z")
+    sharedIdLessMessage.raw = { delivery: "shared-id-less" }
+    const deserializedSharedIdLessMessage = () => Object.assign(
+      idLessMessage("newer id-less cached", "2026-06-10T12:00:20.000Z"),
+      { raw: { delivery: "shared-id-less" } },
+    )
     let initializedChats = 0
     const adapter = createTestChatAdapter({
       onInitialize: (chat) => {
@@ -17522,7 +17527,7 @@ describe("server helpers", () => {
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        sharedIdLessMessage,
+        deserializedSharedIdLessMessage(),
         message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
       ],
     })
@@ -17566,7 +17571,7 @@ describe("server helpers", () => {
         ),
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        sharedIdLessMessage,
+        deserializedSharedIdLessMessage(),
         ...Array.from({ length: 987 }, (_, index) =>
           message(String(index + 100), `newer cached ${index}`, "2026-06-10T12:01:00.000Z"),
         ),
