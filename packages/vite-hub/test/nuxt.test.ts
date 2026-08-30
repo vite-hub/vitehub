@@ -711,6 +711,31 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("discovers Nuxt Console Workflows from the runtime definition root", async () => {
+    const rootWorkflow = "/tmp/vitehub-nuxt/release.workflow.ts"
+    const viteWorkflow = "/tmp/vitehub-nuxt/app/preview.workflow.ts"
+    await mkdir(resolve(viteWorkflow, ".."), { recursive: true })
+    await writeFile(rootWorkflow, "export default defineWorkflow(async () => undefined)\n")
+    await writeFile(viteWorkflow, "export default defineWorkflow(async () => undefined)\n")
+    const development = createNuxt(true)
+    development.nuxt.options.serverDir = undefined
+    development.nuxt.options.vite.root = "/tmp/vitehub-nuxt/app"
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
+      const nitroConfig = nitroOptions(development.nuxt)
+      await development.runNitroConfigHook(nitroConfig)
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+
+      expect(generated).toContain('"file":"release.workflow.ts","name":"release"')
+      expect(generated).not.toContain('"name":"preview"')
+    }
+    finally {
+      await rm(rootWorkflow, { force: true })
+      await rm(viteWorkflow, { force: true })
+    }
+  })
+
   it("omits implicitly disabled Netlify Workflow from the Nuxt Console", async () => {
     const implicit = createNuxt(true)
 

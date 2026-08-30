@@ -1100,7 +1100,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       reconcileConsoleDefinitionsHandler(config, consoleSections.includes("workflows"))
       const consoleCatalog = discoverConsoleBuildCatalog({
-        discoveryRoot: viteRoot,
+        discoveryRoot: rootDir,
         projectRoot,
         sections: consoleSections,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
