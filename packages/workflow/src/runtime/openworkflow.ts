@@ -258,7 +258,7 @@ function serializeOpenWorkflowRun(run: OpenWorkflowRun, name: string): WorkflowR
       workflowName: run.workflowName,
     },
     provider: "openworkflow",
-    result: run.output ?? undefined,
+    result: run.output,
     status: normalizeOpenWorkflowStatus(run.status),
   }
 }

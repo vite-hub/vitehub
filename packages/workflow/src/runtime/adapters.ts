@@ -74,10 +74,13 @@ const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   completed: "completed",
   errored: "failed",
   failed: "failed",
+  paused: "running",
   queued: "queued",
   running: "running",
   success: "completed",
   terminated: "failed",
+  waiting: "running",
+  waitingforpause: "running",
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
