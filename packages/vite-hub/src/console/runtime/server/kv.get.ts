@@ -110,7 +110,9 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
     if (typeof input === "bigint") throw new TypeError("Cannot serialize bigint as JSON.")
 
+    // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
     const object = input as object & { toJSON?: () => unknown }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
     if (typeof object.toJSON === "function") {
       const replacement = object.toJSON()
       if (replacement !== input) return serialize(replacement, depth, arrayValue)
@@ -133,6 +135,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     let count = 0
     for (const key in object) {
       if (!Object.prototype.hasOwnProperty.call(object, key)) continue
+      // SAFETY: The own enumerable key came from this object, whose property values remain unknown.
       const item = (object as Record<string, unknown>)[key]
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
       if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue

@@ -381,6 +381,23 @@ describe("kv runtime", () => {
     }
   })
 
+  it("stops reading a flat fs-lite directory when the page is full", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-flat-"))
+    try {
+      await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(join(root, `key-${index}`), "value")))
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+
+      await expect(driver.listKeys({ limit: 2 })).resolves.toMatchObject({
+        keys: [expect.any(String), expect.any(String)],
+        cursor: expect.any(String),
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("treats a missing fs-lite directory as an empty store", async () => {
     const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
     const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
@@ -400,7 +417,8 @@ describe("kv runtime", () => {
       const first = await driver.listKeys({ limit: 1 })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1 })
 
-      expect([...first.keys, ...second.keys]).toEqual(["e\u0301", "é"])
+      expect([...first.keys, ...second.keys]).toHaveLength(2)
+      expect([...first.keys, ...second.keys]).toEqual(expect.arrayContaining(["e\u0301", "é"]))
     }
     finally {
       await rm(root, { force: true, recursive: true })

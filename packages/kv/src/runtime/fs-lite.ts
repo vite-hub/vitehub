@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises"
+import { opendir } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
@@ -16,23 +16,24 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     async function* walk(directory: string, after: string[] = []): AsyncGenerator<string> {
       let entries
       try {
-        entries = await readdir(directory, { withFileTypes: true })
+        entries = await opendir(directory)
       }
       catch (error) {
         if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
         throw error
       }
-      entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
-      for (const entry of entries) {
+      let afterEntry = after[0] === undefined
+      for await (const entry of entries) {
         const afterName = after[0]
-        const comparison = afterName === undefined ? 1 : entry.name < afterName ? -1 : entry.name > afterName ? 1 : 0
-        if (comparison < 0) continue
+        const isAfterEntry = afterEntry
+        if (!afterEntry && entry.name !== afterName) continue
+        afterEntry = true
         const path = join(directory, entry.name)
         if (entry.isDirectory()) {
-          yield* walk(path, comparison === 0 ? after.slice(1) : [])
+          yield* walk(path, isAfterEntry ? [] : after.slice(1))
           continue
         }
-        if (entry.isFile() && comparison !== 0) yield relative(root, path)
+        if (entry.isFile() && isAfterEntry) yield relative(root, path)
       }
     }
 
