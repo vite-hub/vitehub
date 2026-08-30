@@ -59,6 +59,7 @@ function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVSt
       del: async () => { writes("del"); return success(undefined) },
       // SAFETY: The in-memory fixture mirrors KVStorage's generic get contract for caller-selected values.
       get: async <T>(key: string) => success((values.get(key) ?? null) as T | null),
+      // SAFETY: The in-memory fixture mirrors KVStorage's generic atomic read contract for caller-selected values.
       getAndDelete: async <T>(key: string) => success((values.get(key) ?? null) as T | null),
       has: async key => success(values.has(key)),
       increment: async () => success(1),

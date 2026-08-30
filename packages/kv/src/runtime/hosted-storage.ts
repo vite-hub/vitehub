@@ -60,6 +60,7 @@ export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptio
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem
   if (getAndDeleteItem) {
+    // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This implements RuntimeStorage's caller-typed atomic read contract.
     storage.getAndDeleteItem = async <T = unknown>(key: string): Promise<T | null> => {
       // SAFETY: destr mirrors the caller-typed transformation used by storage.getItem.
       return deserializeValue(await getAndDeleteItem(normalizeKey(key))) as T | null

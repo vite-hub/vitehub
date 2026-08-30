@@ -480,7 +480,7 @@ describe("kv runtime", () => {
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
     const storage = createHostedKVStorage({ store: { driver: "deno-kv", path: ":memory:" } })
     await storage.setItem("json-string", "123")
-    await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe("123")
+    await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe(123)
     await storage.setItem("object", { atomic: true })
     await expect(storage.getAndDeleteItem?.("object")).resolves.toEqual({ atomic: true })
     for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
