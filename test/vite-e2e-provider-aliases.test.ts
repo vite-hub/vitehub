@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -25,7 +25,8 @@ it("redirects source and packaged KV Vite entries in hosted output", async () =>
     rootDir,
   })
   const guard = artifacts.alias["@vite-hub/kv/vite"]
+  const canonicalWorkspaceRoot = await realpath(workspaceRoot)
 
   expect(artifacts.alias[resolve(workspaceRoot, "packages/kv/src/vite.ts")]).toBe(guard)
-  expect(artifacts.alias[resolve(workspaceRoot, "packages/kv/dist/vite.js")]).toBe(guard)
+  expect(artifacts.alias[resolve(canonicalWorkspaceRoot, "packages/kv/dist/vite.js")]).toBe(guard)
 })

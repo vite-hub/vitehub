@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -748,10 +748,11 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
     const kvViteRuntimeGuardFile = resolve(generatedDir, "kv-vite-runtime-guard.mjs")
+    const canonicalKvPackageDir = await realpath(kvPackageDir)
     alias["@vite-hub/kv/runtime/cloudflare-kv"] = resolve(kvPackageDir, "src/runtime/cloudflare-kv.ts")
     alias["@vite-hub/kv/vite"] = kvViteRuntimeGuardFile
     alias[resolvePackageRuntime(kvPackageDir, "vite")] = kvViteRuntimeGuardFile
-    alias[resolve(kvPackageDir, "dist/vite.js")] = kvViteRuntimeGuardFile
+    alias[resolve(canonicalKvPackageDir, "dist/vite.js")] = kvViteRuntimeGuardFile
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(
       writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),
