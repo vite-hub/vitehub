@@ -5770,6 +5770,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const updates: AgentActivityUpdate[] = []
+    const waitUntil = vi.fn()
     const agent = defineAgent({
       channels: {
         work: defineChannel("work", {
@@ -5803,7 +5804,7 @@ describe("agent message protocol", () => {
         runId: "run-1",
       },
       runtime: "unknown",
-      waitUntil: vi.fn(),
+      waitUntil,
     }, {})
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const _event of stream as AsyncIterable<unknown>) {}
@@ -5820,6 +5821,7 @@ describe("agent message protocol", () => {
       status: "completed",
       summary: "Finished the review.",
     })
+    expect(waitUntil).toHaveBeenCalled()
   })
 
   it("projects setup failures without replacing the Agent error", async () => {
@@ -12148,10 +12150,13 @@ describe("agent message protocol", () => {
 
     it("journals Workflow provider start failures", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const failure = new Error("provider start failed")
+      const statuses: AgentActivityUpdate["status"][] = []
+      const waitUntil = vi.fn()
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
@@ -12169,18 +12174,27 @@ describe("agent message protocol", () => {
       })
       try {
         await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
           driver: { run: () => "unreachable" },
           invocations,
           runtime: workflow("start-failure-agent"),
         }), {
           memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
           runtime: "unknown",
-          waitUntil: vi.fn(),
+          waitUntil,
         }, {})).rejects.toBe(failure)
 
         await expect(invocations.list()).resolves.toMatchObject({
           invocations: [{ error: { message: failure.message }, status: "failed" }],
         })
+        expect(statuses).toEqual(["queued", "failed"])
+        expect(waitUntil).toHaveBeenCalledTimes(2)
       }
       finally {
         setAgentWorkflowRuntimeLoaders({

@@ -165,13 +165,13 @@ describe("agent channels", () => {
     expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
   })
 
-  it("bounds serialized GitHub activity run identity", async () => {
+  it("bounds the complete serialized GitHub activity comment", async () => {
     const { github } = await import("../src/channels.ts")
     let storedBody = ""
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
-      if (init?.method === "GET") return Response.json([])
+      if (init?.method === "GET") return Response.json(storedBody ? [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }] : [])
       const payload: unknown = JSON.parse(String(init?.body))
       if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
       storedBody = payload.body
@@ -181,9 +181,29 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
+      const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(400)}` }))
+      for (let index = 0; index < 101; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await channel.activity?.update({
+          activity: { links, runId: `prior-${index}`, status: "completed", tasks: [] },
+          channel,
+          memo: vi.fn(),
+          run: { runId: `prior-${index}` },
+          runtime: "unknown",
+          target: { issue: 42, repository: "acme/app" },
+          waitUntil: vi.fn(),
+        } as never)
+      }
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channel.activity?.update({
-        activity: { links: [], runId: "x".repeat(50_000), status: "running", tasks: [] },
+        activity: {
+          error: "e".repeat(1_000),
+          links,
+          runId: "x".repeat(50_000),
+          status: "failed",
+          summary: "s".repeat(12_000),
+          tasks: Array.from({ length: 25 }, (_, index) => ({ status: "pending" as const, title: `task-${index}-${"t".repeat(300)}` })),
+        },
         channel,
         memo: vi.fn(),
         run: { runId: "x".repeat(50_000) },
@@ -191,8 +211,9 @@ describe("agent channels", () => {
         target: { issue: 42, repository: "acme/app" },
         waitUntil: vi.fn(),
       } as never)
-      expect(storedBody.length).toBeLessThan(65_536)
+      expect(Buffer.byteLength(storedBody)).toBeLessThan(65_536)
       expect(storedBody).not.toContain("x".repeat(1_000))
+      expect(storedBody).toContain("Agent stopped:")
     }
     finally {
       vi.unstubAllGlobals()

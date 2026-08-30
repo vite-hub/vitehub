@@ -1024,6 +1024,8 @@ async function runAgentAsWorkflow<
     }
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
+  await activity?.update("queued")
   try {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
@@ -1032,6 +1034,7 @@ async function runAgentAsWorkflow<
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   }
   catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     const ambiguous = isAmbiguousWorkflowStartFailure(error)
     const failedRunId = !options.fresh && context.run?.runId
       ? context.run.runId
@@ -1200,6 +1203,12 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         console.error(new Error("[vitehub] Agent activity delivery failed.", { cause: deliveryError }))
       }
     })
+    try {
+      context.waitUntil?.(delivery)
+    }
+    catch (waitUntilError) {
+      console.error(new Error("[vitehub] Agent activity delivery could not be retained.", { cause: waitUntilError }))
+    }
   }
   return {
     async event(event) {

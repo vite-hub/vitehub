@@ -1144,6 +1144,7 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
+const githubActivityBodyLimit = 65_000
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
 const githubActivityUpdates = new Map<string, Promise<void>>()
@@ -1300,8 +1301,8 @@ function renderGithubActivity(
   const links = githubActivityLinksState(activity.links)
   if (links.length) sections.push(githubActivityLinks(links))
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
-  if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
   if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
+  if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
   if (state.history.length) {
     const history = state.history
       .filter(entry => entry.links.length)
@@ -1309,7 +1310,19 @@ function renderGithubActivity(
       .join("\n")
     if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`)
   }
-  return sections.join("\n\n")
+  const body = sections.join("\n\n")
+  if (Buffer.byteLength(body) <= githubActivityBodyLimit) return body
+  let bounded = ""
+  for (const section of sections) {
+    const separator = bounded ? "\n\n" : ""
+    const remaining = githubActivityBodyLimit - Buffer.byteLength(bounded) - Buffer.byteLength(separator)
+    if (remaining <= 0) break
+    const sectionBytes = Buffer.from(section)
+    bounded += separator + (sectionBytes.byteLength <= remaining
+      ? section
+      : sectionBytes.subarray(0, remaining).toString("utf8").replace(/\uFFFD$/u, ""))
+  }
+  return bounded
 }
 
 function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
