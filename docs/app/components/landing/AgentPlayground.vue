@@ -340,6 +340,7 @@ const capabilityOptions = [
   { code: "email({ from, recipients })", icon: "i-lucide-mail", key: "email", label: "Email" },
   { code: "sandbox({ commands })", icon: "i-lucide-box", key: "sandbox", label: "Sandbox" },
   { code: "schedule({ mode: 'write', allowSelfTarget: true })", icon: "i-lucide-calendar-clock", key: "schedule", label: "Schedules" },
+  { code: "githubTools({ preset: 'code-review' })", icon: "i-lucide-git-pull-request", key: "github-tools", label: "GitHub tools" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
   { code: "webSearch({ mode: 'tool', provider: 'exa' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
@@ -396,7 +397,7 @@ const projectAgentConfigs = reactive<Record<string, AgentConfig>>({
     driverKey: "codex",
     runtimeKey: "workflow",
     workspaceKey: "github",
-    capabilityKeys: ["browser", "repository", "skills"],
+    capabilityKeys: ["browser", "github-tools", "skills"],
     channelKeys: ["github"],
   },
   nuxt: {
