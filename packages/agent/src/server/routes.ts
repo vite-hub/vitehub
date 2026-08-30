@@ -4041,6 +4041,20 @@ async function durableChatThreadMessages(thread: Thread, limit: number): Promise
   }
 }
 
+const MAX_CHAT_TRIGGER_HISTORY_SCAN = 1_000
+
+function isCurrentChatSdkMessage(item: ChatSdkMessage, current: ChatSdkMessage): boolean {
+  if (item.id || current.id) return Boolean(item.id && current.id && item.id === current.id)
+  if (item === current) return true
+  return (
+    item.threadId === current.threadId &&
+    item.text === current.text &&
+    item.metadata.dateSent.getTime() === current.metadata.dateSent.getTime() &&
+    item.author.userId === current.author.userId &&
+    item.author.userName === current.author.userName
+  )
+}
+
 async function chatTriggerMessages(
   thread: Thread,
   message: ChatSdkMessage,
@@ -4056,11 +4070,16 @@ async function chatTriggerMessages(
   const fetchedNewestFirst: UIMessageLike[] = []
   const fetchedLimit = message.id ? limit : limit - 1
   let foundCurrent = !message.id
+  let scanned = 0
   try {
     for await (const item of thread.messages) {
+      if (++scanned > MAX_CHAT_TRIGGER_HISTORY_SCAN) break
       if (fetchedNewestFirst.length >= fetchedLimit) break
-      if (!foundCurrent && item.id && message.id && item.id === message.id) foundCurrent = true
-      if (foundCurrent) fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
+      const isCurrent = isCurrentChatSdkMessage(item, message)
+      if (!foundCurrent && isCurrent) foundCurrent = true
+      if (foundCurrent && (message.id || !isCurrent)) {
+        fetchedNewestFirst.push(isCurrent ? current : await chatSdkMessageToUiMessage(item))
+      }
     }
   } catch {}
 

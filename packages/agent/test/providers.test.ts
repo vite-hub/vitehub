@@ -17774,8 +17774,10 @@ describe("server helpers", () => {
     const nearest = historicalMessage("nearest id-less")
     Reflect.deleteProperty(previous, "id")
     Reflect.deleteProperty(nearest, "id")
+    const includedCurrent = historicalMessage("current id-less")
+    Reflect.deleteProperty(includedCurrent, "id")
     adapter.fetchMessages.mockResolvedValue({
-      messages: [previous, nearest],
+      messages: [previous, nearest, includedCurrent],
     })
     const runs: string[][] = []
     const agent = defineAgent({
