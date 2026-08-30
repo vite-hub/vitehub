@@ -26,11 +26,6 @@ export function createCheckoutGitEnvironment(checkout: string) {
   }
 }
 
-export async function readWorkspacePaths(checkout: string, runCommand: RunCommand = operations.runCommand) {
-  const result = await runCommand('git', ['-C', checkout, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'])
-  return result.stdout.split('\0').filter(Boolean)
-}
-
 export async function withPullRequestCheckout<T>(
   repository: string,
   pullRequest: PullRequest,

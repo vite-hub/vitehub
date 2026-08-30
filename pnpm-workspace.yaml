@@ -1,4 +1,0 @@
-overrides:
-  '@vite-hub/ui': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@8ab6ce2
-patchedDependencies:
-  '@vite-hub/agent@0.0.1': patches/@vite-hub__agent@0.0.1.patch

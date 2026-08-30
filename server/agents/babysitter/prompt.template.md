@@ -20,7 +20,7 @@ Choose one result.
 - Close the pull request if another change already satisfies its spec.
 - Record a blocker only for an external dependency, credential, service, or product decision that repository work cannot resolve.
 
-The scheduler owns the pull request's working-status comment and posts this invocation's final response into it. Leave that lifecycle comment unchanged. This pass may post only a direction comment when direction investigation was triggered, one review request, or a comment required to coordinate the authorized branch change.
+The ViteHub GitHub Channel owns the pull request's Agent activity comment and posts this invocation's final response into it. Leave that activity comment unchanged. This pass may post only a direction comment when direction investigation was triggered, one review request, or a comment required to coordinate the authorized branch change.
 
 ## Merge gate
 
@@ -51,4 +51,4 @@ Begin with exactly one of these invisible disposition markers:
 - `<!-- babysitter:disposition:park -->` after pushing a repair, while checks or reviews are pending, or after recording a current external blocker. A later GitHub state change will wake the next pass.
 - `<!-- babysitter:disposition:retry -->` when actionable work remains but this pass made no authorized GitHub state change that can wake the next pass. Use retry when a failed check remains unfixed, including when local validation or diagnosis could not complete.
 
-If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update for the scheduler's existing GitHub comment. State the outcome, any change made, focused validation, and the single current blocker or next gate when relevant. The surrounding comment already identifies the repository, pull request, and session. Keep the update under 80 words and omit process narration.
+If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update for the Channel's existing GitHub comment. State the outcome, any change made, focused validation, and the single current blocker or next gate when relevant. The surrounding comment already identifies the repository, pull request, and session. Keep the update under 80 words and omit process narration.

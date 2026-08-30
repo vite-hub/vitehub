@@ -8,9 +8,7 @@ import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
 import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
-import { summarizeInvocationWorkload } from '../invocation-health.ts'
 import { invocations } from '../invocations.ts'
-import { useSessionSnapshotStore } from '../session-snapshots.ts'
 
 const exec = promisify(execFile)
 
@@ -29,7 +27,6 @@ export default defineEventHandler(async () => {
     checkCodex(),
     invocations.list({ limit: 100 }).catch(() => ({ invocations: [] })),
   ])
-  const snapshots = useSessionSnapshotStore().stats()
   const counts = summarizeInvocationWorkload(recent.invocations, Date.now() - process.uptime() * 1_000)
   const healthy = github.status === 'ok' && codex.status === 'ok' && counts.stale === 0
   const diagnostics: Diagnostic[] = [
@@ -61,7 +58,6 @@ export default defineEventHandler(async () => {
       detail: counts.stale ? 'Active records predate this service process' : 'No active record predates this service process',
     },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
-    { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
   ]
 
   return {
@@ -69,7 +65,7 @@ export default defineEventHandler(async () => {
     diagnostics,
     status: healthy ? 'healthy' : 'degraded',
     summary: healthy ? 'Babysitter is operational' : 'Babysitter needs attention',
-    workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0, snapshots: snapshots.count },
+    workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0 },
   }
 })
 
@@ -99,4 +95,21 @@ function formatUptime(seconds: number) {
   if (minutes < 60) return `Up for ${minutes}m`
   const hours = Math.floor(minutes / 60)
   return `Up for ${hours}h ${minutes % 60}m`
+}
+
+function summarizeInvocationWorkload(
+  recent: readonly { createdAt: string, startedAt?: string, status: string }[],
+  processStartedAt: number,
+) {
+  const counts = { active: 0, completed: 0, failed: 0, stale: 0, total: recent.length }
+  for (const invocation of recent) {
+    if (invocation.status === 'pending' || invocation.status === 'running') {
+      const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
+      if (Number.isFinite(startedAt) && startedAt < processStartedAt) counts.stale += 1
+      else counts.active += 1
+    }
+    else if (invocation.status === 'completed') counts.completed += 1
+    else if (invocation.status === 'failed') counts.failed += 1
+  }
+  return counts
 }

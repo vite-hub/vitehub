@@ -1,11 +1,10 @@
 import github from '@github-tools/eve-extension'
-import { createProcessAgentCapacity } from '@vite-hub/agent/runtime/process'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
-import { nodeRuntimeResources } from '@vite-hub/runtime/node'
-import { reportOperationalDiagnostic } from '../../babysitter.operations.ts'
+import * as agentChannels from 'vite-hub/agent/channels'
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { createCheckoutGitEnvironment } from '../../babysitter.checkout.ts'
-import { createProviderResourceEnvironment } from '../../babysitter.provider.ts'
 import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
 import { consoleClient } from '../../console.ts'
 import { githubAgentEnvironment, githubToken } from '../../github.ts'
@@ -27,10 +26,7 @@ export const ownerCapacity = createProcessAgentCapacity({
   queue: { maxPending: 100 },
   rampUp: 1,
 })
-const capabilities = [diagnostics({
-  reporter: reportOperationalDiagnostic,
-  resources: nodeRuntimeResources(),
-}), title({
+const capabilities = [diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
     return context.pullRequestTitle
@@ -57,7 +53,7 @@ const capabilities = [diagnostics({
 const createDriver = (token: string, checkout?: string) => codexDriver({
   capacity: ownerCapacity,
   env: {
-    ...createProviderResourceEnvironment(),
+    NODE_OPTIONS: '--max-old-space-size=1024',
     ...githubAgentEnvironment(token),
     ...(checkout ? createCheckoutGitEnvironment(checkout) : {}),
   },
@@ -67,6 +63,9 @@ const driver = createDriver(capabilityToken)
 
 const settings = {
   capabilities,
+  channels: {
+    github: agentChannels.github({ activity: true, app: true, webhooks: false }),
+  },
   driver,
   invocations,
   name: 'babysitter',

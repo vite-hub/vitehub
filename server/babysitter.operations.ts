@@ -1,7 +1,4 @@
-import {
-  normalizeRuntimeDiagnosticError,
-  type RuntimeDiagnosticEvent,
-} from 'vite-hub/runtime'
+import { normalizeRuntimeDiagnosticError } from 'vite-hub/runtime'
 
 export function operationalEventLine(
   event: string,
@@ -20,15 +17,4 @@ export function logOperationalError(event: string, error: unknown, detail: Recor
     ...detail,
     error: normalizeRuntimeDiagnosticError(error, { includeStack: true }),
   }))
-}
-
-export function reportOperationalDiagnostic(diagnostic: RuntimeDiagnosticEvent): void {
-  const line = operationalEventLine(diagnostic.name, {
-    ...diagnostic,
-    name: undefined,
-    timestamp: undefined,
-  }, diagnostic.timestamp)
-  if (diagnostic.level === 'error') console.error(line)
-  else if (diagnostic.level === 'warn') console.warn(line)
-  else console.info(line)
 }

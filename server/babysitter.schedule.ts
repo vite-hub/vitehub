@@ -1,24 +1,12 @@
-import { createMessage, resolveAgentInspectionMetadata, runScheduledAgent } from 'vite-hub/agent'
+import { agentInvocationId, createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import { useServerEnv } from '#vitehub/env/server'
 import { createBabysitterAgent } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import promptTemplate from './agents/babysitter/prompt.template.md?raw'
-import { readWorkspacePaths, withPullRequestCheckout } from './babysitter.checkout.ts'
+import { withPullRequestCheckout } from './babysitter.checkout.ts'
 import { ensureGitHubGraphQLBudget, githubToken, isGitHubRateLimitError, runGitHub } from './github.ts'
-import {
-  agentResultText,
-  ensureLifecycleLabels,
-  finishPullRequestLifecycle,
-  markPullRequestQueued,
-  type PullRequestLifecycle,
-  queuedLabel,
-  queuedLabelColor,
-  startPullRequestLifecycle,
-  workingLabel,
-  workingLabelColor,
-} from './babysitter.github-lifecycle.ts'
 import {
   logOperationalError,
   logOperationalEvent,
@@ -35,12 +23,9 @@ import {
   resolveRepositories,
   selectPullRequestJobs,
 } from './babysitter.queue.ts'
-import { sessionAgentConfiguration } from './session-agent.ts'
-import { type SessionTimelineEvent, useSessionSnapshotStore } from './session-snapshots.ts'
 import { invocations } from './invocations.ts'
 
 const policyFingerprint = createPolicyFingerprint(promptTemplate, blocker, completionPolicyVersion)
-const githubLifecycleGroup = 'github-lifecycle'
 const pullRequestFields = 'baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 const runningJobs = new Set<string>()
 let wakeReconciler = () => {}
@@ -69,7 +54,6 @@ export async function reconcileBabysitterWork(reason: string) {
     .filter(job => !runningJobs.has(jobKey(job.repository, job.pullRequest.number)))
     .slice(0, availableOwnerSlots)
   const batchStartedAt = Date.now()
-  const queuedAt = new Map<string, string>()
 
   logOperationalEvent('babysitter.batch.started', {
     jobs: jobs.length,
@@ -78,27 +62,8 @@ export async function reconcileBabysitterWork(reason: string) {
     repositories,
     scheduleId: schedule.runId || schedule.id,
   })
-  for (const queuedRepository of new Set(jobs.map(job => job.repository))) {
-    try {
-      await ensureLifecycleLabels(queuedRepository)
-    }
-    catch (error) {
-      logOperationalError('babysitter.github-labels.failed', error, { repository: queuedRepository })
-    }
-  }
   for (const job of jobs) {
     runningJobs.add(jobKey(job.repository, job.pullRequest.number))
-    const timestamp = new Date().toISOString()
-    try {
-      await markPullRequestQueued(job.repository, job.pullRequest.number)
-      queuedAt.set(jobKey(job.repository, job.pullRequest.number), timestamp)
-    }
-    catch (error) {
-      logOperationalError('babysitter.github-queue-status.failed', error, {
-        pullRequest: job.pullRequest.number,
-        repository: job.repository,
-      })
-    }
   }
   void Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
@@ -107,7 +72,6 @@ export async function reconcileBabysitterWork(reason: string) {
     const startedAt = Date.now()
     let outcome = 'completed'
     let failure: unknown
-    let lifecycle: PullRequestLifecycle | undefined
     let resultText: string | undefined
     logOperationalEvent('babysitter.owner.started', {
       head: pullRequest.headRefOid,
@@ -115,37 +79,9 @@ export async function reconcileBabysitterWork(reason: string) {
       workItems: runningJobs.size,
       ...owner,
     })
-    createSessionSnapshot({
-      invocationId: runId,
-      pullRequest: pullRequest.number,
-      repository,
-      revision: pullRequest.headRefOid,
-      sourceRepository: pullRequest.headRepository?.nameWithOwner,
-    }, owner)
-    recordSessionEvent(runId, {
-      detail: `${repository} · PR #${pullRequest.number}`,
-      name: 'babysitter.pull-request.selected',
-      timestamp: new Date().toISOString(),
-      title: 'Pull request selected',
-    }, owner)
     try {
       const token = await githubToken({ refresh: true, repository })
-      recordSessionEvent(runId, {
-        detail: `GitHub access for ${repository}`,
-        name: 'babysitter.github.authenticated',
-        timestamp: new Date().toISOString(),
-        title: 'GitHub access ready',
-      }, owner)
       await withPullRequestCheckout(repository, pullRequest, token, async checkout => {
-        const paths = await readWorkspacePaths(checkout)
-        setSessionPaths(runId, paths, owner)
-        recordSessionEvent(runId, {
-          detail: `${paths.length} files at ${pullRequest.headRefOid.slice(0, 7)}`,
-          inspector: 'workspace',
-          name: 'babysitter.workspace.materialized',
-          timestamp: new Date().toISOString(),
-          title: 'Workspace materialized',
-        }, owner)
         const context = {
           pullRequestHead: pullRequest.headRefOid,
           pullRequestNumber: pullRequest.number,
@@ -156,92 +92,24 @@ export async function reconcileBabysitterWork(reason: string) {
           pullRequestUrl: pullRequest.url,
         }
         const agent = createBabysitterAgent(checkout, token)
-        let agentConfiguration: ReturnType<typeof sessionAgentConfiguration> | undefined
-        try {
-          const inspection = await resolveAgentInspectionMetadata(agent, { resolveSources: false })
-          agentConfiguration = sessionAgentConfiguration(inspection)
-          setSessionAgent(runId, agentConfiguration, owner)
-        }
-        catch (error) {
-          logOperationalError('babysitter.session-agent.failed', error, owner)
-        }
-        recordSessionEvent(runId, {
-          detail: 'Babysitter instructions, Capabilities, tools, and Workspace',
-          inspector: 'agent',
-          name: 'babysitter.agent.prepared',
-          timestamp: new Date().toISOString(),
-          title: 'Agent prepared',
-        }, owner)
         const prompt = await renderPrompt({ blocker, context })
-        recordSessionEvent(runId, {
-          detail: 'Pull request context rendered for the Agent Invocation',
-          name: 'babysitter.prompt.rendered',
-          timestamp: new Date().toISOString(),
-          title: 'Prompt prepared',
-        }, owner)
-        const queuedTimestamp = queuedAt.get(jobKey(repository, pullRequest.number))
-        if (queuedTimestamp) {
-          recordSessionEvent(runId, {
-            detail: queuedLabel,
-            group: githubLifecycleGroup,
-            kind: 'action',
-            label: { color: queuedLabelColor, name: queuedLabel, operation: 'added' },
-            name: 'babysitter.github.label.queued',
-            phase: 'before',
-            timestamp: queuedTimestamp,
-            title: `Added ${queuedLabel}`,
-          }, owner)
-        }
-        try {
-          lifecycle = await startPullRequestLifecycle(repository, pullRequest.number, runId)
-          recordSessionEvent(runId, {
-            detail: workingLabel,
-            group: githubLifecycleGroup,
-            kind: 'action',
-            label: { color: workingLabelColor, name: workingLabel, operation: 'added' },
-            name: 'babysitter.github.label.working',
-            phase: 'before',
-            timestamp: new Date().toISOString(),
-            title: `Added ${workingLabel}`,
-          }, owner)
-          recordSessionEvent(runId, {
-            delivery: { intent: 'started', kind: 'status' },
-            detail: 'Linked the pull request to this Babysitter session',
-            group: githubLifecycleGroup,
-            kind: 'delivery',
-            name: 'babysitter.github.status.started',
-            phase: 'before',
-            timestamp: new Date().toISOString(),
-            title: 'Working status posted',
-          }, owner)
-          recordSessionEvent(runId, {
-            delivery: { intent: 'started', kind: 'reaction' },
-            detail: 'GitHub pull request',
-            group: githubLifecycleGroup,
-            kind: 'delivery',
-            name: 'babysitter.github.reaction.started',
-            phase: 'before',
-            timestamp: new Date().toISOString(),
-            title: 'Reacted with eyes',
-          }, owner)
-        }
-        catch (error) {
-          logOperationalError('babysitter.github-lifecycle-start.failed', error, owner)
-        }
         const result = await runScheduledAgent(agent, {
           ...schedule,
           runId,
         }, {
           run: {
+            activity: {
+              links: [{ label: 'Session', url: await babysitterSessionUrl(runId) }],
+              target: { issue: pullRequest.number, repository },
+            },
             annotations: {
               'github.head': pullRequest.headRefOid,
               'github.pullRequest': pullRequest.number,
               'github.repository': repository,
               'github.title': pullRequest.title,
               'github.url': pullRequest.url,
-              ...(agentConfiguration?.driver?.model?.id ? { 'agent.model.id': agentConfiguration.driver.model.id } : {}),
-              ...(agentConfiguration?.driver?.model?.provider ? { 'agent.model.provider': agentConfiguration.driver.model.provider } : {}),
             },
+            channelId: 'github',
             runId,
           },
         }, {
@@ -280,34 +148,6 @@ export async function reconcileBabysitterWork(reason: string) {
       }
     }
     finally {
-      try {
-        await finishPullRequestLifecycle(repository, pullRequest.number, lifecycle, { error: failure, text: resultText })
-        recordSessionEvent(runId, {
-          detail: `${queuedLabel} and ${workingLabel}`,
-          group: githubLifecycleGroup,
-          kind: 'action',
-          ...(lifecycle ? { label: { color: workingLabelColor, name: workingLabel, operation: 'removed' as const } } : {}),
-          name: 'babysitter.github.labels.cleared',
-          phase: 'after',
-          timestamp: new Date().toISOString(),
-          title: 'Cleared Agent lifecycle labels',
-        }, owner)
-        if (lifecycle) {
-          recordSessionEvent(runId, {
-            delivery: { intent: outcome, kind: 'update' },
-            detail: resultText ? 'Posted the Agent final result to the existing GitHub comment' : 'Updated the existing GitHub comment with the session outcome',
-            group: githubLifecycleGroup,
-            kind: 'delivery',
-            name: 'babysitter.github.status.finished',
-            phase: 'after',
-            timestamp: new Date().toISOString(),
-            title: 'GitHub result posted',
-          }, owner)
-        }
-      }
-      catch (error) {
-        logOperationalError('babysitter.github-lifecycle-finish.failed', error, owner)
-      }
       runningJobs.delete(jobKey(repository, pullRequest.number))
       logOperationalEvent('babysitter.owner.finished', {
         durationMs: Date.now() - startedAt,
@@ -331,55 +171,26 @@ function jobKey(repository: string, number: number) {
   return `${repository}#${number}`
 }
 
-function createSessionSnapshot(
-  input: Parameters<ReturnType<typeof useSessionSnapshotStore>['create']>[0],
-  owner: { pullRequest: number, repository: string, runId: string },
-) {
-  try {
-    useSessionSnapshotStore().create(input)
-  }
-  catch (error) {
-    logOperationalError('babysitter.session-snapshot.failed', error, owner)
-  }
+async function babysitterSessionUrl(runId: string) {
+  const base = (process.env.BABYSITTER_PUBLIC_URL || 'https://babysitter.vitehub.dev').replace(/\/+$/, '')
+  const invocationId = await agentInvocationId(runId, 'babysitter')
+  return `${base}/_vitehub/agents/babysitter/invocations/${encodeURIComponent(invocationId)}`
 }
 
-function recordSessionEvent(
-  runId: string,
-  event: SessionTimelineEvent,
-  owner: { pullRequest: number, repository: string, runId: string },
-) {
-  try {
-    useSessionSnapshotStore().record(runId, event)
+function agentResultText(value: unknown, observations: readonly unknown[]) {
+  for (const observation of observations.toReversed()) {
+    if (!observation || typeof observation !== 'object') continue
+    const record = observation as Record<string, unknown>
+    if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') continue
+    const attributes = record.attributes as Record<string, unknown>
+    if (attributes['message.role'] !== 'assistant') continue
+    const content = attributes['message.content']
+    if (typeof content === 'string' && content.trim()) return content.trim()
   }
-  catch (error) {
-    logOperationalError('babysitter.session-event.failed', error, { event: event.name, ...owner })
-  }
-}
-
-function setSessionPaths(
-  runId: string,
-  paths: readonly string[],
-  owner: { pullRequest: number, repository: string, runId: string },
-) {
-  try {
-    useSessionSnapshotStore().setPaths(runId, paths)
-  }
-  catch (error) {
-    logOperationalError('babysitter.session-workspace.failed', error, owner)
-  }
-}
-
-function setSessionAgent(
-  runId: string,
-  configuration: ReturnType<typeof sessionAgentConfiguration>,
-  owner: { pullRequest: number, repository: string, runId: string },
-) {
-  try {
-    useSessionSnapshotStore().setAgent(runId, configuration)
-  }
-  catch (error) {
-    logOperationalError('babysitter.session-agent-store.failed', error, owner)
-  }
+  if (typeof value === 'string') return value.trim() || undefined
+  if (!value || typeof value !== 'object') return undefined
+  const text = (value as Record<string, unknown>).text
+  return typeof text === 'string' ? text.trim() || undefined : undefined
 }
 
 async function readCompletion(key: string) {

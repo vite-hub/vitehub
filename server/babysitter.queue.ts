@@ -65,7 +65,6 @@ export async function selectPullRequestJobs(
       const pullRequests = await listPullRequests(repository)
       return pullRequests
         .filter(pullRequest => !hasOpenStackParent(pullRequest, pullRequests))
-        .filter(pullRequest => !hasWorkingReservation(pullRequest))
         .map(pullRequest => ({ pullRequest, repository }))
     }
     catch (error) {
@@ -93,27 +92,10 @@ export async function selectPullRequestJobs(
   return jobs.filter((job): job is PullRequestJob => job !== undefined)
 }
 
-function hasWorkingReservation(pullRequest: PullRequest) {
-  return Array.isArray(pullRequest.labels) && pullRequest.labels.some((label) => {
-    return label && typeof label === 'object' && (label as Record<string, unknown>).name === 'Agent: Working'
-  })
-}
-
 function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[]) {
   return pullRequests.some(parent => parent.number !== pullRequest.number
     && parent.state === 'OPEN'
     && parent.headRefName === pullRequest.baseRefName)
-}
-
-export async function runPullRequestJobs(
-  jobs: PullRequestJob[],
-  maxOwners: number,
-  run: (job: PullRequestJob) => Promise<void>,
-) {
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(maxOwners, jobs.length) }, async () => {
-    while (next < jobs.length) await run(jobs[next++]!)
-  }))
 }
 
 export function createPolicyFingerprint(...policy: string[]) {

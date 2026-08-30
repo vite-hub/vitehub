@@ -1,15 +1,10 @@
-import ui from '@vite-hub/ui/vite'
-import vue from '@vitejs/plugin-vue'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defaultMaxOwners } from './server/babysitter.queue.ts'
-import appConfig from './app/app.config.ts'
 
 export default defineConfig({
-  optimizeDeps: { exclude: ['vue-router'] },
-  resolve: { dedupe: ['vue', 'vue-router'] },
   env: {
     server: {
       babysitter: {
@@ -31,18 +26,20 @@ export default defineConfig({
     },
   },
   plugins: [
-    vue(),
-    ...ui({ comark: false, nuxtUI: appConfig }),
     vitehub({
       preset: 'node',
       agent: { providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } },
       blob: false,
+      console: { exposure: 'host-managed' },
       database: false,
       kv: { driver: 'fs-lite' },
       schedule: false,
       workflow: false,
       workspace: false,
     }),
-    nitro({ serverDir: true }),
+    nitro({
+      routeRules: { '/': { redirect: '/_vitehub' } },
+      serverDir: true,
+    }),
   ],
 })
