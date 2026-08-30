@@ -146,8 +146,6 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (!nested) return true
           const first = nested.split(sep)[0]!
           if (first === "node_modules") return false
-          if (packageRoots.has(root) && requestedOutputRoots.length > 0 && first !== "package.json"
-            && !requestedOutputRoots.some(outputRoot => pathContains(resolvedSource, outputRoot) || pathContains(outputRoot, resolvedSource))) return false
           const containingConfiguredRoot = nestedConfiguredRoots
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
             .sort((left, right) => right.length - left.length)[0]

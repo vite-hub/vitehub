@@ -280,6 +280,30 @@ it("retains an aliased package with its relative import base", async () => {
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
 })
 
+it("retains package siblings imported by an aliased output entry", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-output-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageDir = join(workspace, "package")
+  const entry = join(packageDir, "dist", "index.js")
+  const asset = join(packageDir, "assets", "value.js")
+  await Promise.all([mkdir(rootDir, { recursive: true }), mkdir(dirname(entry), { recursive: true }), mkdir(dirname(asset), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "../assets/value.js"\n'),
+    writeFile(asset, 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
 it("retains sibling chunks behind an installed package alias", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-chunk-"))
   tempDirs.push(workspace)
@@ -313,14 +337,12 @@ it("retains package closures behind an earlier retained source", async () => {
   const dependencyDir = join(rootDir, "node_modules", "fixture-dependency")
   const entry = join(packageDir, "dist", "index.js")
   const chunk = join(packageDir, "dist", "chunk.js")
-  const packageTest = join(packageDir, "test", "vite-output.test.ts")
-  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(packageTest), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dependencyDir, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, "package.json"), "{}\n"),
     writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
     writeFile(entry, 'export { value } from "./chunk.js"\nexport { dependency } from "fixture-dependency"\n'),
     writeFile(chunk, 'export const value = "retained"\n'),
-    writeFile(packageTest, "throw new Error('package tests must not be retained')\n"),
     writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
     writeFile(join(dependencyDir, "index.js"), 'export const dependency = "linked"\n'),
   ])
@@ -335,7 +357,6 @@ it("retains package closures behind an earlier retained source", async () => {
     dependency: "linked",
     value: "retained",
   })
-  await expect(readFile(retained.resolve(packageTest), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("preserves workspace-relative imports from generated sources without their own package", async () => {
