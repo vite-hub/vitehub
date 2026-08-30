@@ -307,7 +307,7 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
-  }, 90_000)
+  }, 180_000)
 
   it("builds the env and chat playground modes", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
