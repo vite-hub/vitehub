@@ -129,6 +129,37 @@ it("retains configured roots beneath nested generated output directories", async
   await expect(readFile(join(retainedWorkspace, "packages", "workflow", ".vitehub", "workflow", "sources", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("excludes ignored output directories beneath a configured closure root", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-standalone-root-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const ignoredFiles = [
+    join(rootDir, ".git", "config"),
+    join(rootDir, ".vercel", "output", "config.json"),
+    join(rootDir, ".nuxt", "manifest.json"),
+    join(rootDir, ".output", "server", "index.mjs"),
+    join(rootDir, ".vitehub", "workflow", "sources", "stale.ts"),
+    join(rootDir, ".vitest-tmp", "project", "test.ts"),
+    join(rootDir, "coverage", "coverage.json"),
+    join(rootDir, "dist", "index.js"),
+  ]
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), ...ignoredFiles.map(file => mkdir(dirname(file), { recursive: true }))])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    ...ignoredFiles.map(file => writeFile(file, "stale\n")),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)

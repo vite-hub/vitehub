@@ -15,6 +15,7 @@ const ignoredSourceDirectories = new Set([
   ".nuxt",
   ".output",
   ".vercel",
+  ".vitehub",
   ".vitest-tmp",
   "coverage",
   "dist",
@@ -25,12 +26,6 @@ const ignoredGeneratedDirectories = new Set([".vitehub", ".vitest-tmp"])
 
 function isTransientSourceDirectory(path: string): boolean {
   return basename(path).startsWith(".drizzle-generate-")
-}
-
-function ignoredSourceAncestor(root: string, path: string): string | undefined {
-  const segments = relative(root, path).split(sep)
-  const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
-  return ignoredIndex === -1 ? undefined : resolve(root, ...segments.slice(0, ignoredIndex + 1))
 }
 
 function pathContains(parent: string, child: string): boolean {
@@ -134,8 +129,14 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           const containingConfiguredRoot = nestedConfiguredRoots
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
             .sort((left, right) => right.length - left.length)[0]
-          const ignoredAncestor = ignoredSourceAncestor(containingConfiguredRoot ?? root, resolvedSource)
-          if (ignoredAncestor || (!containingConfiguredRoot && ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
+          const scopedFirst = containingConfiguredRoot
+            ? relative(containingConfiguredRoot, resolvedSource).split(sep)[0]
+            : first
+          const nestedGeneratedOutput = relative(containingConfiguredRoot ?? root, resolvedSource)
+            .split(sep)
+            .some(segment => ignoredGeneratedDirectories.has(segment))
+          if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
+            && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
               || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
           }
