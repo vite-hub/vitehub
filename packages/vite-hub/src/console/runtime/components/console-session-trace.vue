@@ -10,6 +10,7 @@ import {
   isTerminalToolObservation,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
+  pairedLifecycleTerminal,
   pairedToolTerminal,
   traceDurationMs,
   traceEventId,
@@ -125,7 +126,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   );
   const starts = traceStarts(observations);
   const pairs = starts.map((start) => ({
-    finish: pairedTerminal(start, observations, invocation),
+    finish: pairedTerminal(start, observations),
     start,
   }));
   const result = pairs.map(({ start, finish }) => pairedSpan(start, finish, invocation));
@@ -285,31 +286,16 @@ function pairedSpan(
 function pairedTerminal(
   start: Observation,
   observations: Observation[],
-  invocation: AgentInvocationView,
 ): Observation | undefined {
-  const id = eventId(start);
   const terminalNames =
     start.name === "agent.task.started"
       ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
       : start.name === "agent.approval.request"
         ? ["agent.approval.decision"]
         : lifecycleTerminalNames(start.name);
-  const startIndex =
-    observations.filter(
-      (observation) =>
-        observation.sequence <= start.sequence &&
-        observation.name === start.name &&
-        eventId(observation) === id,
-    ).length - 1;
-  const terminals = observations.filter(
-    (observation) => terminalNames.includes(observation.name) && eventId(observation) === id,
-  );
   if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
     return pairedToolTerminal(start, observations);
-  return start.name === "agent.invocation.start" && invocation.status === "completed"
-    ? (terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
-        terminals[0])
-    : terminals[startIndex];
+  return pairedLifecycleTerminal(start, observations, terminalNames);
 }
 
 function invocationSpan(invocation: AgentInvocationView, observations: Observation[]): TraceSpan {

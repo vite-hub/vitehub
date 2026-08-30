@@ -10,6 +10,7 @@ import {
   standaloneSuccessfulLifecycleSequences,
   isTerminalTaskObservation,
   lifecycleTerminalNames,
+  pairedLifecycleTerminal,
   pairedToolTerminal,
   traceDurationMs,
   traceEventId,
@@ -47,6 +48,20 @@ describe("Console session trace model", () => {
     };
 
     expect(traceEventId(start)).toBe(traceEventId(finish));
+  });
+
+  it("pairs ID-less Agent Invocation lifecycle events", () => {
+    const observations = [
+      { name: "agent.invocation.start", sequence: 1 },
+      { name: "agent.message.created", sequence: 2 },
+      { name: "agent.invocation.finish", sequence: 3 },
+    ];
+
+    expect(traceEventId(observations[0]!)).toBe(traceEventId(observations[2]!));
+    expect(
+      pairedLifecycleTerminal(observations[0]!, observations, ["agent.invocation.finish"])
+        ?.sequence,
+    ).toBe(3);
   });
 
   it("uses recorded tool duration before observation timestamps", () => {
@@ -191,5 +206,17 @@ describe("Console session trace model", () => {
 
     expect(pairedToolTerminal(observations[0]!, observations)?.sequence).toBe(2);
     expect(pairedToolTerminal(observations[2]!, observations)?.sequence).toBe(4);
+  });
+
+  it("does not pair a terminal that precedes a reused lifecycle start", () => {
+    const observations = [
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 1 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 3 },
+    ];
+
+    expect(
+      pairedLifecycleTerminal(observations[1]!, observations, ["agent.model.finish"])?.sequence,
+    ).toBe(3);
   });
 });

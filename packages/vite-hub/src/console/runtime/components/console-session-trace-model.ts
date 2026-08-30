@@ -39,6 +39,12 @@ export function traceEventId(observation: TraceObservationIdentity): string {
     const result = v.safeParse(stringSchema, attributes[key]);
     if (result.success && result.output) return result.output;
   }
+  if (
+    observation.name.startsWith("agent.invocation.") &&
+    (isLifecycleStartObservation(observation.name) ||
+      isLifecycleTerminalObservation(observation.name))
+  )
+    return "agent.invocation";
   return `${observation.name}:${observation.sequence}`;
 }
 
@@ -114,6 +120,27 @@ export function pairedToolTerminal<Observation extends TraceObservationIdentity>
   return observations.find(
     (observation) =>
       observation.sequence > start.sequence &&
+      terminalNames.includes(observation.name) &&
+      traceEventId(observation) === identity,
+  );
+}
+
+export function pairedLifecycleTerminal<Observation extends TraceObservationIdentity>(
+  start: Observation,
+  observations: Observation[],
+  terminalNames: string[],
+): Observation | undefined {
+  const identity = traceEventId(start);
+  const nextStart = observations.find(
+    (observation) =>
+      observation.sequence > start.sequence &&
+      isLifecycleStartObservation(observation.name) &&
+      traceEventId(observation) === identity,
+  );
+  return observations.find(
+    (observation) =>
+      observation.sequence > start.sequence &&
+      (nextStart === undefined || observation.sequence < nextStart.sequence) &&
       terminalNames.includes(observation.name) &&
       traceEventId(observation) === identity,
   );
