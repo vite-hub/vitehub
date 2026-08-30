@@ -244,6 +244,11 @@ async function sourceModuleDeclaresCloudflareArtifacts(
                       && current.node.id.name === exportedName
                       && babelPathOrBindingIsExported(current, exportedName)
                     ) return true
+                    if (
+                      current.node.type === "FunctionDeclaration"
+                      && current.node.id?.name === exportedName
+                      && babelPathOrBindingIsExported(current, exportedName)
+                    ) return true
                   }
                   return false
                 })()
@@ -335,15 +340,25 @@ function sourceImportsFeedingWorkspaceStore(
             for (const imported of path.node.specifiers ?? []) {
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
               const binding = path.scope.getBinding(imported.local.name)
-              const reachesRequestedExport = exportedName === "default"
-                ? binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
-                : binding?.referencePaths?.some(reference => {
+              const referenceReachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+                ? babelPathReachesExportedStore(reference)
+                : (() => {
                     for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
                       if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
                     }
                     return false
                   })
-              if (!reachesRequestedExport) continue
+              const references = binding?.referencePaths?.filter(referenceReachesRequestedExport) ?? []
+              if (!references.length) continue
+              if (imported.type === "ImportNamespaceSpecifier") {
+                for (const reference of references) {
+                  const member = reference.parentPath?.node
+                  if (member?.type !== "MemberExpression" || member.object !== reference.node) continue
+                  const importedName = member.property?.name ?? member.property?.value
+                  if (typeof importedName === "string") imports.push({ importedName, specifier })
+                }
+                continue
+              }
               imports.push({
                 importedName: imported.type === "ImportDefaultSpecifier" ? "default" : String(imported.imported?.name ?? imported.imported?.value),
                 specifier,
