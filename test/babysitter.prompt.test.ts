@@ -69,6 +69,8 @@ test('parks CI failures inherited unchanged from the exact base head', async () 
 test('does not let unavailable optional check failures create merge blockers', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
+  assert.match(prompt, /Classify required checks only from GitHub's authoritative required-check result/)
+  assert.match(prompt, /Never infer that a check is required from workflow timing, naming, ordering, or merge state/)
   assert.match(prompt, /Diagnose a visible optional failure once/)
   assert.match(prompt, /report the concrete diagnosis without creating or retaining a blocker/)
   assert.match(prompt, /Remove any generated blocker based only on that optional failure and continue to the merge gate in the same pass/)

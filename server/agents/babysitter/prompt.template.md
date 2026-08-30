@@ -24,7 +24,7 @@ The scheduler owns the pull request's working-status comment and posts this invo
 
 ## Merge gate
 
-Before merging, refresh the head, actual required checks, review request and reactions, later Codex events, and threads. The gate requires the expected head, passing required checks, no merge conflict, and no actionable or unresolved feedback.
+Before merging, refresh the head, actual required checks, review request and reactions, later Codex events, and threads. Classify required checks only from GitHub's authoritative required-check result, such as `gh pr checks <number> --required`. Never infer that a check is required from workflow timing, naming, ordering, or merge state. The gate requires the expected head, passing required checks, no merge conflict, and no actionable or unresolved feedback.
 
 Optional pending, stuck, or externally failed checks do not block this gate when they expose no repository defect. Do not wait for an optional check; merge when the gate otherwise holds. A failed optional check remains repair work when it identifies a repository defect.
 
