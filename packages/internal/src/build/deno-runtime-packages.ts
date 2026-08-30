@@ -206,7 +206,7 @@ function findClosingBrace(source: string, opening: number): number | undefined {
 
 function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
   const closing = findClosingBrace(source, opening)
-  return closing !== undefined && /^\s*\)\s*(?:\?\.)?\s*\(/.test(source.slice(closing + 1))
+  return closing !== undefined && /^\s*(?:\)\s*(?:\?\.)?\s*)?\(/.test(source.slice(closing + 1))
 }
 
 function tryBlockHasCatch(source: string, opening: number): boolean {
@@ -230,7 +230,8 @@ function collectOptionalRequirePackageNames(source: string): Set<string> {
       if (executableSource[index] === "{") openings.push(index)
       else if (executableSource[index] === "}") openings.pop()
     }
-    const guarded = openings.some((opening) => {
+    const statementPrefix = executableSource.slice(0, match.index).split(/[;\n]/).at(-1)!
+    const guarded = /=>[^{}]*$/.test(statementPrefix) || openings.some((opening) => {
       const prefix = executableSource.slice(0, opening).trimEnd()
       if (/\btry$/.test(prefix)) return tryBlockHasCatch(executableSource, opening)
       if (/\b(?:catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)) return true
@@ -335,10 +336,16 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
     const quote = match[1]!
     const literalStart = match.index! + match[0].length - 1
     let literalEnd = literalStart + 1
+    let interpolated = false
     while (literalEnd < source.length) {
       if (source[literalEnd] === "\\") literalEnd += 2
+      else if (quote === "`" && source[literalEnd] === "$" && source[literalEnd + 1] === "{") {
+        interpolated = true
+        break
+      }
       else if (source[literalEnd++] === quote) break
     }
+    if (interpolated) continue
     if (source[literalEnd - 1] !== quote) continue
     let cursor = literalEnd
     while (/\s/.test(source[cursor] || "")) cursor++
@@ -1116,7 +1123,8 @@ function isUnconditionalTopLevelExpression(source: string, expressionStart: numb
   if (braceDepth !== 0) return false
   const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
   const precedingLine = source.slice(0, expressionStart).split("\n").at(-2)?.trim() ?? ""
-  return /^\s*await\b/.test(statementPrefix)
+  return !/(?:^|\s)(?:else\s+)?(?:if|for|while|with)\s*\(/.test(statementPrefix)
+    && !/=>/.test(statementPrefix)
     && !/^(?:else\s+)?(?:if|for|while|with)\s*\(/.test(precedingLine)
     && !/&&|\|\||\?\?|\?\./.test(statementPrefix)
     && !/(^|[^?])\?(?![?.])/.test(statementPrefix)

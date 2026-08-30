@@ -1029,11 +1029,16 @@ load("@img/sharp-linux-x64/sharp.node")
     const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-"))
     await writeJson(join(requiredRoot, "package.json"), {})
     await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
-    await writeFile(join(requiredRoot, ".output/server/index.mjs"), 'await import("missing-feature")\n')
+    for (const source of [
+      'await import("missing-feature")\n',
+      'const feature = import("missing-feature")\n',
+    ]) {
+      await writeFile(join(requiredRoot, ".output/server/index.mjs"), source)
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
-      "Could not resolve package.json for missing-feature",
-    )
+      await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
+        "Could not resolve package.json for missing-feature",
+      )
+    }
   })
 
   it("allows unresolved guarded require probes but keeps top-level requires required", async () => {
@@ -1043,6 +1048,13 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'try { require("missing-feature") } catch {}\n')
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
+
+    const conciseRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-require-"))
+    await writeJson(join(conciseRoot, "package.json"), {})
+    await mkdir(join(conciseRoot, ".output/server"), { recursive: true })
+    await writeFile(join(conciseRoot, ".output/server/index.mjs"), 'const load = () => require("missing-feature")\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot })).resolves.toBeUndefined()
 
     const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-require-"))
     await writeJson(join(requiredRoot, "package.json"), {})
@@ -1055,6 +1067,7 @@ load("@img/sharp-linux-x64/sharp.node")
 
     for (const source of [
       '(() => { require("missing-feature") })()\n',
+      '!function () { require("missing-feature") }()\n',
       'try { require("missing-feature") } finally { cleanup() }\n',
     ]) {
       const eagerRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-eager-require-"))
@@ -1066,6 +1079,11 @@ load("@img/sharp-linux-x64/sharp.node")
         "Could not resolve package.json for missing-feature",
       )
     }
+  })
+
+  it("rejects interpolated template imports before relocation", () => {
+    expect(() => assertSupportedRelocatedImports('import(`runtime-${variant}`)', "application entrypoint"))
+      .toThrow("contains an unsupported computed import")
   })
 
   it("keeps required dynamic packages required across split server chunks", async () => {
