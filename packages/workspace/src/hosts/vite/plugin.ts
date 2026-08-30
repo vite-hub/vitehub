@@ -87,12 +87,13 @@ interface BabelObjectPropertyPath {
 type BabelNodePath = BabelObjectPropertyPath
 
 interface BabelBindingPath {
-  node: { init?: BabelNode }
+  node: BabelNode
+  parentPath?: BabelNodePath
   scope: BabelScope
 }
 
 interface BabelScope {
-  getBinding: (name: string) => { path: BabelBindingPath } | undefined
+  getBinding: (name: string) => { path: BabelBindingPath, referencePaths?: BabelNodePath[] } | undefined
 }
 
 type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
@@ -101,10 +102,27 @@ function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
 }
 
-function babelPropertyBelongsToStore(path: BabelObjectPropertyPath): boolean {
+function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boolean {
+  if (babelPathIsExported(path)) return true
+  if (!name) return false
+  const binding = path.scope.getBinding(name)
+  return binding?.referencePaths?.some(babelPathIsExported) ?? false
+}
+
+function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boolean {
   for (let current = path.parentPath; current; current = current.parentPath) {
     if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") return true
-    if (current.node.type === "FunctionDeclaration" || current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") return false
+    if (
+      current.node.type === "VariableDeclarator"
+      && current.node.id?.type === "Identifier"
+      && current.node.id.name === "store"
+      && babelPathOrBindingIsExported(current, current.node.id.name)
+    ) return true
+    if (current.node.type === "ExportDefaultDeclaration") return true
+    if (current.node.type === "FunctionDeclaration") {
+      return babelPathOrBindingIsExported(current, current.node.id?.name)
+    }
+    if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") return false
   }
   return false
 }
@@ -159,7 +177,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             const value = path.node.value as BabelNode | undefined
             if (
               babelPropertyName(path) === "provider"
-              && babelPropertyBelongsToStore(path)
+              && babelPropertyBelongsToExportedStore(path)
               && babelStringValue(value, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
