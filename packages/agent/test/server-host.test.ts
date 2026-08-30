@@ -24,6 +24,8 @@ afterEach(async () => {
   delete process.env.VITEHUB_TEST_COMMAND_LOG
   delete process.env.VITEHUB_TEST_RATE_LIMIT
   delete process.env.VITEHUB_TEST_RATE_LIMIT_DELAY
+  delete process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING
+  delete process.env.VITEHUB_TEST_RATE_LIMIT_RESET
   await Promise.all([...temporaryDirectories].map(path => rm(path, { force: true, recursive: true })))
   temporaryDirectories.clear()
 })
@@ -45,7 +47,7 @@ if [ "$1" = "repo" ] && [ "$2" = "clone" ] && [ -n "$VITEHUB_TEST_CLONE_DELAY" ]
 fi
 if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
   if [ -n "$VITEHUB_TEST_RATE_LIMIT_DELAY" ]; then sleep "$VITEHUB_TEST_RATE_LIMIT_DELAY"; fi
-  printf '%s\\n' '{"resources":{"graphql":{"remaining":100,"reset":2000000000}}}'
+  printf '%s\\n' "{\\"resources\\":{\\"graphql\\":{\\"remaining\\":\${VITEHUB_TEST_RATE_LIMIT_REMAINING:-100},\\"reset\\":\${VITEHUB_TEST_RATE_LIMIT_RESET:-2000000000}}}}"
 fi
 `, { mode: 0o755 }),
     writeFile(join(root, "git"), `#!/bin/sh
@@ -233,6 +235,41 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
+  it("preserves outstanding GraphQL reservations across budget refreshes", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }))
+      .resolves.toMatchObject({ remaining: 40 })
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("releases reservations observed as consumed by GitHub", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "40"
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 20 }))
+      .resolves.toMatchObject({ remaining: 20 })
+  })
+
+  it("refreshes a cached GraphQL budget after its reset", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = String(Math.floor(Date.now() / 1_000))
+    const host = createGitHubHost({ cacheMs: 60_000, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = String(Math.floor(Date.now() / 1_000) + 60)
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }))
+      .resolves.toMatchObject({ remaining: 40 })
+    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toHaveLength(2)
+  })
+
   it("reports an exact-reserve GraphQL budget as limited", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
@@ -371,6 +408,24 @@ describe("GitHub host", () => {
       failure = error
     }
     expect(host.isRateLimitError(failure)).toBe(true)
+  })
+
+  it("keeps REST primary failures out of the GraphQL budget", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT = "API rate limit exceeded."
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 0 })
+
+    let failure: unknown
+    try {
+      await host.command(["api", "repos/vite-hub/vitehub"], { repository: "vite-hub/vitehub" })
+    }
+    catch (error) {
+      failure = error
+    }
+    expect(host.isRateLimitError(failure)).toBe(false)
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .resolves.toMatchObject({ remaining: 99 })
   })
 
   it("honors cancellation before using a cached GraphQL budget", async () => {

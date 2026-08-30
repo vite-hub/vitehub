@@ -134,6 +134,16 @@ function rateLimitMessage(error: unknown): boolean {
   return /(?:rate limit[^\n]*exceeded|exceeded[^\n]*rate limit)/i.test(message)
 }
 
+function secondaryRateLimitMessage(error: unknown): boolean {
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
+  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
+  return /secondary rate limit/i.test(message)
+}
+
+function isGraphQLCommand(args: string[]): boolean {
+  return args[0] === "api" && args[1] === "graphql"
+}
+
 function abortError(reason?: unknown): Error {
   if (reason instanceof Error) return reason
   return new DOMException("The operation was aborted.", "AbortError")
@@ -193,6 +203,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
+  const observations = new Map<string, GitHubGraphQLRateLimit>()
+  const reservations = new Map<string, { points: number, resetAt: number }>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
@@ -326,7 +338,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return await exec("gh", args, execOptions)
     }
     catch (error) {
-      if (auth && input.repository && rateLimitMessage(error)) {
+      if (auth && input.repository && rateLimitMessage(error)
+        && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
         const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
         limits.set(auth.rateLimitKey, limit)
         throw new GitHubRateLimitError(input.repository, limit, error)
@@ -354,10 +367,15 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           throw new GitHubRateLimitError(repository, available)
         }
         const reserved = { ...available, remaining: available.remaining - options.cost }
+        const outstanding = reservations.get(key)
+        reservations.set(key, {
+          points: (outstanding?.resetAt === available.resetAt ? outstanding.points : 0) + options.cost,
+          resetAt: available.resetAt,
+        })
         limits.set(key, reserved)
         return reserved
       }
-      if (cached && now - cached.checkedAt < cacheMs) return admit(cached)
+      if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)
       const pending = checks.get(key)
       if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
       const limitBeforeCheck = limits.get(key)
@@ -371,13 +389,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
+          const previousObservation = observations.get(key)
+          const previousReservation = reservations.get(key)
+          const sameWindow = previousObservation?.resetAt === limit.resetAt
+            && previousReservation?.resetAt === limit.resetAt
+          const consumed = sameWindow ? Math.max(0, previousObservation.remaining - limit.remaining) : 0
+          const outstanding = sameWindow ? Math.max(0, previousReservation.points - consumed) : 0
+          const observed = { ...limit, remaining: limit.remaining - outstanding }
           const current = limits.get(key)
           const reconciled = current !== limitBeforeCheck
             && current !== undefined
             && current.resetAt > Date.now()
-            && current.remaining <= limit.remaining
+            && current.remaining <= observed.remaining
             ? current
-            : limit
+            : observed
+          observations.set(key, limit)
+          reservations.set(key, { points: outstanding, resetAt: limit.resetAt })
           limits.set(key, reconciled)
           return reconciled
         }
