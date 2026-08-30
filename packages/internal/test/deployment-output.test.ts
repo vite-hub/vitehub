@@ -1404,6 +1404,43 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("copies cyclic Node runtime package dependencies once", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "first-runtime", { dependencies: { "second-runtime": "1.0.0" } })
+    await writePackage(rootDir, "second-runtime", { dependencies: { "first-runtime": "1.0.0" } })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "first-runtime" }],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "first-runtime", "package.json"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "second-runtime", "package.json"))).toBe(true)
+  })
+
+  it("expands required peers when a copied runtime package is revisited with peer inclusion", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "first-runtime", { dependencies: { "shared-runtime": "1.0.0" } })
+    await writePackage(rootDir, "shared-runtime", { peerDependencies: { "runtime-peer": "1.0.0" } })
+    await writePackage(rootDir, "runtime-peer")
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [
+        { name: "first-runtime" },
+        { includePeerDependencies: true, name: "shared-runtime" },
+      ],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "runtime-peer", "package.json"))).toBe(true)
+  })
+
   it("preserves nested dependency versions in copied Vercel runtime packages", async () => {
     const rootDir = await createTempProject()
     const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
