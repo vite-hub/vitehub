@@ -1444,7 +1444,7 @@ describe("hubWorkspace", () => {
     const esm = definitionSource.startsWith("import")
     await writeFile(join(root, "src", `workspace-stores.${esm ? "ts" : "cjs"}`), esm
       ? `export default { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`
-      : `exports.artifactStore = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+      : `module.exports = { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`)
     await writeFile(join(root, "src", `docs.workspace.${esm ? "ts" : "cjs"}`), `${definitionSource}\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -2278,6 +2278,22 @@ describe("hubWorkspace", () => {
     await configResolved({ command: "build", root })
 
     await expect(closeBundle.handler()).resolves.toBeUndefined()
+  })
+
+  it("does not follow default exports through export-star barrels", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "examples.ts"), `export default { provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "#generated-workspace-store"`,
+      `export * from "./examples"`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ store: { provider: "memory" } })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+
+    await expect((plugin.closeBundle as { handler: () => Promise<void> }).handler()).resolves.toBeUndefined()
   })
 
   it("does not inspect unrelated default imports retained in a Workspace Definition", async () => {

@@ -338,6 +338,11 @@ async function sourceModuleDeclaresCloudflareArtifacts(
               : (() => {
                   for (let current = path.parentPath; current; current = current.parentPath) {
                     if (
+                      current.node.type === "ObjectProperty"
+                      && babelPropertyName(current as BabelObjectPropertyPath) === exportedName
+                      && babelPathIsDirectDefaultExport(current)
+                    ) return true
+                    if (
                       current.node.type === "AssignmentExpression"
                       && current.node.left?.type === "MemberExpression"
                       && (
@@ -351,6 +356,15 @@ async function sourceModuleDeclaresCloudflareArtifacts(
                         )
                       )
                       && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
+                    ) return true
+                    if (
+                      current.node.type === "AssignmentExpression"
+                      && current.node.left?.type === "MemberExpression"
+                      && current.node.left.object?.type === "Identifier"
+                      && current.node.left.object.name === "module"
+                      && current.node.left.property?.type === "Identifier"
+                      && current.node.left.property.name === "exports"
+                      && babelPropertyName(path) === exportedName
                     ) return true
                     if (
                       current.node.type === "VariableDeclarator"
@@ -414,14 +428,15 @@ async function sourceModuleMayUseCloudflareArtifacts(
   visited.add(visitKey)
   if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
-  for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
+  for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
     if (!importedName) return true
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
     if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, importedName)) return true
+    const requestedName = selectedName ?? importedName
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)) return true
   }
   return false
 }
@@ -430,8 +445,8 @@ function sourceImportsFeedingWorkspaceStore(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   exportedName: string,
-): Array<{ importedName?: string, specifier: string }> {
-  const imports: Array<{ importedName?: string, specifier: string }> = []
+): Array<{ importedName?: string, selectedName?: string, specifier: string }> {
+  const imports: Array<{ importedName?: string, selectedName?: string, specifier: string }> = []
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -456,7 +471,7 @@ function sourceImportsFeedingWorkspaceStore(
           ExportAllDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export-all sources may be absent or non-string parser nodes.
-            if (typeof specifier === "string") imports.push({ importedName: exportedName, specifier })
+            if (typeof specifier === "string" && exportedName !== "default") imports.push({ importedName: exportedName, specifier })
           },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
@@ -482,7 +497,9 @@ function sourceImportsFeedingWorkspaceStore(
                 for (const reference of binding?.referencePaths ?? []) {
                   const memberNames = babelNamespaceMemberNames(reference, referenceReachesRequestedExport)
                   for (const importedName of memberNames) {
-                    imports.push({ importedName, specifier })
+                    imports.push(imported.type === "ImportDefaultSpecifier"
+                      ? { importedName: "default", selectedName: importedName, specifier }
+                      : { importedName, specifier })
                   }
                   if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
                     imports.push({ importedName: "default", specifier })
@@ -572,7 +589,7 @@ async function loadFactoredCloudflareArtifactStore(
 ): Promise<WorkspaceDefinitionInput["store"] | undefined> {
   const loaded = await readSourceModule(definition.path)
   if (!loaded) return
-  for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
+  for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
     if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
@@ -581,7 +598,8 @@ async function loadFactoredCloudflareArtifactStore(
     try {
       // SAFETY: Jiti has no generic import contract; the record guard below validates the module namespace before access.
       const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
-      const store = importedName === "default" ? imported.default : imported[importedName]
+      const sourceExport = importedName === "default" ? imported.default : imported[importedName]
+      const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
       if (isRecord(store) && store.provider === "cloudflare-artifacts") return store as WorkspaceDefinitionInput["store"]
     }
