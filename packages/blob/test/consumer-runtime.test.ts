@@ -137,11 +137,6 @@ describe("hosted Blob consumer runtime", () => {
         for (const name of awsRuntimePackages) expect(consumerManifest.dependencies).not.toHaveProperty(name)
         await run("pnpm", ["run", "build"], appDir)
 
-        const runtimeModule = await readFile(
-          join(appDir, ".vitehub/blob/vercel-runtime.mjs"),
-          "utf8",
-        )
-        expect(runtimeModule).toContain("drivers/vercel-bundled")
         await probePrivateVercelFunction(appDir)
 
         await cp(

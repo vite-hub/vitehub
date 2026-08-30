@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -17,6 +17,7 @@ interface BundleEsmEntryOptions {
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
   rootDir?: string
+  signal?: AbortSignal
   workingDir?: string
 }
 
@@ -239,12 +240,13 @@ export async function bundleEsmEntry(
   outfile: string,
   options: BundleEsmEntryOptions = {},
 ): Promise<void> {
+  options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   const aliases = resolveEsbuildAliases(options.alias)
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
-  await bundle({
+  const result = await bundle({
     absWorkingDir: options.workingDir,
     alias: aliases,
     banner: options.banner || (format === "esm" && platform === "node")
@@ -276,6 +278,15 @@ export async function bundleEsmEntry(
     plugins: [...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,
     target: "es2022",
-    write: true,
+    write: options.signal ? false : true,
   })
+  options.signal?.throwIfAborted()
+  if (options.signal) {
+    await Promise.all((result.outputFiles ?? []).map(async (output) => {
+      await mkdir(dirname(output.path), { recursive: true })
+      options.signal!.throwIfAborted()
+      await writeFile(output.path, output.contents, { signal: options.signal })
+    }))
+    options.signal.throwIfAborted()
+  }
 }
