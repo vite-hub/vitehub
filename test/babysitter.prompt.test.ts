@@ -178,3 +178,14 @@ test('leaves lifecycle delivery to the scheduler and returns a concise final res
   assert.match(prompt, /surrounding comment already identifies the repository, pull request, and session/i)
   assert.match(prompt, /omit process narration/i)
 })
+
+test('injects durable PR memory and exposes only append behavior', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /PR memory contains durable findings/)
+  assert.match(prompt, /append_pr_memory/)
+  assert.match(prompt, /reasoning, affected hooks or behavior, consequences, and supporting sources/)
+  assert.match(prompt, /Do not add transient status/)
+  assert.match(prompt, /context\.pullRequestMemory/)
+  assert.doesNotMatch(prompt, /delete_pr_memory|update_pr_memory|search_pr_memory/)
+})

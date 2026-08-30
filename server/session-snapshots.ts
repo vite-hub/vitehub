@@ -27,8 +27,16 @@ export type SessionAgentConfiguration = {
   workspace?: { mode?: string, name?: string, sources?: string[] }
 }
 
+export type SessionArtifact = {
+  content: string
+  mediaType: string
+  path: string
+  updatedAt: string
+}
+
 export type SessionSnapshot = {
   agent?: SessionAgentConfiguration
+  artifacts: SessionArtifact[]
   createdAt: string
   events: SessionTimelineEvent[]
   invocationId: string
@@ -62,6 +70,7 @@ export function createSessionSnapshotStore(url = '.vitehub/session-snapshots.sql
       pull_request INTEGER NOT NULL,
       source_repository TEXT,
       agent_json TEXT,
+      artifacts_json TEXT NOT NULL DEFAULT '[]',
       paths_json TEXT NOT NULL DEFAULT '[]',
       events_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
@@ -70,6 +79,7 @@ export function createSessionSnapshotStore(url = '.vitehub/session-snapshots.sql
   `)
   const columns = database.prepare('PRAGMA table_info(session_snapshots)').all() as { name: string }[]
   if (!columns.some(column => column.name === 'agent_json')) database.exec('ALTER TABLE session_snapshots ADD COLUMN agent_json TEXT')
+  if (!columns.some(column => column.name === 'artifacts_json')) database.exec("ALTER TABLE session_snapshots ADD COLUMN artifacts_json TEXT NOT NULL DEFAULT '[]'")
 
   const read = database.prepare('SELECT * FROM session_snapshots WHERE invocation_id = ?')
   const readPrepared = database.prepare(`
@@ -93,6 +103,7 @@ export function createSessionSnapshotStore(url = '.vitehub/session-snapshots.sql
   const updateEvents = database.prepare('UPDATE session_snapshots SET events_json = ?, updated_at = ? WHERE invocation_id = ?')
   const updatePaths = database.prepare('UPDATE session_snapshots SET paths_json = ?, updated_at = ? WHERE invocation_id = ?')
   const updateAgent = database.prepare('UPDATE session_snapshots SET agent_json = ?, updated_at = ? WHERE invocation_id = ?')
+  const updateArtifacts = database.prepare('UPDATE session_snapshots SET artifacts_json = ?, updated_at = ? WHERE invocation_id = ?')
   const readStats = database.prepare('SELECT COUNT(*) AS count, MAX(updated_at) AS updated_at FROM session_snapshots')
 
   return {
@@ -139,6 +150,14 @@ export function createSessionSnapshotStore(url = '.vitehub/session-snapshots.sql
       updateAgent.run(JSON.stringify(agent), timestamp, invocationId)
       return agent
     },
+    setArtifact(invocationId: string, artifact: Omit<SessionArtifact, 'updatedAt'>, timestamp = new Date().toISOString()) {
+      const snapshot = this.get(invocationId)
+      if (!snapshot) throw new Error(`Session snapshot ${invocationId} does not exist.`)
+      const artifacts = [...snapshot.artifacts.filter(item => item.path !== artifact.path), { ...artifact, updatedAt: timestamp }]
+        .sort((left, right) => left.path.localeCompare(right.path))
+      updateArtifacts.run(JSON.stringify(artifacts), timestamp, invocationId)
+      return artifacts
+    },
     setPaths(invocationId: string, paths: readonly string[], timestamp = new Date().toISOString()) {
       const normalized = [...new Set(paths)].sort((left, right) => left.localeCompare(right))
       updatePaths.run(JSON.stringify(normalized), timestamp, invocationId)
@@ -160,6 +179,7 @@ export function useSessionSnapshotStore() {
 function parseRow(row: Record<string, unknown>): SessionSnapshot {
   return {
     ...(typeof row.agent_json === 'string' ? { agent: JSON.parse(row.agent_json) as SessionAgentConfiguration } : {}),
+    artifacts: parseArray<SessionArtifact>(row.artifacts_json),
     createdAt: String(row.created_at),
     events: parseArray<SessionTimelineEvent>(row.events_json),
     invocationId: String(row.invocation_id),

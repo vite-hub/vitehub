@@ -10,6 +10,7 @@ import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
 import { consoleClient } from '../../console.ts'
 import { githubAgentEnvironment, githubToken } from '../../github.ts'
 import { invocations } from '../../invocations.ts'
+import { prMemoryCapability } from '../../pr-memory.ts'
 
 const capabilityToken = await githubToken({ fallback: true })
 const maxOwners = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
@@ -71,10 +72,11 @@ const settings = {
   name: 'babysitter',
 } as const
 
-export function createBabysitterAgent(checkout: string, token: string) {
+export function createBabysitterAgent(checkout: string, token: string, memory: Parameters<typeof prMemoryCapability>[0]) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
   return defineAgent({
     ...settings,
+    capabilities: [...capabilities, prMemoryCapability(memory)],
     driver: createDriver(token, checkout),
     workspace: {
       commit: true,

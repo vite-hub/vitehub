@@ -56,3 +56,9 @@ Begin with exactly one of these invisible disposition markers:
 - `<!-- babysitter:disposition:retry -->` when actionable work remains but this pass made no authorized GitHub state change that can wake the next pass. Use retry when a failed check remains unfixed, including when local validation or diagnosis could not complete.
 
 If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update for the scheduler's existing GitHub comment. State the outcome, any change made, focused validation, and the single current blocker or next gate when relevant. The surrounding comment already identifies the repository, pull request, and session. Keep the update under 80 words and omit process narration.
+
+## PR memory
+
+PR memory contains durable findings collected while working on this pull request. Use it to avoid repeating investigation. Append new information with `append_pr_memory` only when it will help later sessions understand the reasoning, affected hooks or behavior, consequences, and supporting sources. Do not add transient status, completed-task narration, duplicated facts, or instructions for a future agent.
+
+{{{ context.pullRequestMemory }}}

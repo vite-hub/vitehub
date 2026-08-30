@@ -40,6 +40,7 @@ import {
 import { sessionAgentConfiguration } from './session-agent.ts'
 import { type SessionTimelineEvent, useSessionSnapshotStore } from './session-snapshots.ts'
 import { invocations } from './invocations.ts'
+import { prMemoryArtifactPath, readPRMemory, renderPRMemory } from './pr-memory.ts'
 
 const policyFingerprint = createPolicyFingerprint(promptTemplate, blocker, completionPolicyVersion)
 const githubLifecycleGroup = 'github-lifecycle'
@@ -149,6 +150,13 @@ export async function reconcileBabysitterWork(reason: string) {
           timestamp: new Date().toISOString(),
           title: 'Workspace materialized',
         }, owner)
+        const memory = await readPRMemory(repository, pullRequest.number)
+        const memoryDocument = renderPRMemory(memory)
+        useSessionSnapshotStore().setArtifact(runId, {
+          content: memoryDocument,
+          mediaType: 'text/markdown',
+          path: prMemoryArtifactPath,
+        })
         const context = {
           pullRequestHead: pullRequest.headRefOid,
           pullRequestNumber: pullRequest.number,
@@ -157,8 +165,14 @@ export async function reconcileBabysitterWork(reason: string) {
           pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
           pullRequestTitle: pullRequest.title,
           pullRequestUrl: pullRequest.url,
+          pullRequestMemory: memoryDocument,
         }
-        const agent = createBabysitterAgent(checkout, token)
+        const agent = createBabysitterAgent(checkout, token, {
+          head: pullRequest.headRefOid,
+          invocationId: runId,
+          pullRequest: pullRequest.number,
+          repository,
+        })
         let agentConfiguration: ReturnType<typeof sessionAgentConfiguration> | undefined
         try {
           const inspection = await resolveAgentInspectionMetadata(agent, { resolveSources: false })

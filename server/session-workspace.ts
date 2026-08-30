@@ -18,7 +18,7 @@ export async function resolveSessionWorkspace(invocation: AgentInvocationRecord,
     snapshots.setPaths(invocation.id, paths)
     snapshot = { ...snapshot, paths }
   }
-  return snapshot
+  return { ...snapshot, paths: [...new Set([...snapshot.paths, ...snapshot.artifacts.map(artifact => artifact.path)])].sort() }
 }
 
 export async function readWorkspaceTree(repository: string, revision: string, runner: GitHubRunner = runGitHub) {
@@ -43,6 +43,8 @@ export async function readWorkspaceTree(repository: string, revision: string, ru
 export async function readWorkspaceFile(snapshot: SessionSnapshot, path: string, runner: GitHubRunner = runGitHub) {
   assertWorkspacePath(path)
   if (!snapshot.paths.includes(path)) throw new Error('The requested file is not part of this Workspace snapshot.')
+  const artifact = snapshot.artifacts.find(artifact => artifact.path === path)
+  if (artifact) return { content: artifact.content, path, revision: snapshot.revision, size: Buffer.byteLength(artifact.content) }
   const endpointPath = path.split('/').map(encodeURIComponent).join('/')
   const result = await runner([
     'api',
@@ -81,6 +83,7 @@ function snapshotFromAnnotations(invocation: AgentInvocationRecord): SessionSnap
   assertRepository(repository)
   assertRevision(revision)
   return {
+    artifacts: [],
     createdAt: invocation.createdAt,
     events: [],
     invocationId: invocation.id,

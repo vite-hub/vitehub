@@ -4,6 +4,7 @@ import { assertWorkspacePath, readWorkspaceFile, readWorkspaceTree } from '../se
 import type { SessionSnapshot } from '../server/session-snapshots.ts'
 
 const snapshot: SessionSnapshot = {
+  artifacts: [],
   createdAt: '2026-08-24T10:00:00.000Z',
   events: [],
   invocationId: 'run-1',
@@ -13,6 +14,23 @@ const snapshot: SessionSnapshot = {
   revision: '0123456789012345678901234567890123456789',
   updatedAt: '2026-08-24T10:00:00.000Z',
 }
+
+test('loads a session artifact without requesting GitHub', async () => {
+  const artifactSnapshot = {
+    ...snapshot,
+    artifacts: [{ content: '# PRMemory\n', mediaType: 'text/markdown', path: 'PRMemory.md', updatedAt: snapshot.updatedAt }],
+    paths: [...snapshot.paths, 'PRMemory.md'],
+  }
+  const file = await readWorkspaceFile(artifactSnapshot, 'PRMemory.md', async () => {
+    throw new Error('should not request GitHub')
+  })
+  assert.deepEqual(file, {
+    content: '# PRMemory\n',
+    path: 'PRMemory.md',
+    revision: snapshot.revision,
+    size: 11,
+  })
+})
 
 test('loads only blob paths from an immutable GitHub tree', async () => {
   const calls: string[][] = []

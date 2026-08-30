@@ -26,6 +26,11 @@ test('stores immutable workspace references and ordered preparation events', () 
     tools: [{ name: 'github' }],
   }, '2026-08-24T10:00:01.500Z')
   snapshots.setPaths('run-1', ['src/index.ts', 'README.md', 'src/index.ts'], '2026-08-24T10:00:02.000Z')
+  snapshots.setArtifact('run-1', {
+    content: '# PRMemory\n',
+    mediaType: 'text/markdown',
+    path: 'PRMemory.md',
+  }, '2026-08-24T10:00:03.000Z')
 
   assert.deepEqual(snapshots.get('run-1'), {
     agent: {
@@ -34,6 +39,12 @@ test('stores immutable workspace references and ordered preparation events', () 
       instructions: ['System instructions'],
       tools: [{ name: 'github' }],
     },
+    artifacts: [{
+      content: '# PRMemory\n',
+      mediaType: 'text/markdown',
+      path: 'PRMemory.md',
+      updatedAt: '2026-08-24T10:00:03.000Z',
+    }],
     createdAt: '2026-08-24T10:00:00.000Z',
     events: [{
       name: 'babysitter.workspace.materialized',
@@ -48,7 +59,7 @@ test('stores immutable workspace references and ordered preparation events', () 
     repository: 'vite-hub/example',
     revision: '0123456789012345678901234567890123456789',
     sourceRepository: 'contributor/example',
-    updatedAt: '2026-08-24T10:00:02.000Z',
+    updatedAt: '2026-08-24T10:00:03.000Z',
   })
   assert.equal(snapshots.getPrepared(
     'vite-hub/example',
@@ -56,7 +67,7 @@ test('stores immutable workspace references and ordered preparation events', () 
     42,
   )?.agent?.driver?.model?.provider, 'openai')
   assert.equal(snapshots.getPrepared('vite-hub/example', 'missing', 42), undefined)
-  assert.deepEqual(snapshots.stats(), { count: 1, updatedAt: '2026-08-24T10:00:02.000Z' })
+  assert.deepEqual(snapshots.stats(), { count: 1, updatedAt: '2026-08-24T10:00:03.000Z' })
   snapshots.close()
 })
 
