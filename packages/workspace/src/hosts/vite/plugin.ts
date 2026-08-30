@@ -8,7 +8,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -245,18 +245,14 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
+    if (!inspection?.artifactsOnly && !await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
     }
     catch (error) {
-      if (inspection?.artifactsOnly) {
-        if (await sourceModuleDeclaresCloudflareArtifacts(definition.path, loader)) throw error
-        continue
-      }
-      if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error
-      continue
+      if (inspection?.artifactsOnly && !await sourceModuleDeclaresCloudflareArtifacts(definition.path, loader)) continue
+      throw error
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
     if (!workspace.store || "readFile" in workspace.store) continue
