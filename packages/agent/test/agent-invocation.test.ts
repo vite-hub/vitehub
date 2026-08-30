@@ -119,6 +119,7 @@ describe("Agent Invocation controllers", () => {
         async run() {
           return {
             answer: 42,
+            finishReason: "stop",
             fullStream: (async function* () {
               yield { delta: "nested", type: "text-delta" }
             })(),
@@ -135,6 +136,7 @@ describe("Agent Invocation controllers", () => {
     const result = await controller.result
     expect(result).toMatchObject({
       answer: 42,
+      finishReason: "stop",
       raw: { providerData: "preserved" },
       requestId: "request-1",
       text: "nested",
@@ -174,6 +176,48 @@ describe("Agent Invocation controllers", () => {
     })
     expect(result).not.toHaveProperty("fullStream")
     expect((result as { raw: object }).raw).not.toHaveProperty("fullStream")
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it("preserves non-plain cloneable raw child results", async () => {
+    const raw = new Map([["providerData", "preserved"]])
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            fullStream: (async function* () {
+              yield { delta: "nested", type: "text-delta" }
+            })(),
+            raw,
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect((result as { raw: Map<string, string> }).raw).toEqual(raw)
+    expect((result as { raw: unknown }).raw).toBeInstanceOf(Map)
+    expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it("omits non-cloneable raw child results", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            fullStream: (async function* () {
+              yield { delta: "nested", type: "text-delta" }
+            })(),
+            raw: { callback: () => undefined },
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).not.toHaveProperty("raw")
     expect(() => structuredClone(result)).not.toThrow()
   })
 

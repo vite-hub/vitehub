@@ -6598,6 +6598,25 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   return createBackedAgentInvocationController(controllerOptions)
 }
 
+const agentResultStreamProperties = ["fullStream", "stream", "textStream", "toUIMessageStream"] as const
+
+function cloneableAgentResultRaw(value: unknown): unknown {
+  try {
+    let candidate = value
+    if (isRuntimeRecord(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
+      const sanitized = { ...value }
+      for (const property of agentResultStreamProperties)
+        Reflect.deleteProperty(sanitized, property)
+      candidate = sanitized
+    }
+    structuredClone(candidate)
+    return candidate
+  }
+  catch {
+    return undefined
+  }
+}
+
 function createInlineAgentInvocationController<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -6629,6 +6648,7 @@ function createInlineAgentInvocationController<
       const started = await startResult
       let settledResponse: Response | undefined
       let materializedStreamResult: AgentRunResult | undefined
+      let materializedRaw: unknown
       if (isAsyncIterable(started)) {
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
@@ -6637,6 +6657,9 @@ function createInlineAgentInvocationController<
         await started.arrayBuffer()
       }
       else if (started !== null && hasRuntimeType(started, "object") && hasTraceableStreamResult(started)) {
+        materializedRaw = cloneableAgentResultRaw(
+          Object.hasOwn(started, "raw") ? Reflect.get(started, "raw") : started,
+        )
         materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started !== null && hasRuntimeType(started, "object") && isUIMessageStreamResult(started)) {
@@ -6656,20 +6679,16 @@ function createInlineAgentInvocationController<
             ? outcome.output
             : undefined
           const completedPublicResult: Record<string, unknown> = completed ? { ...completed } : {}
-          for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
+          for (const property of agentResultStreamProperties)
             Reflect.deleteProperty(completedPublicResult, property)
-          const completedRaw = completedPublicResult.raw
-          const completedPublicRaw = isRuntimeRecord(completedRaw)
-            ? { ...completedRaw }
-            : completedRaw
-          if (isRuntimeRecord(completedPublicRaw)) {
-            for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
-              Reflect.deleteProperty(completedPublicRaw, property)
-          }
+          Reflect.deleteProperty(completedPublicResult, "raw")
+          const definedMaterializedResult = Object.fromEntries(
+            Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
+          )
           return {
             ...completedPublicResult,
-            ...materializedStreamResult,
-            ...(completedPublicRaw !== undefined && !isAsyncIterable(completedPublicRaw) ? { raw: completedPublicRaw } : {}),
+            ...definedMaterializedResult,
+            ...(materializedRaw !== undefined ? { raw: materializedRaw } : {}),
           }
         }
         // SAFETY: the completed lifecycle output uses the controller's declared public result union.
