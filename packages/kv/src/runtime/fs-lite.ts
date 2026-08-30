@@ -11,6 +11,15 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const continuations = new Map<string, { iterator: AsyncGenerator<string>; timeout: NodeJS.Timeout }>()
+  const maximumContinuations = 32
+
+  function releaseContinuation(cursor: string): void {
+    const continuation = continuations.get(cursor)
+    if (!continuation) return
+    clearTimeout(continuation.timeout)
+    continuations.delete(cursor)
+    void continuation.iterator.return(undefined)
+  }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
     const root = resolve(options.base)
     const keys: string[] = []
@@ -52,11 +61,14 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     }
     const nextCursor = randomUUID()
     const timeout = setTimeout(() => {
-      continuations.delete(nextCursor)
-      void iterator.return(undefined)
+      releaseContinuation(nextCursor)
     }, 60_000)
     timeout.unref()
     continuations.set(nextCursor, { iterator, timeout })
+    while (continuations.size > maximumContinuations) {
+      const oldestCursor = continuations.keys().next().value
+      if (oldestCursor) releaseContinuation(oldestCursor)
+    }
     return { keys, cursor: nextCursor }
   }
   return driver

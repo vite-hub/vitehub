@@ -398,6 +398,27 @@ describe("kv runtime", () => {
     }
   })
 
+  it("releases the oldest abandoned fs-lite listing when continuation capacity is full", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-continuations-"))
+    try {
+      await writeFile(join(root, "one"), "one")
+      await writeFile(join(root, "two"), "two")
+      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
+      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const cursors: string[] = []
+      for (let index = 0; index < 33; index += 1) {
+        const page = await driver.listKeys({ limit: 1 })
+        if (page.cursor) cursors.push(page.cursor)
+      }
+
+      await expect(driver.listKeys({ cursor: cursors[0], limit: 1 })).rejects.toThrow("Invalid or expired")
+      await expect(driver.listKeys({ cursor: cursors.at(-1), limit: 1 })).resolves.toMatchObject({ keys: [expect.any(String)] })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("treats a missing fs-lite directory as an empty store", async () => {
     const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
     const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
@@ -472,7 +493,8 @@ describe("kv runtime", () => {
 
     expect(first).toMatchObject({ keys: ["one", "two"], cursor: expect.any(String) })
     expect(second).toEqual({ keys: ["three"] })
-    expect(upstashScan).toHaveBeenCalledOnce()
+    expect(first.cursor).not.toContain("three")
+    expect(upstashScan).toHaveBeenCalledTimes(2)
   })
 
   it("passes a bounded page size to Deno KV for selective prefixes", async () => {

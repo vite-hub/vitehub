@@ -112,6 +112,8 @@ describe("Console KV inspection", () => {
         ["", "empty key"],
         ["config", { enabled: true }],
         ["boxed", new Number(7)],
+        ["boxed-custom", Object.assign(new Number(7), { toJSON: () => "replacement" })],
+        ["boxed-bigint", Object(1n)],
         ["keyed", { toJSON: (key: string) => ({ key }) }],
         ["large-structured", { content: "x".repeat(256 * 1_024 + 1) }],
         ["nullable", null],
@@ -139,6 +141,8 @@ describe("Console KV inspection", () => {
       value: "{\n  \"enabled\": true\n}",
     })
     await expect(kvHandler(event("?key=boxed"))).resolves.toMatchObject({ value: "7" })
+    await expect(kvHandler(event("?key=boxed-custom"))).resolves.toMatchObject({ value: "\"replacement\"" })
+    await expect(kvHandler(event("?key=boxed-bigint"))).resolves.toMatchObject({ format: "text", value: "1" })
     await expect(kvHandler(event("?key=keyed"))).resolves.toMatchObject({
       value: "{\n  \"key\": \"\"\n}",
     })

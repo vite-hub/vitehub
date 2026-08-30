@@ -142,6 +142,7 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
   const controller = new AbortController();
   listRequest = controller;
   listLoading.value = true;
+  let retryExpiredCursor = false;
   if (!options.append) {
     keys.value = [];
     nextCursor.value = undefined;
@@ -164,13 +165,17 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (listRequest === controller) listError.value = error;
+    if (listRequest === controller) {
+      retryExpiredCursor = options.append === true;
+      if (!retryExpiredCursor) listError.value = error;
+    }
   } finally {
     if (listRequest === controller) {
       listRequest = undefined;
       listLoading.value = false;
     }
   }
+  if (retryExpiredCursor) await loadKeys({ keepSelection: true });
 }
 
 async function selectKey(key: string): Promise<void> {
