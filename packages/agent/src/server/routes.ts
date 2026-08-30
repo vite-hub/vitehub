@@ -4062,9 +4062,8 @@ function chatRawDeliveryKey(message: ChatSdkMessage): string | undefined {
   } catch {}
 }
 
-function isExactChatSdkDelivery(item: ChatSdkMessage, current: ChatSdkMessage, currentRawKey?: string): boolean {
-  if (item === current || (isRuntimeObject(current.raw) && item.raw === current.raw)) return true
-  return currentRawKey !== undefined && chatRawDeliveryKey(item) === currentRawKey
+function isExactChatSdkDelivery(item: ChatSdkMessage, current: ChatSdkMessage): boolean {
+  return item === current || (isRuntimeObject(current.raw) && item.raw === current.raw)
 }
 
 async function chatTriggerMessages(
@@ -4091,7 +4090,7 @@ async function chatTriggerMessages(
       if (++scanned > MAX_CHAT_TRIGGER_HISTORY_SCAN) break
       if (!message.id) {
         idLessCandidates.push(item)
-        if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message, currentRawKey)) {
+        if (exactIdLessCurrentIndex < 0 && isExactChatSdkDelivery(item, message)) {
           exactIdLessCurrentIndex = idLessCandidates.length - 1
         }
         if (exactIdLessCurrentIndex >= 0 && idLessCandidates.length > exactIdLessCurrentIndex + fetchedLimit) break
@@ -4105,9 +4104,17 @@ async function chatTriggerMessages(
       }
     }
     if (!message.id) {
+      const rawCurrentIndices = currentRawKey === undefined
+        ? []
+        : idLessCandidates.flatMap((item, index) => (chatRawDeliveryKey(item) === currentRawKey ? [index] : []))
+      const structuralCurrentIndices = idLessCandidates.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : []))
       const currentIndex = exactIdLessCurrentIndex >= 0
         ? exactIdLessCurrentIndex
-        : idLessCandidates.findIndex((item) => isCurrentChatSdkMessage(item, message))
+        : rawCurrentIndices.length === 1
+          ? rawCurrentIndices[0] ?? -1
+          : rawCurrentIndices.length === 0 && structuralCurrentIndices.length === 1
+            ? structuralCurrentIndices[0] ?? -1
+            : -1
       if (currentIndex >= 0) {
         for (const item of idLessCandidates.slice(currentIndex + 1, currentIndex + 1 + fetchedLimit)) {
           fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
@@ -4119,14 +4126,19 @@ async function chatTriggerMessages(
   let durable = await durableChatThreadMessages(thread, limit)
   const exactDurableCurrentIndices = message.id
     ? []
-    : durable.flatMap((item, index) => (isExactChatSdkDelivery(item, message, currentRawKey) ? [index] : []))
+    : durable.flatMap((item, index) => (isExactChatSdkDelivery(item, message) ? [index] : []))
+  const rawDurableCurrentIndices = message.id || currentRawKey === undefined
+    ? []
+    : durable.flatMap((item, index) => (chatRawDeliveryKey(item) === currentRawKey ? [index] : []))
   const structuralDurableCurrentIndices = durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : []))
   const durableCurrentIndex = message.id
     ? structuralDurableCurrentIndices.at(-1) ?? -1
     : exactDurableCurrentIndices.length === 1
       ? exactDurableCurrentIndices[0] ?? -1
-      : exactDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
-        ? structuralDurableCurrentIndices[0] ?? -1
+      : exactDurableCurrentIndices.length === 0 && rawDurableCurrentIndices.length === 1
+        ? rawDurableCurrentIndices[0] ?? -1
+        : exactDurableCurrentIndices.length === 0 && rawDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
+          ? structuralDurableCurrentIndices[0] ?? -1
         : -1
   if (message.id && foundCurrent && durableCurrentIndex < 0) {
     const currentTime = message.metadata.dateSent.getTime()

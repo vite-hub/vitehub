@@ -17787,9 +17787,11 @@ describe("server helpers", () => {
     const newer = historicalMessage("current id-less")
     newer.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
     Reflect.deleteProperty(newer, "id")
-    adapter.fetchMessages.mockImplementation(async (threadId: string) => ({
-      messages: [previous, nearest, ...adapter._cachedMessages(threadId), newer],
-    }))
+    adapter.fetchMessages.mockImplementation(async (threadId: string) => {
+      const cached = adapter._cachedMessages(threadId)
+      for (const item of [previous, nearest, ...cached, newer]) item.raw = { delivery: "same" }
+      return { messages: [previous, nearest, ...cached, newer] }
+    })
     const runs: string[][] = []
     const agent = defineAgent({
       channels: {
