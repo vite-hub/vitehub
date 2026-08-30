@@ -77,6 +77,16 @@ interface BabelNode {
 interface BabelObjectPropertyPath {
   node: BabelNode
   parentPath?: BabelObjectPropertyPath
+  scope: BabelScope
+}
+
+interface BabelBindingPath {
+  node: { init?: BabelNode }
+  scope: BabelScope
+}
+
+interface BabelScope {
+  getBinding: (name: string) => { path: BabelBindingPath } | undefined
 }
 
 type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
@@ -85,24 +95,26 @@ function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
 }
 
-function babelStringValue(node: BabelNode | undefined, bindings = new Map<string, BabelNode>()): unknown {
+function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, seen = new Set<BabelBindingPath>()): unknown {
   if (node?.type === "StringLiteral") return node.value
   if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
-    return babelStringValue(node.expression, bindings)
+    return babelStringValue(node.expression, path, seen)
   }
   if (node?.type === "Identifier" && node.name) {
-    return babelStringValue(bindings.get(node.name), bindings)
+    const bindingPath = path.scope.getBinding(node.name)?.path
+    if (!bindingPath || seen.has(bindingPath)) return
+    return babelStringValue(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
   }
   if (
     node?.type === "CallExpression"
     && node.arguments?.length === 1
-    && babelStringValue(node.arguments[0], bindings) === "-"
+    && babelStringValue(node.arguments[0], path, seen) === "-"
     && node.callee?.type === "MemberExpression"
     && node.callee.object?.type === "ArrayExpression"
     && node.callee.property?.type === "Identifier"
     && node.callee.property.name === "join"
   ) {
-    const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, bindings))
+    const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
     if (values?.every(value => typeof value === "string")) return values.join("-")
   }
 }
@@ -114,7 +126,6 @@ async function sourceModuleDeclaresCloudflareArtifacts(
   const loaded = await readSourceModule(file)
   if (!loaded) return false
   let declaresCloudflareArtifacts = false
-  const bindings = new Map<string, BabelNode>()
   loader.transform({
     filename: loaded.file,
     jsx: /x$/.test(extname(loaded.file)),
@@ -123,16 +134,11 @@ async function sourceModuleDeclaresCloudflareArtifacts(
     babel: {
       plugins: [() => ({
         visitor: {
-          VariableDeclarator(path: { node: { id?: BabelNode, init?: BabelNode } }) {
-            if (path.node.id?.type === "Identifier" && path.node.id.name && path.node.init) {
-              bindings.set(path.node.id.name, path.node.init)
-            }
-          },
           ObjectProperty(path: BabelObjectPropertyPath) {
             const value = path.node.value as BabelNode | undefined
             if (
               babelPropertyName(path) === "provider"
-              && babelStringValue(value, bindings) === "cloudflare-artifacts"
+              && babelStringValue(value, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
             }
