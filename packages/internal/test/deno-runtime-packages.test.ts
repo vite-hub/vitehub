@@ -1080,7 +1080,11 @@ load("@img/sharp-linux-x64/sharp.node")
     const rejected = contenders.filter(result => result.status === "rejected")
     expect(owners).toHaveLength(1)
     expect(rejected).toHaveLength(1)
-    await (owners[0] as PromiseFulfilledResult<() => Promise<void>>).value()
+    const owner = owners[0]
+    if (!owner) {
+      throw new Error("Expected one contender to acquire the deployment lock")
+    }
+    await owner.value()
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
