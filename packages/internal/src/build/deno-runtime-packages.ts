@@ -112,7 +112,7 @@ function collectImportedPackageNames(source: string): Set<string> {
   const executableSource = maskInertImportText(source, createRequireAliases)
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:import|export)[^;]*?\bfrom\s*["']([^"']+)["']/gm,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -148,7 +148,7 @@ function collectStaticPackageNames(source: string): Set<string> {
   const executableSource = maskInertImportText(source)
   for (const pattern of [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:import|export)[^;]*?\bfrom\s*["']([^"']+)["']/gm,
   ]) {
     for (const match of executableSource.matchAll(pattern)) {
       const name = packageNameFromSpecifier(match[1]!)
@@ -492,7 +492,7 @@ function packageImportPlugin(): Plugin {
     setup(build) {
       build.onResolve({ filter: /^#/ }, async (args) => {
         if (args.pluginData?.[resolvingPackageImport]) return
-        return build.resolve(args.path, {
+        const result = await build.resolve(args.path, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
@@ -500,6 +500,9 @@ function packageImportPlugin(): Plugin {
           resolveDir: args.resolveDir,
           with: args.with,
         })
+        const pluginData = Object.assign({}, result.pluginData)
+        Reflect.deleteProperty(pluginData, resolvingPackageImport)
+        return { ...result, pluginData }
       })
     },
   }

@@ -66,6 +66,18 @@ describe("Deno deployment output", () => {
     ).toEqual(["@scope/tool", "commonjs-runtime", "minified-image", "minified-tool", "native-addon", "sharp"])
   })
 
+  it("finds multiline static package imports", () => {
+    expect(collectDenoRuntimePackageNames(`
+import {
+  first,
+  second,
+} from "multiline-package"
+export {
+  third,
+} from "multiline-export"
+`)).toEqual(["multiline-export", "multiline-package"])
+  })
+
   it("finds literal dynamic imports with attributes", () => {
     expect(collectDenoRuntimePackageNames(`
 await import("data-package", { with: { type: "json" } })
@@ -348,8 +360,9 @@ import "real"
 
   it("bundles package import mappings into relocated entrypoints", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
-    await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts" } })
-    await writeFile(join(root, "config.ts"), 'export default "mapped-config"\n', "utf8")
+    await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts", "#value": "./value.ts" } })
+    await writeFile(join(root, "config.ts"), 'export { default } from "#value"\n', "utf8")
+    await writeFile(join(root, "value.ts"), 'export default "mapped-config"\n', "utf8")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
