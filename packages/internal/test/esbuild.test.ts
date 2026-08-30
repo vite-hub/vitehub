@@ -352,19 +352,19 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("neutral-main")
   })
 
-  it("omits Vite prefix aliases that esbuild cannot represent", async () => {
+  it("applies explicit Vite prefix aliases to subpaths", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
-    const target = join(rootDir, "target.mjs")
+    const targetDir = join(rootDir, "target")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(entry, 'import value from "exact-alias"\nexport default value\n', "utf8")
-    await writeFile(target, 'export default "aliased"\n', "utf8")
+    await mkdir(targetDir)
+    await writeFile(entry, 'import value from "@/jobs.mjs"\nexport default value\n', "utf8")
+    await writeFile(join(targetDir, "jobs.mjs"), 'export default "aliased subpath"\n', "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
-        "@/": `${rootDir}/`,
-        "exact-alias": target,
+        "@/": `${targetDir}/`,
       },
       format: "esm",
       platform: "node",
@@ -372,7 +372,7 @@ describe("bundleEsmEntry", () => {
 
     // SAFETY: This bundle's entry module exports the linked package's string default export.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
-    expect(loaded.default).toBe("aliased")
+    expect(loaded.default).toBe("aliased subpath")
   })
 
   it("applies package aliases only to the exact public specifier", async () => {

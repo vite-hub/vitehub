@@ -132,6 +132,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   for (const alias of config.resolve.alias) {
     if (typeof alias.find === "string" && typeof alias.replacement === "string") {
       aliases[alias.find] = alias.replacement
+      aliases[`${alias.find}/`] = `${alias.replacement.replace(/\/$/, "")}/`
     }
   }
   return aliases

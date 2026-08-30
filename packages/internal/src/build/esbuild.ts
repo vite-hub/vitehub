@@ -29,9 +29,14 @@ const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
-  const exactAliases = Object.entries(aliases || {}).filter(([specifier]) => !specifier.endsWith("/"))
-  if (!exactAliases.length) return
-  const replacements = new Map(exactAliases.map(([specifier, replacement]) => [isAbsolute(specifier) ? resolve(specifier) : specifier, replacement]))
+  const entries = Object.entries(aliases || {})
+  if (!entries.length) return
+  const replacements = new Map(entries
+    .filter(([specifier]) => !specifier.endsWith("/"))
+    .map(([specifier, replacement]) => [isAbsolute(specifier) ? resolve(specifier) : specifier, replacement]))
+  const prefixes = entries
+    .filter(([specifier]) => specifier.endsWith("/"))
+    .sort(([left], [right]) => right.length - left.length)
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
@@ -39,8 +44,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
         const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
-        const replacement = replacements.get(isAbsolute(specifier) ? resolve(specifier) : specifier)
-        return replacement ? { path: replacement } : undefined
+        const normalizedSpecifier = isAbsolute(specifier) ? resolve(specifier) : specifier
+        const replacement = replacements.get(normalizedSpecifier)
+        if (replacement) return { path: replacement }
+        const prefix = prefixes.find(([candidate]) => normalizedSpecifier.startsWith(candidate))
+        return prefix ? { path: `${prefix[1]}${normalizedSpecifier.slice(prefix[0].length)}` } : undefined
       })
     },
   }

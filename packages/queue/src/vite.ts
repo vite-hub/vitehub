@@ -314,12 +314,21 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, retainedProviderImportAliases, generation)
             const retainedRuntimeSources = await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "runtime-sources"),
-              paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
+              paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => [
+                ...Object.keys(aliases),
+                ...Object.values(aliases),
+              ]),
               roots: [rootDir],
             })
             const retainedRuntimeAliases = Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
               .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
-                .map(([specifier, target]) => [specifier, retainedRuntimeSources.resolve(target)]))]))
+                .flatMap(([specifier, target]) => {
+                  const retainedSpecifier = retainedRuntimeSources.resolve(specifier)
+                  const retainedTarget = retainedRuntimeSources.resolve(target)
+                  return retainedSpecifier === specifier
+                    ? [[specifier, retainedTarget]]
+                    : [[specifier, retainedTarget], [retainedSpecifier, retainedTarget]]
+                }))]))
             // SAFETY: The outer entries preserve provider keys and each inner entry preserves string alias targets.
             const typedRetainedRuntimeAliases = retainedRuntimeAliases as QueueProviderRuntimeInputs["aliases"]
             await generateProviderOutputs({
