@@ -346,12 +346,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
       if (!cliDiscovery && !fixture) {
+        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
           sections,
-          discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }).agents,
-          discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections }),
+          catalog.agents,
+          catalog,
           kvStores,
           fixture,
           options.invocationRootState?.binding,
