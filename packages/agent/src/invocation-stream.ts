@@ -72,8 +72,16 @@ export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array
     throw cause
   }
   finally {
-    if (!completed) await reader.cancel(error).catch(() => undefined)
-    reader.releaseLock()
+    try {
+      if (!completed) {
+        const cancellation = reader.cancel(error)
+        if (error) await cancellation.catch(() => undefined)
+        else await cancellation
+      }
+    }
+    finally {
+      reader.releaseLock()
+    }
   }
 }
 

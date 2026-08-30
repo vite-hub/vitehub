@@ -47,6 +47,23 @@ describe("Agent Invocation Stream", () => {
     expect(cancel).toHaveBeenCalledWith(failure)
   })
 
+  it("surfaces cancellation failures when its reader stops early", async () => {
+    const cleanupFailure = new Error("cleanup failed")
+    const cancel = vi.fn(async () => { throw cleanupFailure })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"type":"done"}\n'))
+      },
+    })
+
+    await expect(async () => {
+      for await (const _event of readAgentInvocationStream(body)) break
+    }).rejects.toBe(cleanupFailure)
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
   it("rejects stream lines without an event discriminator", async () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
