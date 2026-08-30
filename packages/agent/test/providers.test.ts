@@ -17494,6 +17494,7 @@ describe("server helpers", () => {
 
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
     const thread = adapter._chatInstance()?.thread("telegram:456")
+    adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
     Reflect.set(thread ?? {}, "_threadHistory", {
       getMessages: vi.fn(async () => [
         message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
@@ -17959,13 +17960,14 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
     const currentMetadata: unknown[] = []
+    const nowSeconds = Math.floor(Date.now() / 1_000)
     const request = (messageId: number, text: string) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
             chat: { id: 456, type: "private" },
-            date: 1781092800 + messageId,
+            date: nowSeconds + (messageId - 30) * 2 - 1,
             from: { first_name: "Maxi", id: 123, username: "maxi" },
             message_id: messageId,
             text,
