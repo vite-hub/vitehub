@@ -19,7 +19,7 @@ import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
-  fetch(request: Request): Promise<Response>
+  fetch(input: Request | URL | string, init?: RequestInit): Promise<Response>
 }
 
 const routePrefix = "/api/_vitehub/realtime/"
@@ -994,5 +994,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       ? websocketHandler(event)
       : httpHandler(event)
   })
-  return handler as unknown as RealtimeHandler
+  // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
+  return handler as RealtimeHandler
 }
