@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -26,6 +28,7 @@ import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructi
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 
@@ -2455,9 +2458,10 @@ async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
   options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
+  retainedDefinitions?: DiscoveredAgentDefinition[],
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
-  const definitions = discoverAgentDefinitions({
+  const definitions = retainedDefinitions ?? discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
   })
@@ -2499,6 +2503,8 @@ async function writeNetlifyAgentProviderOutput(
   options: ResolvedAgentModuleOptions,
   generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
   serverDirs?: string[],
+  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+  retainedDefinitions?: DiscoveredAgentDefinition[],
 ): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
@@ -2506,8 +2512,8 @@ async function writeNetlifyAgentProviderOutput(
     inspectionRoute: options.routes.inspection,
     libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
-  }, serverDirs ?? [join(config.root, "server")])
-  await writeProviderDeploymentOutputs({
+  }, serverDirs ?? [join(config.root, "server")], retainedDefinitions)
+  await write({
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
       functions: [{
@@ -2533,8 +2539,11 @@ async function writeNetlifyAgentProviderOutput(
   })
 }
 
-async function cleanupNetlifyAgentProviderOutput(config: ResolvedConfig): Promise<void> {
-  await writeProviderDeploymentOutputs({
+async function cleanupNetlifyAgentProviderOutput(
+  config: ResolvedConfig,
+  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+): Promise<void> {
+  await write({
     clientOutDir: config.build?.outDir ?? "dist",
     cleanup: {
       netlify: {
@@ -2552,6 +2561,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   const eveExtensionOwners = new Map<string, string>()
   let installsCloudflareState = false
+  let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let serverDirs: string[] | undefined
 
@@ -2892,6 +2903,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       agent = config.agent ?? agent
       installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)
       // SAFETY: ViteHub's config hook adds this private server-directory symbol before config resolution.
@@ -2922,36 +2934,89 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       }
     },
+    buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || resolved.command !== "build") return
+      const config = resolved
+      let artifactDir: string | undefined
+      try {
+        const normalized = normalizeAgentOptions(agent)
+        const definitions = normalized && isNetlifyHosting(config)
+        ? discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(config.root, "server")] })
+        : []
+        artifactDir = definitions.length
+          ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
+          : undefined
+        const contributionArtifactDir = artifactDir
+        const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
+        const retainedSources = contributionArtifactDir
+          ? await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "sources"),
+              paths: [...definitions.map(definition => definition.handler), ...Object.values(providerImportAliases)],
+              roots: [config.root],
+            })
+          : undefined
+        const retainedDefinitions = definitions.map(definition => ({
+          ...definition,
+          handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
+        }))
+        const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
+          .map(([specifier, target]) => [specifier, retainedSources?.resolve(target) ?? target]))
+        contributeProviderDeploymentOutput(providerOutput, {
+          discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
+          owner: "agent",
+          rootDir: config.root,
+          write: async ({ signal, write }) => {
+          if (normalized && normalized.runtime === "deno") return
+          if (normalized && retainedDefinitions.length && isNetlifyHosting(config)) {
+            await writeNetlifyAgentProviderOutput(config, normalized, {
+              agentImportBase: getAgentImportBase(agent, frameworkOptions),
+              libsqlState: resolveLibsqlAgentState(normalized, config),
+              providerImportAliases: retainedProviderImportAliases,
+              runtimeCapabilities: standaloneRuntimeCapabilities,
+              schedule: hasScheduleVitePlugin(config),
+              scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+              workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+              workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+              workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
+            }, serverDirs, write, retainedDefinitions)
+          }
+          else if (isNetlifyHosting(config)) {
+            await cleanupNetlifyAgentProviderOutput(config, write)
+          }
+          signal.throwIfAborted()
+          await copyVercelFunctionRuntimePackages({
+            packages: () => [
+              { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
+              { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
+              ...resolveProviderRuntimePackages({ rootDir: config.root }),
+            ],
+            rootDir: config.root,
+            signal,
+          })
+          },
+        }, providerOutputGenerations.get(this))
+      }
+      catch (error) {
+        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
     closeBundle: {
       order: "post",
       async handler() {
         if (!resolved || resolved.command !== "build") return
-        const normalized = normalizeAgentOptions(agent)
-        if (normalized && normalized.runtime === "deno") return
-        if (normalized && hasHostedAgentDefinitions(resolved.root, serverDirs) && isNetlifyHosting(resolved)) {
-          await writeNetlifyAgentProviderOutput(resolved, normalized, {
-            agentImportBase: getAgentImportBase(agent, frameworkOptions),
-            libsqlState: resolveLibsqlAgentState(normalized, resolved),
-            providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
-            runtimeCapabilities: standaloneRuntimeCapabilities,
-            schedule: hasScheduleVitePlugin(resolved),
-            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
-            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
-            workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
-            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-          }, serverDirs)
-        } else if (isNetlifyHosting(resolved)) {
-          await cleanupNetlifyAgentProviderOutput(resolved)
-        }
-        const rootDir = resolved.root
-        await copyVercelFunctionRuntimePackages({
-          packages: () => [
-            { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
-            { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
-            ...resolveProviderRuntimePackages({ rootDir }),
-          ],
-          rootDir,
-        })
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
   }

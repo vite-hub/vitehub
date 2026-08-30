@@ -56,6 +56,12 @@ The connector receives `Build finished.` and `{ label: "release" }`. The call ad
 
 ## Discover named Channel Definitions
 
+Install Vite before enabling discovery:
+
+```sh
+pnpm add -D vite
+```
+
 Use the Vite integration when several call sites should load the same named Channel Definition.
 
 ```ts

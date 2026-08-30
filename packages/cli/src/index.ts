@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
@@ -178,11 +178,25 @@ function isRootHelp(args: string[]): boolean {
   return args[0] === "-h" || args[0] === "--help"
 }
 
+function readPackageVersion(): string {
+  const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  const version = /"version"\s*:\s*"([^"\\]+)"/u.exec(manifest)?.[1]
+  if (!version) {
+    throw new TypeError("[vitehub] The installed @vite-hub/cli package manifest has no valid version.")
+  }
+  return version
+}
+
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
+  const stdout = options.stdout || process.stdout
+  if (args[0] === "-v" || args[0] === "--version") {
+    stdout.write(`${readPackageVersion()}\n`)
+    return 0
+  }
+
   const cwd = options.cwd || process.cwd()
   const env = options.env || process.env
-  const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
   const nuxtConfig = config.vitehubConfigResolved
