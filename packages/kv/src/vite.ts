@@ -299,6 +299,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
               : {
                   cleanup: {
                     cloudflare: {
+                      requirePersistedOwnership: true,
                       wranglerConfigOwnership,
                       wranglerConfigOwnershipFiles,
                     },

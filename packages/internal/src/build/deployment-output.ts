@@ -85,6 +85,7 @@ export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions,
 interface CloudflareProviderDeploymentCleanup {
   fileNames?: string[]
   outputRoot?: string
+  requirePersistedOwnership?: boolean
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
   wranglerConfigOwnershipFiles?: Record<string, string>
 }
@@ -625,6 +626,8 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
   signal?.throwIfAborted()
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
+  if (cleanup.requirePersistedOwnership && !Object.values(cleanup.wranglerConfigOwnershipFiles ?? {})
+    .some(fileName => existsSync(resolveProviderOutputOwnershipFile(outputRoot, fileName)))) return
   const wranglerConfigOwnership = await resolvePersistedProviderOutputOwnership(
     outputRoot,
     cleanup.wranglerConfigOwnership,

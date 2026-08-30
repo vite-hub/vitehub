@@ -321,6 +321,38 @@ describe("KV Vite output", () => {
     })
   })
 
+  it("does not parse Cloudflare output without a KV ownership file", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), "not-json\n", "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "fs-lite" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8")).resolves.toBe("not-json\n")
+  })
+
   it("replaces stale generated Cloudflare KV namespaces without deleting manual bindings", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
