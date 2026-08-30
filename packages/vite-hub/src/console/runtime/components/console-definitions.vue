@@ -161,6 +161,8 @@ watch(
   () => props.section,
   (section) => {
     rememberConsoleSection(section);
+    definitions.value = [];
+    error.value = undefined;
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
     selectedName.value = typeof route.query.definition === "string" ? route.query.definition : undefined;
     void loadDefinitions();
