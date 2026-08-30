@@ -2606,4 +2606,23 @@ describe("workflow runtime", () => {
       status: "failed",
     })
   })
+
+  it("maps completed Cloudflare workflow output onto the normalized result", async () => {
+    const get = vi.fn(async (id: string) => ({
+      id,
+      status: vi.fn(async () => ({ output: { ok: true }, status: "complete" })),
+    }))
+
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: vi.fn(), get },
+      } } } },
+    })
+
+    await expect(getWorkflowRun("welcome", "completed-1")).resolves.toMatchObject({
+      result: { ok: true },
+      status: "completed",
+    })
+  })
 })

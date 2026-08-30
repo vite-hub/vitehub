@@ -6550,6 +6550,9 @@ async function awaitWorkflowAgentInvocationResult<CALL_OPTIONS, TOutput>(
   while (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
     // SAFETY: the Workflow handle and started run share the same output contract.
     current = await started.handle.getRun(current.id) as AgentWorkflowRun<TOutput>
+    if (current.status === "unknown") {
+      throw new Error("Agent invocation Workflow is unavailable.")
+    }
     if (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
       await new Promise(resolve => setTimeout(resolve, 250))
     }
@@ -6585,7 +6588,7 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    result: awaitWorkflowAgentInvocationResult(started),
+    result: () => awaitWorkflowAgentInvocationResult(started),
     startResult: Promise.resolve(run),
   }
   if (settled) {

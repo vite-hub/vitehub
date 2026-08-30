@@ -26,7 +26,8 @@ function backedController(id: string) {
     errorOutcome: () => "unavailable",
     id,
     inspect: async () => undefined,
-    result: Promise.resolve(),
+    result: () => Promise.resolve(),
+    startResult: Promise.resolve(),
   })
 }
 
@@ -178,7 +179,8 @@ describe("Agent Invocation controllers", () => {
       errorOutcome: () => "unavailable",
       id: "child",
       inspect: async () => { throw new Error("inspection unavailable") },
-      result: Promise.resolve(),
+      result: () => Promise.resolve(),
+      startResult: Promise.resolve(),
     })
 
     await expect(controller.cancel()).resolves.toEqual({
@@ -199,7 +201,8 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       inspect: async () => ({ id: "child", status: "completed" }),
       parentAbortSignal: parent.signal,
-      result: Promise.resolve(),
+      result: () => Promise.resolve(),
+      startResult: Promise.resolve(),
     })
 
     await expect(controller.inspect()).resolves.toMatchObject({
@@ -225,7 +228,8 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
-      result: Promise.resolve(),
+      result: () => Promise.resolve(),
+      startResult: Promise.resolve(),
       settled,
     })
 
@@ -245,12 +249,30 @@ describe("Agent Invocation controllers", () => {
       id: "child",
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
-      result: new Promise(() => {}),
+      result: () => new Promise(() => {}),
       startResult: Promise.resolve({ id: "child", status: "queued" }),
     })
 
     await expect(awaitAgentInvocationResult(controller)).resolves.toEqual({ id: "child", status: "queued" })
     parent.abort("stop queued child")
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+  })
+
+  it("starts backed result observation only once and only when consumed", async () => {
+    const result = vi.fn(async () => { throw new Error("failed") })
+    const controller = createBackedAgentInvocationController({
+      cancel: async () => undefined,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      result,
+      startResult: Promise.resolve(),
+    })
+
+    expect(result).not.toHaveBeenCalled()
+    const first = controller.result
+    expect(controller.result).toBe(first)
+    await expect(first).rejects.toThrow("failed")
+    expect(result).toHaveBeenCalledOnce()
   })
 })

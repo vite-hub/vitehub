@@ -84,8 +84,8 @@ export interface BackedAgentInvocationOptions<TOutput = unknown, TResult = unkno
   id: string
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
-  result: Promise<TResult>
-  startResult?: Promise<unknown>
+  result: () => Promise<TResult>
+  startResult: Promise<unknown>
   settled?: Promise<unknown>
 }
 
@@ -102,8 +102,8 @@ export function createAgentInvocationController<
 >(
   id: string,
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
-  result: Promise<TResult>,
-  startResult: Promise<unknown> = result,
+  result: Promise<TResult> | (() => Promise<TResult>),
+  startResult: Promise<unknown> = result as Promise<TResult>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
   const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
@@ -121,14 +121,22 @@ export function createAgentInvocationController<
     cancel: adapter.cancel,
     id,
     inspect: adapter.inspect,
-    result,
     async sendInput(input: AgentRunInput<CALL_OPTIONS>, options: { mode: AgentInvocationInputMode }) {
       const supported = options.mode === "steer" ? support.steer : options.mode === "respond" ? support.respond : support.followUp
       if (!supported || !adapter.sendInput) return { id, outcome: "unsupported" as const }
       return adapter.sendInput(input, options)
     },
     support,
-  }
+  } as AgentInvocationController<TOutput, CALL_OPTIONS, TResult>
+  let cachedResult: Promise<TResult> | undefined
+  Object.defineProperty(controller, "result", {
+    enumerable: true,
+    get() {
+      cachedResult ||= hasRuntimeType(result, "function") ? result() : result
+      void cachedResult.catch(() => {})
+      return cachedResult
+    },
+  })
   Object.defineProperty(controller, agentInvocationStartResult, { value: startResult })
   return Object.freeze(controller)
 }
