@@ -4998,9 +4998,9 @@ async function finishAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
   const durationMs = Date.now() - context.startedAt
-  const outcomeCancelled = outcome.status === "cancelled"
+  let outcomeCancelled = outcome.status === "cancelled"
   const outcomeFailed = outcome.status === "error"
-  let failed = outcomeFailed || outcomeCancelled
+  let failed = outcomeFailed
   let error = outcome.status === "error" ? outcome.error : undefined
   let result = outcome.status === "success" ? outcome.result : undefined
   let usage = outcome.status === "success" ? outcome.usage : undefined
@@ -5039,6 +5039,7 @@ async function finishAgentInvocation<
     catch (cleanupError) {
       closeError = cleanupError
       if (!failed) {
+        outcomeCancelled = false
         failed = true
         result = undefined
         runResult = undefined

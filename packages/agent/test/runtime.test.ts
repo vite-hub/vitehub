@@ -11234,6 +11234,62 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "cancelled" }])
   })
 
+  it("preserves Capability cleanup failures after UI stream cancellation", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const cleanupFailure = new Error("cleanup failed after cancellation")
+    let releaseBlockedPull: (() => void) | undefined
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "failing-cleanup",
+      })],
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return {
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return new ReadableStream({
+              pull(controller) {
+                if (releaseBlockedPull) return
+                controller.enqueue({ type: "start", messageId: "assistant-1" })
+                return new Promise<void>((resolve) => {
+                  releaseBlockedPull = resolve
+                })
+              },
+              cancel() {
+                releaseBlockedPull?.()
+              },
+            })
+          },
+        }
+      } },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await expect(stream.cancel()).rejects.toBe(cleanupFailure)
+    releaseBlockedPull?.()
+    expect(traceLog!.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": cleanupFailure.message },
+      },
+    ])
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
+  })
+
   it("emits one title data part when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

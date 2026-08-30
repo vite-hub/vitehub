@@ -1317,11 +1317,15 @@ function githubActivityBadge(status: AgentActivityStatus): string {
   return `![Agent: ${value.label}](https://img.shields.io/badge/agent-${encodeURIComponent(value.label)}-${value.color})`
 }
 
-function githubActivityTask(task: AgentActivityTask): string {
-  const title = task.title
+function githubActivityText(value: string, limit: number): string {
+  return value
     .replace(/[\r\n]+/g, " ")
-    .replace(/([\\`*_()[\]<>])/g, "\\$1")
-    .slice(0, 300)
+    .replace(/([\\`*_()[\]<>#@!|{}])/g, "\\$1")
+    .slice(0, limit)
+}
+
+function githubActivityTask(task: AgentActivityTask): string {
+  const title = githubActivityText(task.title, 300)
   if (task.status === "completed") return `- [x] ${title}`
   if (task.status === "in-progress") return `- [ ] ⏳ ${title}`
   return `- [ ] ${title}`
@@ -1342,7 +1346,7 @@ function renderGithubActivity(
   const links = githubActivityLinksState(activity.links)
   if (links.length) sections.push(githubActivityLinks(links))
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
-  if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
+  if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   if (state.history.length) {
     const history = state.history
       .filter(entry => entry.links.length)

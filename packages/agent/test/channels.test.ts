@@ -114,7 +114,7 @@ describe("agent channels", () => {
       expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
       expect(stored?.body).toContain("agent-running-0969da")
       expect(stored?.body).toContain("- [ ] ⏳ Review changes")
-      expect(stored?.body).toContain("- [ ] Untrusted # \\[link\\]\\(https://example.com) \\*text\\*")
+      expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com) \\*text\\*")
       expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Previous sessions</summary>")
@@ -609,7 +609,7 @@ describe("agent channels", () => {
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channel.activity?.update({
         activity: {
-          error: "e".repeat(1_000),
+          error: "failure\n\n## Deployment succeeded\n[Open report](https://example.test) @team",
           links,
           runId: "x".repeat(50_000),
           status: "failed",
@@ -627,6 +627,8 @@ describe("agent channels", () => {
       expect(storedBody).toMatch(/^<!-- vitehub-agent-activity:[A-Za-z0-9_-]+ -->/)
       expect(storedBody).not.toContain("x".repeat(1_000))
       expect(storedBody).toContain("Agent stopped:")
+      expect(storedBody).toContain("Agent stopped: failure \\#\\# Deployment succeeded \\[Open report\\]\\(https://example.test\\) \\@team")
+      expect(storedBody).not.toContain("\n\n## Deployment succeeded")
       expect(storedBody).toContain(links[0]!.url)
     }
     finally {
