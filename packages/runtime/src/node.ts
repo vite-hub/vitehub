@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { availableMemory, memoryUsage, resourceUsage } from "node:process"
@@ -236,7 +237,20 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   let running: Promise<void> | undefined
   let status: ProcessReconcilerStatus = "accepting"
   let timer: NodeJS.Timeout | undefined
+  const activeCallbacks = new Set<object>()
+  const callbackContext = new AsyncLocalStorage<object>()
   const settlements = new Map<Promise<unknown>, Promise<PromiseSettledResult<unknown>>>()
+
+  const invokeCallback = async <T>(callback: () => Promise<T> | T): Promise<T> => {
+    const token = {}
+    activeCallbacks.add(token)
+    try {
+      return await callbackContext.run(token, callback)
+    }
+    finally {
+      activeCallbacks.delete(token)
+    }
+  }
 
   const track: ProcessReconcilerRunContext["track"] = (work) => {
     const promise = Promise.resolve(work)
@@ -280,10 +294,10 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
         const currentReason = reason
         reason = "coalesced"
         try {
-          await options.run(currentReason, { track })
+          await invokeCallback(() => options.run(currentReason, { track }))
         }
         catch (error) {
-          await options.onError?.(error, currentReason)
+          if (options.onError) await invokeCallback(() => options.onError!(error, currentReason))
         }
       } while (rerun)
     })().then(resolveActive, rejectActive)
@@ -311,6 +325,10 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   }
 
   const drain = (): Promise<void> => {
+    const caller = callbackContext.getStore()
+    if (caller && activeCallbacks.has(caller)) {
+      return Promise.reject(new TypeError("Process reconciler callbacks cannot call drain() while active."))
+    }
     if (drainPromise) return drainPromise
     drainPromise = (async () => {
       let failure: unknown
@@ -341,7 +359,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
       if (timer) clearTimeout(timer)
       timer = undefined
       try {
-        await options.onQuiesce?.()
+        if (options.onQuiesce) await invokeCallback(options.onQuiesce)
       }
       catch (error) {
         retainFailure(error)
@@ -355,7 +373,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
       await settleTrackedWork(false)
       if (!hasFailure && options.onDrained) {
         try {
-          await options.onDrained()
+          await invokeCallback(options.onDrained)
           await new Promise<void>(resolve => setImmediate(resolve))
         }
         catch (error) {

@@ -90,13 +90,14 @@ describe("createProcessReconciler", () => {
     expect(reconciler.status()).toBe("drained")
   })
 
-  it("publishes the active run to a reentrant drain", async () => {
+  it("rejects a drain awaited by the active run", async () => {
     const finished = deferred()
-    let draining: Promise<void> | undefined
     const reconciler = createProcessReconciler({
       intervalMs: 60_000,
-      run() {
-        draining = reconciler.drain()
+      async run() {
+        await expect(reconciler.drain()).rejects.toThrow(
+          "Process reconciler callbacks cannot call drain() while active.",
+        )
         finished.resolve()
       },
       signal: false,
@@ -104,7 +105,28 @@ describe("createProcessReconciler", () => {
 
     reconciler.wake("startup")
     await finished.promise
-    await draining
+    await reconciler.drain()
+
+    expect(reconciler.status()).toBe("drained")
+  })
+
+  it("rejects a drain awaited by active error reporting", async () => {
+    const finished = deferred()
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      async onError() {
+        await expect(reconciler.drain()).rejects.toThrow(
+          "Process reconciler callbacks cannot call drain() while active.",
+        )
+        finished.resolve()
+      },
+      run() { throw new Error("reconciliation failed") },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await finished.promise
+    await reconciler.drain()
 
     expect(reconciler.status()).toBe("drained")
   })
