@@ -116,7 +116,16 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const retainedWorkflowFile = join(retainedRoot, "server", "workflows", "cleanup", "01-cleanup.ts")
   await mkdir(join(retainedRoot, "server", "workflows", "cleanup"), { recursive: true })
   await writeFile(retainedWorkflowFile, "export default async function cleanup() {}\n")
-  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
+  const artifacts = await writeProviderEntries(
+    rootDir,
+    false,
+    { workflow: "vite-hub/_internal/workflow" },
+    undefined,
+    false,
+    undefined,
+    retainedRoot,
+    artifactDir,
+  )
 
   const registryContents = await readFile(artifacts.registryFile, "utf8")
   expect(registryContents).toContain(pathToFileURL(retainedWorkflowFile).href)
@@ -124,9 +133,9 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   const [vercelNativeFile] = artifacts.vercelNativeFiles
   await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(retainedWorkflowFile)
   expect(() => buildSync({ bundle: true, entryPoints: [vercelNativeFile!], platform: "node", write: false })).not.toThrow()
-  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-vite"`)
-  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/cloudflare-runner"`)
-  await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "@vite-hub/workflow/runtime/vercel-vite"`)
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-vite"`)
+  await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-runner"`)
+  await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/vercel-vite"`)
 
   await generateWorkflowProviderOutputs({
     artifacts,
