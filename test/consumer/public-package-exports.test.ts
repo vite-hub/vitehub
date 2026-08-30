@@ -520,7 +520,9 @@ function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
 
 describe("published declaration diagnostics", () => {
   it("recognizes only known Drizzle TypeScript 6 diagnostics", () => {
+    // SAFETY: The diagnostic filter reads only fileName, so these minimal fixtures satisfy its SourceFile use.
     const drizzleFile = { fileName: "/consumer/node_modules/drizzle-orm/gel-core/query.d.ts" } as ts.SourceFile
+    // SAFETY: The diagnostic filter reads only fileName, so these minimal fixtures satisfy its SourceFile use.
     const viteHubFile = { fileName: "/consumer/node_modules/@vite-hub/database/dist/index.d.ts" } as ts.SourceFile
 
     expect(isKnownDrizzleTypeScript6Diagnostic({
