@@ -17485,7 +17485,7 @@ describe("server helpers", () => {
       onInitialize: (chat) => {
         if (++initializedChats !== 2) return
         // SAFETY: This fixture intercepts Chat SDK's internal webhook thread factory to model an adapter restart.
-        const chatBoundary = chat as {
+        const chatBoundary = chat as unknown as {
           createThread(adapter: Adapter, threadId: string, initialMessage: Message, isSubscribedContext?: boolean): object
         }
         const createThread = chatBoundary.createThread.bind(chatBoundary)

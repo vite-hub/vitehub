@@ -4915,9 +4915,9 @@ async function handleChatSdkMessage(
     )
     const transportSessionId = input.run?.threadId ?? input.run?.runId
     const selectedSessionId = resolveChatSessionId(messages, options?.sessions, input.session)
-    const providerSessionId = input.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
+    const providerSessionId = transportSessionId && selectedSessionId
       ? `${transportSessionId}:chat-session:${selectedSessionId}`
-      : transportSessionId)
+      : transportSessionId
     if (providerSessionId) {
       input = {
         ...input,
