@@ -113,10 +113,16 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("needs: verify")
     expect(githubRelease).toContain("needs: [verify, publish-npm]")
     expect(publishNpm.indexOf("Restore local workspace links")).toBeLessThan(publishNpm.indexOf("Publish packages to npm"))
+    expect(publishNpm.indexOf("Revalidate release tag")).toBeLessThan(publishNpm.indexOf("Publish packages to npm"))
     expect(publishNpm).not.toContain("vp install")
     expect(publishNpm).not.toContain("package-release-order.mjs")
     expect(verify).toContain('vp pm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts')
     expect(publishNpm).toContain('vp pm publish --access public --tag "$NPM_TAG" --no-git-checks -- --ignore-scripts')
+    for (const authorityJob of [publishNpm, githubRelease]) {
+      expect(authorityJob).toContain('gh api "repos/${GH_REPO}/commits/${')
+      expect(authorityJob).toContain('live_tag_commit')
+      expect(authorityJob).toContain('live_tag_commit" != "$artifact_commit')
+    }
   })
 
   it("retains safe resume behavior", () => {

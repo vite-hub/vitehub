@@ -298,6 +298,21 @@ jobs:
             }
           '
 
+      - name: Revalidate release tag
+        working-directory: release-workspace
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          artifact_commit="$(node -p "require('./.release/release-metadata.json').commit")"
+          live_tag_commit="$(gh api "repos/${GH_REPO}/commits/${GITHUB_REF_NAME}" --jq .sha)"
+          if [[ "$live_tag_commit" != "$artifact_commit" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} no longer points to verified commit ${artifact_commit}." >&2
+            exit 1
+          fi
+
       - name: Publish packages to npm
         working-directory: release-workspace
         env:
@@ -378,6 +393,12 @@ jobs:
           fi
           if [[ "$artifact_name" != "$EXPECTED_ARTIFACT_NAME" || "$artifact_commit" != "$GITHUB_SHA" || "$artifact_publish" != "true" || "$release_run_id" != "$GITHUB_RUN_ID" || "$release_tag" != "$GITHUB_REF_NAME" ]]; then
             echo "Release artifact metadata does not match this workflow." >&2
+            exit 1
+          fi
+
+          live_tag_commit="$(gh api "repos/${GH_REPO}/commits/${release_tag}" --jq .sha)"
+          if [[ "$live_tag_commit" != "$artifact_commit" ]]; then
+            echo "Release tag ${release_tag} no longer points to verified commit ${artifact_commit}." >&2
             exit 1
           fi
 
