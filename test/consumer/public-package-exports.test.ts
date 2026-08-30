@@ -462,11 +462,6 @@ async function packageModuleDiagnostics(
   const sourcePath = join(runnerDir, `export-${index}.ts`)
   await writeFile(sourcePath, `${source}\n`, "utf8")
   const rootNames = [sourcePath]
-  for (const dependency of declaredTypes) {
-    const dependencyRoot = join(runnerDir, "node_modules", ...dependency.split("/"))
-    const dependencyManifest = await readManifest(join(dependencyRoot, "package.json"))
-    rootNames.push(join(dependencyRoot, dependencyManifest.types || "index.d.ts"))
-  }
   let hostTypesPath: string | undefined
   if (withCloudflareHost) {
     hostTypesPath = join(runnerDir, "cloudflare-workers.d.ts")
@@ -492,7 +487,10 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    types: usesNodeDeclarationTypes(contract) ? ["node"] : [],
+    types: [...new Set([
+      ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
+      ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
+    ])],
   }
   const program = ts.createProgram(rootNames, options)
   return declarationDiagnostics(program, packageName)
