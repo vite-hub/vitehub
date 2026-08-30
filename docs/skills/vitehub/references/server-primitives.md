@@ -30,7 +30,9 @@ Runtime Helpers called by application code keep authority in the application. If
 
 Keep provider selection in Vite config or the source-local handle's static policy. Application code should keep consuming the same handle when moving from a local driver to a hosted provider.
 
-Rate Limit is an atomic consume primitive, not generic KV sugar. Use a Rate Limit Driver with matching guarantees, keep identity derivation in the caller or Agent Capability, and treat the memory driver as local or single-process only. Cloudflare native enforcement is best-effort and supports only the periods documented by the installed package. There is no generic KV adapter; do not model `get()` followed by `set()` as atomic enforcement.
+Upstash supports `getAndDelete()` and fixed-window `increment()` as provider-atomic operations. Deno KV, Cloudflare KV, and local filesystem storage reject those methods. Never model `get()` followed by `set()` as atomic enforcement.
+
+Rate Limit remains the request-budget primitive. Use a Rate Limit Driver with matching guarantees, keep identity derivation in the caller or Agent Capability, and treat the memory driver as local or single-process only. Cloudflare native enforcement is best-effort and supports only the periods documented by the installed package.
 
 Automatic Rate Limit memory selection belongs to Vite development and serve commands. For a production build, require inferred Cloudflare hosting or select the production provider explicitly; never let an unknown host silently become per-instance memory.
 

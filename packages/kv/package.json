@@ -42,7 +42,8 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "defu": "catalog:unjs"
+    "defu": "catalog:unjs",
+    "destr": "^2.0.5"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

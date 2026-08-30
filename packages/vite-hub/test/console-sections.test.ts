@@ -4,6 +4,7 @@ import {
   prioritizeConsoleSectionIds,
   readLastConsoleSection,
   rememberConsoleSection,
+  resolveConsoleSectionIds,
 } from "../src/console/runtime/sections.ts"
 
 function memoryStorage(initial?: string) {
@@ -17,8 +18,34 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
+  it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
+    expect(resolveConsoleSectionIds({ agent: true, kv: true, queue: true, workflow: true })).toEqual([
+      "agents",
+      "usage",
+      "kv",
+      "workflows",
+      "queues",
+    ])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+      "agents",
+      "usage",
+      "workflows",
+    ])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, workflow: false })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({})).toEqual([])
+  })
+
   it("prioritizes the last active section without losing configured sections", () => {
     expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], "kv")).toEqual(["kv", "agents", "usage"])
+    expect(prioritizeConsoleSectionIds(["agents", "kv", "workflows", "queues"], "queues")).toEqual([
+      "queues",
+      "agents",
+      "kv",
+      "workflows",
+    ])
     expect(prioritizeConsoleSectionIds(["agents"], "kv")).toEqual(["agents"])
     expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], undefined)).toEqual(["agents", "usage", "kv"])
   })
@@ -27,8 +54,8 @@ describe("Console section preferences", () => {
     const storage = memoryStorage()
 
     expect(readLastConsoleSection(storage)).toBeUndefined()
-    rememberConsoleSection("kv", storage)
-    expect(readLastConsoleSection(storage)).toBe("kv")
+    rememberConsoleSection("queues", storage)
+    expect(readLastConsoleSection(storage)).toBe("queues")
     expect(readLastConsoleSection(memoryStorage("future-primitive"))).toBeUndefined()
   })
 

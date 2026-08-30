@@ -155,17 +155,17 @@ const splitterItems: SplitterItem[] = [
   {
     id: "thread",
     slot: "thread",
-    minSize: 520,
-    defaultSize: 820,
+    minSize: 220,
+    defaultSize: 680,
     sizeUnit: "px",
     class: "min-h-0 min-w-0 overflow-hidden",
   },
   {
     id: "details",
     slot: "details",
-    minSize: 320,
-    maxSize: 520,
-    defaultSize: 380,
+    minSize: 300,
+    maxSize: 1080,
+    defaultSize: 560,
     sizeUnit: "px",
     class: "min-h-0 min-w-0 overflow-hidden",
   },
@@ -381,7 +381,7 @@ watch(isUsageRoute, (usageRoute) => {
 }, { immediate: true });
 
 onMounted(() => {
-  media = window.matchMedia("(min-width: 1280px)");
+  media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
@@ -601,8 +601,9 @@ onBeforeUnmount(() => {
     <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
         <UDashboardNavbar
+          class="vitehub-console__session-navbar"
           :title="selectedTitle"
-          :ui="{ root: 'border-b border-default', title: 'min-w-0 flex-1' }"
+          :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
         >
           <template #title>
             <div v-if="selectedDisplay" class="flex min-w-0 items-center gap-2 text-sm">
@@ -800,5 +801,28 @@ onBeforeUnmount(() => {
 
 .vitehub-console [data-slot="invocation-inspector"] {
   border-inline-start: 0;
+}
+
+.vitehub-console__session-navbar {
+  background: var(--ui-bg) !important;
+  height: 3.25rem !important;
+  min-height: 3.25rem !important;
+  overflow: visible !important;
+  padding: 0 1.25rem !important;
+  position: relative;
+  z-index: 10;
+}
+
+.vitehub-console__session-navbar::after {
+  background: linear-gradient(to bottom, var(--ui-bg), transparent);
+  content: "";
+  height: 0.75rem;
+  inset: 100% 0 auto;
+  pointer-events: none;
+  position: absolute;
+}
+
+.vitehub-console .vh-invocation-thread__content {
+  max-width: 48rem;
 }
 </style>

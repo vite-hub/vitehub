@@ -49,6 +49,7 @@ import { createUsageSummary, invocationUsage } from "../src/console/runtime/serv
 
 import { runAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -552,6 +553,141 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("disables Workflow inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workflows"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        workflow?: boolean
+      } = { root, workflow: true }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.workflow = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("disables Queue inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-queue-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["queues"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        queue?: boolean
+        root: string
+      } = { queue: true, root }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.queue = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses configured server directories during resolved Workflow discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-workflow-server-dirs-"))
+    try {
+      const customServerDir = join(root, "backend")
+      await writeFile(join(root, "package.json"), "{}\n")
+      await mkdir(join(root, "server", "workflows", "welcome"), { recursive: true })
+      await writeFile(join(root, "server", "workflows", "welcome.ts"), "export default null\n")
+      await writeFile(join(root, "server", "workflows", "welcome", "01.step.ts"), "export default null\n")
+      await mkdir(join(customServerDir, "workflows"), { recursive: true })
+      await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workflows"],
+      })
+      const config = {
+        [VITEHUB_SERVER_DIRS]: [customServerDir],
+        root,
+        workflow: true,
+      }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('"name":"custom"')
+      expect(generated).not.toContain('"name":"welcome"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Queue Definition metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-queue-host-"))
+    try {
+      await mkdir(join(root, "server/queues"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/queues/email.ts"),
+        `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["queues"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/_vitehub",
+        "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2280,18 +2416,21 @@ describe("Agent invocation console", () => {
   it("marks truncated finish usage incomplete", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [id, truncated] of [["complete", false], ["truncated", true]] as const) {
+      const attributes: Record<string, unknown> = {
+        "usage.record": {
+          model: id,
+          usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+        },
+      }
+      if (truncated) {
+        attributes["vitehub.observation.truncated"] = true
+      }
       store.create({
         completedAt: "2026-08-27T10:00:00.000Z",
         createdAt: "2026-08-27T09:59:00.000Z",
         id,
         observations: [{
-          attributes: {
-            "usage.record": {
-              model: id,
-              usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
-            },
-            ...(truncated ? { "vitehub.observation.truncated": true } : {}),
-          },
+          attributes,
           name: "agent.invocation.finish",
           sequence: 1,
           timestamp: "2026-08-27T10:00:00.000Z",

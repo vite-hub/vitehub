@@ -57,6 +57,8 @@
     "./_internal/schedule/runtime/process": "./dist/_internal/schedule/runtime/process.js",
     "./_internal/schedule/runtime/static": "./dist/_internal/schedule/runtime/static.js",
     "./_internal/workflow": "./dist/_internal/workflow.js",
+    "./_internal/workflow/runtime/cloudflare-runner": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
+    "./_internal/workflow/runtime/cloudflare-vite": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
     "./_internal/workflow/runtime/execute": "./dist/_internal/workflow/runtime/execute.js",
     "./_internal/workflow/runtime/state": "./dist/_internal/workflow/runtime/state.js",
     "./_internal/workflow/runtime/vercel-vite": "./dist/_internal/workflow/runtime/vercel-vite.js",
