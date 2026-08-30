@@ -41,6 +41,18 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
 }
 
+function configuredProjectRoot(root: string, value: unknown): string | undefined {
+  return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+    ? resolve(root, value.projectRoot)
+    : undefined
+}
+
+function configuredScanDirs(value: unknown): string[] | undefined {
+  return value && typeof value === "object" && "scanDirs" in value && Array.isArray(value.scanDirs)
+    ? value.scanDirs.filter((entry): entry is string => typeof entry === "string")
+    : undefined
+}
+
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
   hook?: (
@@ -69,8 +81,12 @@ type NuxtLike = {
     srcDir?: string
     vite?: UserConfig & {
       auth?: AuthModuleOptions
+      database?: Parameters<typeof vitehub>[0]["database"]
       kv?: KVModuleOptions
       queue?: Parameters<typeof vitehub>[0]["queue"]
+      rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
+      schedule?: Parameters<typeof vitehub>[0]["schedule"]
+      workspace?: Parameters<typeof vitehub>[0]["workspace"]
       workflow?: Parameters<typeof vitehub>[0]["workflow"]
     }
     vitehub?: ViteHubNuxtOptions
@@ -405,6 +421,7 @@ async function installConsole(
   writeGeneratedPlugin = true,
   invocationRootState?: ConsoleInvocationRootState,
   canDiscoverWorkflows: () => boolean = () => true,
+  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -579,6 +596,7 @@ async function installConsole(
       ? sections
       : sections.filter(section => section !== "workflows")
     const catalog = await discoverConsoleBuildCatalog({
+      ...discoveryOptions,
       discoveryRoot,
       projectRoot,
       queueDiscoveryRoot,
@@ -789,7 +807,11 @@ async function applyNitroConfig(
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
+    database?: Parameters<typeof vitehub>[0]["database"]
     queue?: Parameters<typeof vitehub>[0]["queue"]
+    rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
+    schedule?: Parameters<typeof vitehub>[0]["schedule"]
+    workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
   const restoreReplayOwnership = () => {
@@ -1214,11 +1236,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
       const consoleCatalog = await discoverConsoleBuildCatalog({
+        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.database),
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,
+        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit),
+        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit),
         sections: consoleSections,
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.schedule),
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace),
         workflowDiscoveryRoot: rootDir,
       })
       await writeConsoleNitroPlugin(
@@ -1296,6 +1323,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       !nuxt.options.vitehubCliDiscovery,
       consoleInvocationRootState,
       () => consoleWorkflowConfigResolved,
+      {
+        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.database ?? options.database),
+        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),
+        rateLimitScanDirs: configuredScanDirs(nuxt.options.vite.rateLimit ?? options.rateLimit),
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.schedule ?? options.schedule),
+        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
+      },
     )
   }
 }

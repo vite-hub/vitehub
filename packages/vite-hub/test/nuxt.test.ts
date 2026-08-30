@@ -1222,7 +1222,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("installs only discovered Rate Limit policies for a Rate-Limit-only Console", async () => {
-    const definition = "/tmp/vitehub-nuxt/custom-server/api/upload.post.ts"
+    const definition = "/tmp/vitehub-nuxt/packages/policies/rules/upload.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })
     await writeFile(
       definition,
@@ -1235,6 +1235,10 @@ describe("ViteHub Nuxt integration", () => {
     )
     try {
       const development = createNuxt(true)
+      development.nuxt.options.vite.rateLimit = {
+        projectRoot: "packages/policies",
+        scanDirs: ["rules"],
+      }
 
       await viteHubNuxtModule({ console: true, preset: "node", rateLimit: true }, development.nuxt)
       const pages: Array<{ file: string; name: string; path: string }> = []
@@ -1255,7 +1259,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["rate-limits"])`)
-      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"custom-server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}]})`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"packages/policies/rules/upload.ts","name":"uploads","source":"require-rate-limit"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
     }

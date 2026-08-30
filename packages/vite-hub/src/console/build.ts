@@ -188,7 +188,7 @@ export async function discoverConsoleBuildCatalog(options: {
         .map(definition => workflowDefinition(options.projectRoot, definition))
     : []
   const workspaces = options.sections.includes("workspaces")
-    ? discoverViteWorkspaceDefinitions(options.workspaceDiscoveryRoot ?? options.discoveryRoot, {
+    ? discoverViteWorkspaceDefinitions(options.discoveryRoot, {
         serverDirs: options.serverDirs,
         serverRootDir: options.workspaceDiscoveryRoot ?? options.projectRoot,
       }).map(definition => workspaceDefinition(options.projectRoot, definition))
@@ -211,8 +211,9 @@ export async function discoverConsoleBuildCatalog(options: {
     : []
   const discoveredSchedules = options.sections.includes("schedules")
     ? discoverScheduleDefinitions({
-        rootDir: options.scheduleDiscoveryRoot ?? options.discoveryRoot,
+        rootDir: options.discoveryRoot,
         serverDirs: options.serverDirs,
+        serverRootDir: options.scheduleDiscoveryRoot,
       })
     : []
   const scheduleCrons = discoveredSchedules.length > 0

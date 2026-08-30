@@ -58,12 +58,17 @@ export type ConsoleOptions =
 interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
   console?: true | ConsoleOptions
+  databaseDiscoveryRoot?: string
   kvStores?: readonly string[]
   preset?: string
+  rateLimitDiscoveryRoot?: string
+  rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
   resolveKVStores?: (kv: unknown) => readonly string[] | false
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
+  scheduleDiscoveryRoot?: string
+  workspaceDiscoveryRoot?: string
 }
 
 export interface ConsoleInvocationRootState {
@@ -353,13 +358,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
-      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit)
+      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
-        : undefined
-      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
-      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
+        : options.rateLimitScanDirs
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? configuredProjectRoot({ projectRoot: options.scheduleDiscoveryRoot })
+      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? configuredProjectRoot({ projectRoot: options.workspaceDiscoveryRoot })
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {

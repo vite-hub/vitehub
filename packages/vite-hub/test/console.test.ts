@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
+import { vitehub } from "../src/index.ts"
 import {
   consoleInvocationsBindingKey,
   consoleInvocationsBindingRegistryKey,
@@ -941,24 +942,21 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
-      const plugin = consoleVitePlugin({
+      const plugins = vitehub({
         console: { exposure: "host-managed" },
-        preset: "cloudflare",
-        resolveKVStores: () => false,
-        sections: ["databases", "rate-limits", "workspaces", "schedules"],
-      })
-      const config = {
         database: { projectRoot: "packages/database" },
+        preset: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
-        root,
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
-      }
+      })
+      const plugin = plugins.flat(Infinity).find(candidate => candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console")
+      if (!plugin || typeof plugin !== "object") throw new TypeError("Expected the ViteHub Console plugin.")
 
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.config, {}, [{ root }, { command: "build", mode: "production" }])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/config.ts"')
       expect(generated).toContain('"rate-limits":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
