@@ -17402,7 +17402,8 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter({ persistThreadHistory: true })
+    const attachmentFetchData = vi.fn(async () => Buffer.from("session-only attachment"))
+    const adapter = createTestChatAdapter({ attachmentFetchData, persistThreadHistory: true })
     const runs: string[][] = []
     const sessionIds: Array<string | undefined> = []
     const agent = defineAgent({
@@ -17431,7 +17432,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (messageId: number, text: string) =>
+    const request = (messageId: number, text: string, withAttachment = false) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
@@ -17441,15 +17442,20 @@ describe("server helpers", () => {
             from: { first_name: "Maxi", id: 123, username: "maxi" },
             message_id: messageId,
             text,
+            ...(withAttachment
+              ? { document: { content: "session-only attachment", file_name: "context.txt", mime_type: "text/plain" } }
+              : {}),
           },
         }),
         method: "POST",
       })
 
-    await expect(handler(request(20, "remember BROWSER-HISTORY"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(20, "remember BROWSER-HISTORY", true), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
+    expect(runs[0]?.[0]).toContain("remember BROWSER-HISTORY")
+    expect(runs[1]).toEqual(["what marker did I ask you to remember?"])
+    expect(attachmentFetchData).toHaveBeenCalledOnce()
     expect(sessionIds[1]).toBe(sessionIds[0])
   })
 

@@ -4091,11 +4091,12 @@ async function chatTriggerMessages(
   const limit = Math.max(triggerLimit || 0, sessionHistoryLimit || 0)
   if (!limit) return [current]
   const maxAgeMs = chatTriggerHistoryMaxAgeMs(triggerHistory)
+  const includeHistoricalAttachments = triggerLimit !== undefined && triggerLimit > 1
   const currentTime = message.metadata.dateSent.getTime()
   const toHistoryUiMessage = async (item: ChatSdkMessage): Promise<UIMessageLike> => {
     const itemTime = item.metadata.dateSent.getTime()
     const outsideTriggerAge = maxAgeMs !== undefined && (!Number.isFinite(itemTime) || currentTime - itemTime > maxAgeMs)
-    return await chatSdkMessageToUiMessage(item, undefined, outsideTriggerAge ? { includeAttachments: false } : undefined)
+    return await chatSdkMessageToUiMessage(item, undefined, !includeHistoricalAttachments || outsideTriggerAge ? { includeAttachments: false } : undefined)
   }
 
   const fetchedNewestFirst: UIMessageLike[] = []
