@@ -43,11 +43,12 @@ function parseSnippetContracts(source: string): SnippetContract[] {
   return parse(snippetContractsSchema, JSON.parse(source))
 }
 
-async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}) {
+async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}, shell = false) {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
+      shell,
       stdio: ["ignore", "pipe", "pipe"],
     })
     let output = ""
@@ -172,9 +173,13 @@ describe("host documentation fixtures", () => {
       await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")
       await writeFile(join(appRoot, "src/main.ts"), 'document.querySelector("#app")!.textContent = "ViteHub host fixture"\n', "utf8")
 
-      await run(vpExecutable, ["build", appRoot, "--config", join(appRoot, "vite.config.ts")], repoRoot, {
-        VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host,
-      })
+      await run(
+        vpExecutable,
+        ["build", appRoot, "--config", join(appRoot, "vite.config.ts")],
+        repoRoot,
+        { VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host },
+        process.platform === "win32",
+      )
 
       for (const artifact of hostArtifacts[host]) {
         await expect(
