@@ -298,7 +298,8 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
 
   function appendOutput(value: string): void {
     output += value
-    recentOutput += value.replace(/\s+/g, " ")
+    const compactValue = value.replace(/\s+/g, " ")
+    recentOutput += recentOutput.endsWith(" ") ? compactValue.replace(/^ /, "") : compactValue
     if (recentOutput.length > 320) recentOutput = recentOutput.slice(-160)
   }
 

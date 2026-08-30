@@ -270,6 +270,7 @@ import "real"
     expect(collectDenoRuntimePackageNames('const ratio=i++/2;import("real-package")')).toEqual(["real-package"])
     expect(collectDenoRuntimePackageNames('const ratio=i--/2;import("real-package")')).toEqual(["real-package"])
     expect(collectDenoRuntimePackageNames('const ratio={ nested: {} }/import("division-package")')).toEqual(["division-package"])
+    expect(collectDenoRuntimePackageNames(`operand${" ".repeat(320)}/ import("spaced-division-package")`)).toEqual(["spaced-division-package"])
   })
 
   it("scans generated bundles without repeatedly flattening the complete prefix", () => {
