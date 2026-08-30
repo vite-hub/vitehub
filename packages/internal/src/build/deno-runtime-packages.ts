@@ -639,6 +639,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
     if (!runtimePackage.packageJsonPath) continue
     const packageJsonPath = await realpath(runtimePackage.packageJsonPath)
     const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+    if (runtimePackage.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) continue
     rootPackagePaths.set(runtimePackage.name, {
       hoistedPeer: false,
       path: packageJsonPath,

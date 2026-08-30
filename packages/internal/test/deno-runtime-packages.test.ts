@@ -1246,6 +1246,23 @@ try { require("optional-native") } catch {}
     expect(existsSync(join(root, ".output/node_modules/shared-peer/package.json"))).toBe(true)
   })
 
+  it("does not let a skipped bundle marker claim required peer ownership", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-peer-marker-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "shared-peer", { version: "1.0.0" })
+    const consumerDir = join(root, "node_modules/peer-consumer")
+    await writeJson(join(consumerDir, "package.json"), { name: "peer-consumer", peerDependencies: { "shared-peer": "^2" }, version: "1" })
+    await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version: "2.0.0" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/shared-peer/index.js
+import "peer-consumer"
+`)
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2.0.0" })
+  })
+
   it("selects one compatible installation for overlapping required peer ranges", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-compatible-peers-"))
     await writeJson(join(root, "package.json"), {})
