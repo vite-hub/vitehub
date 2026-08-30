@@ -18,7 +18,9 @@ import {
   parseRequiredChecks,
   type PullRequest,
   type PullRequestFeedback,
+  prioritizePullRequestJobs,
   pullRequestCheckState,
+  retryPassFingerprint,
   resolveMaxOwners,
   resolveRepositories,
   selectPullRequestJobs,
@@ -50,8 +52,9 @@ export async function reconcileBabysitterWork(reason: string, { track }: Process
   const discovered = await selectPullRequestJobs(repositories, listPullRequests, readCompletion, policyFingerprint)
   const ownerLimit = resolveMaxOwners(maxOwners)
   const availableOwnerSlots = Math.max(0, ownerLimit - runningJobs.size)
-  const jobs = discovered
+  const eligible = discovered
     .filter(job => !runningJobs.has(jobKey(job.repository, job.pullRequest.number)))
+  const jobs = (ownerLimit > 1 ? prioritizePullRequestJobs(eligible) : eligible)
     .slice(0, availableOwnerSlots)
   const batchStartedAt = Date.now()
 
@@ -138,6 +141,12 @@ export async function reconcileBabysitterWork(reason: string, { track }: Process
       }
       else if (current.state === 'OPEN') {
         outcome = 'retry'
+        const previousCompletion = await readCompletion(job.completionKey)
+        const retryFingerprint = retryPassFingerprint(repository, current, policyFingerprint, Date.now(), pullRequest, previousCompletion)
+        if (retryFingerprint) {
+          const [error] = await kv.set(job.completionKey, retryFingerprint)
+          if (error) throw error
+        }
       }
     }
     catch (error) {
@@ -279,7 +288,7 @@ function parseFeedbackConnection(value: unknown) {
 }
 
 async function readRequiredCheckState(repository: string, pullRequest: PullRequest) {
-  if (pullRequestCheckState(pullRequest.statusCheckRollup) !== 'pending') return pullRequest
+  if (pullRequestCheckState(pullRequest.statusCheckRollup) === 'passed') return pullRequest
   const requiredStatusCheckRollup = await readRequiredChecks(repository, pullRequest.number)
   return requiredStatusCheckRollup === undefined ? pullRequest : { ...pullRequest, requiredStatusCheckRollup }
 }
