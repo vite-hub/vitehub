@@ -239,7 +239,7 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
     if (
       current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
-      && babelPathReachesDefaultExport(current)
+      && babelPropertyIsTopLevelDefaultExport(current)
     ) return true
     if (
       current.node.type === "VariableDeclarator"
