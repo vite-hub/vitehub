@@ -576,6 +576,42 @@ function sourceImportsFeedingWorkspaceStore(
               })
             }
           },
+          AssignmentExpression(path: BabelNodePath) {
+            const right = path.node.right
+            const required = right?.type === "MemberExpression" ? right.object : right
+            if (
+              required?.type !== "CallExpression"
+              || required.callee?.type !== "Identifier"
+              || required.callee.name !== "require"
+              || required.arguments?.length !== 1
+            ) return
+            const left = path.node.left
+            const commonJsExportsObject = left?.type === "MemberExpression"
+              && (
+                (left.object?.type === "Identifier" && left.object.name === "exports")
+                || (
+                  left.object?.type === "MemberExpression"
+                  && left.object.object?.type === "Identifier"
+                  && left.object.object.name === "module"
+                  && left.object.property?.type === "Identifier"
+                  && left.object.property.name === "exports"
+                )
+              )
+            const assignedName = babelMemberIsCommonJsDefaultExport(left)
+              ? "default"
+              : commonJsExportsObject
+                ? left.property?.name ?? left.property?.value
+                : undefined
+            if (assignedName !== exportedName) return
+            const specifier = required.arguments[0]?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
+            if (typeof specifier !== "string") return
+            const importedName = right?.type === "MemberExpression"
+              ? right.property?.name ?? right.property?.value
+              : "default"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
+            imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
+          },
           VariableDeclarator(path: BabelNodePath) {
             const selectedDynamicImportName = path.node.init?.type === "MemberExpression"
               ? path.node.init.property?.name ?? path.node.init.property?.value
