@@ -121,7 +121,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       const ignoredIndex = segments.findIndex(segment => ignoredSourceDirectories.has(segment))
       if (ignoredIndex === -1) return []
       const generationIndex = ignoredGeneratedDirectories.has(segments[ignoredIndex]!)
-        ? segments.findIndex((segment, index) => index > ignoredIndex && segment.endsWith("-generations"))
+        && segments[ignoredIndex + 1]?.endsWith("-generations")
+        ? ignoredIndex + 1
         : -1
       const retainedSourcesIndex = generationIndex === ignoredIndex + 1
         ? segments.findIndex((segment, index) => index > generationIndex && (segment === "sources" || segment.endsWith("-sources")))

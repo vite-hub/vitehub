@@ -409,6 +409,30 @@ it("retains only the requested UUID generation for a generated runtime alias", a
   await expect(readFile(retained.resolve(stale), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("preserves the import base for nested generation-like aliases", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-generation-alias-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, ".vitehub", "custom", "tool-generations", "one", "runtime.mjs")
+  const shared = join(rootDir, ".vitehub", "custom", "shared.mjs")
+  const stale = join(rootDir, ".vitehub", "blob-generations", "stale", "vercel-runtime.mjs")
+  await Promise.all([entry, shared, stale].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "../../shared.mjs"\n'),
+    writeFile(shared, 'export const value = "retained"\n'),
+    writeFile(stale, "throw new Error('stale generation must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "queue-generations", "one", "runtime-sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+  await expect(readFile(retained.resolve(stale), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains relative imports that escape a package-scoped Vite root", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-"))
   tempDirs.push(workspace)
