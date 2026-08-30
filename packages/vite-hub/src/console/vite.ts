@@ -263,12 +263,17 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   }
 
   function reconcileKVHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/kv"
     const kvHandler = join(consoleRuntimeRoot, "server/kv.get.js")
     const handlers = Array.isArray(nitro.handlers)
       ? nitro.handlers.filter(handler => handler?.handler !== kvHandler)
       : []
     if (sections.includes("kv")) {
-      handlers.push({ handler: kvHandler, route: "/api/_vitehub/console/kv" })
+      const conflictingHandler = handlers.find(handler => handler?.route === route)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      handlers.push({ handler: kvHandler, route })
     }
     nitro.handlers = handlers
   }

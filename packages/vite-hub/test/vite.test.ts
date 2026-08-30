@@ -296,6 +296,24 @@ describe("vitehub", () => {
     }
   })
 
+  it("rejects a conflicting standalone Console KV handler", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ console: true, kv: true, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{
+      nitro: {
+        handlers: [{
+          handler: "/app/server/api/custom-kv.ts",
+          route: "/api/_vitehub/console/kv",
+        }],
+      },
+    }, { command: "serve", mode: "development" }])).rejects.toThrow(
+      "Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /app/server/api/custom-kv.ts.",
+    )
+  })
+
   it("passes discovered Auth access policy to production Console builds", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
