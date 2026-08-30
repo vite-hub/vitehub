@@ -281,7 +281,7 @@ function babelNamespaceMemberNames(
   return []
 }
 
-function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boolean {
+function babelPathBelongsToExportedStore(path: BabelNodePath): boolean {
   for (let current = path.parentPath; current; current = current.parentPath) {
     if (
       current.node.type === "AssignmentExpression"
@@ -427,7 +427,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
           ObjectProperty(path: BabelObjectPropertyPath) {
             const value = path.node.value as BabelNode | undefined
             const belongsToRequestedExport = exportedName === "default"
-              ? babelPropertyBelongsToExportedStore(path)
+              ? babelPathBelongsToExportedStore(path)
               : babelPathReachesNamedExport(path, exportedName)
             if (
               babelPropertyName(path) === "provider"
@@ -682,25 +682,17 @@ function sourceInlineWorkspaceStoreOperations(
       plugins: [() => ({
         visitor: {
           SpreadElement(path: BabelNodePath) {
-            const storeProperty = path.parentPath?.parentPath
             // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
             const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
             if (
-              storeProperty?.node.type !== "ObjectProperty"
-              || babelPropertyName(storeProperty) !== "store"
-              || !babelPropertyIsTopLevelDefaultExport(storeProperty)
+              !babelPathBelongsToExportedStore(path)
               || argument?.type !== "Identifier"
               || !argument.name
             ) return
             operations.push({ kind: "spread", localName: argument.name })
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
-            const storeProperty = path.parentPath?.parentPath
-            if (
-              storeProperty?.node.type !== "ObjectProperty"
-              || babelPropertyName(storeProperty) !== "store"
-              || !babelPropertyIsTopLevelDefaultExport(storeProperty)
-            ) return
+            if (!babelPathBelongsToExportedStore(path)) return
             const name = babelPropertyName(path)
             // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
             const valueNode = path.node.value as BabelNode | undefined
