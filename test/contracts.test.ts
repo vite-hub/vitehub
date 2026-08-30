@@ -219,8 +219,10 @@ describe("package manifest contracts", () => {
           continue
         }
 
-        if (packageName === "vite-hub" && subpath === "./tsconfig") {
-          expect(target).toBe("./tsconfig.json")
+        if (subpath === "./tsconfig") {
+          expect(target, `${packageName} ${subpath} should expose a root TypeScript config`).toMatch(
+            /^\.\/tsconfig(?:\.[^.]+)?\.json$/,
+          )
           expect(existsSync(exportTargetPath(packageName, target))).toBe(true)
           continue
         }

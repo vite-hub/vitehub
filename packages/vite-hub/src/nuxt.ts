@@ -10,6 +10,7 @@ import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
+import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
@@ -21,7 +22,6 @@ import { installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
-import { mergeGeneratedNitroConfig, type GeneratedServerHandler } from "./internal/types.ts"
 
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -37,6 +37,7 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
 }
 
 type NuxtLike = {
+  callHook?: (name: "restart") => Promise<void>
   hook?: (
     name: "close" | "nitro:config",
     callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
@@ -509,6 +510,21 @@ function flattenPlugins(options: readonly unknown[]): Plugin[] {
   return plugins
 }
 
+function filterPluginOptions(
+  options: readonly unknown[],
+  keep: (plugin: Plugin) => boolean,
+): unknown[] {
+  return options.flatMap((option) => {
+    if (Array.isArray(option)) {
+      const nested = filterPluginOptions(option, keep)
+      return nested.length > 0 ? [nested] : []
+    }
+    const plugin = flattenPlugins([option])[0]
+    if (plugin && !keep(plugin)) return []
+    return [option]
+  })
+}
+
 function configHandler(plugin: Plugin) {
   if (typeof plugin.config === "function") return plugin.config
   return plugin.config?.handler
@@ -807,11 +823,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleInvocationRootState,
     )] : []),
   ]
-  const existing = withoutDeploymentOutput(Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [])
-  const existingNames = new Set(
-    flattenPlugins(existing)
-      .map(plugin => plugin.name)
-      .filter(Boolean),
+  const existing = withoutDeploymentOutput(
+    Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
   )
   const existingPluginsByName = new Map(
     flattenPlugins(existing)
@@ -869,18 +882,60 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     | undefined
   if (!emailPlugin) await emailCleanupPlugin?.api?.prepareTypes?.(projectRoot)
-  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+  // SAFETY: The plugin name identifies the ViteHub Source plugin and its public preparation API.
+  const sourcePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/source/vite") as Plugin & {
     api?: {
-      prepareTypes?: (options: {
+      onGeneratedHandlersChanged?: (
+        listener: (handlers: GeneratedSourceHandler[]) => Promise<void> | void,
+        options?: { handlesHostRestart?: boolean, projectRoot?: string },
+      ) => () => void
+      prepareSources?: (options: {
         projectRoot: string
         serverDirs?: string[]
-      }) => Promise<GeneratedServerHandler[]>
+      }) => Promise<GeneratedSourceHandler[]>
     }
   } | undefined
-  const generatedHandlers = await typesPlugin?.api?.prepareTypes?.({
+  let generatedSourceHandlers = await sourcePlugin?.api?.prepareSources?.({
     projectRoot,
     serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
   }) ?? []
+  const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
+    api?: {
+      prepareTypes?: (options: { projectRoot: string }) => Promise<void>
+      setPrepareSources?: (prepareSources: ((options: {
+        projectRoot: string
+        serverDirs?: string[]
+      }) => Promise<GeneratedSourceHandler[]>) | undefined) => void
+    }
+  } | undefined
+  let generatedSourceRestart = Promise.resolve()
+  let generatedSourceRestartClosed = false
+  const removeGeneratedHandlersListener = sourcePlugin?.api?.onGeneratedHandlersChanged?.((handlers: GeneratedSourceHandler[]) => {
+    const restart = generatedSourceRestart.then(async () => {
+      if (generatedSourceRestartClosed) return
+      const previousHandlers = generatedSourceHandlers
+      generatedSourceHandlers = handlers
+      try {
+        await typesPlugin?.api?.prepareTypes?.({ projectRoot })
+        if (generatedSourceRestartClosed) return
+        await nuxt.callHook?.("restart")
+      }
+      catch (error) {
+        generatedSourceHandlers = previousHandlers
+        throw error
+      }
+    })
+    generatedSourceRestart = restart.catch(() => {})
+    return restart
+  }, { handlesHostRestart: true, projectRoot })
+  if (removeGeneratedHandlersListener) {
+    nuxt.hook?.("close", async () => {
+      generatedSourceRestartClosed = true
+      removeGeneratedHandlersListener()
+    })
+  }
+  typesPlugin?.api?.setPrepareSources?.(sourcePlugin?.api?.prepareSources)
+  await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 
   viteConfig.define = {
     ...viteConfig.define,
@@ -891,8 +946,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   const installedVitePlugins: unknown = [
-    ...plugins.filter(plugin => !existingNames.has(plugin.name)),
-    ...existing,
+    ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
+    ...filterPluginOptions(existing, plugin => !plugins.some(candidate => candidate.name === plugin.name)),
   ]
   // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
   nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]
@@ -920,7 +975,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
-    Object.assign(config, mergeGeneratedNitroConfig(config, generatedHandlers))
+    Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     installNitroRuntimeResolvers(config, replayPlugins)
     installMarkdownTemplateResolver(config, markdownTemplatePlugin)
     if (emailPlugin && nuxt.options.dev) {

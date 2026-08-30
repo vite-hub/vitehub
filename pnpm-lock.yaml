@@ -1796,9 +1796,15 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
+      mlly:
+        specifier: catalog:unjs
+        version: 1.8.2
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
+        version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
@@ -1838,10 +1844,10 @@ importers:
         version: 1.4.2(typescript@6.0.3)
       vite-plus:
         specifier: catalog:tooling
-        version: 0.1.24(bd2477888b1a2c720cf58faf12a4591a)
+        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(happy-dom@20.11.6)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
-        version: '@voidzero-dev/vite-plus-test@0.1.24(bd2477888b1a2c720cf58faf12a4591a)'
+        version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(happy-dom@20.11.6)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
       vue:
         specifier: catalog:ui
         version: 3.5.40(typescript@6.0.3)
@@ -2050,9 +2056,6 @@ importers:
       google-auth-library:
         specifier: catalog:storage
         version: 10.6.2
-      mlly:
-        specifier: catalog:unjs
-        version: 1.8.2
       playwright-core:
         specifier: catalog:browser
         version: 1.61.1
