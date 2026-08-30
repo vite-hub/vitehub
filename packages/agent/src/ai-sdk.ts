@@ -2431,7 +2431,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         [Symbol.toStringTag]: "Promise",
       })
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
-        let reader: Promise<ReadableStreamDefaultReader<unknown>> | undefined
+        let reader: ReadableStreamDefaultReader<unknown> | undefined
+        let readerCreation: Promise<ReadableStreamDefaultReader<unknown>> | undefined
         let cancelled = false
         const createReader = async () => {
           const result = await start()
@@ -2443,7 +2444,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
             // SAFETY: StreamTextResult exposes these properties as ReadableStream or AsyncIterable values.
             : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
         }
-        const getReader = () => reader ??= createReader()
+        const getReader = async () => {
+          if (reader) return reader
+          readerCreation ??= createReader()
+          try {
+            reader = await readerCreation
+            return reader
+          }
+          finally {
+            readerCreation = undefined
+          }
+        }
         const read = async () => {
           const interruptedRead = () => {
             if (streamCancellation.signal.aborted && !invocationAbortSignal?.aborted) return { done: true as const, value: undefined }
