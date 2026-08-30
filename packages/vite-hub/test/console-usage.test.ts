@@ -114,4 +114,56 @@ describe("Console usage projection", () => {
     })
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }))
   })
+
+  it("marks missing usage evidence incomplete for model totals", async () => {
+    const recorded = invocationRecordFromUsageRecord({
+      model: "recorded-model",
+      usage: { totalTokens: 10 },
+    })
+    const missing = {
+      ...recorded,
+      cursor: "missing-usage",
+      id: "missing-usage",
+      observations: [],
+      traceId: "missing-usage-trace",
+    }
+    const records = new Map([[recorded.id, recorded], [missing.id, missing]])
+    const invocations = {
+      get: vi.fn(async (id: string) => records.get(id)),
+      getByRunId: vi.fn(),
+      list: vi.fn(async () => ({
+        invocations: [...records.values()].map(({ observations: _observations, ...summary }) => summary),
+      })),
+    }
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      models: [{ model: "recorded-model", totalTokens: 10, totalTokensAvailable: false }],
+      partial: true,
+      totals: { invocations: 2, totalTokens: 10, totalTokensAvailable: false },
+    })
+  })
+
+  it("marks records that disappear after listing as incomplete", async () => {
+    const record = invocationRecord({ totalTokens: 10 })
+    const { observations: _observations, ...summary } = record
+    const invocations = {
+      get: vi.fn(async () => undefined),
+      getByRunId: vi.fn(),
+      list: vi.fn(async () => ({ invocations: [summary] })),
+    }
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: false,
+      partial: true,
+      totals: { invocations: 1, totalTokensAvailable: false },
+    })
+  })
 })

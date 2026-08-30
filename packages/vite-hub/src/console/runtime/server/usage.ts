@@ -320,7 +320,7 @@ function addMissingUsage(total: UsageTotal): void {
 }
 
 function publicTotals(total: UsageTotal, complete = true): PublicUsageTotals {
-  const hasEvidence = total.invocations > 0 || complete
+  const hasEvidence = complete
   return {
     cacheWriteTokensAvailable: hasEvidence && total.cacheWriteTokensAvailable,
     cacheWriteTokens: total.cacheWriteTokens,
@@ -385,8 +385,18 @@ export async function createUsageSummary(
         && timestamp <= now.valueOf()
     })
     const records = await Promise.all(summaries.map(summary => invocations.get(summary.id)))
-    for (const record of records) {
-      if (!record) continue
+    for (const [index, record] of records.entries()) {
+      if (!record) {
+        const bucket = bucketStart(usageTime(summaries[index]!), window.bucket)
+        if (bucket) {
+          const bucketTotal = buckets.get(bucket) ?? emptyTotals()
+          addMissingUsage(totals)
+          addMissingUsage(bucketTotal)
+          buckets.set(bucket, bucketTotal)
+        }
+        partial = true
+        continue
+      }
       const bucket = bucketStart(usageTime(record), window.bucket)
       if (!bucket) continue
       const bucketTotal = buckets.get(bucket) ?? emptyTotals()
@@ -396,7 +406,7 @@ export async function createUsageSummary(
         addMissingUsage(totals)
         addMissingUsage(bucketTotal)
         buckets.set(bucket, bucketTotal)
-        partial ||= projection.incomplete
+        partial = true
         continue
       }
       recordedUsage++
@@ -429,13 +439,13 @@ export async function createUsageSummary(
         start,
         ...publicTotals(buckets.get(start) ?? emptyTotals(), !partial),
         models: [...(bucketModels.get(start) ?? new Map<string, UsageTotal>()).entries()]
-          .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal) })),
+          .map(([model, modelTotal]) => ({ model, ...publicTotals(modelTotal, !partial) })),
       })),
     costAvailable: publicTotal.costAvailable,
     from,
     generatedAt: new Date().toISOString(),
     models: [...models.entries()]
-      .map(([model, total]) => ({ model, ...publicTotals(total) }))
+      .map(([model, total]) => ({ model, ...publicTotals(total, !partial) }))
       .sort((left, right) => right.totalTokens - left.totalTokens || left.model.localeCompare(right.model)),
     partial,
     resolution: window.bucket,
