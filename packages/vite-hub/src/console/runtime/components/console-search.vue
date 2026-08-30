@@ -274,6 +274,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   navigationRequest = controller
   navigationLoading.value = true
   if (discoverContent) {
+    discoveredAgentNames.value = []
     definitionItems.value = []
     kvItems.value = []
     kvSearchTruncated.value = false
@@ -362,7 +363,10 @@ watch(searchTerm, (value) => {
 });
 
 watch(open, async (value) => {
-  if (!value) return;
+  if (!value) {
+    navigationRequest?.abort()
+    return
+  }
   await loadNavigation(true);
   if (!agentsEnabled.value) return;
   if (sessionSearchEnabled.value) await sessionSearch.refresh();
