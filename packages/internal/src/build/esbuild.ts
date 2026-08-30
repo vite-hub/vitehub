@@ -61,6 +61,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
         const aliases = await resolvedEntries
+        let match = aliases.find(({ prefix, specifier }) => /^\.\.?[\\/]/.test(specifier) && (prefix
+          ? args.path.startsWith(specifier)
+          : args.path === specifier))
+        let matchedAlias = match?.specifier
+        let matchedSpecifier = match ? args.path : undefined
         let specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
@@ -68,11 +73,9 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
         let canonicalSpecifier = isAbsolute(normalizedSpecifier)
           ? normalizePathSeparators(await realpath(normalizedSpecifier).catch(() => normalizedSpecifier))
           : normalizedSpecifier
-        let match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
+        match ||= aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
           ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(canonicalAlias)
           : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
-        let matchedAlias: string | undefined
-        let matchedSpecifier: string | undefined
         if (!match && isAbsolute(specifier)) {
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
