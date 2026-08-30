@@ -258,7 +258,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     const resolvedKVStores = options.resolveKVStores?.(kv)
     sections = resolvedKVStores === false
       ? (options.sections ?? []).filter(section => section !== "kv")
-      : options.sections ?? []
+      : [...new Set([...(options.sections ?? []), "kv" as const])]
     kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
   }
 

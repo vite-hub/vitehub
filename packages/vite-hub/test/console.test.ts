@@ -529,6 +529,35 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("enables the KV section from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-kv-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: kv => kv ? ["default", "cache"] : false,
+      })
+      const config: {
+        kv?: unknown
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      config.kv = { stores: { default: {}, cache: {} } }
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/kv")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
+      expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
