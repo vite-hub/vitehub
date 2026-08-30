@@ -145,7 +145,7 @@ export type TraceEventPayload =
   | { visibility: "private" }
 
 export type TraceEventContentPolicy = "content" | "metadata"
-export type TraceRunStatus = "completed" | "failed" | "running"
+export type TraceRunStatus = "cancelled" | "completed" | "failed" | "running"
 export type TraceStepStatus = "completed" | "failed" | "running"
 
 export interface TraceEvent {
@@ -856,7 +856,7 @@ function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
 }
 
 function isTraceRunFinish(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.finish" || event.name === "run.finish"
+  return event.name === "agent.invocation.cancelled" || event.name === "agent.invocation.finish" || event.name === "run.finish"
 }
 
 function isTraceRunError(event: TraceEventLogEntry): boolean {
@@ -920,7 +920,9 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
 
     const terminal = sorted.slice().reverse().find(isTraceRunTerminal)
     const failed = sorted.some(isTraceRunFailureEvidence)
-    const status: TraceRunStatus = failed || (terminal && isTraceRunError(terminal))
+    const status: TraceRunStatus = terminal?.name === "agent.invocation.cancelled"
+      ? "cancelled"
+      : failed || (terminal && isTraceRunError(terminal))
       ? "failed"
       : terminal
         ? "completed"

@@ -1387,6 +1387,20 @@ describe("@vite-hub/runtime", () => {
     expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({ status: { code: "OK" } })
   })
 
+  it("derives cancelled Agent Invocations as terminal cancelled runs", async () => {
+    const log = createTraceEventLog()
+    await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })
+    await log.append({ name: "agent.invocation.cancelled", timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({
+        durationMs: 20,
+        endTime: "2026-01-01T00:00:00.020Z",
+        status: "cancelled",
+      }),
+    ])
+  })
+
   it("keeps runs successful after recoverable stream warnings", async () => {
     const log = createTraceEventLog()
     await log.append({ name: "agent.invocation.start", timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" })

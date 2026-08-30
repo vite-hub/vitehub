@@ -1262,7 +1262,15 @@ describe("workflow runtime", () => {
   it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
-      .mockResolvedValueOnce({ workflowRun: { id: "accepted-run", status: "pending" } })
+      .mockResolvedValueOnce({ workflowRun: {
+        error: null,
+        id: "accepted-run",
+        namespaceId: "default",
+        output: null,
+        status: "pending",
+        version: null,
+        workflowName: "welcome",
+      } })
     class RecoveringOpenWorkflow {
       defineWorkflow() {
         return { run }

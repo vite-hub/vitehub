@@ -106,6 +106,7 @@ import {
   agentInvocationJournalContentTraceLogSymbol,
   agentInvocationJournalTraceLogSymbol,
   agentInvocationTraceIdContextKey,
+  traceAgentInvocationCancelled,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
@@ -2586,7 +2587,7 @@ function agentContentTraceLog(
       else tailEntries[(count - maxEntries / 2) % tailEntries.length] = entry
       const isFailure = entry.name === "run.error" || (entry.name === "agent.stream.error" && entry.attributes?.["error.recoverable"] !== true)
       if (isFailure) failure = entry
-      if (entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
+      if (entry.name === "agent.invocation.cancelled" || entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
       count += 1
       await destination?.append(correlated)
       return entry
@@ -5195,7 +5196,10 @@ async function finishAgentInvocation<
     if (!failed) {
       await runFinishActivity(teardownActivity, async () => await commitWorkspaceChanges(context))
     }
-    if (!failed) {
+    if (outcomeCancelled) {
+      await traceAgentInvocationCancelled(toTraceContext(context))
+    }
+    else if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,

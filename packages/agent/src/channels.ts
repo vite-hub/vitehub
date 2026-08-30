@@ -1205,7 +1205,12 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     if (login) return { login }
   }
   const processEnv = globalThis.process?.env
-  if (!processEnv?.VITEHUB_GITHUB_TOKEN && (processEnv?.GH_TOKEN === token || processEnv?.GITHUB_TOKEN === token)) {
+  if (
+    processEnv?.GITHUB_ACTIONS === "true"
+    && !processEnv.VITEHUB_GITHUB_TOKEN
+    && !processEnv.GH_TOKEN
+    && processEnv.GITHUB_TOKEN === token
+  ) {
     return { login: "github-actions[bot]" }
   }
   if (app) return githubAppIdentity(app, context)
@@ -1383,7 +1388,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
         const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
         const knownCommentId = commentIds.get(activityKey)
-        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, githubActivityCommentLookupLimit)
+        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, knownCommentId ? githubActivityCommentLookupLimit : 0)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         let existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId)

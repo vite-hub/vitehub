@@ -11229,9 +11229,9 @@ describe("agent message protocol", () => {
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.finish",
-      "agent.invocation.error",
+      "agent.invocation.cancelled",
     ])
-    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "cancelled" }])
   })
 
   it("emits one title data part when async event streams become UI message streams", async () => {

@@ -460,7 +460,7 @@ describe("agent channels", () => {
     }
   })
 
-  it.each(["GITHUB_TOKEN", "GH_TOKEN"] as const)("reuses GitHub Actions bot activity when its installation token is selected through %s", async (tokenKey) => {
+  it("reuses GitHub Actions bot activity for the built-in Actions token", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -474,7 +474,8 @@ describe("agent channels", () => {
       if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
       throw new Error(`Unexpected GitHub API call: ${url}`)
     })
-    vi.stubEnv(tokenKey, "actions-installation-token")
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({
@@ -492,6 +493,55 @@ describe("agent channels", () => {
         waitUntil: vi.fn(),
       } as never)
 
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("does not treat an unresolved GH_TOKEN as the GitHub Actions bot", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ message: "Forbidden" }, { status: 403 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GH_TOKEN", "user-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      await expect(channel.activity?.update(context(channel, "run-user-token") as never))
+        .rejects.toThrow("could not resolve the authenticated identity")
+      expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining("/comments"), expect.anything())
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("finds an owned activity comment beyond the first restart lookup page", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        const page = url.searchParams.get("page")
+        if (page === "1") return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 100 })))
+        if (page === "2") return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
+        return Response.json([])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      await channel.activity?.update(context(channel, "run-restarted") as never)
       expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
     }
     finally {
