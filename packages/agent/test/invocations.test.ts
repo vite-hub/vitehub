@@ -136,6 +136,47 @@ describe("Agent Invocations", () => {
     expect(record.observations.slice(-3).every(observation => observation.attributes?.["vitehub.trace.truncated"] === true)).toBe(true)
   })
 
+  it("retains identified cancellation when the observation journal is full", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const ordinary = Array.from({ length: 256 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:${index}` },
+      name: `ordinary-${index}`,
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const cancelled = {
+      attributes: { "vitehub.observation.id": "journal:cancelled" },
+      name: "agent.invocation.cancelled",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "cancelled-at-capacity",
+      observations: ordinary,
+      status: "cancelled",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: cancelled,
+      timestamp: createdAt,
+    })
+
+    expect(record).toMatchObject({ observationsTruncated: true })
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.at(-1)).toMatchObject({
+      attributes: {
+        "vitehub.observation.id": "journal:cancelled",
+        "vitehub.trace.truncated": true,
+      },
+      name: "agent.invocation.cancelled",
+    })
+  })
+
   it("reserves lifecycle evidence before recent delivery outcomes", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const lifecycle = [

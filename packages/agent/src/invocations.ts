@@ -664,7 +664,11 @@ function terminalStatus(status: AgentInvocationRecordStatus): boolean {
 }
 
 function terminalObservation(observation: TraceEventLogEntry): boolean {
-  return observation.name === "agent.invocation.finish" || observation.name === "agent.invocation.error" || observation.name === "run.finish" || observation.name === "run.error"
+  return observation.name === "agent.invocation.finish"
+    || observation.name === "agent.invocation.error"
+    || observation.name === "agent.invocation.cancelled"
+    || observation.name === "run.finish"
+    || observation.name === "run.error"
 }
 
 function failureEvidenceObservation(observation: TraceEventLogEntry): boolean {
