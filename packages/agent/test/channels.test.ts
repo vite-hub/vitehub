@@ -109,6 +109,18 @@ describe("agent channels", () => {
       await update(context("run-1", "completed") as never)
       expect(stored?.body).toBe(currentBody)
       expect(stored?.body).toContain("https://console.test/invocations/run-14")
+
+      // Keep an active run stale even after bounded serialized tombstones evict it.
+      await update(context("long-running", "running") as never)
+      for (let index = 0; index <= 100; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await update(context(`newer-${index}`, "completed") as never)
+      }
+      const newestBody = stored?.body
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("long-running", "completed") as never)
+      expect(stored?.body).toBe(newestBody)
+      expect(stored?.body).toContain("https://console.test/invocations/newer-100")
     }
     finally {
       vi.unstubAllGlobals()

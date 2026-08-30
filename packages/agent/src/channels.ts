@@ -1148,6 +1148,7 @@ const githubActivityLinkUrlLimit = 1_000
 const githubActivityBodyLimit = 65_000
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
+const githubActivityActiveRuns = new Map<string, Set<string>>()
 const githubActivityUpdates = new Map<string, Promise<void>>()
 
 interface GitHubActivityTarget {
@@ -1347,13 +1348,21 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
+        const runId = githubActivityRunId(context.activity.runId)
+        const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
+        const knownActiveRun = activeRuns.has(runId)
+        const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
+        if (!terminal) {
+          activeRuns.add(runId)
+          githubActivityActiveRuns.set(activityKey, activeRuns)
+        }
         const commentsUrl = `${activityKey}/comments?sort=created&direction=desc`
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         const existing = owned[0]
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-        const current = { links: githubActivityLinksState(context.activity.links), runId: githubActivityRunId(context.activity.runId), status: context.activity.status }
+        const current = { links: githubActivityLinksState(context.activity.links), runId, status: context.activity.status }
         const reconcileDuplicates = async () => {
           for (const duplicate of owned.slice(1)) {
             const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined
@@ -1366,18 +1375,25 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           }
         }
         const staleRun = previous.current?.runId !== current.runId
-          && (previous.previousRunIds.includes(current.runId)
+          && (knownActiveRun
+            || previous.previousRunIds.includes(current.runId)
             || owned.slice(1).some(comment => {
               const state = decodeGithubActivityState(isRecord(comment) ? comment.body : undefined)
               return state.current?.runId === current.runId || state.previousRunIds.includes(current.runId)
             }))
         if (staleRun) {
           await reconcileDuplicates()
+          if (terminal) activeRuns.delete(runId)
+          if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
           return
         }
         if (previous.current?.runId === current.runId
           && previous.current.status && ["cancelled", "completed", "failed"].includes(previous.current.status)
-          && !["cancelled", "completed", "failed"].includes(current.status)) return
+          && !terminal) {
+          activeRuns.delete(runId)
+          if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
+          return
+        }
         const state: GitHubActivityCommentState = previous.current?.runId === current.runId
           ? { current, history: previous.history, previousRunIds: previous.previousRunIds }
           : {
@@ -1397,6 +1413,8 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           method: commentId ? "PATCH" : "POST",
         })
         await reconcileDuplicates()
+        if (terminal) activeRuns.delete(runId)
+        if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
       })
       githubActivityUpdates.set(activityKey, update)
       try {
