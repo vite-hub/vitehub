@@ -4128,6 +4128,10 @@ async function chatTriggerMessages(
       : exactDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
         ? structuralDurableCurrentIndices[0] ?? -1
         : -1
+  if (message.id && foundCurrent && durableCurrentIndex < 0) {
+    const currentTime = message.metadata.dateSent.getTime()
+    durable = durable.filter((item) => item.metadata.dateSent.getTime() < currentTime)
+  }
   if (!message.id) {
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }

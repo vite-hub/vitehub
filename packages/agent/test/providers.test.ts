@@ -17466,7 +17466,7 @@ describe("server helpers", () => {
       messages: [
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
-        message("21", "newer cached", "2026-06-10T12:01:00.000Z"),
+        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
         message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
       ],
     })
@@ -17493,6 +17493,10 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
+    const thread = adapter._chatInstance()?.thread("telegram:456")
+    Reflect.set(thread ?? {}, "_threadHistory", {
+      getMessages: vi.fn(async () => [message("21", "newer cached", "2026-06-10T12:00:20.000Z")]),
+    })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "current"]])
