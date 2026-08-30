@@ -160,6 +160,30 @@ it("excludes ignored output directories beneath a configured closure root", asyn
   await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
 })
 
+it("retains relative dependencies beside a requested output entry", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-output-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, "dist", "index.js")
+  const chunk = join(rootDir, "dist", "chunk.js")
+  const unrelatedOutput = join(rootDir, ".output", "server", "index.mjs")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(unrelatedOutput), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export { value } from "./chunk.js"\n'),
+    writeFile(chunk, 'export const value = "retained"\n'),
+    writeFile(unrelatedOutput, "export default {}\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+  await expect(readFile(retained.resolve(unrelatedOutput), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)

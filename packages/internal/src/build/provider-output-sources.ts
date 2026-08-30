@@ -112,6 +112,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => pathContains(root, path))
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
+    const requestedOutputRoots = requested.flatMap((path) => {
+      const configuredRoot = nestedConfiguredRoots
+        .filter(root => pathContains(root, path))
+        .sort((left, right) => right.length - left.length)[0]
+      const scopedRoot = configuredRoot ?? root
+      const segments = relative(scopedRoot, path).split(sep)
+      const ignoredIndex = segments.findIndex(segment => ignoredSourceDirectories.has(segment))
+      return ignoredIndex === -1 ? [] : [resolve(scopedRoot, ...segments.slice(0, ignoredIndex + 1))]
+    })
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")
     try {
@@ -138,6 +147,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
             && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+              || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
               || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
           }
           return true
