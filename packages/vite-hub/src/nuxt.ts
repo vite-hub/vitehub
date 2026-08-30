@@ -383,6 +383,7 @@ async function installConsole(
   installInvocations = true,
   writeGeneratedPlugin = true,
   invocationRootState?: ConsoleInvocationRootState,
+  canDiscoverWorkflows: () => boolean = () => true,
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -496,7 +497,10 @@ async function installConsole(
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    const catalog = discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections, serverDirs })
+    const discoverySections = canDiscoverWorkflows()
+      ? sections
+      : sections.filter(section => section !== "workflows")
+    const catalog = discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections: discoverySections, serverDirs })
     const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
@@ -830,6 +834,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleInvocationRootState = createConsoleInvocationRootState()
   let resolvedConsoleFixture: string | undefined
   let generatedConsolePluginPath: string | undefined
+  let consoleWorkflowConfigResolved = false
   if (options.console) {
     const configuredConsole = options.console === true ? true : options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -1076,6 +1081,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     const replayConfig = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    consoleWorkflowConfigResolved = true
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
       const resolvedSections = resolveConsoleSectionIds({
@@ -1169,6 +1175,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       !nuxt.options.vitehubCliDiscovery,
       !nuxt.options.vitehubCliDiscovery,
       consoleInvocationRootState,
+      () => consoleWorkflowConfigResolved,
     )
   }
 }

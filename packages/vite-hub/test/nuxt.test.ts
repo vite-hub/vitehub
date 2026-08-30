@@ -189,6 +189,7 @@ describe("ViteHub Nuxt integration", () => {
     await mkdir("/tmp/vitehub-nuxt", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/package.json", `${JSON.stringify({ name: "vitehub-nuxt" })}\n`)
     await rm("/tmp/vitehub-nuxt/app/package.json", { force: true })
+    await rm("/tmp/vitehub-nuxt/custom-server", { force: true, recursive: true })
     mocks.objectHook.mockClear()
     mocks.agentHook.mockClear()
     mocks.agentWorkflowRegistryTransform.mockClear()
@@ -692,6 +693,10 @@ describe("ViteHub Nuxt integration", () => {
       name: "vite-hub/workflow-replay",
       config: () => ({ workflow: false }),
     }])
+    await mkdir("/tmp/vitehub-nuxt/custom-server/one", { recursive: true })
+    await mkdir("/tmp/vitehub-nuxt/custom-server/two", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/custom-server/one/duplicate.workflow.ts", "export default defineWorkflow(async () => undefined)\n")
+    await writeFile("/tmp/vitehub-nuxt/custom-server/two/duplicate.workflow.ts", "export default defineWorkflow(async () => undefined)\n")
 
     await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
