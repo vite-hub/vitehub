@@ -595,6 +595,15 @@ function sourceImportsFeedingWorkspaceStore(
                   imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
                 }
               }
+              else if (path.node.id?.type === "Identifier") {
+                const binding = path.scope.getBinding(path.node.id.name)
+                for (const reference of binding?.referencePaths ?? []) {
+                  const memberNames = babelNamespaceMemberNames(reference, candidate => exportedName === "default"
+                    ? babelPathReachesExportedStore(candidate)
+                    : babelPathOrBindingIsExported(candidate, exportedName))
+                  for (const importedName of memberNames) imports.push({ importedName, specifier })
+                }
+              }
               return
             }
             const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
