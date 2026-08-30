@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { requestConsole } from "../src/console/runtime/client/request.ts"
+import { appendUniqueConsoleKeys, requestConsole } from "../src/console/runtime/client/request.ts"
 import { createConsoleSectionLoader } from "../src/console/runtime/client/sections.ts"
 
 afterEach(() => {
@@ -8,6 +8,11 @@ afterEach(() => {
 })
 
 describe("Console requests", () => {
+  it("deduplicates keys repeated across provider pages", () => {
+    expect(appendUniqueConsoleKeys(["first", "repeated"], ["repeated", "last"]))
+      .toEqual(["first", "repeated", "last"])
+  })
+
   it("supports requests without query or signal options", async () => {
     const fetch = vi.fn().mockResolvedValue({
       json: () => Promise.resolve({ sections: ["kv"] }),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import { requestConsole } from "../client/request";
+import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBackButton from "./console-back-button.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -168,7 +168,7 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
       if (value.errorCode) Object.assign(error, { code: value.errorCode });
       throw error;
     }
-    keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
+    keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
     const selection = options.keepSelection && selectedKey.value !== currentSelection

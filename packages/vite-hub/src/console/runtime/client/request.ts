@@ -20,3 +20,7 @@ export async function requestConsole(
   if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`)
   return response.json()
 }
+
+export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
+  return [...new Set([...existing, ...page])]
+}

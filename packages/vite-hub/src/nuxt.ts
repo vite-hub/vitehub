@@ -1054,20 +1054,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     }
   }
-  if (options.console) {
-    await installConsole(
-      nuxt,
-      projectRoot,
-      viteRoot,
-      consoleSections,
-      consoleKVStores,
-      resolvedConsoleFixture,
-      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-      !nuxt.options.vitehubCliDiscovery,
-      !nuxt.options.vitehubCliDiscovery,
-      consoleInvocationRootState,
-    )
-  }
 }
 
 viteHubNuxtModule.getMeta = () => ({
