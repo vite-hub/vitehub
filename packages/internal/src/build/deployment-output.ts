@@ -43,6 +43,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
+  wranglerConfigDefaults?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
   wranglerConfig: object
 }
@@ -291,6 +292,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       outputRoot,
       rootDir: options.rootDir,
       wranglerConfig: options.wranglerConfig,
+      wranglerConfigDefaults: options.wranglerConfigDefaults,
       wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex
