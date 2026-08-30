@@ -26,10 +26,18 @@ if (current.outcome === 'available') {
 
 Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
 
-Await `child.result` when the caller needs the completed Agent result. This works for inline and Workflow-backed invocations, including application Capability tools that return delegated work to a model.
+Await `child.result` when the caller needs the completed Agent result. This works for inline and Workflow-backed invocations. Application Capability tools must convert the result to a JSON-compatible value before returning delegated work to a model. Most Agent results can be returned directly, but web API objects such as `Response` need explicit conversion.
 
 ```ts
-return await child.result
+const result = await child.result
+
+return result instanceof Response
+  ? {
+      body: await result.text(),
+      contentType: result.headers.get('content-type'),
+      status: result.status,
+    }
+  : result
 ```
 
 Inline and serverless runtimes may become unavailable after their process ends. Workflow-backed children delegate inspection to their Workflow Run while the returned controller remains available. ViteHub does not add a separate invocation registry or public lookup by id.
