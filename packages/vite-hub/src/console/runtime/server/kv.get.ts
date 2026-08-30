@@ -23,9 +23,25 @@ function requestError(statusCode: number, statusMessage: string): Error {
   return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
 }
 
-function requiredParameter(value: string | null, name: string): string {
-  if (value === null) throw requestError(400, `${name} is required.`)
-  return value
+async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; store: string | null }> {
+  let body: unknown
+  try {
+    body = await event.req?.json?.()
+  }
+  catch {
+    throw requestError(400, "Request body must be valid JSON.")
+  }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the object boundary before reading fields.
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw requestError(400, "Request body must be an object.")
+  }
+  const key = Reflect.get(body, "key")
+  const store = Reflect.get(body, "store")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the required key identity.
+  if (typeof key !== "string") throw requestError(400, "key is required.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the optional store identity.
+  if (store !== undefined && typeof store !== "string") throw requestError(400, "store must be a string.")
+  return { key, store: store ?? null }
 }
 
 function limitParameter(value: string | null): number {
@@ -213,14 +229,14 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   | ConsoleKVValue
   | { cursor?: string; error?: string; errorCode?: "cursor_expired"; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
-  assertConsoleRequest(event)
+  assertConsoleRequest(event, ["GET", "POST"])
   const url = consoleRequestURL(event)
   const inspection = getConsoleKV()
-  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
-  const requestedKey = url.searchParams.get("key")
+  const method = event.method ?? event.req?.method ?? event.node?.req?.method
 
-  if (requestedKey !== null) {
-    const key = requiredParameter(requestedKey, "key")
+  if (method === "POST") {
+    const { key, store } = await valueRequest(event)
+    const selected = selectStore(inspection.storage, inspection.stores, store)
     const value = unwrap(await selected.storage.get(key))
     const found = value !== null || unwrap(await selected.storage.has(key))
     const response: ConsoleKVValue = {
@@ -232,6 +248,7 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
     return response
   }
 
+  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
   const prefix = url.searchParams.get("prefix") ?? ""
   if (prefix.length > maximumPrefixLength) throw requestError(400, "prefix is too long.")
   const limit = limitParameter(url.searchParams.get("limit"))

@@ -576,6 +576,20 @@ describe("Agent invocation console", () => {
       await expect(Reflect.apply(missingHandler, {}, [{ root }, { command: "build", mode: "production" }]))
         .rejects.toThrow("/api/_vitehub/console/**")
 
+      const getOnlyApi = consoleVitePlugin({
+        console: { access: "auth" },
+        preset: "node",
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/_vitehub/**" },
+          { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
+        ]),
+      })
+      const getOnlyHook = getOnlyApi.config
+      if (!getOnlyHook) throw new TypeError("Expected a console config hook.")
+      const getOnlyHandler = "handler" in getOnlyHook ? getOnlyHook.handler : getOnlyHook
+      await expect(Reflect.apply(getOnlyHandler, {}, [{ root }, { command: "build", mode: "production" }]))
+        .rejects.toThrow("/api/_vitehub/console/**")
+
       const protectedConsole = consoleVitePlugin({
         console: { access: "auth" },
         preset: "node",

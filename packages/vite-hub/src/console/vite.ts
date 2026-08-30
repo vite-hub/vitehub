@@ -116,7 +116,7 @@ export function updateConsoleInvocationRootState(
 const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
 
 function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
-  if (!route.authorize || (route.method && route.method.toUpperCase() !== "GET")) return false
+  if (!route.authorize || route.method) return false
   if (!route.route.endsWith("/**")) return false
   const routeBase = route.route.slice(0, -3)
   const targetBase = target.slice(0, -3)

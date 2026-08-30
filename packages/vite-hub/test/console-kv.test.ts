@@ -21,11 +21,11 @@ function success<TResult>(value: TResult): KVResult<TResult> {
   return [null, value]
 }
 
-function event(query = "", method = "GET"): ConsoleRequestEvent {
+function event(query = "", method = "GET", body?: unknown): ConsoleRequestEvent {
   return {
     method,
     node: { req: { method, url: `http://localhost/api/_vitehub/console/kv${query}` } },
-    req: { method, url: `http://localhost/api/_vitehub/console/kv${query}` },
+    req: { json: async () => body, method, url: `http://localhost/api/_vitehub/console/kv${query}` },
   }
 }
 
@@ -107,7 +107,7 @@ describe("Console KV inspection", () => {
   })
 
   it("formats structured, null, missing, and large values without writing", async () => {
-    const longKey = "key".repeat(1_024)
+    const longKey = "key".repeat(8_192)
     const { storage, writes } = memoryKV({
       default: new Map<string, unknown>([
         ["", "empty key"],
@@ -130,12 +130,12 @@ describe("Console KV inspection", () => {
 
     const encode = vi.spyOn(TextEncoder.prototype, "encode")
 
-    await expect(kvHandler(event("?key="))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "" }))).resolves.toMatchObject({
       found: true,
       key: "",
       value: "empty key",
     })
-    await expect(kvHandler(event("?key=config"))).resolves.toEqual({
+    await expect(kvHandler(event("", "POST", { key: "config" }))).resolves.toEqual({
       found: true,
       format: "json",
       key: "config",
@@ -143,31 +143,31 @@ describe("Console KV inspection", () => {
       type: "object",
       value: "{\n  \"enabled\": true\n}",
     })
-    await expect(kvHandler(event("?key=boxed"))).resolves.toMatchObject({ value: "7" })
-    await expect(kvHandler(event("?key=boxed-custom"))).resolves.toMatchObject({ value: "\"replacement\"" })
-    await expect(kvHandler(event("?key=boxed-bigint"))).resolves.toMatchObject({ format: "text", value: "1" })
-    await expect(kvHandler(event("?key=keyed"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "boxed" }))).resolves.toMatchObject({ value: "7" })
+    await expect(kvHandler(event("", "POST", { key: "boxed-custom" }))).resolves.toMatchObject({ value: "\"replacement\"" })
+    await expect(kvHandler(event("", "POST", { key: "boxed-bigint" }))).resolves.toMatchObject({ format: "text", value: "1" })
+    await expect(kvHandler(event("", "POST", { key: "keyed" }))).resolves.toMatchObject({
       value: "{\n  \"key\": \"\"\n}",
     })
-    await expect(kvHandler(event("?key=omitted"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "omitted" }))).resolves.toMatchObject({
       value: "{\n  \"kept\": true\n}",
     })
-    await expect(kvHandler(event("?key=nullable"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "nullable" }))).resolves.toMatchObject({
       found: true,
       type: "null",
       value: "null",
     })
-    await expect(kvHandler(event("?key=missing"))).resolves.toEqual({
+    await expect(kvHandler(event("", "POST", { key: "missing" }))).resolves.toEqual({
       found: false,
       key: "missing",
       store: "default",
     })
-    await expect(kvHandler(event(`?key=${encodeURIComponent(longKey)}`))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: longKey }))).resolves.toMatchObject({
       found: true,
       key: longKey,
       value: "long key",
     })
-    await expect(kvHandler(event("?key=%20spaced%20"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: " spaced " }))).resolves.toMatchObject({
       found: true,
       key: " spaced ",
       value: "preserved",
@@ -176,22 +176,22 @@ describe("Console KV inspection", () => {
       keys: [" spaced "],
       prefix: " ",
     })
-    await expect(kvHandler(event("?key=large"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "large" }))).resolves.toMatchObject({
       found: true,
       truncated: true,
       value: "x".repeat(256 * 1_024),
     })
-    await expect(kvHandler(event("?key=large-structured"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "large-structured" }))).resolves.toMatchObject({
       found: true,
       truncated: true,
       type: "object",
     })
-    await expect(kvHandler(event("?key=unicode"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "unicode" }))).resolves.toMatchObject({
       found: true,
       truncated: true,
       value: "🟠".repeat(65_536),
     })
-    await expect(kvHandler(event("?key=large-bytes"))).resolves.toMatchObject({
+    await expect(kvHandler(event("", "POST", { key: "large-bytes" }))).resolves.toMatchObject({
       found: true,
       truncated: true,
       type: "bytes",
@@ -205,7 +205,8 @@ describe("Console KV inspection", () => {
     const { storage } = memoryKV({ default: new Map() })
     installConsoleKV("/project", storage)
 
-    await expect(kvHandler(event("", "POST"))).rejects.toMatchObject({ statusCode: 405 })
+    await expect(kvHandler(event("", "DELETE"))).rejects.toMatchObject({ statusCode: 405 })
+    await expect(kvHandler(event("", "POST"))).rejects.toMatchObject({ statusCode: 400 })
     await expect(kvHandler(event("?store=unknown"))).rejects.toMatchObject({ statusCode: 404 })
     await expect(kvHandler(event("?limit=501"))).rejects.toMatchObject({ statusCode: 400 })
   })

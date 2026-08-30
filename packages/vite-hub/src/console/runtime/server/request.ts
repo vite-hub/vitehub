@@ -23,6 +23,7 @@ export interface ConsoleRequestEvent {
     context?: { clientAddress?: string }
     ip?: string
     headers?: ConsoleHeaders
+    json?: () => Promise<unknown>
     method?: string
     url?: string | URL
   }
@@ -37,10 +38,10 @@ function consoleRequestError(statusCode: number, statusMessage: string): Error {
   return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
 }
 
-export function assertConsoleRequest(event: ConsoleRequestEvent): void {
+export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
   setConsoleResponseHeaders(event)
   const method = event.method ?? event.req?.method ?? event.node?.req?.method
-  if (method !== "GET") throw consoleRequestError(405, "Method not allowed")
+  if (!method || !allowedMethods.includes(method)) throw consoleRequestError(405, "Method not allowed")
 }
 
 export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {

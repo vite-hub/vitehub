@@ -123,7 +123,8 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   valueLoading.value = true;
   try {
     const value = parseValue(await requestConsole(props.kvBase, {
-      query: { key, store: selectedStore.value },
+      body: { key, store: selectedStore.value },
+      method: "POST",
       signal: controller.signal,
     }));
     if (valueRequest === controller) selectedValue.value = value;
