@@ -164,6 +164,7 @@ function renderConsoleNitroPlugin(
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const kvEnabled = sections.includes("kv")
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
