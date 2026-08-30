@@ -13,6 +13,11 @@ interface UpstashClient {
 // Check existence before INCR because an existing zero must keep its current expiry.
 const incrementScript = `
 local existed = redis.call('EXISTS', KEYS[1])
+local current = redis.call('GET', KEYS[1])
+local numeric = current and tonumber(current)
+if numeric and (numeric >= 9007199254740991 or numeric < -9007199254740992) then
+  return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
+end
 local value = redis.call('INCR', KEYS[1])
 if existed == 0 then
   redis.call('EXPIRE', KEYS[1], ARGV[1])
@@ -67,7 +72,11 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   let continuationBytes = 0
 
   driver.getAndDeleteItem = async key => driver.getInstance().getdel(key)
-  driver.incrementItem = async (key, ttl) => Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
+  driver.incrementItem = async (key, ttl) => {
+    const value = Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
+    if (!Number.isSafeInteger(value)) throw new RangeError("Atomic KV increment exceeds the JavaScript safe integer range.")
+    return value
+  }
 
   function releaseContinuation(cursor: string): void {
     const continuation = continuations.get(cursor)

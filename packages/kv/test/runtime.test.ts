@@ -233,10 +233,15 @@ describe("kv runtime", () => {
     expect(upstashGetdel).toHaveBeenCalledWith("verification")
     expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXISTS'")
+    expect(upstashEval?.mock.calls[0]?.[0]).toContain("numeric >= 9007199254740991")
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("if existed == 0")
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXPIRE'")
     await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
     expect(upstashEval).toHaveBeenCalledOnce()
+
+    upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
+    const unsafeDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+    await expect(unsafeDriver.incrementItem?.("attempts", 60)).rejects.toThrow("safe integer range")
   })
 
   it("normalizes atomic operation keys like ordinary storage operations", async () => {
