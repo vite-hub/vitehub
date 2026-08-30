@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
 
@@ -69,6 +69,11 @@ const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
 let fileRequest: AbortController | undefined;
+
+onBeforeUnmount(() => {
+  workspaceRequest?.abort();
+  fileRequest?.abort();
+});
 
 const workspaceLabel = computed(() =>
   workspace.value

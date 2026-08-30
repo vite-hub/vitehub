@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
-import { isDeniedApproval, traceEventId } from "./console-session-trace-model";
+import {
+  isDeniedApproval,
+  traceDurationMs,
+  traceEventId,
+} from "./console-session-trace-model";
 
 type Observation = AgentInvocationView["observations"][number];
 type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
@@ -196,7 +200,7 @@ function pairedSpan(
     attributes,
     depth: operation === "invoke_agent" ? 0 : 1,
     description: spanDescription(attributes),
-    durationMs: Math.max(0, numeric(attributes["invocation.durationMs"]) ?? endMs - startMs),
+    durationMs: Math.max(0, traceDurationMs(operation, attributes, endMs - startMs)),
     endMs,
     eventNames: [start.name, ...(finish ? [finish.name] : [])],
     icon: spanIcon(operation),
