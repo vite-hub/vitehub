@@ -168,7 +168,10 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>, o
   let completed = false
   const cancel = async (reason?: unknown) => {
     if (completed) return
-    cancelTask ||= settleStreamCancellation(stream, getIterator(), directCancel, reason)
+    cancelTask ||= settleStreamCancellation(stream, {
+      next: (...args) => getIterator().next(...args),
+      return: cancelReason => getIterator().return?.(cancelReason),
+    }, directCancel, reason)
     await cancelTask
   }
   const exposedStream = (async function* () {
