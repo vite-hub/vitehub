@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
@@ -464,6 +464,42 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
     expect(existsSync(unsupportedEntry)).toBe(true)
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it.runIf(process.platform !== "win32")("removes the output backup when static backup creation fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const staticOutputDir = join(rootDir, ".vitehub/output/static")
+    const unsupportedEntry = join(staticOutputDir, "unsupported-pipe")
+    const bundleEntry = join(rootDir, "worker.ts")
+    await Promise.all([
+      mkdir(outputRoot, { recursive: true }),
+      mkdir(staticOutputDir, { recursive: true }),
+      mkdir(join(rootDir, "dist/client"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      writeFile(join(rootDir, "dist/client/index.html"), "client\n"),
+      writeFile(bundleEntry, "export default {}\n"),
+      execFileAsync("mkfifo", [unsupportedEntry]),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        bundleEntry,
+        clientOutDir: "dist/client",
+        cloudflare: { staticOutputDir, wranglerConfig: { name: "replacement" } },
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    expect(existsSync(unsupportedEntry)).toBe(true)
+    expect((await readdir(rootDir)).some(entry => entry.startsWith(".vitehub-cloudflare-output-"))).toBe(false)
   })
 
   it("restores Vercel output after a later owner removes its parent directory", async () => {

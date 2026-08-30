@@ -419,10 +419,10 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     throw error
   }
   finally {
-    if (publicationSucceeded || outputRestorationSucceeded || !hadPreviousOutput) {
+    if (!publicationStarted || publicationSucceeded || outputRestorationSucceeded || !hadPreviousOutput) {
       await rm(previousOutputRoot, { force: true, recursive: true }).catch(() => undefined)
     }
-    if (copiesStaticOutput && (publicationSucceeded || staticRestorationSucceeded || !hadPreviousStaticOutput)) {
+    if (copiesStaticOutput && (!publicationStarted || publicationSucceeded || staticRestorationSucceeded || !hadPreviousStaticOutput)) {
       await rm(previousStaticOutputDir, { force: true, recursive: true }).catch(() => undefined)
     }
     if (backupRoot) await rmdir(backupRoot).catch(() => undefined)

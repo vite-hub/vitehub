@@ -18,6 +18,10 @@ const VITEHUB_MODES = {
 
 type ViteHubMode = typeof VITEHUB_MODES[keyof typeof VITEHUB_MODES]
 
+function isViteHubMode(mode: string | undefined): mode is ViteHubMode {
+  return mode !== undefined && Object.values<string>(VITEHUB_MODES).includes(mode)
+}
+
 function isViteCli(argv: string[]): boolean {
   return argv.some(arg => /(?:^|[/\\])vite(?:\.[cm]?js)?$/.test(arg) || arg === "vite")
 }
@@ -35,16 +39,14 @@ function getViteCliMode(argv: string[] = process.argv): ViteHubMode | undefined 
       : arg.startsWith("--mode=")
         ? arg.slice("--mode=".length)
         : undefined
-    if (mode && modes.has(mode)) {
-      return mode as ViteHubMode
-    }
+    if (modes.has(mode ?? "") && isViteHubMode(mode)) return mode
   }
 }
 
 function getViteMode(): ViteHubMode | undefined {
   const mode = process.env.VITEHUB_VITE_MODE
-  return Object.values(VITEHUB_MODES).includes(mode as ViteHubMode)
-    ? mode as ViteHubMode
+  return isViteHubMode(mode)
+    ? mode
     : getViteCliMode()
 }
 
@@ -92,6 +94,8 @@ export default defineConfig(async () => {
     const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
     const providerImportAliases: Record<string, string> = {}
+    // SAFETY: This private option only shares generated string aliases between the playground's Queue and compatibility plugins.
+    const queuePlugin = hubQueue({ providerImportAliases } as never)
 
     return {
       ...baseConfig,
@@ -115,7 +119,7 @@ export default defineConfig(async () => {
         : {},
       kv: {},
       plugins: [
-        hubQueue({ providerImportAliases } as never),
+        queuePlugin,
         hubSchedule(),
         hubKv(),
         hubWorkflow(),
