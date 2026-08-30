@@ -87,12 +87,39 @@ function babelStringValue(node: BabelNode | undefined): unknown {
 
 function isExportedWorkspaceStoreProperty(path: BabelObjectPropertyPath): boolean {
   let exported = false
-  let store = false
+  let store = babelPropertyName(path) === "store"
   for (let current = path.parentPath; current; current = current.parentPath) {
     if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") store = true
     if (current.node.type === "ExportDefaultDeclaration") exported = true
   }
   return exported && store
+}
+
+async function sourceModuleDeclaresWorkspaceStore(
+  file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+): Promise<boolean> {
+  const loaded = await readSourceModule(file)
+  if (!loaded) return false
+  let declaresWorkspaceStore = false
+  loader.transform({
+    filename: loaded.file,
+    jsx: /x$/.test(extname(loaded.file)),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            if (babelPropertyName(path) === "store" && isExportedWorkspaceStoreProperty(path)) {
+              declaresWorkspaceStore = true
+            }
+          },
+        },
+      })],
+    },
+  })
+  return declaresWorkspaceStore
 }
 
 async function sourceModuleDeclaresCloudflareArtifacts(
@@ -149,6 +176,18 @@ async function sourceModuleUsesCloudflareArtifacts(
     if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleUsesCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
   }
   return false
+}
+
+async function sourceModuleMayUseCloudflareArtifacts(
+  file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  resolveModule?: SourceModuleResolver,
+): Promise<boolean> {
+  const loaded = await readSourceModule(file)
+  if (!loaded) return false
+  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
+  if (!await sourceModuleDeclaresWorkspaceStore(file, loader)) return false
+  return await sourceModuleUsesCloudflareArtifacts(file, resolveModule)
 }
 
 function vercelFunctionRuntimePackages() {
@@ -245,7 +284,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) continue
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)

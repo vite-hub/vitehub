@@ -1338,8 +1338,8 @@ describe("hubWorkspace", () => {
   it("does not import unrelated Workspace Definitions while inspecting Cloudflare Artifacts", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
-      `import store from "#generated-workspace-store"`,
-      `export default { store }`,
+      `import { defineAgent } from "#generated-agent"`,
+      `export default defineAgent({ workspace: { sources: {} } })`,
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
