@@ -88,6 +88,7 @@ describe("@vite-hub/ui package contract", () => {
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.6.2",
       "@nuxt/kit": "4.4.8",
+      "@types/node": "catalog:tooling",
     });
   });
 
