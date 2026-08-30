@@ -95,11 +95,11 @@ test('does not request duplicate reviews for the same head', async () => {
   assert.match(prompt, /Do not request another review when that exact head already has a review request/)
 })
 
-test('keeps OTLP observability terminal-only so live exporter failure cannot delay provider cleanup', async () => {
+test('keeps OTLP observability bounded and terminal-only', async () => {
   const agent = await readFile(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
 
   assert.match(agent, /endpoint: consoleClient\.endpoint\('\/api\/otlp'\)/)
-  assert.match(agent, /otlp\(\{[\s\S]*content: \{ inputs: true, instructions: true, outputs: true \}/)
+  assert.doesNotMatch(agent, /content: \{ inputs:/)
   assert.doesNotMatch(agent, /live: true/)
 })
 
