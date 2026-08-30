@@ -1012,7 +1012,7 @@ describe("agent Vite plugin", () => {
                     "@": join(root, "src"),
                     "@/\0vitehub-prefix:0": `${join(root, "src")}/`,
                     "@/": join(root, "nested"),
-                    "@//": `${join(root, "nested")}/`,
+                    "@//\0vitehub-prefix:1": `${join(root, "nested")}/`,
                     "@\0vitehub-exact:2": join(root, "duplicate"),
                     "@/\0vitehub-prefix:2": `${join(root, "duplicate")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",

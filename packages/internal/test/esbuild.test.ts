@@ -22,6 +22,52 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("preserves overlapping trailing-slash alias prefixes", async () => {
+    const rootDir = await createTempDir()
+    const broadDir = resolve(rootDir, "broad")
+    const nestedDir = resolve(rootDir, "nested")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(broadDir),
+      mkdir(nestedDir),
+      writeFile(entry, 'export { value } from "@//job.mjs"\n', "utf8"),
+      writeFile(resolve(broadDir, "job.mjs"), "export const value = 'broad'\n", "utf8"),
+      writeFile(resolve(nestedDir, "job.mjs"), "export const value = 'nested'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([
+        { find: "@/", replacement: broadDir },
+        { find: "@//", replacement: nestedDir },
+      ]),
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("broad")
+    expect(await readFile(outfile, "utf8")).not.toContain("nested")
+  })
+
+  it("preserves special property names as exact aliases", async () => {
+    const rootDir = await createTempDir()
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, 'export { value } from "__proto__"\n', "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const alias = encodeProviderOutputAliases([{ find: "__proto__", replacement }])
+    expect(Object.hasOwn(alias, "__proto__")).toBe(true)
+    await bundleEsmEntry(entry, outfile, { alias, format: "esm", platform: "node" })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+  })
+
   it("redirects imports that were resolved before bundling", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")

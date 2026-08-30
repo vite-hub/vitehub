@@ -37,13 +37,13 @@ interface StringAlias {
 }
 
 export function encodeProviderOutputAliases(configAliases: readonly StringAlias[]): Record<string, string> {
-  const aliases: Record<string, string> = {}
+  const aliases: Record<string, string> = Object.create(null)
   for (const [index, alias] of configAliases.entries()) {
     if (alias.find instanceof RegExp) continue
     const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}${encodedAliasExactMarker}${index}` : alias.find
     aliases[exactSpecifier] = alias.replacement
     if (alias.find.endsWith("/")) {
-      const prefixSpecifier = `${alias.find}/${Object.hasOwn(aliases, `${alias.find}/`) ? `${encodedAliasPrefixMarker}${index}` : ""}`
+      const prefixSpecifier = `${alias.find}/${encodedAliasPrefixMarker}${index}`
       aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
     }
     else {
