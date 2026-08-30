@@ -17495,7 +17495,10 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
     const thread = adapter._chatInstance()?.thread("telegram:456")
     Reflect.set(thread ?? {}, "_threadHistory", {
-      getMessages: vi.fn(async () => [message("21", "newer cached", "2026-06-10T12:00:20.000Z")]),
+      getMessages: vi.fn(async () => [
+        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+        message("20", "current", "2026-06-10T12:00:20.000Z"),
+      ]),
     })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
@@ -17787,10 +17790,13 @@ describe("server helpers", () => {
     const newer = historicalMessage("current id-less")
     newer.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
     Reflect.deleteProperty(newer, "id")
-    adapter.fetchMessages.mockImplementation(async (threadId: string) => {
-      const cached = adapter._cachedMessages(threadId)
-      for (const item of [previous, nearest, ...cached, newer]) item.raw = { delivery: "same" }
-      return { messages: [previous, nearest, ...cached, newer] }
+    adapter.fetchMessages.mockImplementation(async () => {
+      const deserializedCurrent = historicalMessage("current id-less")
+      deserializedCurrent.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
+      Reflect.deleteProperty(deserializedCurrent, "id")
+      newer.text = "newer id-less"
+      for (const item of [previous, nearest, deserializedCurrent, newer]) item.raw = { delivery: "same" }
+      return { messages: [previous, nearest, deserializedCurrent, newer] }
     })
     const runs: string[][] = []
     const agent = defineAgent({

@@ -4112,7 +4112,7 @@ async function chatTriggerMessages(
         ? exactIdLessCurrentIndex
         : rawCurrentIndices.length === 1
           ? rawCurrentIndices[0] ?? -1
-          : rawCurrentIndices.length === 0 && structuralCurrentIndices.length === 1
+          : structuralCurrentIndices.length === 1
             ? structuralCurrentIndices[0] ?? -1
             : -1
       if (currentIndex >= 0) {
@@ -4124,6 +4124,10 @@ async function chatTriggerMessages(
   } catch {}
 
   let durable = await durableChatThreadMessages(thread, limit)
+  if (message.id && foundCurrent) {
+    const currentTime = message.metadata.dateSent.getTime()
+    durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
+  }
   const exactDurableCurrentIndices = message.id
     ? []
     : durable.flatMap((item, index) => (isExactChatSdkDelivery(item, message) ? [index] : []))
@@ -4137,13 +4141,9 @@ async function chatTriggerMessages(
       ? exactDurableCurrentIndices[0] ?? -1
       : exactDurableCurrentIndices.length === 0 && rawDurableCurrentIndices.length === 1
         ? rawDurableCurrentIndices[0] ?? -1
-        : exactDurableCurrentIndices.length === 0 && rawDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
+        : exactDurableCurrentIndices.length === 0 && structuralDurableCurrentIndices.length === 1
           ? structuralDurableCurrentIndices[0] ?? -1
         : -1
-  if (message.id && foundCurrent && durableCurrentIndex < 0) {
-    const currentTime = message.metadata.dateSent.getTime()
-    durable = durable.filter((item) => item.metadata.dateSent.getTime() < currentTime)
-  }
   if (!message.id) {
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }
