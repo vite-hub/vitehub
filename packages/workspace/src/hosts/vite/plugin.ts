@@ -103,6 +103,23 @@ interface BabelScope {
 
 type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
 
+function createSourceModuleResolver(
+  rootDir: string,
+  aliases?: Record<string, string>,
+  resolveModule?: SourceModuleResolver,
+): SourceModuleResolver | undefined {
+  if (!aliases) return resolveModule
+  return async (id, importer) => {
+    const resolved = await resolveModule?.(id, importer)
+    if (resolved) return resolved
+    for (const [find, replacement] of Object.entries(aliases)) {
+      if (id !== find && !id.startsWith(`${find}/`)) continue
+      const aliased = `${replacement}${id.slice(find.length)}`
+      return isAbsolute(aliased) ? aliased : resolve(rootDir, aliased)
+    }
+  }
+}
+
 function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
 }
@@ -699,17 +716,18 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
+  const sourceModuleResolver = createSourceModuleResolver(rootDir, aliases, resolveModule)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
       const store = inspection?.artifactsOnly
-        ? await loadFactoredCloudflareArtifactStore(definition, loader, resolveModule)
+        ? await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver)
         : undefined
       if (!store) throw error
       loaded = { store }

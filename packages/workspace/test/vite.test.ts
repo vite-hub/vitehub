@@ -1052,6 +1052,29 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("resolves configured aliases while inspecting failed standalone Definitions", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "@/artifact-store"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({
+      aliases: { "@": join(root, "src") },
+      viteRoot: root,
+    })).resolves.toMatchObject({
+      cloudflare: {
+        wrangler: {
+          artifacts: [{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }],
+        },
+      },
+    })
+  })
+
   it("activates standalone Nitro Cloudflare bindings from the provided environment", async () => {
     const root = await createViteRoot()
     const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
