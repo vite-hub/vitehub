@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -68,6 +68,37 @@ describe("bundleEsmEntry", () => {
 
     expect(await readFile(outfile, "utf8")).toContain("replacement")
     expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
+  it("redirects relative imports through canonical absolute aliases", async () => {
+    const rootDir = await createTempDir()
+    const physicalDir = resolve(rootDir, "packages/kv/dist")
+    const retainedDir = resolve(rootDir, "retained")
+    const linkedPackagesDir = resolve(retainedDir, "packages")
+    const entry = resolve(retainedDir, "entry.mjs")
+    const original = resolve(physicalDir, "vite.mjs")
+    const replacement = resolve(rootDir, "guard.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(physicalDir, { recursive: true }),
+      mkdir(retainedDir, { recursive: true }),
+    ])
+    await Promise.all([
+      symlink(resolve(rootDir, "packages"), linkedPackagesDir, "dir"),
+      writeFile(original, "export const value = 'config-only'\n", "utf8"),
+      writeFile(replacement, "export const value = 'runtime-guard'\n", "utf8"),
+      writeFile(entry, 'export { value } from "./packages/kv/dist/vite.mjs"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [original]: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("runtime-guard")
+    expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
   it("creates nested output directories for cancellable bundles", async () => {

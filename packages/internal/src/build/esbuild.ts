@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -47,9 +47,14 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
           ? resolve(args.resolveDir, args.path)
           : args.path
         const normalizedSpecifier = isAbsolute(specifier) ? resolve(specifier) : specifier
-        const replacement = replacements.get(normalizedSpecifier)
+        const canonicalSpecifier = isAbsolute(normalizedSpecifier)
+          ? await realpath(normalizedSpecifier).catch(() => normalizedSpecifier)
+          : normalizedSpecifier
+        const replacement = replacements.get(normalizedSpecifier) ?? replacements.get(canonicalSpecifier)
         const prefix = prefixes.find(([candidate]) => normalizedSpecifier.startsWith(candidate))
-        const target = replacement ?? (prefix ? `${prefix[1]}${normalizedSpecifier.slice(prefix[0].length)}` : undefined)
+          ?? prefixes.find(([candidate]) => canonicalSpecifier.startsWith(candidate))
+        const matchedSpecifier = prefix && canonicalSpecifier.startsWith(prefix[0]) ? canonicalSpecifier : normalizedSpecifier
+        const target = replacement ?? (prefix ? `${prefix[1]}${matchedSpecifier.slice(prefix[0].length)}` : undefined)
         if (!target) return
         return build.resolve(target, {
           importer: args.importer,
