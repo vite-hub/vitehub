@@ -310,6 +310,7 @@ describe("Agent Invocation controllers", () => {
       })(),
       providerData: "preserved",
       raw: Object.freeze({ providerData: "raw" }),
+      stream: "public metadata",
     })
     const agent = defineAgent({
       driver: { run: () => providerResult },
@@ -321,10 +322,47 @@ describe("Agent Invocation controllers", () => {
     expect(result).toMatchObject({
       providerData: "preserved",
       raw: { providerData: "raw" },
+      stream: "public metadata",
       text: "nested",
     })
     expect(result).not.toHaveProperty("fullStream")
     expect(Object.isFrozen(providerResult)).toBe(true)
+  })
+
+  it("shadows inherited stream surfaces on mutable provider results", async () => {
+    class ProviderResult {
+      get fullStream() {
+        return (async function* () {
+          yield { delta: "nested", type: "text-delta" }
+        })()
+      }
+    }
+    const providerResult = new ProviderResult()
+    const agent = defineAgent({ driver: { run: () => providerResult }, runtime: false })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toBe(providerResult)
+    expect(Reflect.get(result, "fullStream")).toBeUndefined()
+    expect(result).toMatchObject({ text: "nested" })
+  })
+
+  it("copies provider results with non-configurable materialized fields", async () => {
+    const providerResult = {
+      fullStream: (async function* () {
+        yield { delta: "nested", type: "text-delta" }
+      })(),
+    }
+    Object.defineProperty(providerResult, "text", {
+      configurable: false,
+      enumerable: true,
+      value: "existing",
+    })
+    const agent = defineAgent({ driver: { run: () => providerResult }, runtime: false })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).not.toBe(providerResult)
+    expect(result).toMatchObject({ text: "existing" })
+    expect(result).not.toHaveProperty("fullStream")
   })
 
   it("preserves non-plain cloneable raw child results", async () => {

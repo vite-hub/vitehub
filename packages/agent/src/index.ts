@@ -6725,10 +6725,15 @@ function createInlineAgentInvocationController<
           const definedMaterializedResult = Object.fromEntries(
             Object.entries(materializedStreamResult).filter(([, value]) => value !== undefined),
           )
+          const replacedProperties = [
+            ...agentResultStreamProperties,
+            "raw",
+            ...Object.keys(definedMaterializedResult),
+          ]
           const canMutateCompleted = completed !== undefined
             && !isAsyncIterable(completed)
             && Object.isExtensible(completed)
-            && [...agentResultStreamProperties, "raw"].every((property) => {
+            && replacedProperties.every((property) => {
               const descriptor = Object.getOwnPropertyDescriptor(completed, property)
               return descriptor === undefined || descriptor.configurable
             })
@@ -6736,7 +6741,17 @@ function createInlineAgentInvocationController<
           if (completed && !canMutateCompleted) {
             const preservedDescriptors = Object.fromEntries(
               Object.entries(Object.getOwnPropertyDescriptors(completed)).filter(([property, descriptor]) => {
-                if ([...agentResultStreamProperties, "raw", ...Object.keys(definedMaterializedResult)].includes(property)) return false
+                if (["raw", ...Object.keys(definedMaterializedResult)].includes(property)) return false
+                if (agentResultStreamProperties.includes(property as typeof agentResultStreamProperties[number])) {
+                  let value: unknown
+                  try {
+                    value = Reflect.get(completed, property)
+                  }
+                  catch {
+                    value = undefined
+                  }
+                  if (isAsyncIterable(value) || hasRuntimeType(value, "function")) return false
+                }
                 return "value" in descriptor
               }),
             )
@@ -6750,8 +6765,16 @@ function createInlineAgentInvocationController<
             catch {
               value = undefined
             }
-            if (isAsyncIterable(value) || hasRuntimeType(value, "function"))
-              Reflect.deleteProperty(settledResult, property)
+            if (isAsyncIterable(value) || hasRuntimeType(value, "function")) {
+              if (Object.hasOwn(settledResult, property)) Reflect.deleteProperty(settledResult, property)
+              else if (property in settledResult) {
+                Object.defineProperty(settledResult, property, {
+                  configurable: true,
+                  value: undefined,
+                  writable: true,
+                })
+              }
+            }
           }
           Reflect.deleteProperty(settledResult, "raw")
           if (hasExplicitRaw || (hasSanitizedRawCandidate && materializedRaw === undefined))
