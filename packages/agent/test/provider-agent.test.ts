@@ -125,6 +125,21 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("resolves object-form Codex credentials with the invocation context", async () => {
+    const threadId = "thread-object-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const resolve = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
+
+    await createProviderAgentAdapter({
+      credentials: { resolve },
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)
+
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(resolve.mock.calls[0]?.[0]).toMatchObject({ actor: { id: "actor" }, invoker: { id: "invoker" } })
+  })
+
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

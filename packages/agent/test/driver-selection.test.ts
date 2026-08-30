@@ -158,6 +158,13 @@ describe("built-in Agent Driver selection", () => {
     expect(driver).toMatchObject({ credentials, kind: "provider", provider: "codex" })
   })
 
+  it("accepts object-form Codex credential resolvers", () => {
+    const credentials = { resolve: () => "{}" }
+    const driver = normalizeAgentDriver({ driver: { credentials, kind: "codex" } })
+
+    expect(driver).toMatchObject({ credentials, kind: "provider", provider: "codex" })
+  })
+
   it.each([
     ["execution", "invalid", "driver.execution }) must be an object"],
     ["execution", { unsupported: true }, "driver.execution }) does not support option: unsupported"],

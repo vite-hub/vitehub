@@ -7,7 +7,7 @@ import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -537,9 +537,7 @@ async function prepareCodexCredentialHome<
       ...providerMetadataContext(context),
       abortSignal: context.input.abortSignal,
     } as AgentProviderCredentialContext<TRuntimeConfig>
-    const resolved = hasRuntimeType(options.credentials, "function")
-      ? await options.credentials(credentialContext)
-      : options.credentials
+    const resolved = await resolveRuntimeValue(options.credentials, credentialContext)
     context.input.abortSignal?.throwIfAborted()
     return normalizeCodexCredentials(resolved)
   }

@@ -194,8 +194,10 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     && !isRuntimeString(value.credentials)
     && !isRuntimeFunction(value.credentials)
     // SAFETY: The assertion only exposes `unseal` so isRuntimeFunction can validate it.
-    && !(value.credentials && isRuntimeFunction((value.credentials as { unseal?: unknown }).unseal))) {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a string, sealed Server Env value, or resolver function.")
+    && !(value.credentials && isRuntimeFunction((value.credentials as { unseal?: unknown }).unseal))
+    // SAFETY: The assertion only exposes `resolve` so isRuntimeFunction can validate it.
+    && !(value.credentials && isRuntimeFunction((value.credentials as { resolve?: unknown }).resolve))) {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a string, sealed Server Env value, or resolver.")
   }
   if (value.credentialProfile !== undefined && (!isRuntimeString(value.credentialProfile) || !value.credentialProfile.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.credentialProfile }) must be a non-empty string.")
