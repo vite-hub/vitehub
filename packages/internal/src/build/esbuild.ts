@@ -110,7 +110,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(specifier)) {
+        if (!match && isAbsolute(args.path)) {
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             const aliasSegments = alias.specifier.split("/")

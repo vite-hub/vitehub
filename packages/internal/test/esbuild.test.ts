@@ -385,6 +385,36 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
+  it("does not match normalized relative imports against relative prefix aliases", async () => {
+    const rootDir = await createTempDir()
+    const sourceDir = resolve(rootDir, "src")
+    const otherDir = resolve(rootDir, "other")
+    const replacementDir = resolve(rootDir, "replacement")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(sourceDir, { recursive: true }),
+      mkdir(otherDir, { recursive: true }),
+      mkdir(replacementDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(entry, 'export { value } from "./other/../src/job.mjs"\n', "utf8"),
+      writeFile(resolve(sourceDir, "job.mjs"), "export const value = 'original'\n", "utf8"),
+      writeFile(resolve(replacementDir, "job.mjs"), "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("original")
+    expect(await readFile(outfile, "utf8")).not.toContain("replacement")
+  })
+
   it("resolves relative alias replacements from a stable base for nested importers", async () => {
     const rootDir = await createTempDir()
     const nestedDir = resolve(rootDir, "nested")
