@@ -8,7 +8,7 @@ interface ProviderJsonRecord {
 }
 
 export interface ProviderOutputConfigOwnership {
-  arrays?: Record<string, { key?: string, preserveOnCleanup?: boolean, values?: ProviderJsonPrimitive[] }>
+  arrays?: Record<string, { key?: string, preserveOnCleanup?: boolean, retainOnCleanup?: ProviderJsonPrimitive[], values?: ProviderJsonPrimitive[] }>
   keys?: string[]
 }
 
@@ -119,6 +119,7 @@ function preserveUnownedKeyedArrayEntries(
   value: ProviderJsonValue | undefined,
   ownership: NonNullable<ProviderOutputConfigOwnership["arrays"]>[string],
   replacements: ProviderJsonValue[] = [],
+  cleanup = false,
 ): ProviderJsonValue[] {
   const current = Array.isArray(value) ? value : []
   const replacementKeys = replacements.flatMap((entry) => {
@@ -126,6 +127,9 @@ function preserveUnownedKeyedArrayEntries(
     return key === undefined ? [] : [key]
   })
   const ownedKeys = new Set([...(ownership.values ?? []), ...replacementKeys])
+  if (cleanup) {
+    for (const key of ownership.retainOnCleanup ?? []) ownedKeys.delete(key)
+  }
   return current.filter((entry) => {
     const key = getKeyedArrayEntryValue(entry, ownership.key)
     return key === undefined || !ownedKeys.has(key)
@@ -200,7 +204,7 @@ export async function cleanProviderOutputConfig(file: string, ownership: Provide
     if (arrayOwnership.preserveOnCleanup) continue
     if (!(field in existing)) continue
     const current = existing[field]
-    const preserved = preserveUnownedKeyedArrayEntries(current, arrayOwnership)
+    const preserved = preserveUnownedKeyedArrayEntries(current, arrayOwnership, [], true)
     changed ||= !Array.isArray(current) || preserved.length !== current.length || preserved.length === 0
     if (preserved.length) next[field] = preserved
   }

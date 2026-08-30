@@ -382,7 +382,7 @@ describe("hubKv", () => {
       await testHook(nitro.configResolved, configResolvedContract)({ build: { outDir: "dist" }, command: "build", nitro: {}, plugins: [{ name: "nitro:main" }], root })
       await runCloseBundle(nitro)
 
-      expect(existsSync(wranglerFile)).toBe(false)
+      expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV" }])
       expect(existsSync(join(outputRoot, ".vitehub-kv-bindings.json"))).toBe(false)
     }
     finally {

@@ -274,10 +274,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         const clientOutDir = resolved.build.outDir
         const wranglerConfig = nitroOwned ? undefined : createCloudflareKVWranglerConfig(getConfig().kv)
         const nextBindings = wranglerConfig?.kv_namespaces?.map(binding => binding.binding) ?? []
+        const nitroBindings = nitroOwned ? [...ownedNitroNamespaces].map(namespace => namespace.binding) : []
         const wranglerConfigOwnership = {
           arrays: {
             kv_namespaces: {
               key: "binding",
+              retainOnCleanup: nitroBindings,
               values: nextBindings,
             },
           },
