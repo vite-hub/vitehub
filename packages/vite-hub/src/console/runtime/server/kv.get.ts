@@ -6,7 +6,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 
 const defaultLimit = 200
 const maximumLimit = 500
-const maximumKeyLength = 2_048
+const maximumPrefixLength = 2_048
 const maximumValueBytes = 256 * 1_024
 
 interface ConsoleKVValue {
@@ -25,7 +25,6 @@ function requestError(statusCode: number, statusMessage: string): Error {
 
 function requiredParameter(value: string | null, name: string): string {
   if (value === null) throw requestError(400, `${name} is required.`)
-  if (value.length > maximumKeyLength) throw requestError(400, `${name} is too long.`)
   return value
 }
 
@@ -234,7 +233,7 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
   }
 
   const prefix = url.searchParams.get("prefix") ?? ""
-  if (prefix.length > maximumKeyLength) throw requestError(400, "prefix is too long.")
+  if (prefix.length > maximumPrefixLength) throw requestError(400, "prefix is too long.")
   const limit = limitParameter(url.searchParams.get("limit"))
   const cursor = url.searchParams.get("cursor") || undefined
   const pageResult = await selected.storage.list({ cursor, limit, prefix })

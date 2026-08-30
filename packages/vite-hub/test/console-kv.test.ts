@@ -107,6 +107,7 @@ describe("Console KV inspection", () => {
   })
 
   it("formats structured, null, missing, and large values without writing", async () => {
+    const longKey = "key".repeat(1_024)
     const { storage, writes } = memoryKV({
       default: new Map<string, unknown>([
         ["", "empty key"],
@@ -120,6 +121,7 @@ describe("Console KV inspection", () => {
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
         ["large-bytes", new Uint8Array(128 * 1_024 + 1).fill(0xab)],
+        [longKey, "long key"],
         [" spaced ", "preserved"],
         ["unicode", "🟠".repeat(65_537)],
       ]),
@@ -159,6 +161,11 @@ describe("Console KV inspection", () => {
       found: false,
       key: "missing",
       store: "default",
+    })
+    await expect(kvHandler(event(`?key=${encodeURIComponent(longKey)}`))).resolves.toMatchObject({
+      found: true,
+      key: longKey,
+      value: "long key",
     })
     await expect(kvHandler(event("?key=%20spaced%20"))).resolves.toMatchObject({
       found: true,
