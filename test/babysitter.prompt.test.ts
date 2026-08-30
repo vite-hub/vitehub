@@ -126,6 +126,15 @@ test('uses focused validation without routine builds or duplicate review gates',
   assert.doesNotMatch(prompt, /Run focused tests and code-review on the finished diff/)
 })
 
+test('pushes an evidence-backed repair when focused validation needs forbidden builds', async () => {
+  const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
+
+  assert.match(prompt, /focused validation cannot start only because required workspace package output is absent/)
+  assert.match(prompt, /make the smallest evidence-backed repair/)
+  assert.match(prompt, /let remote CI provide the unavailable proof/)
+  assert.match(prompt, /Do not build or return `retry` solely for that missing local output/)
+})
+
 test('yields pending checks and reviews to the next schedule', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
