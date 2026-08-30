@@ -2103,6 +2103,7 @@ async function createAgent(
       model: executionModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
+      // SAFETY: The wrapper above preserves the configured AI SDK prepare-step contract.
       ...(prepareStep ? { prepareStep: prepareStep as never } : {}),
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
