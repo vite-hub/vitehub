@@ -1018,6 +1018,24 @@ load("@img/sharp-linux-x64/sharp.node")
     expect((await readdir(root)).some(name => name.startsWith("..output.vitehub-"))).toBe(false)
   })
 
+  it("allows unresolved lazy feature packages but keeps other references required", async () => {
+    const optionalRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-optional-dynamic-"))
+    await writeJson(join(optionalRoot, "package.json"), {})
+    await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
+    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
+
+    const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-"))
+    await writeJson(join(requiredRoot, "package.json"), {})
+    await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
+    await writeFile(join(requiredRoot, ".output/server/index.mjs"), 'await import("missing-feature")\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
+      "Could not resolve package.json for missing-feature",
+    )
+  })
+
   it("recovers prior output left by an interrupted directory swap", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-output-"))
     const interruptedStage = join(root, "..output.vitehub-interrupted")

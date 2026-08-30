@@ -177,6 +177,25 @@ function collectStaticPackageNames(source: string): Set<string> {
   return names
 }
 
+function collectOptionalDynamicPackageNames(source: string): Set<string> {
+  const executableSource = maskInertImportText(source)
+  const dynamicImports = findLiteralDynamicImports(executableSource)
+  const dynamicNames = new Set(dynamicImports
+    .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start))
+    .map(({ specifier }) => packageNameFromSpecifier(specifier))
+    .filter((name): name is string => Boolean(name)))
+  if (!dynamicNames.size) return dynamicNames
+
+  let withoutDynamicImports = executableSource
+  for (const dynamicImport of dynamicImports.reverse()) {
+    withoutDynamicImports = withoutDynamicImports.slice(0, dynamicImport.start)
+      + " ".repeat(dynamicImport.literalEnd - dynamicImport.start)
+      + withoutDynamicImports.slice(dynamicImport.literalEnd)
+  }
+  for (const name of collectImportedPackageNames(withoutDynamicImports)) dynamicNames.delete(name)
+  return dynamicNames
+}
+
 function maskBundledPackageRegions(source: string): string {
   const regions: boolean[] = []
   return source.split("\n").map((line) => {
@@ -975,6 +994,7 @@ async function readRuntimePackages(
   }
   for (const source of sources) {
     const staticNames = collectStaticPackageNames(source)
+    const optionalDynamicNames = collectOptionalDynamicPackageNames(source)
     const requiredNames = new Set([
       ...collectImportedPackageNames(source),
       ...staticNames,
@@ -998,7 +1018,7 @@ async function readRuntimePackages(
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: staticNames.has(name) ? false : existing?.optional ?? false,
+        optional: staticNames.has(name) ? false : existing?.optional ?? optionalDynamicNames.has(name),
         packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
