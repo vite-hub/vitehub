@@ -14,9 +14,13 @@ interface UpstashClient {
 const incrementScript = `
 local existed = redis.call('EXISTS', KEYS[1])
 local current = redis.call('GET', KEYS[1])
-local numeric = current and tonumber(current)
-if numeric and (numeric >= 9007199254740991 or numeric < -9007199254740992) then
-  return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
+if current then
+  local negative = string.sub(current, 1, 1) == '-'
+  local digits = negative and string.sub(current, 2) or current
+  local boundary = negative and '9007199254740992' or '9007199254740991'
+  if #digits > #boundary or (#digits == #boundary and digits >= boundary) then
+    return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
+  end
 end
 local value = redis.call('INCR', KEYS[1])
 if existed == 0 then
