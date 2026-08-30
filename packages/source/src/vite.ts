@@ -746,10 +746,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
               await server.restart()
             }
             catch (error) {
+              if (serverClosed) return
               await restoreGeneratedSourceArtifacts(root, previousArtifacts)
               scheduleHostRefreshRetry(file)
               throw error
             }
+            if (serverClosed) return
             if (server.environments === previousEnvironments) {
               await restoreGeneratedSourceArtifacts(root, previousArtifacts)
               scheduleHostRefreshRetry(file)

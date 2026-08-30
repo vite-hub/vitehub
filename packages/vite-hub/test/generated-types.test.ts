@@ -1300,6 +1300,50 @@ describe("framework generated types", () => {
     expect(oldRestart).not.toHaveBeenCalled()
   })
 
+  it("keeps replacement artifacts after a superseded non-replacing restart finishes", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const specials = join(root, "api/collections/specials.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    let finishOldRestart: (() => void) | undefined
+    const oldRestartFinished = new Promise<void>((resolve) => {
+      finishOldRestart = resolve
+    })
+    const oldRestart = vi.fn(() => oldRestartFinished)
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      environments: {},
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await writeFile(specials, collectionModule("specials"))
+    const oldRefresh = oldListeners.get("add")?.(specials)
+    await vi.waitFor(() => expect(oldRestart).toHaveBeenCalledOnce())
+
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+    finishOldRestart?.()
+    await oldRefresh
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub/source/routes/specials.mjs"), "utf8")).rejects.toThrow()
+  })
+
   it("lets replacement preparation finish after an in-flight superseded refresh", async () => {
     const { root } = await createNestedProject()
     const meals = join(root, "api/collections/meals.ts")
