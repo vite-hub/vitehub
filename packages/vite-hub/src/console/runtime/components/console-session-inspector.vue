@@ -122,17 +122,22 @@ const treeOptions = computed(() => ({
 
 watch(
   [() => props.invocation.id, () => props.workspaceBase],
-  () => {
+  ([invocationId, workspaceBase], [previousInvocationId, previousWorkspaceBase]) => {
     workspaceRequest?.abort();
     fileRequest?.abort();
     workspace.value = undefined;
     workspaceSupported.value = undefined;
     workspaceError.value = undefined;
-    selectedPath.value = undefined;
-    openPaths.value = [];
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
+    if (
+      previousInvocationId !== undefined &&
+      (invocationId !== previousInvocationId || workspaceBase !== previousWorkspaceBase)
+    ) {
+      selectedPath.value = undefined;
+      openPaths.value = [];
+    }
     void loadWorkspace();
   },
   { immediate: true },
@@ -295,15 +300,27 @@ async function loadWorkspace() {
       ),
     );
     workspaceSupported.value = true;
+    if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
       workspaceSupported.value = !(error instanceof RequestError && error.status === 404);
       workspaceError.value = workspaceSupported.value ? message(error) : undefined;
+      if (!workspaceSupported.value) clearWorkspaceState();
     }
   } finally {
     if (!controller.signal.aborted && workspaceRequest === controller)
       workspaceLoading.value = false;
   }
+}
+
+function clearWorkspaceState() {
+  fileRequest?.abort();
+  workspace.value = undefined;
+  selectedPath.value = undefined;
+  openPaths.value = [];
+  file.value = undefined;
+  fileError.value = undefined;
+  fileLoading.value = false;
 }
 
 async function loadFile(path: string) {

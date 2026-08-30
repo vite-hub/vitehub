@@ -68,6 +68,7 @@ const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hi
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
+let capabilitiesRequest: AbortController | undefined;
 const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
 const detailPollInterval = computed(() =>
   pageVisible.value && selectedInvocationId.value ? 3_000 : false,
@@ -216,11 +217,21 @@ function showSessions(): void {
 }
 
 async function detectHostCapabilities(): Promise<void> {
+  capabilitiesRequest?.abort();
+  const controller = new AbortController();
+  capabilitiesRequest = controller;
   try {
-    const response = await fetch(`${props.hostBase}/api/health`, { method: "GET" });
-    healthAvailable.value = response.ok && isHealth(await response.json());
-  } catch {
-    healthAvailable.value = false;
+    const response = await fetch(`${props.hostBase}/api/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    const available = response.ok && isHealth(await response.json());
+    if (capabilitiesRequest === controller) healthAvailable.value = available;
+  } catch (error) {
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
+    if (capabilitiesRequest === controller) healthAvailable.value = false;
+  } finally {
+    if (capabilitiesRequest === controller) capabilitiesRequest = undefined;
   }
 }
 
@@ -481,6 +492,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
+  capabilitiesRequest?.abort();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
   document.removeEventListener("visibilitychange", updatePageVisibility);

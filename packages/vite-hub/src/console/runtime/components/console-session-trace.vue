@@ -147,12 +147,20 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
 
 function traceStarts(observations: Observation[]): Observation[] {
   const starts: Observation[] = [];
-  const openTools = new Set<string>();
+  const openTools = new Map<string, number>();
   for (const observation of observations) {
     const id = eventId(observation);
     if (observation.name === "agent.tool.start") {
-      if (!openTools.has(id)) starts.push(observation);
-      openTools.add(id);
+      const openIndex = openTools.get(id);
+      if (openIndex === undefined) {
+        openTools.set(id, starts.push(observation) - 1);
+      } else {
+        const start = starts[openIndex]!;
+        starts[openIndex] = {
+          ...start,
+          attributes: { ...start.attributes, ...observation.attributes },
+        };
+      }
       continue;
     }
     if (
@@ -162,7 +170,8 @@ function traceStarts(observations: Observation[]): Observation[] {
       )
     )
       openTools.delete(id);
-    if (observation.name.endsWith(".start")) starts.push(observation);
+    if (observation.name.endsWith(".start") || observation.name === "agent.task.started")
+      starts.push(observation);
   }
   return starts;
 }
@@ -203,9 +212,12 @@ function pairedTerminal(
   invocation: AgentInvocationView,
 ): Observation | undefined {
   const id = eventId(start);
-  const terminalNames = ["finish", "error", "abort", "cancel"].map((suffix) =>
-    start.name.replace(/\.start$/, `.${suffix}`),
-  );
+  const terminalNames =
+    start.name === "agent.task.started"
+      ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
+      : ["finish", "error", "abort", "cancel"].map((suffix) =>
+          start.name.replace(/\.start$/, `.${suffix}`),
+        );
   const startIndex =
     observations.filter(
       (observation) =>
@@ -293,7 +305,8 @@ function operationName(observation: Observation, attributes: Record<string, unkn
   if (typeof explicit === "string" && explicit) return explicit;
   if (observation.name.startsWith("agent.invocation.")) return "invoke_agent";
   if (observation.name.startsWith("agent.tool.")) return "execute_tool";
-  return observation.name.replace(/\.(start|finish)$/, "");
+  if (observation.name.startsWith("agent.task.")) return "run_task";
+  return observation.name.replace(/\.(start|started|finish|completed)$/, "");
 }
 
 function operationTarget(
@@ -320,7 +333,13 @@ function spanStatus(
   operation: string,
 ): SpanStatus {
   if (finish?.name.endsWith(".error")) return "failed";
-  if (finish?.name.endsWith(".abort") || finish?.name.endsWith(".cancel")) return "cancelled";
+  if (finish?.name.endsWith(".failed")) return "failed";
+  if (
+    finish?.name.endsWith(".abort") ||
+    finish?.name.endsWith(".cancel") ||
+    finish?.name.endsWith(".cancelled")
+  )
+    return "cancelled";
   if (operation === "invoke_agent")
     return invocation.status === "failed"
       ? "failed"
