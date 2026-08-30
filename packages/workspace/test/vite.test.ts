@@ -1260,7 +1260,7 @@ describe("hubWorkspace", () => {
 
   it("resolves definition-level Cloudflare Artifacts bindings without inspecting source text", async () => {
     const root = await createViteRoot()
-    await writeFile(join(root, "src", "workspace-store.mjs"), [
+    await writeFile(join(root, "src", "workspace-store.ts"), [
       `export const store = {`,
       `  binding: "DEFINITION_FILES",`,
       `  namespace: "definition-workspaces",`,
@@ -1269,7 +1269,7 @@ describe("hubWorkspace", () => {
       ``,
     ].join("\n"))
     await writeFile(join(root, "src", "docs.workspace.ts"), [
-      `import { store } from "./workspace-store.mjs"`,
+      `import { store } from "./workspace-store"`,
       `export default { store }`,
       ``,
     ].join("\n"))
