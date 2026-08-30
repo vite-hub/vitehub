@@ -11,6 +11,7 @@ import {
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { isProviderJsonRecord } from "@vite-hub/internal/build/provider-output-config"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -18,6 +19,7 @@ import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
+import type { ProviderJsonRecord } from "@vite-hub/internal/build/provider-output-config"
 import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
@@ -146,7 +148,7 @@ interface NitroCloudflareKVTarget {
   }
 }
 
-function getNitroCloudflareKVNamespaces(target: unknown): Array<{ binding: string, id?: string }> {
+function getNitroCloudflareKVNamespaces(target: unknown): ProviderJsonRecord[] {
   if (!isPlainObject(target)) return []
   const cloudflare = Reflect.get(target, "cloudflare")
   if (!isPlainObject(cloudflare)) return []
@@ -155,16 +157,11 @@ function getNitroCloudflareKVNamespaces(target: unknown): Array<{ binding: strin
   const namespaces: unknown = Reflect.get(wrangler, "kv_namespaces")
   if (!Array.isArray(namespaces)) return []
   return namespaces.flatMap((namespace) => {
-    if (!isPlainObject(namespace)) return []
+    if (!isProviderJsonRecord(namespace)) return []
     const binding: unknown = Reflect.get(namespace, "binding")
-    const id: unknown = Reflect.get(namespace, "id")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro extension data crosses an untyped Vite boundary and binding must be a string.
     if (typeof binding !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro namespace IDs are optional strings at this extension boundary.
-    if (id !== undefined && typeof id !== "string") return []
-    const parsed: { binding: string, id?: string } = { binding }
-    if (id !== undefined) parsed.id = id
-    return [parsed]
+    return [namespace]
   })
 }
 

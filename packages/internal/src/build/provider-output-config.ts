@@ -1,9 +1,9 @@
 import { readFile, rm, writeFile } from "node:fs/promises"
 
-type ProviderJsonPrimitive = boolean | null | number | string
-type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
+export type ProviderJsonPrimitive = boolean | null | number | string
+export type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
 
-interface ProviderJsonRecord {
+export interface ProviderJsonRecord {
   [key: string]: ProviderJsonValue
 }
 
@@ -60,7 +60,7 @@ function isProviderJsonValue(value: unknown, ancestors: Set<object>): value is P
   return typeof value === "object" && isProviderJsonRecordValue(value, ancestors)
 }
 
-function isProviderJsonRecord(value: unknown): value is ProviderJsonRecord {
+export function isProviderJsonRecord(value: unknown): value is ProviderJsonRecord {
   try {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns unknown, so this boundary must reject primitive and array roots.
     return typeof value === "object"

@@ -498,7 +498,7 @@ describe("KV Vite output", () => {
       nitro: {
         cloudflare: {
           wrangler: {
-            kv_namespaces: [{ binding: "KV", id: "manual-namespace" }],
+            kv_namespaces: [{ binding: "KV", experimental_remote: true, id: "manual-namespace", preview_id: "preview-namespace" }],
           },
         },
       },
@@ -509,7 +509,9 @@ describe("KV Vite output", () => {
     await build(nitroConfig as Parameters<typeof build>[0])
 
     const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
-    expect(wrangler.kv_namespaces).toEqual([{ binding: "KV", id: "manual-namespace" }])
+    expect(wrangler.kv_namespaces).toEqual([
+      { binding: "KV", experimental_remote: true, id: "manual-namespace", preview_id: "preview-namespace" },
+    ])
     expect(existsSync(join(cloudflareOutputRoot, kvBindingsFile))).toBe(false)
   })
 })
