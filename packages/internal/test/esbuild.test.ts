@@ -22,6 +22,22 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("creates nested output directories for cancellable bundles", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "workers", "schedule.mjs")
+    await writeFile(entry, "export default 'scheduled'\n", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      format: "esm",
+      platform: "node",
+      signal: new AbortController().signal,
+    })
+
+    await expect(readFile(outfile, "utf8")).resolves.toContain("scheduled")
+  })
+
   it("loads files as text only when imported with Vite's raw query", async () => {
     const rootDir = await createTempDir()
     const rawEntry = join(rootDir, "raw-entry.mjs")

@@ -115,7 +115,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         filter(source) {
           const resolvedSource = resolve(source)
           if (pathContains(artifactDir, resolvedSource)) return false
-          if (isTransientSourceDirectory(resolvedSource)) return false
+          if (isTransientSourceDirectory(resolvedSource)
+            && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
           const nested = relative(root, resolvedSource)
           if (!nested) return true
           const first = nested.split(sep)[0]!

@@ -62,6 +62,25 @@ it("excludes transient Drizzle generation directories from retained workspaces",
   await expect(readFile(join(dirname(dirname(retained.resolve(handler))), "packages", "database", "test", ".drizzle-generate-one", "migration.sql"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
+  tempDirs.push(rootDir)
+  const requestedFile = join(rootDir, ".drizzle-generate-one", "runtime.mjs")
+  await mkdir(dirname(requestedFile), { recursive: true })
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(requestedFile, 'export const generation = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "database-generations", "one", "sources"),
+    paths: [requestedFile],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(requestedFile), "utf8")).resolves.toContain("retained")
+})
+
 it("retains an aliased package with its relative import base", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-alias-"))
   tempDirs.push(workspace)

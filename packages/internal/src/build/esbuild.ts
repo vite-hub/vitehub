@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -282,7 +282,11 @@ export async function bundleEsmEntry(
   })
   options.signal?.throwIfAborted()
   if (options.signal) {
-    await Promise.all((result.outputFiles ?? []).map(output => writeFile(output.path, output.contents, { signal: options.signal })))
+    await Promise.all((result.outputFiles ?? []).map(async (output) => {
+      await mkdir(dirname(output.path), { recursive: true })
+      options.signal!.throwIfAborted()
+      await writeFile(output.path, output.contents, { signal: options.signal })
+    }))
     options.signal.throwIfAborted()
   }
 }
