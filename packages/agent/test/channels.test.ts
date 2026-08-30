@@ -146,6 +146,10 @@ describe("agent channels", () => {
       expect(methods.filter(method => method === "POST")).toHaveLength(2)
       expect(stored?.body).toContain("https://console.test/invocations/replacement-run")
 
+      // Rebuild the stale-run history after deleting the comment that stored it.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "running") as never)
+
       const largeActivity = context("run-3", "running")
       largeActivity.activity.tasks = Array.from({ length: 100 }, (_, index) => ({ status: "pending", title: `${index}: ${"x".repeat(1_000)}` }))
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
@@ -456,7 +460,7 @@ describe("agent channels", () => {
     }
   })
 
-  it("reuses GitHub Actions bot activity when its installation token cannot resolve /user", async () => {
+  it.each(["GITHUB_TOKEN", "GH_TOKEN"] as const)("reuses GitHub Actions bot activity when its installation token is selected through %s", async (tokenKey) => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -470,7 +474,7 @@ describe("agent channels", () => {
       if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
       throw new Error(`Unexpected GitHub API call: ${url}`)
     })
-    vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
+    vi.stubEnv(tokenKey, "actions-installation-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({

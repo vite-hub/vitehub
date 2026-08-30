@@ -1205,7 +1205,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     if (login) return { login }
   }
   const processEnv = globalThis.process?.env
-  if (processEnv?.GITHUB_TOKEN === token && !processEnv.VITEHUB_GITHUB_TOKEN && !processEnv.GH_TOKEN) {
+  if (!processEnv?.VITEHUB_GITHUB_TOKEN && (processEnv?.GH_TOKEN === token || processEnv?.GITHUB_TOKEN === token)) {
     return { login: "github-actions[bot]" }
   }
   if (app) return githubAppIdentity(app, context)

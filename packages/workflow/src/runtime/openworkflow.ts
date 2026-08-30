@@ -259,8 +259,8 @@ function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {
 }
 
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The registered Workflow Definition determines the provider result type.
-function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name: string): WorkflowRun<unknown, TResult> {
-  if (!run || run.workflowName !== name) {
+function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name: string, acceptMissingName = false): WorkflowRun<unknown, TResult> {
+  if (!run || (run.workflowName ? run.workflowName !== name : !acceptMissingName)) {
     return {
       id: run?.id || "",
       provider: "openworkflow",
@@ -303,7 +303,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     })
   }, { acknowledgementUnknown: (_error, status) => firstAcknowledgementUnknown || status === undefined })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
-    const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
+    const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name, true)
     return {
       ...serialized,
       metadata: serialized.status === "failed"

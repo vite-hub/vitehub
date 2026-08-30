@@ -5279,12 +5279,7 @@ async function finalizeAgentInvocationResult<
         const finishResult = retainedResponseText && !outcome.failed
           ? { raw: result, text: retainedResponseText }
           : result
-        if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
-        }
-        else {
-          await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
-        }
+        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
       }, {
         abortSignal: context.input.abortSignal,
         onChunk: chunk => responseText.append(responseDecoder?.decode(chunk, { stream: true }) ?? ""),
@@ -5306,14 +5301,6 @@ async function finalizeAgentInvocationResult<
             const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
             const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
             const usage = streamed.finishUsage()
-            if (!outcome.failed && !outcome.completed) {
-              return lifecycle.finish({
-                result: finishResult,
-                status: "success",
-                ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
-                usageResolved: true,
-              })
-            }
             return lifecycle.finish(finishOutcome.status === "success"
               ? {
                   ...finishOutcome,
