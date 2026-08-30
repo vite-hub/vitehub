@@ -4084,9 +4084,8 @@ async function chatTriggerMessages(
   } catch {}
 
   let durable = await durableChatThreadMessages(thread, limit)
-  let durableCurrentIndex = -1
+  const durableCurrentIndex = durable.findLastIndex((item) => isCurrentChatSdkMessage(item, message))
   if (!message.id) {
-    durableCurrentIndex = durable.findLastIndex((item) => isCurrentChatSdkMessage(item, message))
     durable = durableCurrentIndex >= 0 ? durable.slice(0, durableCurrentIndex + 1) : []
   }
   let messages = [

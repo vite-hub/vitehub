@@ -17849,7 +17849,7 @@ describe("server helpers", () => {
       },
       messages: {
         stream: false,
-        triggerHistory: { maxMessages: 3, source: "thread" },
+        triggerHistory: { maxMessages: 5, source: "thread" },
       },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17872,7 +17872,7 @@ describe("server helpers", () => {
     await expect(handler(request("intervening id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(request("current id-less"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs.at(-1)).toEqual(["current id-less", "intervening id-less", "current id-less"])
+    expect(runs.at(-1)).toEqual(["current id-less", "ok", "intervening id-less", "ok", "current id-less"])
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {
@@ -17944,6 +17944,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-state-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
+    const currentMetadata: unknown[] = []
     const request = (messageId: number, text: string) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
@@ -17967,6 +17968,7 @@ describe("server helpers", () => {
         driver: {
           run: ({ messages }) => {
             runs.push(messages.map(getMessageText))
+            currentMetadata.push(messages.at(-1)?.metadata)
             return `reply ${runs.length}`
           },
         },
@@ -17985,11 +17987,17 @@ describe("server helpers", () => {
       await expect(handler(createTestChatAdapter({ persistThreadHistory: true }))(request(30, "remember DEPLOY-HISTORY"), "telegram")).resolves.toMatchObject({
         status: 200,
       })
-      await expect(
-        handler(createTestChatAdapter({ persistThreadHistory: true }))(request(31, "what marker did I ask you to remember?"), "telegram"),
-      ).resolves.toMatchObject({ status: 200 })
+      const resetAdapter = createTestChatAdapter({ persistThreadHistory: true })
+      resetAdapter.fetchMessages.mockResolvedValue({ messages: [] })
+      await expect(handler(resetAdapter)(request(31, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
       expect(runs).toEqual([["remember DEPLOY-HISTORY"], ["remember DEPLOY-HISTORY", "reply 1", "what marker did I ask you to remember?"]])
+      expect(currentMetadata.at(-1)).toMatchObject({
+        chat: {
+          messageId: "31",
+          platform: { channelId: "telegram:456", threadId: "telegram:456" },
+        },
+      })
     } finally {
       await rm(stateDir, { force: true, recursive: true })
     }
