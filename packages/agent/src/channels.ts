@@ -1149,14 +1149,15 @@ async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, head
   const lastPage = githubApiLastPage(firstResponse.headers.get("link"))
   if (!lastPage || lastPage === 1) return firstItems.slice(-limit).reverse()
   const items: unknown[] = []
-  const pageLimit = Math.ceil(limit / 100)
-  for (let page = lastPage; page > Math.max(0, lastPage - pageLimit) && items.length < limit; page--) {
+  const pageLimit = Math.ceil(limit / 100) + 1
+  for (let page = lastPage; page > Math.max(1, lastPage - pageLimit) && items.length < limit; page--) {
     const response = await fetcher(githubApiPageUrl(url, page), { headers, method: "GET" })
     if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
     const pageItems = await response.json().catch(() => undefined)
     if (!Array.isArray(pageItems)) break
     items.push(...pageItems.reverse())
   }
+  if (items.length < limit && lastPage <= pageLimit) items.push(...firstItems.reverse())
   return items.slice(0, limit)
 }
 

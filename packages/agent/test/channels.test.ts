@@ -544,13 +544,20 @@ describe("agent channels", () => {
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
       if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
         const page = url.searchParams.get("page")
-        if (page === null) {
+        if (page === "1") {
           return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 1 })), {
-            headers: { link: `<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=7>; rel="last"` },
+            headers: { link: `<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=6>; rel="last"` },
           })
         }
-        if (page === "7") return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
-        return Response.json([])
+        if (page === "6") return Response.json([{ body: "ordinary", id: 501 }])
+        if (page === "2") return Response.json([
+          { body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } },
+          ...Array.from({ length: 99 }, (_, id) => ({ body: "ordinary", id: id + 101 })),
+        ])
+        if (page && Number(page) >= 3 && Number(page) <= 5) {
+          return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: Number(page) * 100 + id })))
+        }
+        throw new Error(`Unexpected comments page: ${page}`)
       }
       if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
       throw new Error(`Unexpected GitHub API call: ${url}`)
