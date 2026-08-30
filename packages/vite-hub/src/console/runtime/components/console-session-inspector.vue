@@ -30,6 +30,7 @@ const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["de
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const workspace = ref<WorkspaceDescriptor>();
+const workspaceSupported = ref<boolean>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
@@ -61,7 +62,7 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(workspace.value || workspaceError.value ? (["workspace"] as const) : []),
+  ...(workspaceSupported.value ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
@@ -125,6 +126,7 @@ watch(
     workspaceRequest?.abort();
     fileRequest?.abort();
     workspace.value = undefined;
+    workspaceSupported.value = undefined;
     workspaceError.value = undefined;
     selectedPath.value = undefined;
     openPaths.value = [];
@@ -292,8 +294,12 @@ async function loadWorkspace() {
         controller.signal,
       ),
     );
+    workspaceSupported.value = true;
   } catch (error) {
-    if (!controller.signal.aborted) workspaceError.value = message(error);
+    if (!controller.signal.aborted) {
+      workspaceSupported.value = !(error instanceof RequestError && error.status === 404);
+      workspaceError.value = workspaceSupported.value ? message(error) : undefined;
+    }
   } finally {
     if (!controller.signal.aborted && workspaceRequest === controller)
       workspaceLoading.value = false;
@@ -326,13 +332,23 @@ async function requestJson(path: string, signal: AbortSignal): Promise<unknown> 
   const response = await fetch(path, { signal });
   if (!response.ok) {
     const payload = record(await response.json().catch(() => undefined));
-    throw new Error(
+    throw new RequestError(
       stringValue(payload?.statusMessage) ||
         stringValue(payload?.statusText) ||
         `Request failed with status ${response.status}.`,
+      response.status,
     );
   }
   return response.json();
+}
+
+class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
 
 function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {

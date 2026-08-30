@@ -100,7 +100,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   const observations = [...invocation.observations].sort(
     (left, right) => left.sequence - right.sequence,
   );
-  const starts = observations.filter((observation) => observation.name.endsWith(".start"));
+  const starts = traceStarts(observations);
   const pairs = starts.map((start) => ({
     finish: pairedTerminal(start, observations, invocation),
     start,
@@ -143,6 +143,28 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     (left, right) =>
       left.depth - right.depth || left.startMs - right.startMs || left.sequence - right.sequence,
   );
+}
+
+function traceStarts(observations: Observation[]): Observation[] {
+  const starts: Observation[] = [];
+  const openTools = new Set<string>();
+  for (const observation of observations) {
+    const id = eventId(observation);
+    if (observation.name === "agent.tool.start") {
+      if (!openTools.has(id)) starts.push(observation);
+      openTools.add(id);
+      continue;
+    }
+    if (
+      observation.name.startsWith("agent.tool.") &&
+      [".finish", ".error", ".abort", ".cancel"].some((suffix) =>
+        observation.name.endsWith(suffix),
+      )
+    )
+      openTools.delete(id);
+    if (observation.name.endsWith(".start")) starts.push(observation);
+  }
+  return starts;
 }
 
 function pairedSpan(
@@ -194,6 +216,8 @@ function pairedTerminal(
   const terminals = observations.filter(
     (observation) => terminalNames.includes(observation.name) && eventId(observation) === id,
   );
+  if (start.name === "agent.tool.start")
+    return terminals.find((observation) => observation.sequence > start.sequence);
   return start.name === "agent.invocation.start" && invocation.status === "completed"
     ? (terminals.findLast((observation) => observation.name === "agent.invocation.finish") ??
         terminals[0])

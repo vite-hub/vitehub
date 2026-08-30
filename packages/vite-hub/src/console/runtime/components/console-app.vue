@@ -354,6 +354,7 @@ async function loadAgents(): Promise<void> {
 
 async function refresh(): Promise<void> {
   await Promise.all([
+    detectHostCapabilities(),
     loadAgents(),
     list.refresh(),
     selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
