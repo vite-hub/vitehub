@@ -212,6 +212,7 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/kv",
       "./console/sections",
       "./console/server",
       "./database/drizzle",
@@ -315,6 +316,12 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain("<ConsoleHome")
     expect(consoleIndexRoute).toContain(":sections-base=")
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true)
+    const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8")
+    expect(consoleKVRoute).toContain(`sections.includes("kv")`)
+    expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`)
+    expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)")
+    expect(consoleKVRoute).toContain(`v-if="available"`)
+    expect(consoleKVRoute).toContain("Try again")
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true)
     const consoleProvider = readFileSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`, "utf8")
     expect(consoleProvider).toContain("injectTooltipProviderContext(null)")
@@ -361,8 +368,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(8)
+      expect(handlers).toHaveLength(9)
       expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/usage" }))
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/kv" }))
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

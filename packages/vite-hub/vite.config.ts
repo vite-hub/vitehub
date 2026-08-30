@@ -99,6 +99,7 @@ export default defineConfig({
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
+      "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/search.get.ts",
       "src/console/runtime/server/sections.get.ts",
@@ -115,6 +116,8 @@ export default defineConfig({
         delete exports["./console/runtime/server/agents.get"]
         delete exports["./console/runtime/server/invocation.get"]
         delete exports["./console/runtime/server/invocations.get"]
+        delete exports["./console/runtime/server/kv.get"]
+        delete exports["./console/runtime/server/kv"]
         delete exports["./console/runtime/server/page.get"]
         delete exports["./console/runtime/server/search.get"]
         delete exports["./console/runtime/server/sections.get"]
@@ -122,6 +125,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/usage.get"]
         return {
           ...exports,
+          "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",
