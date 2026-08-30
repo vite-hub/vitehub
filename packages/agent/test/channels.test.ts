@@ -41,10 +41,11 @@ describe("agent channels", () => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
       const method = init?.method || "GET"
       methods.push(method)
+      if (url.pathname === "/user") return new Response(JSON.stringify({ login: "vitehub-bot" }), { headers: { "content-type": "application/json" } })
       if (method === "GET") {
         const comments = url.searchParams.get("page") === "2" || !stored
           ? []
-          : [{ body: stored.body, id: stored.id }]
+          : [{ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } }]
         return new Response(JSON.stringify(comments), { headers: { "content-type": "application/json" } })
       }
       const parsedBody: unknown = JSON.parse(String(init?.body))

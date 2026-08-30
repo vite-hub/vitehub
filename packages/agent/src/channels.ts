@@ -1135,7 +1135,8 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
     if (!Array.isArray(pageItems) || !pageItems.length) break
     items.push(...pageItems)
     if (limit > 0 && items.length >= limit) break
-    nextUrl = githubApiNextPageUrl(response.headers.get("link")) || githubApiPageUrl(url, ++page)
+    const link = response.headers.get("link")
+    nextUrl = link === null ? githubApiPageUrl(url, ++page) : githubApiNextPageUrl(link)
   }
   return limit > 0 ? items.slice(0, limit) : items
 }
@@ -1153,11 +1154,40 @@ interface GitHubActivityTarget {
 interface GitHubActivityHistoryEntry {
   links: readonly { label: string, url: string }[]
   runId: string
+  status?: AgentActivityStatus
 }
 
 interface GitHubActivityCommentState {
   current?: GitHubActivityHistoryEntry
   history: readonly GitHubActivityHistoryEntry[]
+}
+
+interface GitHubActivityIdentity {
+  app?: string
+  login?: string
+}
+
+async function githubActivityIdentity(fetcher: typeof fetch, apiBaseUrl: string, headers: Record<string, string>): Promise<GitHubActivityIdentity> {
+  const userResponse = await fetcher(`${apiBaseUrl}/user`, { headers, method: "GET" })
+  if (userResponse.ok) {
+    const user = await userResponse.json().catch(() => undefined)
+    const login = isRecord(user) ? maybeString(user.login) : undefined
+    if (login) return { login }
+  }
+  const installationResponse = await fetcher(`${apiBaseUrl}/installation`, { headers, method: "GET" })
+  if (installationResponse.ok) {
+    const installation = await installationResponse.json().catch(() => undefined)
+    const app = isRecord(installation) ? maybeString(installation.app_slug) : undefined
+    if (app) return { app }
+  }
+  throw new Error("[vitehub] GitHub Agent activity could not resolve the authenticated identity.")
+}
+
+function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
+  if (!isRecord(comment) || !hasRuntimeType(comment.body, "string") || !comment.body.includes(githubActivityMarker)) return false
+  const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
+  const app = isRecord(comment.performed_via_github_app) ? maybeString(comment.performed_via_github_app.slug) : undefined
+  return Boolean(identity.app ? app === identity.app : identity.login && user === identity.login)
 }
 
 function githubActivityTarget(value: unknown): GitHubActivityTarget {
@@ -1184,7 +1214,8 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
           const links = item.links.flatMap(link => isRecord(link) && maybeString(link.label) && maybeString(link.url)
             ? [{ label: maybeString(link.label)!, url: maybeString(link.url)! }]
             : [])
-          return [{ links, runId: maybeString(item.runId)! }]
+          const status = maybeString(item.status)
+          return [{ links, runId: maybeString(item.runId)!, ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
         })
       : []
     return {
@@ -1235,7 +1266,7 @@ function renderGithubActivity(
   if (activity.links.length) sections.push(githubActivityLinks(activity.links))
   if (activity.tasks.length) sections.push(activity.tasks.map(githubActivityTask).join("\n"))
   if (activity.summary) sections.push(activity.summary.slice(0, 12_000))
-  else if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
+  if (activity.error) sections.push(`Agent stopped: ${activity.error.slice(0, 1_000)}`)
   if (state.history.length) {
     const history = state.history
       .filter(entry => entry.links.length)
@@ -1258,17 +1289,41 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
       const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
+      const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers)
       const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
         const commentsUrl = `${activityKey}/comments?sort=created&direction=desc`
         const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
-        const existing = comments.find(comment => isRecord(comment)
-          && maybeNumber(comment.id)
-          && hasRuntimeType(comment.body, "string")
-          && comment.body.includes(githubActivityMarker))
+        const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
+          && isOwnedGithubActivityComment(comment, identity))
+        const existing = owned[0]
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-        const current = { links: context.activity.links, runId: context.activity.runId }
+        const current = { links: context.activity.links, runId: context.activity.runId, status: context.activity.status }
+        const reconcileDuplicates = async () => {
+          for (const duplicate of owned.slice(1)) {
+            const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined
+            if (!duplicateId) continue
+            await githubApi(fetcher, `${apiBaseUrl}/repos/${target.repository}/issues/comments/${duplicateId}`, {
+              body: JSON.stringify({ body: "This Agent activity was superseded by a newer managed comment." }),
+              headers,
+              method: "PATCH",
+            })
+          }
+        }
+        const staleRun = previous.current?.runId !== current.runId
+          && (previous.history.some(entry => entry.runId === current.runId)
+            || owned.slice(1).some(comment => {
+              const state = decodeGithubActivityState(isRecord(comment) ? comment.body : undefined)
+              return state.current?.runId === current.runId || state.history.some(entry => entry.runId === current.runId)
+            }))
+        if (staleRun) {
+          await reconcileDuplicates()
+          return
+        }
+        if (previous.current?.runId === current.runId
+          && previous.current.status && ["cancelled", "completed", "failed"].includes(previous.current.status)
+          && !["cancelled", "completed", "failed"].includes(current.status)) return
         const state: GitHubActivityCommentState = previous.current?.runId === current.runId
           ? { current, history: previous.history }
           : {
@@ -1284,6 +1339,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           headers,
           method: commentId ? "PATCH" : "POST",
         })
+        await reconcileDuplicates()
       })
       githubActivityUpdates.set(activityKey, update)
       try {

@@ -1214,8 +1214,10 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         await publish(state.status === "waiting" ? "waiting" : "running")
         return
       }
-      if (event.type === "approval-request") await publish("waiting")
-      else if (event.type === "approval-decision") await publish("running")
+      if (event.type === "approval-request"
+        || (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested")) await publish("waiting")
+      else if (event.type === "approval-decision"
+        || (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved")) await publish("running")
     },
     update: publish,
   }
@@ -4642,7 +4644,7 @@ function shouldWrapInvocationOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
-  return shouldDeferFinish(context) || Boolean(context.runtimeContext.traceLog)
+  return shouldDeferFinish(context) || Boolean(context.runtimeContext.traceLog) || Boolean(context.activity)
 }
 
 async function commitWorkspaceChanges<
