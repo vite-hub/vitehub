@@ -50,6 +50,7 @@ describe("types", () => {
     expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<KVResult<string | null>>>()
     expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<KVResult<boolean>>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<KVResult<string[]>>>()
+    expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<KVResult<{ keys: string[]; cursor?: string }>>>()
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<KVResult<void>>>()
   })
 

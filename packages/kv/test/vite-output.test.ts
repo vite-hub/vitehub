@@ -64,6 +64,12 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("resolves the Cloudflare runtime from the package entry", async () => {
+    const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
+
+    expect(output).toContain(`new URL("./runtime/cloudflare-kv.js", import.meta.url).href`)
+  })
+
   it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

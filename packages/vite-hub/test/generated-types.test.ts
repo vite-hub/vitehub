@@ -1,16 +1,55 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEvent } from "h3-v1"
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+const generatedHandlerReadGate = vi.hoisted<{
+  path: string | undefined
+  blockAtRead: number
+  error: Error | undefined
+  reads: number
+  started: (() => void) | undefined
+  wait: Promise<void> | undefined
+}>(() => ({
+  path: undefined,
+  blockAtRead: 2,
+  error: undefined,
+  reads: 0,
+  started: undefined,
+  wait: undefined,
+}))
 
-import { toRuntimeModuleSpecifier, toTypeModuleSpecifier, viteHubTypesPlugin } from "../src/internal/types.ts"
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...fs,
+    async readFile(...args: Parameters<typeof fs.readFile>) {
+      if (String(args[0]) === generatedHandlerReadGate.path) {
+        generatedHandlerReadGate.reads += 1
+        if (generatedHandlerReadGate.reads === generatedHandlerReadGate.blockAtRead) {
+          generatedHandlerReadGate.started?.()
+          await generatedHandlerReadGate.wait
+          if (generatedHandlerReadGate.error) throw generatedHandlerReadGate.error
+        }
+      }
+      return fs.readFile(...args)
+    },
+  }
+})
+
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+
+import { viteHubTypesPlugin } from "../src/internal/types.ts"
+import {
+  hubSource as frameworkHubSource,
+  prepareSourceGeneration as prepareFrameworkSourceGeneration,
+} from "../src/source/vite.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -60,7 +99,16 @@ function contentModule(): string {
 
 function configResolved(plugin: Plugin) {
   // SAFETY: This fixture invokes the documented Vite configResolved hook signature.
-  return plugin.configResolved as (config: { root: string; [VITEHUB_SERVER_DIRS]?: string[] }) => Promise<void>
+  return plugin.configResolved as (config: {
+    nitro?: Record<string, unknown>
+    root: string
+    [VITEHUB_PROJECT_ROOT]?: string
+    [VITEHUB_SERVER_DIRS]?: string[]
+  }) => Promise<void>
+}
+
+function sourcePlugin() {
+  return hubSource({ importBase: "vite-hub/source" })
 }
 
 function config(plugin: Plugin) {
@@ -71,18 +119,84 @@ function config(plugin: Plugin) {
     nitro?: Record<string, unknown>
     root?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+    [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
-  }) => Promise<void>
+  }) => Promise<{
+    define?: Record<string, string>
+    nitro?: Record<string, unknown>
+  } | void>
 }
 
 function buildStart(plugin: Plugin) {
+  if (plugin.buildStart && !(plugin.buildStart instanceof Function)) {
+    // SAFETY: This fixture invokes the documented Vite buildStart hook signature.
+    return plugin.buildStart.handler as () => Promise<void>
+  }
   // SAFETY: This fixture invokes the documented Vite buildStart hook signature.
   return plugin.buildStart as () => Promise<void>
 }
 
 function buildEnd(plugin: Plugin) {
+  if (plugin.buildEnd && !(plugin.buildEnd instanceof Function)) {
+    // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
+    return plugin.buildEnd.handler as () => Promise<void>
+  }
   // SAFETY: This fixture invokes the documented Vite buildEnd hook signature.
   return plugin.buildEnd as () => Promise<void>
+}
+
+interface TestPluginEnvironment {
+  id: symbol
+}
+
+function closeBundle(plugin: Plugin, environment: TestPluginEnvironment) {
+  if (plugin.closeBundle && !(plugin.closeBundle instanceof Function)) {
+    const hook = plugin.closeBundle.handler
+    return () => {
+      // SAFETY: This fixture invokes the documented Vite closeBundle hook with its owning environment.
+      return hook.call({ environment } as never)
+    }
+  }
+  // SAFETY: This fixture invokes the documented Vite closeBundle hook signature.
+  return () => (plugin.closeBundle as (() => Promise<void> | void)).call({ environment })
+}
+
+function configureServer(
+  plugin: Plugin,
+  options: { restartReplacesEnvironments?: (restartCall: number) => boolean } = {},
+) {
+  const configureServer = plugin.configureServer
+  const rawHook = configureServer instanceof Function ? configureServer : configureServer?.handler
+  if (!rawHook) throw new TypeError("Expected a configureServer hook.")
+  type TestViteServer = {
+    config: {
+      logger: { error: (message: string) => void }
+      root?: string
+      [VITEHUB_PROJECT_ROOT]?: string
+    }
+    environments: Record<string, TestPluginEnvironment>
+    restart: () => Promise<void>
+    watcher: {
+      add: (paths: string[]) => void
+      on: (event: string, callback: (file: string) => void) => void
+    }
+  }
+  return (server: Omit<TestViteServer, "environments">) => {
+    const environment = { id: Symbol("test-plugin-environment") }
+    const viteServer = { ...server, environments: { client: environment } }
+    const restart = viteServer.restart
+    let restartCall = 0
+    viteServer.restart = async () => {
+      restartCall += 1
+      await restart()
+      if (options.restartReplacesEnvironments?.(restartCall) ?? true) {
+        viteServer.environments = { ...viteServer.environments }
+      }
+    }
+    // SAFETY: This fixture supplies the watcher and restart fields used by the Source plugin.
+    rawHook.call({} as never, viteServer as never)
+    return environment
+  }
 }
 
 function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
@@ -95,7 +209,17 @@ function prepareFeature(plugin: Plugin & ViteHubCliContributingPlugin) {
   return feature
 }
 
+function contributesCli(plugin: Plugin): plugin is Plugin & ViteHubCliContributingPlugin {
+  return "vitehub" in plugin
+}
+
 afterEach(async () => {
+  generatedHandlerReadGate.path = undefined
+  generatedHandlerReadGate.blockAtRead = 2
+  generatedHandlerReadGate.error = undefined
+  generatedHandlerReadGate.reads = 0
+  generatedHandlerReadGate.started = undefined
+  generatedHandlerReadGate.wait = undefined
   await Promise.all(tempDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
 
@@ -108,9 +232,10 @@ describe("framework generated types", () => {
       root: viteRoot,
     }
 
-    await config(viteHubTypesPlugin())(viteConfig)
+    const contribution = await config(sourcePlugin())(viteConfig)
 
-    expect(viteConfig.define).toEqual({
+    expect(viteConfig.define).toEqual({ EXISTING: "true" })
+    expect({ ...viteConfig.define, ...contribution?.define }).toEqual({
       EXISTING: "true",
       __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
     })
@@ -122,9 +247,9 @@ describe("framework generated types", () => {
       const { viteRoot } = await createNestedProject()
       const viteConfig = { base, root: viteRoot }
 
-      await config(viteHubTypesPlugin())(viteConfig)
+      const contribution = await config(sourcePlugin())(viteConfig)
 
-      expect(viteConfig).toMatchObject({
+      expect(contribution).toMatchObject({
         define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") },
       })
     },
@@ -170,7 +295,11 @@ describe("framework generated types", () => {
 
   it("refreshes build output and exposes the prepare lifecycle", async () => {
     const { root, viteRoot } = await createNestedProject()
-    await writeFile(join(root, ".vitehub/types/env.d.ts"), "interface ImportMetaEnv {}\n")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, ".vitehub/types/env.d.ts"), "interface ImportMetaEnv {}\n"),
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+    ])
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
@@ -190,25 +319,122 @@ describe("framework generated types", () => {
     await prepareFeature(viteHubTypesPlugin()).run([], context)
 
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/env.d.ts")
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain("./types/source/collections.d.ts")
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
+      `"meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
+    )
+    await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).resolves.toBe(
+      '/// <reference path="./collections.d.ts" />\n',
+    )
     expect(stdout.write).toHaveBeenCalledWith("types: prepared .vitehub/types.d.ts\n")
+  })
+
+  it("uses configured server directories during CLI preparation", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot, [VITEHUB_SERVER_DIRS]: [serverDir] })
+    const rawContext: unknown = { rootDir: viteRoot, stdout: { write: vi.fn() } }
+    // SAFETY: The feature uses only the rootDir and stdout fields supplied by this focused fixture.
+    const context = rawContext as ViteHubCliContext
+    await prepareFeature(plugin).run([], context)
+
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
+      JSON.stringify(join(serverDir, "collections/meals.ts")),
+    )
+  })
+
+  it("binds the framework Source plugin to framework imports", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [source, types] = frameworkHubSource()
+    await configResolved(source!)({ root })
+    await configResolved(types!)({ root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "vite-hub/source/server"',
+    )
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      `./types/source/collections.d.ts`,
+    )
+  })
+
+  it("binds direct framework Source preparation to framework imports", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await prepareFrameworkSourceGeneration({ projectRoot: root })
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "vite-hub/source/server"',
+    )
+  })
+
+  it("uses framework imports when direct Source options explicitly leave the import base undefined", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    await prepareFrameworkSourceGeneration({ importBase: undefined, projectRoot: root })
+    const generatedRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
+
+    await rm(generatedRoute)
+    const [source] = frameworkHubSource({ importBase: undefined })
+    await configResolved(source!)({ root })
+
+    await expect(readFile(generatedRoute, "utf8")).resolves.toContain('from "vite-hub/source/server"')
+  })
+
+  it("preserves a custom framework import base during CLI preparation", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+
+    const [source, types] = frameworkHubSource({ importBase: "custom-source" })
+    await configResolved(source!)({ root: viteRoot })
+    await configResolved(types!)({ root: viteRoot })
+    const rawContext: unknown = { rootDir: viteRoot, stdout: { write: vi.fn() } }
+    // SAFETY: The feature uses only the rootDir and stdout fields supplied by this focused fixture.
+    const context = rawContext as ViteHubCliContext
+    if (!types || !contributesCli(types)) throw new TypeError("Expected a CLI-contributing types plugin.")
+    await prepareFeature(types).run([], context)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      'from "custom-source/server"',
+    )
   })
 
   it("registers server Collections by filename", async () => {
     const { root, viteRoot } = await createNestedProject()
-    await mkdir(join(root, "server/collections/admin"), { recursive: true })
     await Promise.all([
+      mkdir(join(root, "server/collections/admin"), { recursive: true }),
+      mkdir(join(root, "server/collections/*"), { recursive: true }),
+    ])
+    await mkdir(join(root, ".vitehub/source"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "server/collections/*/specials.ts"), collectionModule("specials")),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
+      writeFile(join(root, ".vitehub/source/collections.d.ts"), "interface ViteHubCollectionMap { stale: never }\n"),
     ])
 
-    const plugin = viteHubTypesPlugin()
+    const plugin = sourcePlugin()
     await configResolved(plugin)({ root: viteRoot })
-    const handlers = await plugin.api.prepareTypes(root)
+    const handlers = await plugin.api.prepareSources({ projectRoot: root })
+    await viteHubTypesPlugin().api.prepareTypes({ projectRoot: root })
 
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toBe(
       [
         `declare global {`,
         `  interface ViteHubCollectionMap {`,
+        `    "*/specials": typeof import(${JSON.stringify(join(root, "server/collections/*/specials.ts"))})["specials"]`,
         `    "admin/history": typeof import(${JSON.stringify(join(root, "server/collections/admin/history.ts"))})["history"]`,
         `    "meals": typeof import(${JSON.stringify(join(root, "server/collections/meals.ts"))})["meals"]`,
         `  }`,
@@ -218,8 +444,15 @@ describe("framework generated types", () => {
         ``,
       ].join("\n"),
     )
-    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./source/collections.d.ts`)
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./types/source/collections.d.ts`)
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.not.toContain(`./source/collections.d.ts`)
+    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
     expect(handlers).toEqual([
+      {
+        handler: join(root, ".vitehub/source/routes/*/specials.mjs"),
+        method: "get",
+        route: "/api/%2A/specials",
+      },
       {
         handler: join(root, ".vitehub/source/routes/admin/history.mjs"),
         method: "get",
@@ -250,7 +483,7 @@ describe("framework generated types", () => {
     ])
     await writeFile(join(root, "server/content.ts"), contentModule())
 
-    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
     expect(handlers).toEqual([{
       handler: join(root, ".vitehub/content/route.mjs"),
@@ -312,17 +545,46 @@ describe("framework generated types", () => {
       writeFile(join(secondServerDir, "content.ts"), contentModule()),
     ])
 
-    await expect(viteHubTypesPlugin().api.prepareTypes({
+    await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir, secondServerDir],
     })).rejects.toThrow("Content is defined in more than one server directory")
 
     await rm(join(secondServerDir, "content.ts"))
     await writeFile(join(firstServerDir, "content.ts"), "export const other = {}\n")
-    await expect(viteHubTypesPlugin().api.prepareTypes({
+    await expect(sourcePlugin().api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir],
     })).rejects.toThrow('must export a Comark Content instance named "content"')
+  })
+
+  it("preserves generated Collection artifacts when Content discovery fails", async () => {
+    const { root } = await createNestedProject()
+    const collectionsDirectory = join(root, "server/collections")
+    await mkdir(collectionsDirectory, { recursive: true })
+    await Promise.all([
+      writeFile(join(collectionsDirectory, "meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/content.ts"), contentModule()),
+    ])
+
+    await sourcePlugin().api.prepareSources({ projectRoot: root })
+    const collectionRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    const collectionTypes = join(root, ".vitehub/types/source/collections.d.ts")
+    const [routeBeforeFailure, typesBeforeFailure] = await Promise.all([
+      readFile(collectionRoute, "utf8"),
+      readFile(collectionTypes, "utf8"),
+    ])
+
+    await Promise.all([
+      rm(join(collectionsDirectory, "meals.ts")),
+      writeFile(join(root, "server/content.ts"), "export const other = {}\n"),
+    ])
+    await expect(sourcePlugin().api.prepareSources({ projectRoot: root })).rejects.toThrow(
+      'must export a Comark Content instance named "content"',
+    )
+
+    await expect(readFile(collectionRoute, "utf8")).resolves.toBe(routeBeforeFailure)
+    await expect(readFile(collectionTypes, "utf8")).resolves.toBe(typesBeforeFailure)
   })
 
   it("rejects a manual route that bypasses generated Content serving", async () => {
@@ -330,7 +592,7 @@ describe("framework generated types", () => {
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "server/content.ts"), contentModule())
 
-    await expect(config(viteHubTypesPlugin())({
+    await expect(config(sourcePlugin())({
       nitro: { handlers: [{ handler: "server/api/content.post.ts", method: "post", route: "/api/content/**" }] },
       root,
     })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
@@ -348,8 +610,8 @@ describe("framework generated types", () => {
       writeFile(join(collectionsDirectory, declarationFile), "export declare const meals: object\n"),
     ])
 
-    const handlers = await viteHubTypesPlugin().api.prepareTypes(root)
-    const collectionTypes = await readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    const collectionTypes = await readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")
 
     expect(handlers).toEqual([
       {
@@ -370,7 +632,7 @@ describe("framework generated types", () => {
     ])
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
-    const [handler] = await viteHubTypesPlugin().api.prepareTypes(root)
+    const [handler] = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
     await expect(import(pathToFileURL(handler!.handler).href)).resolves.toHaveProperty("default", expect.any(Function))
   })
@@ -385,19 +647,1129 @@ describe("framework generated types", () => {
       root: string
     } = { nitro: { handlers: [existing] }, root }
 
-    await config(viteHubTypesPlugin())(userConfig)
+    const contribution = await config(sourcePlugin())(userConfig)
 
-    expect(userConfig.nitro.handlers).toEqual([
-      existing,
-      {
-        handler: join(root, ".vitehub/source/routes/meals.mjs"),
-        method: "get",
-        route: "/api/meals",
-      },
-    ])
-    expect(userConfig.nitro.modules).toContainEqual(
+    expect(userConfig.nitro.handlers).toEqual([existing])
+    expect(contribution?.nitro).toMatchObject({
+      handlers: [
+        {
+          handler: join(root, ".vitehub/source/routes/meals.mjs"),
+          method: "get",
+          route: "/api/meals",
+        },
+      ],
+    })
+    expect(Reflect.get(Object(contribution?.nitro), "modules")).toContainEqual(
       expect.objectContaining({ name: "vite-hub/generated-route-guard" }),
     )
+  })
+
+  it("keeps generated handlers out of a reused inline Vite config", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const inlineConfig = { nitro: { handlers: [existing] }, root }
+    const plugin = sourcePlugin()
+
+    const generated = await config(plugin)(inlineConfig)
+    expect(inlineConfig.nitro.handlers).toEqual([existing])
+    expect(Reflect.get(Object(generated?.nitro), "handlers")).toContainEqual(
+      expect.objectContaining({ route: "/api/meals" }),
+    )
+
+    await rm(collection)
+    const removed = await config(plugin)(inlineConfig)
+    expect(inlineConfig.nitro.handlers).toEqual([existing])
+    expect(removed).not.toHaveProperty("nitro")
+  })
+
+  it("replaces generated handlers when discovery changes between Vite config hooks", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const existing = { handler: "server/health.ts", method: "get", route: "/api/health" }
+    const viteConfig: { nitro: Record<string, unknown>; root: string } = {
+      nitro: { handlers: [existing] },
+      root,
+    }
+    const plugin = sourcePlugin()
+
+    const contribution = await config(plugin)(viteConfig)
+    viteConfig.nitro = {
+      ...viteConfig.nitro,
+      ...contribution?.nitro,
+      handlers: [existing, ...Reflect.get(Object(contribution?.nitro), "handlers")],
+    }
+    await rm(collection)
+    await configResolved(plugin)(viteConfig)
+
+    expect(viteConfig.nitro.handlers).toEqual([existing])
+  })
+
+  it("keeps Nitro contribution ownership scoped across interleaved project roots", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstCollection = join(first.root, "server/collections/meals.ts")
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await Promise.all([
+      mkdir(dirname(firstCollection), { recursive: true }),
+      mkdir(dirname(secondCollection), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(firstCollection, collectionModule("meals")),
+      writeFile(secondCollection, collectionModule("drinks")),
+    ])
+    const plugin = sourcePlugin()
+    const firstConfig: { nitro?: Record<string, unknown>; root: string } = { root: first.root }
+    const secondConfig: { nitro?: Record<string, unknown>; root: string } = { root: second.root }
+
+    const firstContribution = await config(plugin)(firstConfig)
+    firstConfig.nitro = firstContribution?.nitro
+    const secondContribution = await config(plugin)(secondConfig)
+    secondConfig.nitro = secondContribution?.nitro
+    await rm(firstCollection)
+    await configResolved(plugin)(firstConfig)
+
+    expect(Reflect.get(Object(firstConfig.nitro), "handlers")).toEqual([])
+    expect(Reflect.get(Object(secondConfig.nitro), "handlers")).toContainEqual(
+      expect.objectContaining({ route: "/api/drinks" }),
+    )
+  })
+
+  it("does not contribute duplicate Nitro handlers when Source is composed twice", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    const viteConfig: { nitro?: Record<string, unknown>; root: string } = { root }
+
+    const first = await config(sourcePlugin())(viteConfig)
+    viteConfig.nitro = first?.nitro
+    const second = await config(sourcePlugin())(viteConfig)
+
+    expect(Reflect.get(Object(first?.nitro), "handlers")).toHaveLength(1)
+    expect(second).not.toHaveProperty("nitro")
+  })
+
+  it("restarts the Vite host when Source refresh changes Nitro handlers", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+    const watcherAdd = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
+    })
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "server")])
+
+    await writeFile(collection, `${collectionModule("meals")}\n`)
+    await listeners.get("change")?.(collection)
+    expect(restart).not.toHaveBeenCalled()
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+    expect(restart).toHaveBeenCalledOnce()
+
+    await config(plugin)({ root })
+    await writeFile(collection, collectionModule("meals"))
+    await listeners.get("add")?.(collection)
+    expect(restart).toHaveBeenCalledOnce()
+  })
+
+  it("restarts the Vite host when a generated handler changes its source target", async () => {
+    const { root } = await createNestedProject()
+    const typescriptCollection = join(root, "server/collections/meals.ts")
+    const javascriptCollection = join(root, "server/collections/meals.js")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(typescriptCollection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rename(typescriptCollection, javascriptCollection)
+    await listeners.get("unlink")?.(typescriptCollection)
+
+    expect(restart).toHaveBeenCalledOnce()
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(javascriptCollection),
+    )
+  })
+
+  it("keeps the Vite restart fallback for passive generated-handler observers", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn(() => {
+      throw new Error("passive observer failed")
+    })
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+    const loggerError = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: loggerError } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => {
+      expect(observer).toHaveBeenCalledWith([])
+      expect(restart).toHaveBeenCalledOnce()
+      expect(loggerError).toHaveBeenCalledWith("Error: passive observer failed")
+    })
+  })
+
+  it("binds generated-handler listeners registered before Vite configuration", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    const observer = vi.fn()
+    plugin.api.onGeneratedHandlersChanged(observer)
+    await config(plugin)({ root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+
+    expect(observer).toHaveBeenCalledWith([])
+  })
+
+  it("uses the framework project root when Vite runs from a nested root", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    const viteConfig = { root: viteRoot, [VITEHUB_PROJECT_ROOT]: root }
+    await config(plugin)(viteConfig)
+    await configResolved(plugin)(viteConfig)
+    const observer = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const watcherAdd = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() }, ...viteConfig },
+      restart: vi.fn(async () => {}),
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "server")])
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+    expect(observer).toHaveBeenCalledWith([])
+  })
+
+  it("keeps duplicate listener registrations independently removable", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await mkdir(dirname(secondCollection), { recursive: true })
+    await writeFile(secondCollection, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    const observer = vi.fn(async () => {})
+    const removeFirst = plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: first.root })
+    plugin.api.onGeneratedHandlersChanged(observer, { projectRoot: second.root })
+    await config(plugin)({ root: first.root })
+    await config(plugin)({ root: second.root })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() }, root: second.root },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    removeFirst()
+    await rm(secondCollection)
+    await listeners.get("unlink")?.(secondCollection)
+
+    expect(observer).toHaveBeenCalledWith([])
+  })
+
+  it("does not let a stalled passive observer block the Vite restart fallback", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn(() => new Promise<void>(() => {}))
+    plugin.api.onGeneratedHandlersChanged(observer)
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => {
+      expect(observer).toHaveBeenCalledWith([])
+      expect(restart).toHaveBeenCalledOnce()
+    })
+  })
+
+  it("lets a generated-handler listener take host restart ownership", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const restartHost = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledWith([]))
+    await Promise.resolve()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("does not let a stalled restart owner block a successful owner", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const stalledRestart = vi.fn(() => new Promise<void>(() => {}))
+    const completedRestart = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(stalledRestart, { handlesHostRestart: true })
+    plugin.api.onGeneratedHandlersChanged(completedRestart, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+
+    expect(stalledRestart).toHaveBeenCalledWith([])
+    expect(completedRestart).toHaveBeenCalledWith([])
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("retries a generated topology until a restart-owning listener succeeds", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/admin/users.ts")
+    await mkdir(dirname(collection), { recursive: true })
+    await writeFile(collection, collectionModule("users"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const restartHost = vi.fn()
+      .mockRejectedValueOnce(new Error("host restart failed"))
+      .mockResolvedValue(undefined)
+    plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+    const loggerError = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: loggerError } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    await listeners.get("unlink")?.(collection)
+
+    expect(restartHost).toHaveBeenCalledWith([])
+    expect(restart).not.toHaveBeenCalled()
+    expect(loggerError).toHaveBeenCalledWith("Error: host restart failed")
+    await expect(readFile(join(root, ".vitehub/source/routes/admin/users.mjs"), "utf8"))
+      .resolves.toContain("users")
+
+    await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    expect(restart).not.toHaveBeenCalled()
+    await expect(readFile(join(root, ".vitehub/source/routes/admin/users.mjs"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+
+    await listeners.get("unlink")?.(collection)
+    expect(restartHost).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries when Vite fulfills a failed restart without replacing the server", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const loggerError = vi.fn()
+      const restart = vi.fn()
+        .mockImplementationOnce(async () => loggerError("server restart failed"))
+        .mockResolvedValue(undefined)
+
+      configureServer(plugin, { restartReplacesEnvironments: call => call > 1 })({
+        config: { logger: { error: loggerError } },
+        restart,
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await listeners.get("unlink")?.(collection)
+      expect(restart).toHaveBeenCalledOnce()
+      expect(loggerError).toHaveBeenCalledWith("server restart failed")
+
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps a generated topology retry after unrelated watcher events", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartHost = vi.fn()
+        .mockRejectedValueOnce(new Error("host restart failed"))
+        .mockResolvedValue(undefined)
+      plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await listeners.get("unlink")?.(collection)
+      expect(restartHost).toHaveBeenCalledOnce()
+
+      await listeners.get("change")?.(join(root, "README.md"))
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restartHost).toHaveBeenCalledTimes(2))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("cancels generated topology retries when the Vite server closes", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const collection = join(root, "server/collections/meals.ts")
+      await mkdir(join(root, "server/collections"), { recursive: true })
+      await writeFile(collection, collectionModule("meals"))
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const restartHost = vi.fn().mockRejectedValue(new Error("host restart failed"))
+      plugin.api.onGeneratedHandlersChanged(restartHost, { handlesHostRestart: true })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restart = vi.fn(async () => {})
+
+      const environment = configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart,
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await rm(collection)
+      await listeners.get("unlink")?.(collection)
+      expect(restartHost).toHaveBeenCalledOnce()
+
+      await closeBundle(plugin, environment)()
+      await vi.runAllTimersAsync()
+      expect(restartHost).toHaveBeenCalledOnce()
+      expect(restart).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("stops in-flight and queued Source refreshes when the Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishObserver: (() => void) | undefined
+    const observerFinished = new Promise<void>((resolve) => {
+      finishObserver = resolve
+    })
+    const observer = vi.fn(() => observerFinished)
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+
+    const environment = configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    const inFlightRefresh = listeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledOnce())
+
+    await writeFile(collection, collectionModule("meals"))
+    const queuedRefresh = listeners.get("add")?.(collection)
+    await closeBundle(plugin, environment)()
+    finishObserver?.()
+    await Promise.all([inFlightRefresh, queuedRefresh])
+
+    expect(observer).toHaveBeenCalledOnce()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("does not dispatch a Source refresh after its Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    const replacementCollection = join(root, "server/collections/meals.js")
+    const generatedHandler = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const observer = vi.fn()
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
+    const listeners = new Map<string, (file: string) => Promise<void> | void>()
+    const restart = vi.fn(async () => {})
+    const environment = configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart,
+      watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+    })
+
+    let releaseHandlerRead: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedHandler
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseHandlerRead = resolve
+    })
+    const handlerReadStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+
+    generatedHandlerReadGate.reads = 0
+    await rename(collection, replacementCollection)
+    const refresh = listeners.get("unlink")?.(collection)
+    await handlerReadStarted
+    expect(generatedHandlerReadGate.reads).toBe(2)
+    await closeBundle(plugin, environment)()
+    releaseHandlerRead?.()
+    await refresh
+
+    generatedHandlerReadGate.path = undefined
+    generatedHandlerReadGate.reads = 0
+    generatedHandlerReadGate.started = undefined
+    generatedHandlerReadGate.wait = undefined
+
+    expect(observer).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("keeps replacement Source refreshes active when the old Vite server closes", async () => {
+    const { root } = await createNestedProject()
+    const collection = join(root, "server/collections/meals.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishObserver: (() => void) | undefined
+    const observerFinished = new Promise<void>((resolve) => {
+      finishObserver = resolve
+    })
+    const observer = vi.fn().mockImplementationOnce(() => observerFinished)
+    plugin.api.onGeneratedHandlersChanged(observer, { handlesHostRestart: true })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const replacementListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    const replacementRestart = vi.fn(async () => {})
+    const oldEnvironment = configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await rm(collection)
+    const oldRefresh = oldListeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledOnce())
+
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: replacementRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => replacementListeners.set(event, callback) },
+    })
+
+    const replacementRefresh = replacementListeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(2))
+    await replacementRefresh
+    expect(replacementRestart).not.toHaveBeenCalled()
+
+    await closeBundle(plugin, oldEnvironment)()
+    finishObserver?.()
+    await oldRefresh
+
+    expect(oldRestart).not.toHaveBeenCalled()
+  })
+
+  it("prevents superseded Vite servers from replacing generated Source handlers", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    await oldListeners.get("change")?.(meals)
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    expect(oldRestart).not.toHaveBeenCalled()
+  })
+
+  it("keeps replacement artifacts after a superseded non-replacing restart finishes", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const specials = join(root, "api/collections/specials.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    let finishOldRestart: (() => void) | undefined
+    const oldRestartFinished = new Promise<void>((resolve) => {
+      finishOldRestart = resolve
+    })
+    const oldRestart = vi.fn(() => oldRestartFinished)
+    configureServer(plugin, { restartReplacesEnvironments: () => false })({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await writeFile(specials, collectionModule("specials"))
+    const oldRefresh = oldListeners.get("add")?.(specials)
+    await vi.waitFor(() => expect(oldRestart).toHaveBeenCalledOnce())
+
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+    finishOldRestart?.()
+    await oldRefresh
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub/source/routes/specials.mjs"), "utf8")).rejects.toThrow()
+  })
+
+  it("lets replacement preparation finish after an in-flight superseded refresh", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    const generatedMealsHandler = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    let releaseOldPreparation: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMealsHandler
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.error = new Error("preparation failed")
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseOldPreparation = resolve
+    })
+    const oldPreparationStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+
+    const oldRefresh = oldListeners.get("change")?.(meals)
+    await oldPreparationStarted
+    const replacementPreparation = config(plugin)({
+      root,
+      [VITEHUB_SERVER_DIRS]: ["backend"],
+    })
+    releaseOldPreparation?.()
+    await expect(oldRefresh).rejects.toThrow("preparation failed")
+    await replacementPreparation
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+    await expect(readFile(generatedMealsHandler, "utf8")).rejects.toThrow()
+    expect(oldRestart).not.toHaveBeenCalled()
+  })
+
+  it("runs replacement preparation after an in-flight preparation fails", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    const generatedMealsHandler = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+
+    let releaseOldPreparation: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMealsHandler
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.error = new Error("preparation failed")
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseOldPreparation = resolve
+    })
+    const oldPreparationStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+
+    const failedPreparation = plugin.api.prepareSources({ projectRoot: root, serverDirs: ["api"] })
+    await oldPreparationStarted
+    const replacementPreparation = config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    releaseOldPreparation?.()
+    await expect(failedPreparation).rejects.toThrow("preparation failed")
+    await expect(replacementPreparation).resolves.toBeDefined()
+
+    await expect(readFile(join(root, ".vitehub/source/routes/drinks.mjs"), "utf8")).resolves.toContain(
+      toRuntimeModuleSpecifier(drinks),
+    )
+  })
+
+  it("keeps the replacement Source handler key when an old Vite restart finishes later", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "server/collections/meals.ts")
+    const drinks = join(root, "server/collections/drinks.ts")
+    await mkdir(join(root, "server/collections"), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    let finishOldRestart: (() => void) | undefined
+    const oldRestartFinished = new Promise<void>((resolve) => {
+      finishOldRestart = resolve
+    })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(() => oldRestartFinished)
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await rm(meals)
+    const oldRefresh = oldListeners.get("unlink")?.(meals)
+    await vi.waitFor(() => expect(oldRestart).toHaveBeenCalledOnce())
+
+    await writeFile(drinks, collectionModule("drinks"))
+    await config(plugin)({ root })
+    const replacementListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const replacementRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: replacementRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => replacementListeners.set(event, callback) },
+    })
+
+    finishOldRestart?.()
+    await oldRefresh
+    await rm(drinks)
+    await replacementListeners.get("unlink")?.(drinks)
+
+    expect(replacementRestart).toHaveBeenCalledOnce()
+  })
+
+  it("keeps Source directories scoped to their Vite server lifecycle", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstServerDir = join(first.root, "api")
+    const secondServerDir = join(second.root, "backend")
+    const firstCollection = join(firstServerDir, "collections/meals.ts")
+    await mkdir(dirname(firstCollection), { recursive: true })
+    await writeFile(firstCollection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: first.viteRoot, [VITEHUB_SERVER_DIRS]: [firstServerDir] })
+    const firstListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const firstRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: firstRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => firstListeners.set(event, callback) },
+    })
+
+    await config(plugin)({ root: second.viteRoot, [VITEHUB_SERVER_DIRS]: [secondServerDir] })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    await rm(firstCollection)
+    await firstListeners.get("unlink")?.(firstCollection)
+
+    expect(firstRestart).toHaveBeenCalledOnce()
+    await expect(readFile(join(first.root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("keeps generated-handler restart owners scoped to their project root", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: first.root })
+    const firstRestartOwner = vi.fn(async () => {})
+    plugin.api.onGeneratedHandlersChanged(firstRestartOwner, { handlesHostRestart: true })
+
+    await config(plugin)({ root: second.root })
+    const secondListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const secondRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: secondRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => secondListeners.set(event, callback) },
+    })
+
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await mkdir(dirname(secondCollection), { recursive: true })
+    await writeFile(secondCollection, collectionModule("drinks"))
+    await secondListeners.get("add")?.(secondCollection)
+
+    expect(firstRestartOwner).not.toHaveBeenCalled()
+    expect(secondRestart).toHaveBeenCalledOnce()
+  })
+
+  it("resumes the old Source lifecycle after replacement config validation fails", async () => {
+    const { root } = await createNestedProject()
+    const meals = join(root, "server/collections/meals.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
+    const drinks = join(root, "server/collections/drinks.ts")
+    const replacementDrinks = join(root, "api/collections/drinks.ts")
+    await mkdir(dirname(meals), { recursive: true })
+    await writeFile(meals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+    const oldRestart = vi.fn(async () => {})
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: oldRestart,
+      watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+    })
+
+    await mkdir(dirname(replacementDrinks), { recursive: true })
+    await writeFile(replacementDrinks, collectionModule("drinks"))
+    await expect(config(plugin)({
+      nitro: { handlers: [{ handler: "api/drinks.ts", method: "get", route: "/api/drinks" }] },
+      root,
+      [VITEHUB_SERVER_DIRS]: ["api"],
+    })).rejects.toThrow('Generated Collection route "/api/drinks" conflicts with an existing GET handler')
+    expect(await readFile(generatedMeals, "utf8")).toContain("server/collections/meals.ts")
+    await expect(readFile(generatedDrinks, "utf8")).rejects.toThrow()
+
+    await writeFile(drinks, collectionModule("drinks"))
+    await oldListeners.get("add")?.(drinks)
+
+    expect(oldRestart).toHaveBeenCalledOnce()
+  })
+
+  it("restores the latest successful overlapping Source configuration", async () => {
+    const { root } = await createNestedProject()
+    const original = join(root, "server/collections/original.ts")
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
+    await mkdir(dirname(original), { recursive: true })
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(original, collectionModule("original"))
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    let releaseFirstConfiguration: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMeals
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseFirstConfiguration = resolve
+    })
+    const firstConfigurationStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+    const firstConfiguration = config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    await firstConfigurationStarted
+    const failedConfiguration = config(plugin)({
+      nitro: { handlers: [{ handler: "backend/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+      root,
+      [VITEHUB_SERVER_DIRS]: ["backend"],
+    })
+    releaseFirstConfiguration?.()
+
+    await expect(firstConfiguration).resolves.toBeDefined()
+    await expect(failedConfiguration).rejects.toThrow(
+      'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+    )
+    expect(await readFile(generatedMeals, "utf8")).toContain("api/collections/meals.ts")
+    await expect(readFile(generatedDrinks, "utf8")).rejects.toThrow()
+  })
+
+  it("keeps the latest overlapping resolved Source configuration", async () => {
+    const { root } = await createNestedProject()
+    const apiMeals = join(root, "api/collections/meals.ts")
+    const backendMeals = join(root, "backend/collections/meals.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(dirname(apiMeals), { recursive: true })
+    await mkdir(dirname(backendMeals), { recursive: true })
+    await writeFile(apiMeals, collectionModule("meals"))
+    await writeFile(backendMeals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+
+    let releaseFirstResolution: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMeals
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseFirstResolution = resolve
+    })
+    const firstResolutionStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+    const firstResolution = configResolved(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    await firstResolutionStarted
+    const secondResolution = configResolved(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    releaseFirstResolution?.()
+    await Promise.all([firstResolution, secondResolution])
+
+    const watcherAdd = vi.fn()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: watcherAdd, on: vi.fn() },
+    })
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "backend")])
+    expect(await readFile(generatedMeals, "utf8")).toContain("backend/collections/meals.ts")
+  })
+
+  it("retries a Source refresh paused after preparation", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const drinks = join(root, "server/collections/drinks.ts")
+      const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
+      await mkdir(dirname(drinks), { recursive: true })
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartOwner = vi.fn(async () => {})
+      plugin.api.onGeneratedHandlersChanged(restartOwner, { handlesHostRestart: true })
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await writeFile(drinks, collectionModule("drinks"))
+      let releaseRefresh: (() => void) | undefined
+      generatedHandlerReadGate.path = generatedDrinks
+      generatedHandlerReadGate.blockAtRead = 1
+      generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+        releaseRefresh = resolve
+      })
+      const refreshPrepared = new Promise<void>((resolve) => {
+        generatedHandlerReadGate.started = resolve
+      })
+      const refresh = listeners.get("add")?.(drinks)
+      await refreshPrepared
+      const replacement = config(plugin)({
+        nitro: { handlers: [{ handler: "server/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+        root,
+      })
+      releaseRefresh?.()
+
+      await refresh
+      await expect(replacement).rejects.toThrow(
+        'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+      )
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restartOwner).toHaveBeenCalledOnce())
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reschedules a topology retry when a watcher event arrives during failed replacement config", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const drinks = join(root, "server/collections/drinks.ts")
+      const generatedHandler = join(root, ".vitehub/source/routes/drinks.mjs")
+      await mkdir(dirname(drinks), { recursive: true })
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const oldListeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartOwner = vi.fn()
+        .mockRejectedValueOnce(new Error("host restart failed"))
+        .mockResolvedValue(undefined)
+      plugin.api.onGeneratedHandlersChanged(restartOwner, { handlesHostRestart: true })
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => oldListeners.set(event, callback) },
+      })
+
+      await writeFile(drinks, collectionModule("drinks"))
+      await oldListeners.get("add")?.(drinks)
+      expect(restartOwner).toHaveBeenCalledOnce()
+
+      let releaseHandlerRead: (() => void) | undefined
+      let handlerReadStarted: (() => void) | undefined
+      const handlerRead = new Promise<void>((resolve) => {
+        handlerReadStarted = resolve
+      })
+      generatedHandlerReadGate.path = generatedHandler
+      generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+        releaseHandlerRead = resolve
+      })
+      generatedHandlerReadGate.started = handlerReadStarted
+      const replacement = config(plugin)({
+        nitro: { handlers: [{ handler: "server/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+        root,
+      })
+      await handlerRead
+      await oldListeners.get("change")?.(drinks)
+      releaseHandlerRead?.()
+      await expect(replacement).rejects.toThrow(
+        'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+      )
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restartOwner).toHaveBeenCalledTimes(2))
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("watches custom Source directories and recovers after refresh errors", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const serverDir = join(root, "api")
+    const collection = join(serverDir, "collections/meals.ts")
+    await mkdir(join(serverDir, "collections"), { recursive: true })
+    await writeFile(collection, collectionModule("meals"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root: viteRoot, [VITEHUB_SERVER_DIRS]: [serverDir] })
+    const listeners = new Map<string, (file: string) => void>()
+    const loggerError = vi.fn()
+    const restart = vi.fn(async () => {})
+    const watcherAdd = vi.fn()
+
+    configureServer(plugin)({
+      config: { logger: { error: loggerError } },
+      restart,
+      watcher: { add: watcherAdd, on: (event, callback) => listeners.set(event, callback) },
+    })
+    expect(watcherAdd).toHaveBeenCalledWith([serverDir])
+
+    await writeFile(collection, "export const other = {}\n")
+    listeners.get("change")?.(collection)
+    await vi.waitFor(() => expect(loggerError).toHaveBeenCalledOnce())
+
+    await rm(collection)
+    listeners.get("unlink")?.(collection)
+    await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce())
   })
 
   it("rejects a conflicting plain Vite Nitro handler", async () => {
@@ -406,7 +1778,7 @@ describe("framework generated types", () => {
     await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
 
     await expect(
-      config(viteHubTypesPlugin())({
+      config(sourcePlugin())({
         nitro: { handlers: [{ handler: "server/api/meals.ts", route: "/api/meals" }] },
         root,
       }),
@@ -420,11 +1792,12 @@ describe("framework generated types", () => {
       await mkdir(join(root, "server/collections"), { recursive: true })
       await writeFile(join(root, "server/collections/meals.ts"), source)
 
-      const plugin = viteHubTypesPlugin()
-      await expect(plugin.api.prepareTypes(root)).rejects.toThrow(
+      const plugin = sourcePlugin()
+      await expect(plugin.api.prepareSources({ projectRoot: root })).rejects.toThrow(
         'Collection file "server/collections/meals.ts" must export a Collection named "meals" to match its filename',
       )
-      await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
+      await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+      await expect(readFile(join(root, ".vitehub/types/source/vitehub-source-registry.d.ts"), "utf8")).rejects.toThrow()
       await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
     },
   )
@@ -442,20 +1815,20 @@ describe("framework generated types", () => {
       writeFile(join(secondServerDir, "collections/audit.ts"), collectionModule("audit")),
     ])
 
-    const plugin = viteHubTypesPlugin()
-    const handlers = await plugin.api.prepareTypes({
+    const plugin = sourcePlugin()
+    const handlers = await plugin.api.prepareSources({
       projectRoot: root,
       serverDirs: [firstServerDir, secondServerDir],
     })
 
     expect(handlers.map((handler: { route: string }) => handler.route)).toEqual(["/api/audit", "/api/meals"])
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).resolves.toContain(
+    await expect(readFile(join(root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
       JSON.stringify(join(firstServerDir, "collections/meals.ts")),
     )
 
     await writeFile(join(secondServerDir, "collections/meals.ts"), collectionModule("meals"))
     await expect(
-      plugin.api.prepareTypes({
+      plugin.api.prepareSources({
         projectRoot: root,
         serverDirs: [firstServerDir, secondServerDir],
       }),
@@ -476,7 +1849,7 @@ describe("framework generated types", () => {
     ])
 
     await expect(
-      viteHubTypesPlugin().api.prepareTypes({
+      sourcePlugin().api.prepareSources({
         projectRoot: root,
         serverDirs: [firstServerDir, secondServerDir],
       }),
@@ -488,17 +1861,29 @@ describe("framework generated types", () => {
   it("preserves an explicitly empty server directory selection", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    await Promise.all([
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+      writeFile(join(root, "server/content.ts"), contentModule()),
+    ])
 
-    const plugin = viteHubTypesPlugin()
-    const handlers = await plugin.api.prepareTypes({
+    const plugin = sourcePlugin()
+    await plugin.api.prepareSources({ projectRoot: root })
+    const collectionTypes = join(root, ".vitehub/types/source/collections.d.ts")
+    const collectionRoute = join(root, ".vitehub/source/routes/meals.mjs")
+    const contentRoute = join(root, ".vitehub/content/route.mjs")
+    const timestamps = await Promise.all([collectionTypes, collectionRoute, contentRoute].map(async file => (await stat(file)).mtimeMs))
+    await plugin.api.prepareSources({ projectRoot: root })
+    await expect(Promise.all([collectionTypes, collectionRoute, contentRoute].map(async file => (await stat(file)).mtimeMs))).resolves.toEqual(timestamps)
+
+    const handlers = await plugin.api.prepareSources({
       projectRoot: root,
       serverDirs: [],
     })
 
     expect(handlers).toEqual([])
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(collectionTypes, "utf8")).rejects.toThrow()
+    await expect(readFile(collectionRoute, "utf8")).rejects.toThrow()
+    await expect(readFile(contentRoute, "utf8")).rejects.toThrow()
   })
 
   it("preserves configured server directories across Vite lifecycle refreshes", async () => {
@@ -507,15 +1892,61 @@ describe("framework generated types", () => {
     await mkdir(join(serverDir, "collections"), { recursive: true })
     await writeFile(join(serverDir, "collections/meals.ts"), collectionModule("meals"))
 
-    const plugin = viteHubTypesPlugin()
+    const plugin = sourcePlugin()
     await configResolved(plugin)({
       root: viteRoot,
       [VITEHUB_SERVER_DIRS]: [serverDir],
     })
-    await buildStart(plugin)()
+    await buildStart(plugin).call({ environment: { config: { root: viteRoot } } })
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       JSON.stringify(pathToFileURL(join(serverDir, "collections/meals.ts")).href),
+    )
+  })
+
+  it("keeps build lifecycle refreshes scoped across interleaved project roots", async () => {
+    const first = await createNestedProject()
+    const second = await createNestedProject()
+    const firstCollection = join(first.root, "server/collections/meals.ts")
+    const secondCollection = join(second.root, "server/collections/drinks.ts")
+    await Promise.all([
+      mkdir(dirname(firstCollection), { recursive: true }),
+      mkdir(dirname(secondCollection), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(firstCollection, collectionModule("meals")),
+      writeFile(secondCollection, collectionModule("drinks")),
+    ])
+    const plugin = sourcePlugin()
+    await configResolved(plugin)({ root: first.viteRoot })
+    await configResolved(plugin)({ root: second.viteRoot })
+    await rm(firstCollection)
+
+    await buildStart(plugin).call({ environment: { config: { root: first.viteRoot } } })
+
+    await expect(readFile(join(first.root, ".vitehub/types/source/collections.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(second.root, ".vitehub/types/source/collections.d.ts"), "utf8")).resolves.toContain(
+      JSON.stringify(secondCollection),
+    )
+  })
+
+  it("prepares Source declarations before lifecycle aggregation without a global hook barrier", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedDeclaration = join(root, ".vitehub/source/delayed.d.ts")
+    const prepareSources = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      await mkdir(join(root, ".vitehub/source"), { recursive: true })
+      await writeFile(generatedDeclaration, "export {}\n")
+    })
+    const typesPlugin = viteHubTypesPlugin({ prepareSources })
+    await configResolved(typesPlugin)({ root: viteRoot })
+
+    expect(typesPlugin.buildEnd).toBeTypeOf("function")
+    await buildEnd(typesPlugin)()
+
+    expect(prepareSources).toHaveBeenCalledWith({ projectRoot: root, serverDirs: undefined })
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      "./source/delayed.d.ts",
     )
   })
 })

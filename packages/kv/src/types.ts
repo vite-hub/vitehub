@@ -63,7 +63,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "get" | "has" | "keys" | "set"
+export type KVOperation = "clear" | "del" | "get" | "has" | "keys" | "list" | "set"
 export type KVErrorDetails = ViteHubErrorDetails & {
   operation: KVOperation
   store: string
@@ -72,12 +72,29 @@ export type KVResult<TResult> =
   | [error: null, value: TResult]
   | [error: ViteHubError<"KV_OPERATION_FAILED", KVErrorDetails>, value: undefined]
 
+export interface KVListOptions {
+  /** Opaque continuation cursor returned by a previous page. */
+  cursor?: string
+  /** Maximum number of keys to read. Must be a positive integer. */
+  limit: number
+  prefix?: string
+}
+
+export interface KVListPage {
+  /** Provider-ordered keys. */
+  keys: string[]
+  /** Omitted when enumeration is complete. */
+  cursor?: string
+}
+
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<KVResult<void>>
   del(key: string, options?: unknown): Promise<KVResult<void>>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown>(key: string, options?: unknown): Promise<KVResult<T | null>>
   has(key: string, options?: unknown): Promise<KVResult<boolean>>
   keys(base?: string, options?: unknown): Promise<KVResult<string[]>>
+  list(options: KVListOptions): Promise<KVResult<KVListPage>>
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<KVResult<void>>
   store(name: KVStoreName): KVStorage
 }

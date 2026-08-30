@@ -20,6 +20,8 @@ function inferHosting(env: Record<string, string | undefined>) {
     return explicit
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosting detection checks an optional ambient runtime function.
+  // SAFETY: This assertion only reads the optional Deno.openKv marker.
   if (typeof (globalThis as { Deno?: { openKv?: unknown } }).Deno?.openKv === "function") {
     return "deno"
   }
@@ -28,6 +30,7 @@ function inferHosting(env: Record<string, string | undefined>) {
 }
 
 function shouldFallbackHostedConfigImport(error: unknown) {
+  // SAFETY: Node import errors expose an optional string code; unknown errors safely yield undefined.
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND"
     || code === "ERR_MODULE_NOT_FOUND"
@@ -37,6 +40,7 @@ function shouldFallbackHostedConfigImport(error: unknown) {
 
 async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
   try {
+    // SAFETY: ViteHub generates this private module from validated KV configuration.
     const module = await import("#vitehub/kv/config") as { kv: false | ResolvedKVModuleOptions }
     return module.kv
   }
@@ -44,6 +48,7 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
     if (!shouldFallbackHostedConfigImport(error)) {
       throw error
     }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This runtime module supports hosts without Node's process global.
     const env = typeof process !== "undefined" ? process.env : {}
     return normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false
   }
@@ -52,6 +57,7 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
 async function resolveStorage(name = "default") {
   const existing = storagePromises.get(name)
   if (existing) return existing
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This runtime module supports hosts without Node's process global.
   const env = typeof process !== "undefined" ? process.env : {}
   if (inferHosting(env) === "vercel") {
     const promise = resolveHostedConfig().then(config =>
@@ -88,6 +94,10 @@ function createKVStorage(name = "default"): KVStorage {
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
+    async list(options) {
+      if (!Number.isInteger(options.limit) || options.limit <= 0) throw new TypeError("`limit` must be a positive integer.")
+      return runKVOperation("list", name, storage => storage.listKeys(options))
+    },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
     store(storeName: KVStoreName) { return createKVStorage(storeName) },
   }

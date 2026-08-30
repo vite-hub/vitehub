@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
-import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
+import { chat, progressSummary, title, schedule } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
@@ -1901,62 +1901,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("registers subagent tools", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const browserAgent = defineAgent({
-      driver: { run: ({ input, invoker, messages, run }) => ({
-          raw: {
-            context: input.context,
-            invokerId: invoker.id,
-            message: getMessageText(messages[0]!),
-            runId: run?.runId,
-          },
-          text: "browser report",
-        }) },
-    })
-    const reviewerAgent = defineAgent({
-      capabilities: [
-        subagents({
-          agents: {
-            browser: {
-              agent: browserAgent,
-              description: "Collect browser evidence.",
-            },
-          },
-        }),
-      ],
-      driver: { async run({ tools }) {
-          const tool = tools?.run_browser
-          if (!tool?.execute) throw new Error("Missing browser subagent tool.")
-          return await tool.execute({
-            context: { previewUrl: "https://preview.local" },
-            message: "Check the product card.",
-          })
-        } },
-    })
-
-    await expect(runAgent(reviewerAgent, {
-      memo: vi.fn(),
-      run: { runId: "review-run" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {
-      context: {
-        invoker: { id: "github:onmax", kind: "github" },
-      },
-      message: "Review the PR.",
-    })).resolves.toEqual({
-      raw: {
-        context: expect.objectContaining({ previewUrl: "https://preview.local" }),
-        invokerId: "github:onmax",
-        message: "Check the product card.",
-        runId: expect.stringMatching(/^ainv_/),
-      },
-      text: "browser report",
-    })
-  })
-
-  it("shares named workspace references across subagent runAgent calls", async () => {
+  it("shares named workspace references across nested runAgent calls", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
     const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
@@ -1991,90 +1936,6 @@ describe("agent message protocol", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     }, { message: "review" })).resolves.toBe("summary")
-  })
-
-  it("rejects duplicate generated subagent tool names", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    expect(() => subagents({
-      agents: {
-        "code-review": {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
-          },
-}),
-          description: "Review code.",
-        },
-        code_review: {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
-          },
-}),
-          description: "Review code again.",
-        },
-      },
-    })).toThrow('Duplicate subagent tool name "run_code_review"')
-  })
-
-  it("runs subagent tools with the resolved parent runtime context", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const browserAgent = {
-      async resolve(context) {
-        return {
-          async generate({ invoker, runtime }) {
-            return {
-              raw: {
-                invokerId: invoker.id,
-                resolveRuntimeConfig: context.runtimeConfig,
-                runtimeConfig: runtime.runtimeConfig,
-              },
-              text: "browser report",
-            }
-          },
-          name: "browser",
-        }
-      },
-    } as ReturnType<typeof defineAgent>
-    const reviewerAgent = defineAgent({
-      capabilities: [
-        subagents({
-          agents: {
-            browser: {
-              agent: browserAgent,
-              description: "Collect browser evidence.",
-            },
-          },
-        }),
-      ],
-      driver: { async run({ tools }) {
-          const tool = tools?.run_browser
-          if (!tool?.execute) throw new Error("Missing browser subagent tool.")
-          return await tool.execute({ message: "Check the product card." })
-        } },
-    })
-
-    await expect(runAgent(reviewerAgent, {
-      memo: vi.fn(),
-      run: { runId: "review-run" },
-      runtime: "unknown",
-      runtimeConfig: { region: "iad" },
-      waitUntil: vi.fn(),
-    }, {
-      context: {
-        invoker: { id: "github:onmax", kind: "github" },
-      },
-      message: "Review the PR.",
-    })).resolves.toMatchObject({
-      raw: {
-        raw: {
-          invokerId: "github:onmax",
-          resolveRuntimeConfig: { region: "iad" },
-          runtimeConfig: { region: "iad" },
-        },
-      },
-      text: "browser report",
-    })
   })
 
   it("guides model Drivers with configured structured output", async () => {
@@ -11949,88 +11810,6 @@ describe("agent message protocol", () => {
     expect(Object.keys(resolved.tools || {})).toEqual(["lookup"])
     expect(resolved.tools?.inventory).toBeUndefined()
     await expect(resolved.tools?.lookup?.execute?.({})).resolves.toBe("tool")
-  })
-
-  it("resolves static subagent tools with the resolved runtime context", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const browserAgent = {
-      async resolve(context) {
-        expect(context.agentIdentity).toEqual({ name: "reviewer" })
-        return {
-          async generate({ runtime }) {
-            return {
-              raw: {
-                resolveRuntimeConfig: context.runtimeConfig,
-                runtimeConfig: runtime.runtimeConfig,
-              },
-              text: "browser report",
-            }
-          },
-          name: "browser",
-        }
-      },
-    } as ReturnType<typeof defineAgent>
-    const reviewerAgent = defineAgent({
-      capabilities: [
-        subagents({
-          agents: {
-            browser: {
-              agent: browserAgent,
-              description: "Collect browser evidence.",
-            },
-          },
-        }),
-      ],
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      driver: { model: {} as never },
-    })
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const resolved = asUnknownBoundary(await reviewerAgent.resolve({
-      agentIdentity: { name: "reviewer" },
-      memo: vi.fn(),
-      runtime: "unknown",
-      runtimeConfig: { region: "iad" },
-      waitUntil: vi.fn(),
-    })) as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
-
-    await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toMatchObject({
-      raw: {
-        raw: {
-          resolveRuntimeConfig: { region: "iad" },
-          runtimeConfig: { region: "iad" },
-        },
-      },
-      text: "browser report",
-    })
-  })
-
-  it("keeps default subagents inline when static tools resolve with a discovered identity", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-    setWorkflowRuntimeConfig({ provider: "vercel" })
-    const reviewerAgent = defineAgent({
-      capabilities: [subagents({
-        agents: {
-          browser: {
-            agent: defineAgent({ driver: { run: () => "browser report" } }),
-            description: "Collect browser evidence.",
-          },
-        },
-      })],
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      driver: { model: {} as never },
-    })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const resolved = asUnknownBoundary(await reviewerAgent.resolve({
-      agentIdentity: { name: "reviewer" },
-      memo: vi.fn(),
-      runtime: "vercel",
-      waitUntil: vi.fn(),
-    })) as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
-
-    await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toBe("browser report")
   })
 
   it("prevents denied tools from executing", async () => {
