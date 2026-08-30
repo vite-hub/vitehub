@@ -4,8 +4,8 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["vite", "#vitehub/kv/config", "@cloudflare/workers-types", "@vite-hub/kv/runtime/cloudflare-kv", "@vite-hub/kv/runtime/upstash-driver"],
-      alwaysBundle: [/^@vite-hub\/internal/, /^unstorage(?:\/|$)/],
+      neverBundle: ["vite", "#vitehub/kv/config", "@cloudflare/workers-types", "@vite-hub/kv/runtime/cloudflare-kv", "@vite-hub/kv/runtime/upstash-driver", /^unstorage(?:\/|$)/],
+      alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
