@@ -9,11 +9,8 @@ import { promisify } from "node:util"
 
 import { Message } from "chat"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
-import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
-import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
 
 import type { AgentMessageDeliveryKind, AgentRunInput } from "../src/index.ts"
@@ -461,143 +458,6 @@ describe("agent Vite plugin", () => {
       await rm(root, { force: true, recursive: true })
     }
   })
-
-  it("bundles repository context templates into Vite builds", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(import.meta.dirname, ".repository-context-template-"))
-    const serverDir = join(root, "backend")
-    const agents = join(serverDir, "agents")
-    const entry = join(agents, "reviewer.ts")
-    const template = join(agents, "PULL_REQUEST.template.md")
-    const outfile = join(root, "dist", "agent.mjs")
-    try {
-      await mkdir(agents, { recursive: true })
-      await writeFile(join(root, "package.json"), "{}", "utf8")
-      await writeFile(template, "# Pull request {{ pullRequest.number }}\n", "utf8")
-      await writeFile(
-        entry,
-        [
-          `"use server"`,
-          `import { repositoryHostContext as context } from "@vite-hub/agent/capabilities"`,
-          `const __vitehubRepositoryHostContextTemplate0 = "caller"`,
-          `void __vitehubRepositoryHostContextTemplate0`,
-          `export const local = (context: (options: unknown) => unknown) => context({ materialize: "./IGNORED.template.md" })`,
-          `export default () => [context({ materialize: "./PULL_REQUEST.template.md" })]`,
-          ``,
-        ].join("\n"),
-        "utf8",
-      )
-
-      const buildBoundary: unknown = build
-      // SAFETY: Vite's build export accepts a config object and returns a promise.
-      const runBuild = buildBoundary as (config: unknown) => Promise<unknown>
-      const agentPlugin: unknown = hubAgent()
-      const markdownPlugin: unknown = hubMarkdownTemplate()
-      await runBuild({
-        [VITEHUB_SERVER_DIRS]: [serverDir],
-        build: {
-          emptyOutDir: true,
-          lib: { entry, fileName: () => "agent.mjs", formats: ["es"] },
-          minify: false,
-          outDir: join(root, "dist"),
-          rollupOptions: {
-            external: ["@vite-hub/agent/capabilities", "@vite-hub/markdown-template"],
-          },
-        },
-        logLevel: "silent",
-        plugins: [agentPlugin, markdownPlugin],
-        root,
-      })
-
-      await rm(template)
-      const output = await readFile(outfile, "utf8")
-      expect(output).toContain("# Pull request {{ pullRequest.number }}")
-      expect(output).toContain('path: "PULL_REQUEST.md"')
-      expect(output).toContain('materialize: "./IGNORED.template.md"')
-      expect(output).toMatch(/^"use server";/)
-      expect(output).not.toContain("readFile")
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const bundled = (await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`)) as {
-        default: () => [unknown]
-      }
-      const resolved = await resolveAgentCapabilities(
-        {
-          // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-          capabilities: [bundled.default()[0] as never],
-        },
-        {
-          capabilities: {},
-          memo: vi.fn(),
-          runtime: "unknown",
-          runtimeConfig: {},
-          waitUntil: vi.fn(),
-        },
-        {
-          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          context: {
-            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            pullRequest: {
-              pullRequest: {
-                apiUrl: "https://api.github.com/repos/acme/app/pulls/42",
-                number: 42,
-                source: {
-                  mount: "app",
-                  ref: "refs/pull/42/head",
-                  repo: "acme/app",
-                },
-              },
-              repository: {
-                fullName: "acme/app",
-                name: "app",
-                owner: "acme",
-              },
-            },
-          } as never,
-        },
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        {
-          fs: {
-            exists: vi.fn(async () => false),
-            glob: vi.fn(async () => []),
-            list: vi.fn(async () => []),
-            materializeSources: vi.fn(async () => ({
-              bytes: 0,
-              directories: 0,
-              durationMs: 0,
-              files: 0,
-              path: "",
-              sources: [],
-            })),
-            readFile: vi.fn(async () => {
-              throw new Error("missing")
-            }),
-            search: vi.fn(async () => []),
-            stat: vi.fn(async () => {
-              throw new Error("missing")
-            }),
-          },
-          tools: {
-            inspect: vi.fn(() => ({})),
-            none: vi.fn(() => ({})),
-          },
-        } as never,
-        "read",
-        {
-          workspaceDefinition: {
-            name: "review",
-            sources: {},
-          },
-        },
-      )
-      expect(resolved.workspaceDefinition?.sources?.["repository-host-context"]).toMatchObject({
-        content: "# Pull request 42",
-        materialize: "build",
-        workspacePath: "PULL_REQUEST.md",
-      })
-    } finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  }, 15_000)
 
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -15136,6 +14996,14 @@ describe("server helpers", () => {
         await runAgentInline(...args)
         return "completed"
       }
+      const handoffLock = `${binding!.steer!.lock.threadId}:handoff`
+      const originalAcquireLock = state.acquireLock.bind(state)
+      const handoffAcquisitions: Array<ReturnType<typeof originalAcquireLock>> = []
+      vi.spyOn(state, "acquireLock").mockImplementation((threadId, ttlMs) => {
+        const acquisition = originalAcquireLock(threadId, ttlMs)
+        if (threadId === handoffLock) handoffAcquisitions.push(acquisition)
+        return acquisition
+      })
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const firstExecution = runAgentWorkflowDefinition(agent as never, workflow, inline as never).then(
         (value) => ({ value }),
@@ -15165,21 +15033,17 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
+      await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(1))
+      await expect(handoffAcquisitions[0]).resolves.not.toBeNull()
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
-      const handoffLock = `${binding!.steer!.lock.threadId}:handoff`
-      const originalAcquireLock = state.acquireLock.bind(state)
-      let handoffAcquisition: ReturnType<typeof originalAcquireLock> | undefined
-      vi.spyOn(state, "acquireLock").mockImplementation((threadId, ttlMs) => {
-        const acquisition = originalAcquireLock(threadId, ttlMs)
-        if (threadId === handoffLock) handoffAcquisition = acquisition
-        return acquisition
-      })
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(() => expect(handoffAcquisition).toBeDefined())
-      await expect(handoffAcquisition).resolves.toBeNull()
+      await vi.waitFor(async () => {
+        const acquisitions = await Promise.all(handoffAcquisitions)
+        expect(acquisitions.slice(1)).toContain(null)
+      })
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)

@@ -366,6 +366,7 @@ describe("vitehub", () => {
       "@vite-hub/env/vite",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
+      "@vite-hub/source/vite",
       "vite-hub/types",
     ])
 
@@ -401,6 +402,7 @@ describe("vitehub", () => {
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
+      "@vite-hub/source/vite",
       "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
