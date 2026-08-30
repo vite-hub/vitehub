@@ -1,7 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
-import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { applyWorkspaceAccessWrapper, hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, workspaceOverrideSymbol } from "./access-runtime.ts"
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
@@ -960,7 +960,9 @@ export async function resolveAgentCapabilities<
       workspaceMaterializationPaths,
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
-      currentWorkspace = workspaceContribution.workspace
+      currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)
+        ? applyWorkspaceAccessWrapper(invocationContext, workspaceContribution.workspace)
+        : workspaceContribution.workspace
       currentWorkspaceDefinition = workspaceContribution.definition
       registries.workspaceContributions = workspaceContribution.registries
     }

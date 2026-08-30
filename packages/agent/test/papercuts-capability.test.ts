@@ -11,6 +11,7 @@ const runtime = (options: {
   trace?: TraceContext
 } = {}) => ({
   ...(options.agentIdentity ? { agentIdentity: options.agentIdentity } : {}),
+  capabilities: {},
   memo: vi.fn(),
   ...(options.run ? { run: options.run } : {}),
   runtime: options.runtime || "unknown" as const,

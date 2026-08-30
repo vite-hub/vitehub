@@ -145,6 +145,7 @@ export interface WorkspaceSessionOptions {
   abortSignal?: AbortSignal
   attach?: boolean
   host?: WorkspaceSessionHost
+  materializeSources?: false
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   target?: string
@@ -315,7 +316,7 @@ export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
-  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
+  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>
@@ -389,7 +390,7 @@ export type WorkspaceSourceResolver<
   TScopeName extends string = WorkspaceScopeName,
 > = (context: WorkspaceSourceResolutionContext<TContextMap, TScopeName>) => MaybePromise<WorkspaceSourceResolutionResult>
 
-export type WorkspaceMaterializeMode = "build" | "lazy" | "none"
+export type WorkspaceMaterializeMode = "build" | "startup" | "lazy" | "none"
 
 export type WorkspaceValidateMode = false | "request"
 
@@ -463,6 +464,8 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** Stable provider name used for inspection and diagnostics. */
+  name?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -547,6 +550,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 }
 
 export interface LoaderContext {
+  abortSignal?: AbortSignal
   workspace: string
   rootDir: string
   sourceRootDir?: string
@@ -565,6 +569,7 @@ export interface WorkspaceLoader {
 }
 
 export interface PublishContext {
+  abortSignal?: AbortSignal
   durable: boolean
   workspace: WorkspaceDefinition
   store: WorkspaceStore
@@ -719,8 +724,13 @@ export interface WorkspaceSourceSyncResult {
 }
 
 export interface WorkspaceSourceMaterializationStatus {
+  cacheStatus?: "bypassed" | "disabled" | "hit" | "miss"
+  counts?: WorkspaceSourceMaterializationCounts
+  durationMs?: number
   source: string
   mountPath: string
+  paths?: WorkspaceSourceMaterializationPathResult[]
+  provider?: string
   status: "lazy" | "updating" | "ready" | "error"
   revision?: SourceRevision
   materializedAt?: string
@@ -729,20 +739,37 @@ export interface WorkspaceSourceMaterializationStatus {
   error?: string
 }
 
+export interface WorkspaceSourceMaterializationCounts {
+  added: number
+  removed: number
+  unchanged: number
+  updated: number
+}
+
+export interface WorkspaceSourceMaterializationPathResult {
+  path: string
+  status: "added" | "removed" | "unchanged" | "updated"
+}
+
 export interface WorkspaceMaterializeSourcesProgressEvent {
   bytes?: number
+  cacheStatus?: WorkspaceSourceMaterializationStatus["cacheStatus"]
+  counts?: WorkspaceSourceMaterializationCounts
   directories?: number
   durationMs?: number
   error?: string
   files?: number
   mountPath: string
   path: string
+  provider?: string
+  revision?: SourceRevision
   source: string
   status: "started" | "updating" | "completed" | "failed"
 }
 
 export interface WorkspaceMaterializeSourcesOptions {
   abortSignal?: AbortSignal
+  details?: "paths"
   onProgress?: (event: WorkspaceMaterializeSourcesProgressEvent) => void | Promise<void>
   sources?: string[]
   path?: string

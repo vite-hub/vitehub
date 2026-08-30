@@ -1,3 +1,5 @@
+import type { SecretEnv } from "./secret.ts"
+
 export type EnvDiagnostics = "off" | "summary" | "trace"
 export type EnvMode = "build" | "runtime"
 
@@ -5,6 +7,7 @@ export interface EnvIntegrationOptions {
   diagnostics?: EnvDiagnostics
   prefix?: string
   projectRoot?: string
+  providers?: Record<string, string>
   runtimeImports?: EnvRuntimeImportSpecifiers
 }
 
@@ -84,6 +87,13 @@ export type EnvSource =
     path: string
     serializable: true
   }
+  | {
+    key: string
+    kind: "provider"
+    label: "provider"
+    provider: string
+    serializable: true
+  }
 
 export interface EnvVariableDeclaration {
   default?: unknown
@@ -159,7 +169,7 @@ interface EnvRegistryEntry {
   required: boolean
   schema?: EnvRuntimeSchema
   secret: boolean
-  source: Extract<EnvSource, { kind: "env" }>
+  source: Extract<EnvSource, { kind: "env" | "provider" }>
   type?: string
 }
 
@@ -174,11 +184,53 @@ interface EnvRuntimeLiteralEntry {
 
 export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
-export interface EnvRuntimeRegistry {
+declare const serverEnvType: unique symbol
+
+export interface EnvRuntimeRegistry<TServerEnv extends Record<string, unknown> = Record<string, unknown>> {
   [key: string]: EnvRuntimeRegistryValue
+  readonly [serverEnvType]?: (value: TServerEnv) => void
 }
 
 export interface ServerEnv {
   [key: string]: unknown
 }
 export type PublicEnv = Record<string, unknown>
+
+export interface EnvProviderContext<TEnv extends Record<string, unknown> = Record<string, unknown>> {
+  env: DeepReadonly<TEnv>
+  signal?: AbortSignal
+}
+
+export type EnvProviderValues = Readonly<Record<string, string | undefined>>
+
+export interface EnvProvider<TEnv extends Record<string, unknown> = Record<string, unknown>> {
+  read(input: EnvProviderContext<TEnv> & { keys: readonly string[] }): EnvProviderValues | Promise<EnvProviderValues>
+}
+
+export type EnvProviders = Record<string, EnvProvider>
+
+export interface LoadServerEnvOptions {
+  providers?: EnvProviders
+  signal?: AbortSignal
+}
+
+export type DeepReadonly<T> = T extends SecretEnv<unknown>
+  ? T
+  : T extends (...args: infer TArguments) => infer TResult
+  ? (...args: TArguments) => TResult
+  : T extends object
+    ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }
+    : T
+
+export type ServerEnvInspectionStatus = "available" | "defaulted" | "error" | "invalid" | "missing"
+
+export interface ServerEnvInspectionEntry {
+  masked: boolean
+  path?: string
+  source: "env" | "literal" | "provider"
+  status: ServerEnvInspectionStatus
+}
+
+export interface ServerEnvInspection {
+  entries: readonly ServerEnvInspectionEntry[]
+}

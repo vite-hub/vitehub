@@ -63,6 +63,27 @@ describe("env declarations", () => {
     expect(() => env.source([])).toThrow("one or more non-empty")
   })
 
+  it("creates serializable runtime provider sources", () => {
+    expect(env.provider("secrets", "codex/auth.json")).toEqual({
+      key: "codex/auth.json",
+      kind: "provider",
+      label: "provider",
+      provider: "secrets",
+      serializable: true,
+    })
+    expect(createRuntimeRegistry({
+      codexAuth: env({ secret: true, source: env.provider("secrets", "codex/auth.json") }),
+    })).toMatchObject({
+      codexAuth: {
+        secret: true,
+        source: { key: "codex/auth.json", kind: "provider", provider: "secrets" },
+      },
+    })
+    expect(() => env.provider("", "key")).toThrow("provider name")
+    expect(() => env.provider("__proto__", "key")).toThrow("provider name")
+    expect(() => env.provider("secrets", "")).toThrow("provider key")
+  })
+
   it("creates built-in and custom sources", () => {
     expect(env.packageJson("version")).toMatchObject({
       kind: "package-json",

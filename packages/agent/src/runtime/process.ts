@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { availableParallelism, freemem } from "node:os"
+import { freemem } from "node:os"
 
 import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
 
@@ -40,7 +40,6 @@ interface ProcessResourceSample {
   memoryHighEvents: number
   memoryMax: number
   memoryPressure: number
-  parallelism: number
 }
 
 export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions): AgentDriverCapacityOptions {
@@ -116,8 +115,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
       const availableMemory = Math.min(resources.availableMemory, cgroupAvailableMemory)
       const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
-      const cpuConcurrency = Math.max(1, resources.parallelism)
-      const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency, cpuConcurrency))
+      const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
         ? { concurrency, reason: `capacity available (${formatBytes(availableMemory)} memory headroom)` }
         : { concurrency, reason: `waiting for capacity (${formatBytes(availableMemory)} memory headroom)` }
@@ -154,11 +152,10 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
     memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
     memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
     memoryPressure: cgroup?.memoryPressure ?? 0,
-    parallelism: availableParallelism(),
   }
 }
 
-async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory" | "parallelism">> {
+async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory">> {
   const membership = await readFile("/proc/self/cgroup", { encoding: "utf8", signal })
   const relative = membership.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
   if (relative === undefined) throw new Error("cgroup v2 membership is unavailable")

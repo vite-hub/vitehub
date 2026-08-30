@@ -32,6 +32,8 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./drivers/cloudflare-email": "./dist/drivers/cloudflare-email.js",
+    "./drivers/resend": "./dist/drivers/resend.js",
     "./markdown": "./dist/markdown.js",
     "./server": "./dist/server.js",
     "./test": "./dist/test.js",
@@ -49,8 +51,7 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@comark/html": "catalog:markdown",
-    "esbuild": "catalog:tooling",
-    "unemail": "catalog:email"
+    "esbuild": "catalog:tooling"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

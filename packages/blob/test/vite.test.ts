@@ -10,6 +10,7 @@ import { build as bundle } from "esbuild"
 import { H3Event, toResponse } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -151,9 +152,27 @@ describe("hubBlob", () => {
     expect(driverImports(nitroRuntime)[0]).toContain("/drivers/fs")
   })
 
+  it("resolves generated paths while a framework replays Blob config", () => {
+    const root = process.cwd()
+    const plugin = hubBlob({ driver: "fs" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      nitro: {},
+      root,
+    }
+
+    config(userConfig, { command: "build" })
+
+    expect(userConfig.nitro).toMatchObject({
+      plugins: [resolve(root, ".vitehub/nitro/blob/plugin.ts")],
+    })
+  })
+
   it("resolves generated Nitro registrations from the final Vite root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-root-"))
     const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-stale-root-"))
+    await writeFile(join(root, "package.json"), "{}\n")
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
@@ -367,39 +386,26 @@ describe("hubBlob", () => {
       expect(runtimeSource).not.toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/vercel")
 
-      const filesSdkStub = join(root, "files-sdk.mjs")
-      const netlifyAdapterStub = join(root, "netlify-blobs.mjs")
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")
-      await writeFile(filesSdkStub, [
-        "export class Files {",
-        "  constructor({ adapter }) {",
-        "    if (adapter?.kind !== 'netlify-blobs-adapter-stub') throw new Error('netlify-files-sdk-stub')",
-        "    this.adapter = adapter",
-        "  }",
-        "  async download(key) {",
-        "    const value = this.adapter.values.get(key)",
-        "    if (!value) throw new Error(`Missing ${key}`)",
-        "    return { arrayBuffer: async () => value.bytes.buffer, blob: async () => new Blob([value.bytes], { type: value.contentType }) }",
-        "  }",
-        "  async upload(key, body, options = {}) {",
-        "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
-        "    this.adapter.values.set(key, { bytes, contentType: options.contentType })",
-        "    return { contentType: options.contentType, key, lastModified: new Date(0), size: bytes.byteLength }",
-        "  }",
-        "  async url(key) { return `https://blob.example/${key}` }",
-        "}",
-        "",
-      ].join("\n"), "utf8")
-      await writeFile(netlifyAdapterStub, [
-        "export function netlifyBlobs() {",
-        "  return { kind: 'netlify-blobs-adapter-stub', values: new Map() }",
-        "}",
-        "",
-      ].join("\n"), "utf8")
       await writeFile(entryFile, [
-        "import './.vitehub/nitro/blob/runtime.mjs'",
-        `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
+        "const values = new Map()",
+        "globalThis.fetch = async (input, init = {}) => {",
+        "  const url = new URL(input.toString())",
+        "  const method = (init.method || 'GET').toUpperCase()",
+        "  if (url.hostname === 'api.netlify.com') return Response.json({ url: 'https://signed.blobs.example.test/netlify.txt' })",
+        "  if (method === 'PUT') {",
+        "    const bytes = await new Response(init.body).arrayBuffer()",
+        "    values.set(url.pathname, { bytes, metadata: new Headers(init.headers).get('x-amz-meta-user') })",
+        "    return new Response(null, { headers: { etag: 'netlify-etag' }, status: 200 })",
+        "  }",
+        "  const value = values.get(url.pathname)",
+        "  return value",
+        "    ? new Response(value.bytes, { headers: { etag: 'netlify-etag', 'x-amz-meta-user': value.metadata } })",
+        "    : new Response(null, { status: 404 })",
+        "}",
+        "await import('./.vitehub/nitro/blob/runtime.mjs')",
+        `const { blob } = await import(${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))})`,
         "const [putError] = await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
         "if (putError) throw putError",
         "const [getError, object] = await blob.get('netlify.txt')",
@@ -415,18 +421,11 @@ describe("hubBlob", () => {
         metafile: true,
         outfile: artifactFile,
         platform: "node",
-        plugins: [{
-          name: "netlify-sdk-stubs",
-          setup(build) {
-            build.onResolve({ filter: /^files-sdk$/ }, () => ({ path: filesSdkStub }))
-            build.onResolve({ filter: /^files-sdk\/netlify-blobs$/ }, () => ({ path: netlifyAdapterStub }))
-          },
-        }],
         target: "node24",
       })
       const artifactSource = await readFile(artifactFile, "utf8")
-      expect(artifactSource).toContain("netlify-files-sdk-stub")
-      expect(artifactSource).toContain("netlify-blobs-adapter-stub")
+      expect(artifactSource).toContain("netlify-etag")
+      expect(artifactSource).not.toContain("files-sdk/netlify-blobs")
       expect(artifactSource).not.toContain("files-sdk/vercel-blob")
       expect(artifactSource).not.toContain("files-sdk/s3")
       const externalImports = Object.values(buildResult.metafile.outputs)
@@ -434,7 +433,13 @@ describe("hubBlob", () => {
         .filter(imported => imported.external)
         .map(imported => imported.path)
       expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
-      const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], {
+        cwd: artifactRoot,
+        env: {
+          ...process.env,
+          NETLIFY_BLOBS_CONTEXT: Buffer.from(JSON.stringify({ siteID: "test-site", token: "test-token" })).toString("base64"),
+        },
+      })
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
@@ -458,14 +463,14 @@ describe("hubBlob", () => {
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
-    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
+    const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
 
     config(userConfig, { command: "build" })
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
       { binding: "ASSETS", bucket_name: "assets" },
     ])
     expect(userConfig).toHaveProperty("nitro.handlers", [{
-      handler: ".vitehub/nitro/blob/middleware.ts",
+      handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"),
       middleware: true,
       route: "/**",
     }])

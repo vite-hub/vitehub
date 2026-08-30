@@ -73,6 +73,8 @@ const filesSdkMock = vi.hoisted(() => ({
   vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
 
+vi.mock("@vercel/blob", () => vercelBlobMock)
+
 vi.mock("files-sdk", () => ({
   Files: class {
     adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
@@ -380,16 +382,12 @@ describe("blob runtime", () => {
               uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
             },
           ],
+          folders: [],
+          hasMore: false,
         }
       }
       return {
         blobs: [
-          {
-            contentType: "text/plain",
-            pathname: "a/nested/one.txt",
-            size: 3,
-            uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-          },
           {
             contentType: "text/plain",
             pathname: "a/root.txt",
@@ -398,6 +396,8 @@ describe("blob runtime", () => {
           },
         ],
         cursor: "page-2",
+        folders: ["a/nested/"],
+        hasMore: true,
       }
     })
 
@@ -412,7 +412,7 @@ describe("blob runtime", () => {
 
     const secondPage = expectBlobSuccess(await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" }))
 
-    expect(vercelBlobMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2" }))
+    expect(vercelBlobMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2", mode: "folded" }))
     expect(secondPage).toMatchObject({
       blobs: [{ pathname: "a/z-last.txt" }],
       folders: [],
@@ -763,7 +763,7 @@ describe("blob runtime", () => {
       expect.anything(),
     )
     expect(vercelBlobMock.del).toHaveBeenCalledWith(
-      "notes/héllo.txt",
+      ["notes/héllo.txt"],
       expect.anything(),
     )
   })

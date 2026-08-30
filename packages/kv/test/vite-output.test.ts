@@ -156,6 +156,7 @@ describe("KV Vite output", () => {
     const output = await readOutput(join(rootDir, "dist"))
 
     expect(output).not.toContain(`from "@vite-hub/kv"`)
+    expect(output).not.toContain(`from "unstorage`)
     expect(output).not.toContain("#vitehub/kv/config")
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")

@@ -128,13 +128,31 @@ export interface TraceContext {
   sampled?: boolean
 }
 
+export type TraceActivityOwner = "agent" | "vitehub"
+export type TraceActivityPhase = "delivery" | "execution" | "setup" | "teardown"
+
+export interface TraceActivityContext {
+  owner: TraceActivityOwner
+  phase: TraceActivityPhase
+}
+
+export type TracePayloadVisibility = "private" | "public" | "redacted" | "summary"
+
+export type TraceEventPayload =
+  | { value: unknown, visibility: "public" }
+  | { summary: string, visibility: "summary" }
+  | { visibility: "redacted" }
+  | { visibility: "private" }
+
 export type TraceEventContentPolicy = "content" | "metadata"
 export type TraceRunStatus = "completed" | "failed" | "running"
 export type TraceStepStatus = "completed" | "failed" | "running"
 
 export interface TraceEvent {
+  activity?: TraceActivityContext
   attributes?: Record<string, unknown>
   name: string
+  payload?: TraceEventPayload
   timestamp?: Date | string
   trace?: TraceContext
   type: "approval" | "capability" | "error" | "lifecycle" | "policy" | "run"
@@ -233,11 +251,9 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
 
 export type ExecutionContext<TRuntimeConfig = Record<string, unknown>> =
   RuntimeHostContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
     runtimeConfig: TRuntimeConfig
   }
-
-export type ResolvedRuntimeHostContext<TRuntimeConfig = Record<string, unknown>> =
-  ExecutionContext<TRuntimeConfig>
 
 export interface CapabilityHandle<TKind extends string = string, TValue = unknown> {
   kind: TKind
@@ -380,10 +396,380 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   return Object.keys(next).length ? next : undefined
 }
 
+function normalizedTraceActivity(activity: TraceActivityContext | undefined): TraceActivityContext | undefined {
+  if (!activity || !hasRuntimeType(activity, "object")) return
+  try {
+    if (Array.isArray(activity)) return
+    const owner = Object.getOwnPropertyDescriptor(activity, "owner")
+    const phase = Object.getOwnPropertyDescriptor(activity, "phase")
+    if (!owner || !("value" in owner) || !phase || !("value" in phase)) return
+    if (owner.value !== "agent" && owner.value !== "vitehub") return
+    if (!["delivery", "execution", "setup", "teardown"].includes(phase.value)) return
+    return { owner: owner.value, phase: phase.value }
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Map.prototype.entries.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedSetValues(value: unknown): unknown[] | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Set.prototype.values.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function isCryptoKey(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const CryptoKeyConstructor = Object.getOwnPropertyDescriptor(globalThis, "CryptoKey")?.value
+  return hasRuntimeType(CryptoKeyConstructor, "function") && value instanceof CryptoKeyConstructor
+}
+
+function isWebAssemblyModule(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  const constructor = hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+  return hasRuntimeType(constructor, "function") && value instanceof constructor
+}
+
+function isSharedArrayBuffer(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
+  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+}
+
+function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  if (isSharedArrayBuffer(value)) return true
+  // SAFETY: The runtime guard below verifies this optional host constructor before instantiation checks.
+  const WebAssemblyMemory = (globalThis as typeof globalThis & {
+    WebAssembly?: { Memory?: abstract new (...args: never[]) => { buffer: ArrayBufferLike } }
+  }).WebAssembly?.Memory
+  if (WebAssemblyMemory && value instanceof WebAssemblyMemory) {
+    return isSharedArrayBuffer(value.buffer)
+  }
+  if (seen.has(value)) return false
+  seen.add(value)
+  if (ArrayBuffer.isView(value)) return containsSharedArrayBuffer(value.buffer, seen)
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    return mapEntries.some(([key, entry]) => containsSharedArrayBuffer(key, seen) || containsSharedArrayBuffer(entry, seen))
+  }
+  const setValues = reflectedSetValues(value)
+  if (setValues) return setValues.some(entry => containsSharedArrayBuffer(entry, seen))
+  return Reflect.ownKeys(value).some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && containsSharedArrayBuffer(descriptor.value, seen)
+  })
+}
+
+function reflectedRegExpState(value: unknown): { flags: string, lastIndex: number, source: string } | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get?.call(value)
+    const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get?.call(value)
+    const lastIndex = Reflect.get(value, "lastIndex")
+    if (!hasRuntimeType(source, "string") || !hasRuntimeType(flags, "string") || !hasRuntimeType(lastIndex, "number")) return
+    return { flags, lastIndex, source }
+  }
+  catch {
+    return
+  }
+}
+
+interface ReflectedBlobState {
+  intrinsicSymbols: ReadonlySet<symbol>
+  lastModified?: number
+  name?: string
+  size: number
+  type: string
+}
+
+function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
+  const BlobConstructor = globalThis.Blob
+  if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
+  try {
+    const FileConstructor = globalThis.File
+    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const intrinsic = file ? new FileConstructor([], "") : new BlobConstructor([])
+    const size = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "size")?.get?.call(value)
+    const type = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "type")?.get?.call(value)
+    if (!hasRuntimeType(size, "number") || !hasRuntimeType(type, "string")) return
+    const state: ReflectedBlobState = {
+      intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
+        hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
+      )),
+      size,
+      type,
+    }
+    if (file) {
+      const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
+      const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
+      if (!hasRuntimeType(lastModified, "number") || !hasRuntimeType(name, "string")) return
+      state.lastModified = lastModified
+      state.name = name
+    }
+    return state
+  }
+  catch {
+    return
+  }
+}
+
+function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  if (isCryptoKey(value) || isWebAssemblyModule(value)) return true
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor?.enumerable) continue
+    if (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen)) return true
+  }
+  for (const key of ["cause", "errors"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor && (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen))) return true
+  }
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    for (const [key, entry] of mapEntries) {
+      if (containsUnsafeStructuredCloneState(key, seen) || containsUnsafeStructuredCloneState(entry, seen)) return true
+    }
+  }
+  else {
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
+      for (const entry of setValues) {
+        if (containsUnsafeStructuredCloneState(entry, seen)) return true
+      }
+    }
+  }
+  return false
+}
+
+function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
+  if (!source || !hasRuntimeType(source, "object")) return true
+  if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
+  if (seen.has(source)) return seen.get(source) === snapshot
+  seen.set(source, snapshot)
+
+  if (ArrayBuffer.isView(source)
+    && (!ArrayBuffer.isView(snapshot)
+      || Object.getPrototypeOf(source) !== Object.getPrototypeOf(snapshot)
+      || source.byteLength !== snapshot.byteLength)) return false
+  if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
+  const sourceRegExp = reflectedRegExpState(source)
+  if (sourceRegExp) {
+    const snapshotRegExp = reflectedRegExpState(snapshot)
+    if (!snapshotRegExp
+      || sourceRegExp.source !== snapshotRegExp.source
+      || sourceRegExp.flags !== snapshotRegExp.flags
+      || sourceRegExp.lastIndex !== snapshotRegExp.lastIndex) return false
+  }
+  const sourceBlob = reflectedBlobState(source)
+  if (sourceBlob) {
+    const snapshotBlob = reflectedBlobState(snapshot)
+    if (!snapshotBlob
+      || sourceBlob.size !== snapshotBlob.size
+      || sourceBlob.type !== snapshotBlob.type
+      || sourceBlob.name !== snapshotBlob.name
+      || sourceBlob.lastModified !== snapshotBlob.lastModified) return false
+  }
+  const sourceAggregateErrors = Object.getOwnPropertyDescriptor(source, "errors")
+  if (sourceAggregateErrors && "value" in sourceAggregateErrors) {
+    const snapshotAggregateErrors = Object.getOwnPropertyDescriptor(snapshot, "errors")
+    if (!snapshotAggregateErrors
+      || !("value" in snapshotAggregateErrors)
+      || !preservesEnumerableFields(sourceAggregateErrors.value, snapshotAggregateErrors.value, seen)) return false
+  }
+  if (source instanceof AggregateError) {
+    if (!(snapshot instanceof AggregateError)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.errors, snapshot.errors, seen)
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+  else if (source instanceof DOMException) {
+    if (!(snapshot instanceof DOMException)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || source.code !== snapshot.code) return false
+  }
+  else if (source instanceof Error) {
+    if (!(snapshot instanceof Error)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+
+  for (const key of Reflect.ownKeys(source)) {
+    const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (!sourceDescriptor?.enumerable) continue
+    if (hasRuntimeType(key, "symbol")) {
+      if (sourceBlob?.intrinsicSymbols.has(key)) continue
+      return false
+    }
+    if (!("value" in sourceDescriptor)) return false
+    const snapshotDescriptor = Object.getOwnPropertyDescriptor(snapshot, key)
+    if (!snapshotDescriptor || !("value" in snapshotDescriptor)) return false
+    if (!preservesEnumerableFields(sourceDescriptor.value, snapshotDescriptor.value, seen)) return false
+  }
+  const sourceMapEntries = reflectedMapEntries(source)
+  if (sourceMapEntries) {
+    const snapshotEntries = reflectedMapEntries(snapshot)
+    if (!snapshotEntries || sourceMapEntries.length !== snapshotEntries.length) return false
+    return sourceMapEntries.every(([key, value], index) => {
+      const snapshotEntry = snapshotEntries[index]
+      return snapshotEntry !== undefined
+        && preservesEnumerableFields(key, snapshotEntry[0], seen)
+        && preservesEnumerableFields(value, snapshotEntry[1], seen)
+    })
+  }
+  const sourceSetValues = reflectedSetValues(source)
+  if (sourceSetValues) {
+    const snapshotValues = reflectedSetValues(snapshot)
+    if (!snapshotValues || sourceSetValues.length !== snapshotValues.length) return false
+    return sourceSetValues.every((value, index) => preservesEnumerableFields(value, snapshotValues[index], seen))
+  }
+  return true
+}
+
+function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
+  if (payload === undefined) return
+  if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
+  try {
+    if (Array.isArray(payload)) return { visibility: "private" }
+    const visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
+    if (!visibility || !("value" in visibility)) return { visibility: "private" }
+    if (visibility.value === "public") {
+      const value = Object.getOwnPropertyDescriptor(payload, "value")
+      if (value && "value" in value && !containsUnsafeStructuredCloneState(value.value)) {
+        const snapshot = structuredClone(value.value)
+        if (preservesEnumerableFields(value.value, snapshot) && !containsSharedArrayBuffer(snapshot)) {
+          return { value: snapshot, visibility: "public" }
+        }
+      }
+    }
+    if (visibility.value === "summary") {
+      const summary = Object.getOwnPropertyDescriptor(payload, "summary")
+      if (summary && "value" in summary && hasRuntimeType(summary.value, "string")) {
+        return { summary: summary.value, visibility: "summary" }
+      }
+    }
+    if (visibility.value === "redacted") return { visibility: "redacted" }
+  }
+  catch {
+    return { visibility: "private" }
+  }
+  return { visibility: "private" }
+}
+
+function traceEventAttributes(
+  event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
+  content: TraceEventContentPolicy,
+  normalized = false,
+): Record<string, unknown> | undefined {
+  const activity = normalized ? event.activity : normalizedTraceActivity(event.activity)
+  const payload = normalized ? event.payload : normalizedTracePayload(event.payload)
+  let source: Record<string, unknown> = {}
+  const skippedMetadataContent = new Set<string>()
+  try {
+    for (const key of Reflect.ownKeys(event.attributes || {})) {
+      if (!hasRuntimeType(key, "string")) continue
+      const descriptor = Object.getOwnPropertyDescriptor(event.attributes!, key)
+      if (descriptor?.enumerable && "value" in descriptor) source[key] = descriptor.value
+      else if (content === "metadata" && descriptor?.enumerable && isTraceContentAttributeKey(key)) {
+        skippedMetadataContent.add(key)
+      }
+    }
+  }
+  catch {
+    source = {}
+  }
+  delete source["vitehub.activity.owner"]
+  delete source["vitehub.activity.phase"]
+  delete source["vitehub.payload.summary"]
+  delete source["vitehub.payload.value"]
+  delete source["vitehub.payload.visibility"]
+  try {
+    if (Array.isArray(source["content.omitted"])) {
+      const omitted = source["content.omitted"].filter(key => hasRuntimeType(key, "string") && ![
+        "vitehub.activity.owner",
+        "vitehub.activity.phase",
+        "vitehub.payload.summary",
+        "vitehub.payload.value",
+        "vitehub.payload.visibility",
+      ].includes(key))
+      if (omitted.length) source["content.omitted"] = omitted
+      else delete source["content.omitted"]
+    }
+  }
+  catch {
+    delete source["content.omitted"]
+  }
+  if (skippedMetadataContent.size) {
+    const omitted = new Set(Array.isArray(source["content.omitted"]) ? source["content.omitted"] : [])
+    for (const key of skippedMetadataContent) omitted.add(key)
+    source["content.omitted"] = [...omitted]
+  }
+  const attributes = content === "metadata" ? metadataAttributes(source) : source
+  const next: Record<string, unknown> = { ...attributes }
+  if (activity) {
+    next["vitehub.activity.owner"] = activity.owner
+    next["vitehub.activity.phase"] = activity.phase
+  }
+  if (payload) {
+    next["vitehub.payload.visibility"] = payload.visibility
+    if (payload.visibility === "public") next["vitehub.payload.value"] = payload.value
+    if (payload.visibility === "summary") next["vitehub.payload.summary"] = payload.summary
+  }
+  return Object.keys(next).length ? next : undefined
+}
+
+function aggregateTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
+  delete next["vitehub.payload.summary"]
+  delete next["vitehub.payload.value"]
+  delete next["vitehub.payload.visibility"]
+  return Object.keys(next).length ? next : undefined
+}
+
+function stepTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
+  return Object.keys(next).length ? next : undefined
+}
+
 function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
+  const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
+  const activity = normalizedTraceActivity(rawActivity)
+  const payload = normalizedTracePayload(rawPayload)
+  const attributes = traceEventAttributes({ activity, attributes: event.attributes, payload }, content, true)
   return {
-    ...event,
-    ...(content === "metadata" ? { attributes: metadataAttributes(event.attributes) } : {}),
+    ...rest,
+    ...(activity ? { activity } : {}),
+    ...(attributes ? { attributes } : {}),
+    ...(payload ? { payload } : {}),
     sequence,
     timestamp: timestamp(event.timestamp),
   }
@@ -402,15 +788,33 @@ export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
 export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
   const content = options.content || "metadata"
   const entries: TraceEventLogEntry[] = []
+  const cloneAttributes = (attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!attributes) return undefined
+    return { ...attributes }
+  }
+  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => {
+    const publicValue = entry.attributes?.["vitehub.payload.value"]
+    const cloneable = structuredClone({ activity: entry.activity, payload: entry.payload, publicValue })
+    const attributes = cloneAttributes(entry.attributes)
+    if (attributes && "vitehub.payload.value" in attributes) {
+      attributes["vitehub.payload.value"] = cloneable.publicValue
+    }
+    return {
+      ...entry,
+      ...(cloneable.activity ? { activity: cloneable.activity } : {}),
+      ...(attributes ? { attributes } : {}),
+      ...(cloneable.payload ? { payload: cloneable.payload } : {}),
+    }
+  }
   return {
     async append(event) {
       const entry = normalizeTraceEvent(event, entries.length + 1, content)
       entries.push(entry)
-      await options.onEntry?.(entry)
-      return entry
+      await options.onEntry?.(cloneEntry(entry))
+      return cloneEntry(entry)
     },
     entries() {
-      return entries.slice()
+      return entries.map(cloneEntry)
     },
   }
 }
@@ -488,7 +892,7 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       const status = stepStatus(event)
       if (!existing) {
         steps.set(id, {
-          attributes: event.attributes,
+          attributes: stepTraceAttributes(event.attributes),
           endTime: status === "running" ? undefined : event.timestamp,
           events: [event],
           id,
@@ -500,7 +904,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
         continue
       }
       existing.events.push(event)
-      existing.attributes = { ...existing.attributes, ...event.attributes }
+      const attributes = { ...existing.attributes }
+      if (event.attributes?.["vitehub.payload.visibility"] !== undefined) {
+        delete attributes["vitehub.payload.summary"]
+        delete attributes["vitehub.payload.value"]
+        delete attributes["vitehub.payload.visibility"]
+      }
+      existing.attributes = stepTraceAttributes({ ...attributes, ...event.attributes })
       if (status !== "running") {
         existing.endTime = event.timestamp
         existing.status = status
@@ -568,7 +978,7 @@ export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEvent
     const traceId = openTelemetryId(traceRunTraceId(run), 32)
     return run.events.map((event) => {
       const id = stepId(event)
-      const attributes = options.content === "metadata" ? metadataAttributes(event.attributes) : event.attributes
+      const attributes = traceEventAttributes(event, options.content === "metadata" ? "metadata" : "content")
       const error = event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
       return {
         attributes: {
@@ -627,16 +1037,17 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
       ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": run.count, "vitehub.trace.truncated": true } }
       : entry)
   })
-  const entries = boundedEntries.map(entry => options.content === "metadata"
-    ? { ...entry, attributes: metadataAttributes(entry.attributes) }
-    : entry)
+  const entries = boundedEntries.map(entry => ({
+    ...entry,
+    attributes: traceEventAttributes(entry, options.content === "metadata" ? "metadata" : "content"),
+  }))
   return deriveTraceRuns(entries).flatMap((run) => {
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
     const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
-    const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const attributes = aggregateTraceAttributes(Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {})))
     const spanEvents = (events: TraceEventLogEntry[]): OpenTelemetrySpanEventView[] => events.map(event => ({
       ...(event.attributes ? { attributes: event.attributes } : {}),
       name: event.name,
@@ -665,7 +1076,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
         attributes: {
-          ...step.attributes,
+          ...aggregateTraceAttributes(step.attributes),
           "vitehub.run.id": run.id,
           "vitehub.step.id": step.id,
         },
@@ -701,35 +1112,45 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-type RuntimeConfigOf<TContext> = TContext extends { runtimeConfig?: infer TRuntimeConfig }
-  ? Exclude<TRuntimeConfig, undefined>
+type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>
+  ? Record<string, unknown>
+  : Exclude<TConfig, null | undefined> | Record<string, unknown>
+
+type RuntimeConfigOf<TContext extends RuntimeHostContext<any>> = "runtimeConfig" extends keyof TContext
+  ? undefined extends TContext["runtimeConfig"]
+    ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : null extends TContext["runtimeConfig"]
+      ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : TContext["runtimeConfig"]
   : Record<string, unknown>
+
+type RuntimeCapabilitiesOf<TContext extends RuntimeHostContext<any>> = "capabilities" extends keyof TContext
+  ? undefined extends TContext["capabilities"]
+    ? RuntimeCapabilities
+    : TContext["capabilities"]
+  : RuntimeCapabilities
+
+type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = TContext extends unknown
+  ? Omit<TContext, "capabilities" | "runtimeConfig"> & {
+      capabilities: RuntimeCapabilitiesOf<TContext>
+      runtimeConfig: RuntimeConfigOf<TContext>
+    }
+  : never
 
 export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return resolveExecutionContext(context)
-}
+): CreatedExecutionContext<TContext> {
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const capabilities = (context.capabilities ?? {}) as RuntimeCapabilitiesOf<TContext>
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const runtimeConfig = (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>
 
-export function resolveExecutionContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
+  // SAFETY: Each union variant is reconstructed with the normalized fields described by CreatedExecutionContext.
   return {
     ...context,
-    capabilities: context.capabilities || {},
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
-  }
-}
-
-export function resolveRuntimeContext<TContext extends RuntimeHostContext<any>>(
-  context: TContext,
-): TContext & ExecutionContext<RuntimeConfigOf<TContext>> {
-  return {
-    ...context,
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    runtimeConfig: (context.runtimeConfig || {}) as RuntimeConfigOf<TContext>,
-  }
+    capabilities,
+    runtimeConfig,
+  } as CreatedExecutionContext<TContext>
 }
 
 export function defineCapability<TKind extends string, TValue>(

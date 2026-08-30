@@ -5,6 +5,7 @@ export const workspaceOverrideSymbol: unique symbol = Symbol.for("vitehub.agent.
 const trustedSourceResolutionDefinitions = new WeakSet<AgentInvocationContextStore>()
 const trustedWorkspaceAccessScopes = new WeakSet<AgentInvocationContextStore>()
 const trustedSourceFreeInspections = new WeakSet<AgentInvocationContextStore>()
+const workspaceAccessWrappers = new WeakMap<AgentInvocationContextStore, (workspace: ReadonlyWorkspaceFacade) => ReadonlyWorkspaceFacade>()
 
 export interface WorkspaceOverrideRuntime<Name extends WorkspaceName = WorkspaceName> {
   [workspaceOverrideSymbol]: (workspace: ReadonlyWorkspaceFacade<Name>) => void
@@ -24,6 +25,20 @@ export function markTrustedWorkspaceAccessScope(context: AgentInvocationContextS
 
 export function hasTrustedWorkspaceAccessScope(context: AgentInvocationContextStore): boolean {
   return trustedWorkspaceAccessScopes.has(context)
+}
+
+export function registerWorkspaceAccessWrapper(
+  context: AgentInvocationContextStore,
+  wrapper: (workspace: ReadonlyWorkspaceFacade) => ReadonlyWorkspaceFacade,
+): void {
+  workspaceAccessWrappers.set(context, wrapper)
+}
+
+export function applyWorkspaceAccessWrapper(
+  context: AgentInvocationContextStore,
+  workspace: ReadonlyWorkspaceFacade,
+): ReadonlyWorkspaceFacade {
+  return workspaceAccessWrappers.get(context)?.(workspace) ?? workspace
 }
 
 export function markTrustedSourceFreeInspection(context: AgentInvocationContextStore): void {

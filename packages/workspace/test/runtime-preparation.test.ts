@@ -1,0 +1,837 @@
+import { describe, expect, it, vi } from "vitest"
+
+import { custom } from "../src/index.ts"
+import {
+  createWorkspacePreparation,
+  registerWorkspace,
+  useWorkspace,
+} from "../src/runtime.ts"
+import { resetWorkspaceRegistry, resolveRegisteredWorkspaceDefinition, setWorkspaceRegistry } from "../src/core/registry.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+
+import type { SourceContext, WorkspaceSourceItem, WorkspaceStore, WorkspaceStreamFile } from "../src/index.ts"
+
+function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<WorkspaceSourceItem[]>, store?: WorkspaceStore) {
+  const name = `workspace-preparation-${crypto.randomUUID()}`
+  registerWorkspace(name, {
+    sources: {
+      docs: custom({
+        cache: false,
+        getItem: async key => ({ content: "# Ready", key }),
+        getItems,
+        getKeys: async () => ["ready.md"],
+        materialize: "startup",
+      }),
+    },
+    store: store ?? { provider: "memory" },
+  })
+  return name
+}
+
+describe("Workspace runtime preparation", () => {
+  it("synchronizes distinct definitions that share a Store", async () => {
+    const store = createMemoryWorkspaceStore()
+    const loaded: string[] = []
+    const first = `workspace-shared-store-first-${crypto.randomUUID()}`
+    const second = `workspace-shared-store-second-${crypto.randomUUID()}`
+    registerWorkspace(first, { loaders: [{ name: "first", async load() { loaded.push("first") } }], store })
+    registerWorkspace(second, { loaders: [{ name: "second", async load() { loaded.push("second") } }], store })
+
+    await useWorkspace(first).fs.list("")
+    await useWorkspace(second).fs.list("")
+
+    expect(loaded).toEqual(["first", "second"])
+  })
+
+  it("is stopped until preparation starts", async () => {
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),
+    })
+
+    expect(preparation.getState()).toMatchObject({ status: "stopped" })
+    expect(preparation.response().status).toBe(503)
+    await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "stopped" })
+  })
+
+  it("stops without waiting for a pending registry loader", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => {
+      loading = resolve
+    })
+    setWorkspaceRegistry({
+      [name]: async () => {
+        loading()
+        await new Promise(() => {})
+        return {}
+      },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const started = preparation.start()
+    await loaderStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(started).resolves.toMatchObject({ status: "stopped" })
+    resetWorkspaceRegistry()
+  })
+
+  it("stops an attempt from the preparing state callback", async () => {
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    let stopping: Promise<void> | undefined
+    let preparation!: ReturnType<typeof createWorkspacePreparation>
+    preparation = createWorkspacePreparation({
+      onStateChange(state) {
+        if (state.status === "preparing") stopping = preparation.stop()
+      },
+      workspace: registerPreparationWorkspace(getItems),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "stopped" })
+    await stopping
+    expect(getItems).not.toHaveBeenCalled()
+  })
+
+  it("preserves absent optional Store mutation methods", async () => {
+    const base = createMemoryWorkspaceStore()
+    const store = new Proxy(base, {
+      get(target, property) {
+        if (property === "setMeta") return undefined
+        const value = Reflect.get(target, property, target)
+        return value instanceof Function ? value.bind(target) : value
+      },
+    })
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    const name = registerPreparationWorkspace(getItems, store)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Ready")
+    expect(getItems).toHaveBeenCalledOnce()
+    await preparation.stop()
+  })
+
+  it("prepares with a non-extensible custom Store", async () => {
+    const store = Object.preventExtensions(createMemoryWorkspaceStore())
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await preparation.stop()
+  })
+
+  it("does not let an abandoned registry load replace a restarted definition", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const firstLoading = new Promise<void>((resolve) => { firstStarted = resolve })
+    let firstFinished!: () => void
+    const firstLoaded = new Promise<void>((resolve) => { firstFinished = resolve })
+    let attempts = 0
+    const definition = (rootDir: string) => ({
+      rootDir,
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+          async getItem(key: string) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+        }),
+      },
+      store: { provider: "memory" as const },
+    })
+    setWorkspaceRegistry({
+      [name]: async () => {
+        attempts++
+        if (attempts === 1) {
+          firstStarted()
+          await firstBlocked
+          firstFinished()
+          return { default: definition("first") }
+        }
+        return { default: definition("second") }
+      },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await firstLoading
+    await preparation.stop()
+    const restarted = preparation.start()
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    releaseFirst()
+    await firstLoaded
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(resolveRegisteredWorkspaceDefinition(name)).resolves.toMatchObject({ rootDir: "second" })
+    await preparation.stop()
+    resetWorkspaceRegistry()
+  })
+
+  it("restarts explicit Source preparation with a fresh registry load", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let firstStarted!: () => void
+    const firstLoading = new Promise<void>((resolve) => { firstStarted = resolve })
+    let attempts = 0
+    setWorkspaceRegistry({
+      [name]: async () => {
+        attempts++
+        if (attempts === 1) {
+          firstStarted()
+          await new Promise(() => {})
+        }
+        return {
+          default: {
+            sources: {
+              docs: custom({
+                materialize: "startup",
+                async getItem(key) { return { content: "# Ready", key } },
+                async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+                async getKeys() { return ["ready.md"] },
+              }),
+            },
+            store: { provider: "memory" },
+          },
+        }
+      },
+    })
+    const preparation = createWorkspacePreparation({ sources: ["docs"], workspace: name })
+
+    const first = preparation.start()
+    await firstLoading
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+    resetWorkspaceRegistry()
+  })
+
+  it("shares a concurrent registry definition load", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const load = vi.fn(async () => {
+      await blocked
+      return { default: { rootDir: "shared" } }
+    })
+    setWorkspaceRegistry({ [name]: load })
+
+    const first = resolveRegisteredWorkspaceDefinition(name)
+    const second = resolveRegisteredWorkspaceDefinition(name)
+    release()
+
+    const [firstDefinition, secondDefinition] = await Promise.all([first, second])
+    expect(load).toHaveBeenCalledOnce()
+    expect(secondDefinition).toBe(firstDefinition)
+    resetWorkspaceRegistry()
+  })
+
+  it("shares definition synchronization across Workspace facades", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    const load = vi.fn(async (ctx: { store: WorkspaceStore }) => {
+      loading()
+      await blocked
+      await ctx.store.writeFile("ready.md", { content: "# Ready", path: "ready.md" })
+    })
+    const publish = vi.fn(async () => {})
+    registerWorkspace(name, {
+      loaders: [{ name: "shared-loader", load }],
+      publish: [{ name: "shared-publisher", publish }],
+      store: { provider: "memory" },
+    })
+
+    const firstRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
+    await loaderStarted
+    const secondRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
+    await Promise.resolve()
+    expect(load).toHaveBeenCalledOnce()
+    release()
+
+    await expect(Promise.all([firstRead, secondRead])).resolves.toEqual(["# Ready", "# Ready"])
+    expect(publish).toHaveBeenCalledOnce()
+    resetWorkspaceRegistry()
+  })
+
+  it("retries canceled definition synchronization before publishing", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    let attempts = 0
+    const publish = vi.fn(async () => {})
+    registerWorkspace(name, {
+      loaders: [{
+        name: "cancelable-loader",
+        async load(ctx) {
+          attempts++
+          if (attempts !== 1) return
+          loading()
+          await new Promise<void>((_resolve, reject) => {
+            const abort = () => reject(ctx.abortSignal?.reason)
+            if (ctx.abortSignal?.aborted) abort()
+            else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+          })
+        },
+      }],
+      publish: [{ name: "publisher", publish }],
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+          materialize: "startup",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const workspace = useWorkspace(name, { mode: "write" })
+    const abort = new AbortController()
+
+    const materializing = workspace.materializeSources({ abortSignal: abort.signal })
+    await loaderStarted
+    const publishing = workspace.publish()
+    abort.abort(new DOMException("Canceled", "AbortError"))
+
+    await expect(materializing).rejects.toThrow("Canceled")
+    await expect(publishing).resolves.toBeUndefined()
+    expect(attempts).toBe(2)
+    expect(publish).toHaveBeenCalledTimes(2)
+    resetWorkspaceRegistry()
+  })
+
+  it("restarts with fresh definition synchronization after cancellation", async () => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    let attempts = 0
+    let loading!: () => void
+    const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
+    registerWorkspace(name, {
+      loaders: [{
+        name: "blocking-loader",
+        async load(ctx) {
+          attempts++
+          if (attempts === 1) {
+            loading()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+          }
+        },
+      }],
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getItems() { return [{ content: "# Ready", key: "ready.md" }] },
+          async getItem(key) { return { content: "# Ready", key } },
+          async getKeys() { return ["ready.md"] },
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await loaderStarted
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("keeps startup Sources available as lazy read fallbacks", async () => {
+    const name = registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }])
+    const workspace = useWorkspace(name)
+
+    await expect(workspace.fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Ready")
+  })
+
+  it("preserves files from overlapping startup Sources", async () => {
+    const name = `workspace-preparation-overlap-${crypto.randomUUID()}`
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace(name, {
+      sources: {
+        generated: custom({
+          async getItem(key) { return { content: "# Generated", key } },
+          async getKeys() { return ["report.md"] },
+          materialize: "startup",
+          mount: "docs/generated",
+        }),
+        docs: custom({
+          async getItem(key) { return { content: "# Docs", key } },
+          async getKeys() { return ["index.md"] },
+          materialize: "startup",
+          mount: "docs",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(store.readFile("docs/generated/report.md")).resolves.toMatchObject({
+      content: "# Generated",
+      metadata: { source: "generated" },
+    })
+    await preparation.stop()
+  })
+
+  it("deduplicates concurrent starts and publishes non-cacheable readiness", async () => {
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    const states = vi.fn()
+    const preparation = createWorkspacePreparation({
+      onStateChange: states,
+      workspace: registerPreparationWorkspace(getItems),
+    })
+
+    await expect(Promise.all([preparation.start(), preparation.start()])).resolves.toEqual([
+      expect.objectContaining({ status: "ready" }),
+      expect.objectContaining({ status: "ready" }),
+    ])
+    expect(getItems).toHaveBeenCalledOnce()
+    expect(states).toHaveBeenLastCalledWith(expect.objectContaining({ status: "ready" }))
+    const response = preparation.response()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
+    await expect(response.json()).resolves.toEqual({ ready: true, status: "ready" })
+    await preparation.stop()
+    expect(preparation.getState()).toMatchObject({ status: "stopped" })
+    expect(preparation.response().status).toBe(503)
+    await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "stopped" })
+  })
+
+  it("retries validation failures while keeping public errors minimal", async () => {
+    let validationAttempts = 0
+    const preparation = createWorkspacePreparation({
+      retryDelayMs: 1,
+      validate() {
+        validationAttempts++
+        if (validationAttempts === 1) throw new Error("consumer policy rejected the snapshot")
+      },
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({
+      error: "consumer policy rejected the snapshot",
+      status: "error",
+    })
+    const response = preparation.response()
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ ready: false, status: "error" })
+    await vi.waitFor(() => expect(preparation.getState().status).toBe("ready"))
+    expect(validationAttempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("reports Source failures internally and stops scheduled retries", async () => {
+    const getItems = vi.fn(async () => {
+      throw new Error("private provider failure")
+    })
+    const preparation = createWorkspacePreparation({
+      retryDelayMs: 60_000,
+      workspace: registerPreparationWorkspace(getItems),
+    })
+
+    await expect(preparation.start()).resolves.toMatchObject({
+      error: expect.stringContaining("sources failed to prepare: docs"),
+      status: "error",
+    })
+    await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "error" })
+    await preparation.stop()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(getItems).toHaveBeenCalledOnce()
+  })
+
+  it("serializes a restart with active preparation shutdown", async () => {
+    let started!: () => void
+    const firstAttemptStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let attempts = 0
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async (ctx) => {
+        attempts++
+        if (attempts > 1) return [{ content: "# Ready", key: "ready.md" }]
+        started()
+        await new Promise<void>((_resolve, reject) => {
+          const signal = ctx.abortSignal
+          if (!signal) return reject(new Error("missing preparation abort signal"))
+          const abort = () => reject(signal.reason)
+          if (signal.aborted) abort()
+          else signal.addEventListener("abort", abort, { once: true })
+        })
+        return []
+      }),
+    })
+
+    const first = preparation.start()
+    await firstAttemptStarted
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    const concurrentRestart = preparation.start()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await stopping
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    await expect(concurrentRestart).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("stops and restarts when a Source ignores cancellation", async () => {
+    let started!: () => void
+    const firstAttemptStarted = new Promise<void>((resolve) => { started = resolve })
+    let attempts = 0
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => {
+        attempts++
+        if (attempts === 1) {
+          started()
+          await new Promise(() => {})
+        }
+        return [{ content: "# Ready", key: "ready.md" }]
+      }),
+    })
+
+    const first = preparation.start()
+    await firstAttemptStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("does not let an abandoned content stream overwrite a restarted snapshot", async () => {
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstStarted!: () => void
+    const firstStreaming = new Promise<void>((resolve) => { firstStarted = resolve })
+    let attempts = 0
+    const name = registerPreparationWorkspace(async () => {
+      attempts++
+      if (attempts > 1) return [{ content: "# Fresh", key: "ready.md" }]
+      return [{
+        contentStream: new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            firstStarted()
+            await firstBlocked
+            controller.enqueue(new TextEncoder().encode("# Stale"))
+            controller.close()
+          },
+        }),
+        key: "ready.md",
+      }]
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await firstStreaming
+    await preparation.stop()
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    releaseFirst()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Fresh")
+    expect(attempts).toBe(2)
+    await preparation.stop()
+  })
+
+  it("waits for an accepted native stream write before restarting preparation", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseWrite!: () => void
+    const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve })
+    let writeStarted!: () => void
+    const writing = new Promise<void>((resolve) => { writeStarted = resolve })
+    let writes = 0
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property) {
+        if (property !== "writeFileStream") {
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
+        }
+        return async (path: string, file: WorkspaceStreamFile) => {
+          writes++
+          if (writes === 1) {
+            writeStarted()
+            await writeBlocked
+          }
+          const content = new Uint8Array(await new Response(file.content).arrayBuffer())
+          await base.writeFile(path, { ...file, content })
+          return (await base.stat(path))!
+        }
+      },
+    })
+    let attempts = 0
+    const name = registerPreparationWorkspace(async () => attempts++ === 0
+      ? [{ contentStream: new Blob(["# Stale"]).stream(), key: "ready.md" }]
+      : [{ content: "# Fresh", key: "ready.md" }], store)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await writing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseWrite()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })).resolves.toBe("# Fresh")
+    await preparation.stop()
+  })
+
+  it("waits for accepted definition synchronization writes before restarting", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseWrite!: () => void
+    const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve })
+    let writeStarted!: () => void
+    const writing = new Promise<void>((resolve) => { writeStarted = resolve })
+    let activeWrites = 0
+    let maxActiveWrites = 0
+    let writes = 0
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property) {
+        if (property !== "writeFile") {
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
+        }
+        return async (...args: Parameters<WorkspaceStore["writeFile"]>) => {
+          if (args[0] !== "startup.txt") return await base.writeFile(...args)
+          writes++
+          activeWrites++
+          maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+          if (writes === 1) {
+            writeStarted()
+            await writeBlocked
+          }
+          try {
+            return await base.writeFile(...args)
+          }
+          finally {
+            activeWrites--
+          }
+        }
+      },
+    })
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{
+        name: "startup-write",
+        async load(ctx) {
+          await ctx.store.writeFile("startup.txt", { content: "ready", path: "startup.txt" })
+        },
+      }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await writing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseWrite()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActiveWrites).toBe(1)
+    expect(writes).toBe(2)
+    await preparation.stop()
+  })
+
+  it("waits for definition synchronization snapshots before restarting", async () => {
+    const base = createMemoryWorkspaceStore()
+    let releaseSnapshot!: () => void
+    const snapshotBlocked = new Promise<void>((resolve) => { releaseSnapshot = resolve })
+    let snapshotStarted!: () => void
+    const snapshotting = new Promise<void>((resolve) => { snapshotStarted = resolve })
+    let activeSnapshots = 0
+    let maxActiveSnapshots = 0
+    let snapshots = 0
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property) {
+        if (property !== "snapshot") {
+          const value = Reflect.get(target, property, target)
+          return value instanceof Function ? value.bind(target) : value
+        }
+        return async (...args: Parameters<WorkspaceStore["snapshot"]>) => {
+          snapshots++
+          activeSnapshots++
+          maxActiveSnapshots = Math.max(maxActiveSnapshots, activeSnapshots)
+          if (snapshots === 1) {
+            snapshotStarted()
+            await snapshotBlocked
+          }
+          try {
+            return await base.snapshot(...args)
+          }
+          finally {
+            activeSnapshots--
+          }
+        }
+      },
+    })
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{ name: "startup", async load() {} }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await snapshotting
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(snapshots).toBe(1)
+    releaseSnapshot()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActiveSnapshots).toBe(1)
+    expect(snapshots).toBe(2)
+    await preparation.stop()
+  })
+
+  it("waits for publisher side effects before restarting preparation", async () => {
+    let releasePublish!: () => void
+    const publishBlocked = new Promise<void>((resolve) => { releasePublish = resolve })
+    let publishStarted!: () => void
+    const publishing = new Promise<void>((resolve) => { publishStarted = resolve })
+    let activePublications = 0
+    let maxActivePublications = 0
+    let publications = 0
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      loaders: [{ name: "startup", async load() {} }],
+      publish: [{
+        name: "blocking-publisher",
+        async publish() {
+          publications++
+          activePublications++
+          maxActivePublications = Math.max(maxActivePublications, activePublications)
+          if (publications === 1) {
+            publishStarted()
+            await publishBlocked
+          }
+          activePublications--
+        },
+      }],
+      sources: {
+        docs: custom({
+          getItem: async key => ({ content: "# Ready", key }),
+          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
+          getKeys: async () => ["ready.md"],
+          materialize: "startup",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const first = preparation.start()
+    await publishing
+    const stopping = preparation.stop()
+    const restarted = preparation.start()
+    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(publications).toBe(1)
+    releasePublish()
+    await stopping
+    await expect(first).resolves.toMatchObject({ status: "stopped" })
+    await expect(restarted).resolves.toMatchObject({ status: "ready" })
+    expect(maxActivePublications).toBe(1)
+    expect(publications).toBe(2)
+    await preparation.stop()
+  })
+
+  it("stops without waiting for a pending validator", async () => {
+    let validating!: () => void
+    const validationStarted = new Promise<void>((resolve) => {
+      validating = resolve
+    })
+    const preparation = createWorkspacePreparation({
+      validate: async () => {
+        validating()
+        await new Promise(() => {})
+      },
+      workspace: registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }]),
+    })
+
+    const started = preparation.start()
+    await validationStarted
+    await expect(preparation.stop()).resolves.toBeUndefined()
+    await expect(started).resolves.toMatchObject({ status: "stopped" })
+  })
+
+  it("shares startup materialization with a concurrent lazy read", async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const materializing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const getItems = vi.fn(async () => {
+      started()
+      await blocked
+      return [{ content: "# Ready", key: "ready.md" }]
+    })
+    const name = registerPreparationWorkspace(getItems)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    const preparing = preparation.start()
+    await materializing
+    const reading = useWorkspace(name).fs.readFile("docs/ready.md", { encoding: "utf8" })
+    release()
+
+    await expect(preparing).resolves.toMatchObject({ status: "ready" })
+    await expect(reading).resolves.toBe("# Ready")
+    expect(getItems).toHaveBeenCalledOnce()
+    await preparation.stop()
+  })
+
+  it("shares completed startup materialization with later Workspace views", async () => {
+    const getItems = vi.fn(async () => [{ content: "# Ready", key: "ready.md" }])
+    const name = registerPreparationWorkspace(getItems)
+    const preparation = createWorkspacePreparation({ workspace: name })
+
+    await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+    await expect(useWorkspace(name).fs.glob("docs/**/*.md")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/ready.md", type: "file" }),
+    ])
+    expect(getItems).toHaveBeenCalledOnce()
+    await preparation.stop()
+  })
+
+  it("validates preparation options at creation", () => {
+    expect(() => createWorkspacePreparation({ workspace: "" })).toThrow("requires a Workspace name")
+    expect(() => createWorkspacePreparation({ retryDelayMs: -1, workspace: "docs" })).toThrow("retryDelayMs")
+    expect(() => createWorkspacePreparation({ retryDelayMs: 2_147_483_648, workspace: "docs" })).toThrow("retryDelayMs")
+    expect(() => createWorkspacePreparation({ sources: [""], workspace: "docs" })).toThrow("sources")
+  })
+})
