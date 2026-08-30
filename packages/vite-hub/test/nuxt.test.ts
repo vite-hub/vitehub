@@ -668,9 +668,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     development.runPagesHook(pages)
-    const nitroConfig = development.nuxt.options.nitro as {
-      handlers?: Array<{ route: string }>
-    }
+    const nitroConfig = nitroOptions(development.nuxt)
 
     expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
     expect(nitroConfig.handlers?.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")

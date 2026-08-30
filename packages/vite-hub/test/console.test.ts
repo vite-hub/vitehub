@@ -2343,18 +2343,21 @@ describe("Agent invocation console", () => {
   it("marks truncated finish usage incomplete", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const [id, truncated] of [["complete", false], ["truncated", true]] as const) {
+      const attributes: Record<string, unknown> = {
+        "usage.record": {
+          model: id,
+          usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+        },
+      }
+      if (truncated) {
+        attributes["vitehub.observation.truncated"] = true
+      }
       store.create({
         completedAt: "2026-08-27T10:00:00.000Z",
         createdAt: "2026-08-27T09:59:00.000Z",
         id,
         observations: [{
-          attributes: {
-            "usage.record": {
-              model: id,
-              usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
-            },
-            ...(truncated ? { "vitehub.observation.truncated": true } : {}),
-          },
+          attributes,
           name: "agent.invocation.finish",
           sequence: 1,
           timestamp: "2026-08-27T10:00:00.000Z",
