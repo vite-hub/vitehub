@@ -92,9 +92,11 @@ export interface KVStorage {
   del(key: string, options?: unknown): Promise<KVResult<void>>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown>(key: string, options?: unknown): Promise<KVResult<T | null>>
+  /** Atomically returns and deletes a value when the configured store supports it. */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   getAndDelete<T = unknown>(key: string): Promise<KVResult<T | null>>
   has(key: string, options?: unknown): Promise<KVResult<boolean>>
+  /** Atomically increments a counter. The TTL is applied only when the counter is created. */
   increment(key: string, ttl: number): Promise<KVResult<number>>
   keys(base?: string, options?: unknown): Promise<KVResult<string[]>>
   list(options: KVListOptions): Promise<KVResult<KVListPage>>

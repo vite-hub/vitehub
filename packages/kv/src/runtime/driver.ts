@@ -24,7 +24,7 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
 
 const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
   "cloudflare-kv-binding": new Set(),
-  "deno-kv": new Set(["getAndDeleteItem", "incrementItem"]),
+  "deno-kv": new Set(),
   "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
   "upstash": new Set(["getAndDeleteItem", "getItems", "incrementItem"]),
 }

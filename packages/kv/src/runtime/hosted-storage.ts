@@ -22,7 +22,7 @@ export class KVStoreConfigurationError extends Error {}
 
 export class KVAtomicOperationUnsupportedError extends KVStoreConfigurationError {
   constructor(store: string) {
-    super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash or Deno KV.`)
+    super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash.`)
   }
 }
 

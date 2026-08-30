@@ -125,7 +125,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 }
 ```
 
-Upstash and Deno KV provide atomic single-use reads and counters:
+Upstash provides atomic single-use reads and counters:
 
 ```ts [server/verification.ts]
 const [consumeError, token] = await kv.getAndDelete('verification:token')
@@ -135,7 +135,7 @@ const [incrementError, attempts] = await kv.increment('rate-limit:user', 60)
 if (incrementError) throw incrementError
 ```
 
-`increment()` applies the TTL only when it creates the counter. Cloudflare KV and local `fs-lite` stores reject both methods because they cannot provide the same atomic guarantee. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) when provider-managed request budgets fit the application.
+`increment()` applies the TTL only when it creates the counter. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore reject both methods. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) when provider-managed request budgets fit the application.
 
 ## Runtime helper
 
@@ -144,10 +144,10 @@ if (incrementError) throw incrementError
 | Method | Description |
 | --- | --- |
 | `kv.get<T>(key)` | Reads a value or returns `null`. |
-| `kv.getAndDelete<T>(key)` | Atomically returns and deletes a value on Upstash and Deno KV. |
+| `kv.getAndDelete<T>(key)` | Atomically returns and deletes a value on Upstash. |
 | `kv.set<T>(key, value)` | Writes a value. |
 | `kv.has(key)` | Checks whether a key exists. |
-| `kv.increment(key, ttl)` | Atomically increments a counter on Upstash and Deno KV. |
+| `kv.increment(key, ttl)` | Atomically increments a counter on Upstash. |
 | `kv.del(key)` | Deletes one key. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |

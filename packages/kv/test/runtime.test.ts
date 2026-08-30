@@ -88,47 +88,18 @@ function createDriverWithoutOptionalMethods(): Driver {
 
 function createDenoOpenKvMock() {
   const data = new Map<string, unknown>()
-  const commitResults: boolean[] = []
-  const setOptions: Array<{ expireIn?: number } | undefined> = []
   const close = vi.fn()
   const openKv = vi.fn(async () => ({
-    atomic: () => {
-      const operations: Array<() => void> = []
-      const transaction = {
-        check: () => transaction,
-        commit: async () => {
-          const ok = commitResults.shift() ?? true
-          if (!ok) return { ok }
-          for (const operation of operations) operation()
-          return { ok: true }
-        },
-        delete: (keyParts: [string, ...unknown[]]) => {
-          const key = keyParts.join(":")
-          operations.push(() => data.delete(key))
-          return transaction
-        },
-        set: (keyParts: [string, ...unknown[]], value: unknown, options?: { expireIn?: number }) => {
-          setOptions.push(options)
-          const key = keyParts.join(":")
-          operations.push(() => data.set(key, value))
-          return transaction
-        },
-      }
-      return transaction
-    },
     close,
     delete: async ([key]: [string]) => {
       data.delete(key)
     },
-    get: async (keyParts: [string, ...unknown[]]) => {
-      const key = keyParts.join(":")
-      return {
-        // SAFETY: The mock accepts and returns the string key shapes used by this adapter.
-        key: keyParts,
-        value: data.has(key) ? data.get(key) : null,
-        versionstamp: data.has(key) ? "00000000000000010000" : null,
-      }
-    },
+    get: async ([key]: [string]) => ({
+      // SAFETY: The mock accepts and returns the single-string key shape used by this adapter.
+      key: [key] as [string],
+      value: data.has(key) ? data.get(key) : null,
+      versionstamp: data.has(key) ? "00000000000000010000" : null,
+    }),
     list: async function* () {
       for (const [key, value] of data) {
         // SAFETY: Mock data keys are strings and the adapter reads a one-element Deno tuple.
@@ -140,7 +111,7 @@ function createDenoOpenKvMock() {
     },
   }))
 
-  return { close, commitResults, data, openKv, setOptions }
+  return { close, data, openKv }
 }
 
 vi.mock("unstorage/drivers/fs-lite", () => ({
@@ -264,6 +235,8 @@ describe("kv runtime", () => {
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXISTS'")
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("if existed == 0")
     expect(upstashEval?.mock.calls[0]?.[0]).toContain("redis.call('EXPIRE'")
+    await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
+    expect(upstashEval).toHaveBeenCalledOnce()
   })
 
   it("normalizes atomic operation keys like ordinary storage operations", async () => {
@@ -279,12 +252,17 @@ describe("kv runtime", () => {
     expect(upstashEval).toHaveBeenCalledWith("attempt:path", 60)
   })
 
-  it("rejects atomic operations on local filesystem KV", async () => {
+  it("rejects atomic operations on unsupported KV stores", async () => {
     process.env.VITEHUB_HOSTING = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     await expect(kv.getAndDelete("verification")).rejects.toThrow("does not support atomic operations")
     await expect(kv.increment("attempts", 60)).rejects.toThrow("does not support atomic operations")
+
+    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
+    const denoStorage = createHostedKVStorage({ store: { driver: "deno-kv" } })
+    expect(denoStorage.getAndDeleteItem).toBeUndefined()
+    expect(denoStorage.incrementItem).toBeUndefined()
   })
 
   it("honors explicit hosting before ambient Deno KV detection", async () => {
@@ -453,95 +431,6 @@ describe("kv runtime", () => {
     await driver.dispose?.()
     expect(openKv).toHaveBeenCalledWith(":memory:")
     expect(close).toHaveBeenCalledOnce()
-  })
-
-  it("uses Deno KV transactions for atomic operations", async () => {
-    const { data, openKv, setOptions } = createDenoOpenKvMock()
-    // SAFETY: This test provides the only Deno API used by the runtime adapter.
-    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
-    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
-
-    data.set("verification", "single-use")
-    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe("single-use")
-    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBeNull()
-    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
-    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(2)
-    expect(setOptions).toHaveLength(4)
-    expect(setOptions.every(options => options?.expireIn && options.expireIn <= 60_000)).toBe(true)
-    expect(data.get("attempts:vitehub:increment-expiry")).toEqual(expect.any(Number))
-
-    setOptions.length = 0
-    data.set("existing-zero", 0)
-    await expect(driver.incrementItem?.("existing-zero", 60)).resolves.toBe(1)
-    expect(setOptions).toEqual([undefined])
-    expect(data.has("existing-zero:vitehub:increment-expiry")).toBe(false)
-
-    data.set("non-redis-integer", "1e3")
-    await expect(driver.incrementItem?.("non-redis-integer", 60)).rejects.toThrow("requires an integer value")
-
-    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
-    const storage = createHostedKVStorage({ store: { driver: "deno-kv", path: ":memory:" } })
-    await storage.setItem("json-string", "123")
-    await expect(storage.getAndDeleteItem?.("json-string")).resolves.toBe(123)
-    await storage.setItem("object", { atomic: true })
-    await expect(storage.getAndDeleteItem?.("object")).resolves.toEqual({ atomic: true })
-    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
-      await storage.setItem("number", value)
-      await expect(storage.getAndDeleteItem?.("number")).resolves.toBe(value)
-    }
-  })
-
-  it("bounds Deno KV transaction retries under contention", async () => {
-    const { commitResults, openKv } = createDenoOpenKvMock()
-    // SAFETY: This test provides the only Deno API used by the runtime adapter.
-    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
-    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
-
-    commitResults.push(...Array.from({ length: 10 }, () => false))
-    await expect(driver.incrementItem?.("contended", 60)).rejects.toThrow("exceeded 10 transaction attempts")
-  })
-
-  it("starts a fresh Deno counter window after replacement or deletion", async () => {
-    const { data, openKv, setOptions } = createDenoOpenKvMock()
-    // SAFETY: This test provides the only Deno API used by the runtime adapter.
-    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
-    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
-
-    await driver.incrementItem?.("attempts", 60)
-    data.set("attempts:vitehub:increment-expiry", Date.now() + 1_000)
-    await driver.removeItem?.("attempts", {})
-    expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
-
-    setOptions.length = 0
-    await driver.incrementItem?.("attempts", 60)
-    expect(setOptions).toHaveLength(2)
-    expect(setOptions.every(options => options?.expireIn && options.expireIn > 59_000)).toBe(true)
-
-    await driver.setItem?.("attempts", "replacement", {})
-    expect(data.has("attempts:vitehub:increment-expiry")).toBe(false)
-    await driver.incrementItem?.("single-use", 60)
-    await driver.getAndDeleteItem?.("single-use")
-    expect(data.has("single-use:vitehub:increment-expiry")).toBe(false)
-    await driver.incrementItem?.("clear-me", 60)
-    await driver.clear?.("clear", {})
-    expect(data.has("clear-me:vitehub:increment-expiry")).toBe(false)
-  })
-
-  it("resets an expired Deno counter before incrementing", async () => {
-    const { data, openKv, setOptions } = createDenoOpenKvMock()
-    // SAFETY: This test provides the only Deno API used by the runtime adapter.
-    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
-    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" })
-
-    data.set("attempts", 8)
-    data.set("attempts:vitehub:increment-expiry", Date.now() - 1)
-    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
-    expect(setOptions).toHaveLength(2)
-    expect(setOptions.every(options => options?.expireIn && options.expireIn > 59_000)).toBe(true)
   })
 
   it("bounds and resumes fs-lite listing across directories", async () => {

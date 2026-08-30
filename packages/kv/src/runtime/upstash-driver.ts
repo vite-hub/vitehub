@@ -10,6 +10,7 @@ interface UpstashClient {
   scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
 }
 
+// Check existence before INCR because an existing zero must keep its current expiry.
 const incrementScript = `
 local existed = redis.call('EXISTS', KEYS[1])
 local value = redis.call('INCR', KEYS[1])
