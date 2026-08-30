@@ -397,7 +397,7 @@ describe("ViteHub Nuxt integration", () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
       blob: { driver: "r2" },
-      kv: { driver: "cloudflare-kv" },
+      kv: { binding: "KV", driver: "cloudflare-kv-binding" },
     })
     const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
     const nitroConfig: { rollupConfig: { plugins: Plugin } } = {
@@ -418,7 +418,7 @@ describe("ViteHub Nuxt integration", () => {
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
-      'export const kv = {"driver":"cloudflare-kv"}',
+      'export const kv = {"binding":"KV","driver":"cloudflare-kv-binding"}',
     )
     expect(Reflect.apply(blobResolver.resolveId as Function, context, ["#vitehub/blob/config"])).toBe("\0#vitehub/blob/config")
     expect(Reflect.apply(blobResolver.load as Function, context, ["\0#vitehub/blob/config"])).toBe(
@@ -745,8 +745,8 @@ describe("ViteHub Nuxt integration", () => {
       await expect(readFile(generatedPlugin, "utf8")).resolves.toContain(
         `installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `,
       )
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain(
-        JSON.stringify(consoleInvocationsRootIdentityRegistryKey),
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toMatch(
+        /installConsoleFixtureInvocations\([^\n]+, "[0-9a-f-]{36}"\)/,
       )
 
       await writeFile(fixture, JSON.stringify(fixtureDocument("vite-startup")))

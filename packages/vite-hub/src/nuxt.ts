@@ -812,18 +812,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
     resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
-    generatedConsolePluginPath = await installConsole(
-      nuxt,
-      projectRoot,
-      viteRoot,
-      consoleSections,
-      consoleKVStores,
-      resolvedConsoleFixture,
-      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-      !nuxt.options.vitehubCliDiscovery,
-      !nuxt.options.vitehubCliDiscovery,
-      consoleInvocationRootState,
-    )
   }
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -1113,6 +1101,20 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           ??= nuxtAlias["@vite-hub/database/runtime/state"]
       })
     }
+  }
+  if (options.console) {
+    generatedConsolePluginPath = await installConsole(
+      nuxt,
+      projectRoot,
+      viteRoot,
+      consoleSections,
+      consoleKVStores,
+      resolvedConsoleFixture,
+      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      !nuxt.options.vitehubCliDiscovery,
+      !nuxt.options.vitehubCliDiscovery,
+      consoleInvocationRootState,
+    )
   }
 }
 

@@ -471,10 +471,10 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
-        "/api/_vitehub/console/kv",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/kv",
       ])
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
@@ -516,7 +516,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/api/_vitehub/console/kv", "/_vitehub", "/_vitehub/**"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/sections", "/_vitehub", "/_vitehub/**", "/api/_vitehub/console/kv"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
