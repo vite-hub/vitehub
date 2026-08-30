@@ -30,6 +30,12 @@ async function bundle(entry: string): Promise<string> {
 }
 
 describe("Browser optional peer bundle", () => {
+  it("keeps esbuild external in the Vite entry", async () => {
+    const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
+
+    expect(output).toContain(`from "esbuild"`)
+  })
+
   it("keeps page-session peers out of root entry points", async () => {
     const builtEntry = new URL(`../${"dist"}/index.js`, import.meta.url).pathname
     const output = await bundle(builtEntry)

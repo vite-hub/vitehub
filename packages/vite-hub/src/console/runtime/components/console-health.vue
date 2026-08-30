@@ -15,6 +15,8 @@ type Health = {
   workload: { active: number; completed: number; failed: number; snapshots: number; total: number };
 };
 
+const props = defineProps<{ endpoint: string }>();
+
 const health = ref<Health>();
 const error = ref<string>();
 const loading = ref(true);
@@ -74,9 +76,11 @@ function readinessLabel(status: Diagnostic["status"]) {
 async function load() {
   refreshing.value = true;
   try {
-    const response = await fetch("/api/health");
+    const response = await fetch(props.endpoint);
     if (!response.ok) throw new Error(`Health request failed with status ${response.status}.`);
-    health.value = (await response.json()) as Health;
+    const payload: unknown = await response.json();
+    if (!isHealth(payload)) throw new Error("The host returned an unsupported health payload.");
+    health.value = payload;
     error.value = undefined;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Health data is unavailable.";
@@ -84,6 +88,30 @@ async function load() {
     loading.value = false;
     refreshing.value = false;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value instanceof Object && !Array.isArray(value);
+}
+
+function isHealth(value: unknown): value is Health {
+  if (!isRecord(value) || !isRecord(value.workload)) return false;
+  return (
+    (value.status === "healthy" || value.status === "degraded") &&
+    typeof value.checkedAt === "string" &&
+    typeof value.summary === "string" &&
+    Array.isArray(value.diagnostics) &&
+    value.diagnostics.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.label === "string" &&
+        typeof item.value === "string" &&
+        ["neutral", "ok", "warning"].includes(String(item.status)),
+    ) &&
+    ["active", "completed", "failed", "snapshots", "total"].every(
+      (key) => typeof value.workload[key] === "number",
+    )
+  );
 }
 
 onMounted(() => {

@@ -107,10 +107,6 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
-        from: "src/console/runtime/components/console-usage-summary.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
         from: "src/console/runtime/components/console-usage.vue",
         to: "dist/console/runtime/components",
       },

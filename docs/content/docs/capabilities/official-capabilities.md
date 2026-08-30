@@ -37,7 +37,6 @@ import {
   sandbox,
   schedule,
   skills,
-  subagents,
   transcribe,
   usage,
   cost,
@@ -56,7 +55,6 @@ import {
 | Invocation access | [`access()`](/docs/capabilities/access) | Narrow chat admission or Workspace access from trusted invocation identity. |
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | Start Agent Invocations from chat messages and manage Chat History. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Transform command-shaped user input before the Agent runs. |
-| Subagents | [`subagents()`](/docs/capabilities/subagents) | Delegate bounded work to named Agent Definitions through tools. |
 
 ### Workspace
 

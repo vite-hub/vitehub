@@ -824,6 +824,10 @@
   background: color-mix(in oklab, var(--ui-error) 76%, var(--ui-bg));
 }
 
+.session-trace__row[data-status="cancelled"] .session-trace__bar {
+  background: color-mix(in oklab, var(--ui-neutral) 70%, var(--ui-bg));
+}
+
 .session-trace__row[data-status="running"] .session-trace__bar {
   background: color-mix(in oklab, var(--ui-warning) 76%, var(--ui-bg));
 }
@@ -897,6 +901,9 @@
 
 .session-trace__detail-head strong i[data-status="failed"] {
   background: var(--ui-error);
+}
+.session-trace__detail-head strong i[data-status="cancelled"] {
+  background: var(--ui-neutral);
 }
 .session-trace__detail-head strong i[data-status="running"] {
   background: var(--ui-warning);

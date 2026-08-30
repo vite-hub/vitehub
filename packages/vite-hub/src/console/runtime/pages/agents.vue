@@ -20,6 +20,7 @@ useHead({ title: computed(() => route.name?.toString().startsWith("vitehub-conso
       <ConsoleApp
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :api-base="`${appBaseURL}/api/_vitehub/console/invocations`"
+        :host-base="appBaseURL"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
         :usage-base="`${appBaseURL}/api/_vitehub/console/usage`"

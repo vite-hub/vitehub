@@ -3,7 +3,7 @@ import type { LanguageModel } from "ai"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
-import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
+import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, sandbox, schedule, skills, streamTranscription, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -1093,33 +1093,14 @@ describe("agent public types", () => {
     expectTypeOf(supportProfiles[0]?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as AgentRunInput<unknown, SupportInputContext>["context"]).toEqualTypeOf<SupportInputContext | undefined>()
-    type BrowserSubagentContext = { previewUrl: string }
-    const browserAgentInput: AgentRunInput<{ mode: "fast" }, BrowserSubagentContext> = {
+    type ChildInvocationContext = { previewUrl: string }
+    const childAgentInput: AgentRunInput<{ mode: "fast" }, ChildInvocationContext> = {
       context: { previewUrl: "https://preview.local" },
       message: "Check the product card.",
       options: { mode: "fast" },
     }
-    expectTypeOf(browserAgentInput.context?.previewUrl).toEqualTypeOf<string | undefined>()
-    expectTypeOf(browserAgentInput.options?.mode).toEqualTypeOf<"fast" | undefined>()
-    const browserToolInput: SubagentToolInput<{ mode: "fast" }, BrowserSubagentContext> = {
-      context: { previewUrl: "https://preview.local" },
-      message: "Check the product card.",
-      options: { mode: "fast" },
-    }
-    // @ts-expect-error Child invocation identity is assigned below the model tool input.
-    const legacyBrowserToolInput: SubagentToolInput = { message: "Check the product card.", runId: "review-run:browser" }
-    expectTypeOf(legacyBrowserToolInput).toMatchTypeOf<SubagentToolInput>()
-    subagents({
-      agents: {
-        browser: {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
-          },
-}),
-          description: "Collect browser evidence.",
-        },
-      },
-    })
+    expectTypeOf(childAgentInput.context?.previewUrl).toEqualTypeOf<string | undefined>()
+    expectTypeOf(childAgentInput.options?.mode).toEqualTypeOf<"fast" | undefined>()
     const supportAccess: AccessWorkspaceOptionsFor<
       typeof workspace,
       SupportInputContext,

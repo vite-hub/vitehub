@@ -38,6 +38,7 @@ const router = useRouter();
 const props = defineProps<{
   agentsBase: string;
   apiBase: string;
+  hostBase: string;
   searchBase: string;
   sectionsBase: string;
   usageBase: string;
@@ -189,7 +190,17 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
-function showHealth(): void {
+async function showHealth(): Promise<void> {
+  if (isUsageRoute.value) {
+    await router.push(
+      selectedAgentName.value
+        ? {
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+          }
+        : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") },
+    );
+  }
   activePage.value = "health";
   closeDetails();
   sessionsOpen.value = false;
@@ -201,11 +212,26 @@ function showSessions(): void {
 
 async function detectHostCapabilities(): Promise<void> {
   try {
-    const response = await fetch("/api/health", { method: "GET" });
-    healthAvailable.value = response.ok;
+    const response = await fetch(`${props.hostBase}/api/health`, { method: "GET" });
+    healthAvailable.value = response.ok && isHealth(await response.json());
   } catch {
     healthAvailable.value = false;
   }
+}
+
+function isHealth(value: unknown): boolean {
+  const health = record(value);
+  const workload = record(health?.workload);
+  return (
+    (health?.status === "healthy" || health?.status === "degraded") &&
+    typeof health.checkedAt === "string" &&
+    typeof health.summary === "string" &&
+    Array.isArray(health.diagnostics) &&
+    workload !== undefined &&
+    ["active", "completed", "failed", "snapshots", "total"].every(
+      (key) => typeof workload[key] === "number",
+    )
+  );
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -245,6 +271,7 @@ async function selectInvocation(
 ): Promise<void> {
   const agentName = invocation.agent?.trim() || selectedAgentName.value;
   if (!agentName) return;
+  showSessions();
   sessionsOpen.value = false;
   selectedAgentName.value = agentName;
   await router.push({
@@ -255,6 +282,7 @@ async function selectInvocation(
 
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
+  showSessions();
   selectedAgentName.value = name;
   selectedInvocationId.value = undefined;
   await router.push({
@@ -264,6 +292,7 @@ async function selectAgent(name: string): Promise<void> {
 }
 
 async function toggleUsage(): Promise<void> {
+  showSessions();
   sessionsOpen.value = false;
   if (isUsageRoute.value) {
     await router.push(
@@ -610,7 +639,7 @@ onBeforeUnmount(() => {
               :variant="activePage === 'health' ? 'soft' : 'ghost'"
               size="xs"
               :aria-label="activePage === 'health' ? 'Back to sessions' : 'Health'"
-              @click="activePage === 'health' ? showSessions() : showHealth()"
+              @click="activePage === 'health' ? showSessions() : void showHealth()"
             />
           </UTooltip>
           <UTooltip :text="isUsageRoute ? 'Back to sessions' : 'Usage'">
@@ -655,7 +684,7 @@ onBeforeUnmount(() => {
       id="agent-health"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
-      <template #body><ConsoleHealth /></template>
+      <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
     </UDashboardPanel>
 
     <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
@@ -765,6 +794,7 @@ onBeforeUnmount(() => {
               v-if="isDesktop && detailsOpen && detailsMaximized"
               :invocation="invocationView"
               :maximized="true"
+              :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
               class="min-h-0 flex-1"
               @close="closeDetails"
               @focus-activity="selectActivity"
@@ -788,6 +818,7 @@ onBeforeUnmount(() => {
               <template #details>
                 <ConsoleSessionInspector
                   :invocation="invocationView"
+                  :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
                   class="h-full"
                   @close="closeDetails"
                   @focus-activity="selectActivity"
@@ -817,6 +848,7 @@ onBeforeUnmount(() => {
               <template #content>
                 <ConsoleSessionInspector
                   :invocation="invocationView"
+                  :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
                   class="h-full"
                   @close="closeDetails"
                   @focus-activity="selectActivity"

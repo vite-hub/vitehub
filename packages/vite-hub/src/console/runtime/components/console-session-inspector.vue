@@ -15,7 +15,7 @@ type WorkspaceDescriptor = {
 type WorkspaceFile = { content: string; path: string; revision: string; size: number };
 
 const props = withDefaults(
-  defineProps<{ invocation: AgentInvocationView; maximized?: boolean }>(),
+  defineProps<{ invocation: AgentInvocationView; maximized?: boolean; workspaceBase?: string }>(),
   { maximized: false },
 );
 const emit = defineEmits<{ close: []; focusActivity: [activityId: string]; toggleMaximized: [] }>();
@@ -47,7 +47,11 @@ const viewMeta: Record<
     shortcut: "W",
   },
 };
-const inspectorViews: InspectorTab[] = ["details", "trace", "workspace"];
+const inspectorViews = computed<InspectorTab[]>(() => [
+  "details",
+  "trace",
+  ...(props.workspaceBase ? (["workspace"] as const) : []),
+]);
 const workspace = ref<WorkspaceDescriptor>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
@@ -92,7 +96,7 @@ const activeSurfaceExists = computed(() =>
   surfaceItems.value.some((item) => String(item.value) === activeSurface.value),
 );
 const launcherItems = computed<DropdownMenuItem[]>(() =>
-  inspectorViews.map((view) => ({
+  inspectorViews.value.map((view) => ({
     icon: viewMeta[view].icon,
     label: viewMeta[view].label,
     kbds: [viewMeta[view].shortcut],
@@ -263,6 +267,7 @@ function fileName(path: string) {
 }
 
 async function loadWorkspace() {
+  if (!props.workspaceBase) return;
   workspaceRequest?.abort();
   const controller = new AbortController();
   workspaceRequest = controller;
@@ -270,7 +275,7 @@ async function loadWorkspace() {
   workspaceError.value = undefined;
   try {
     workspace.value = await request<WorkspaceDescriptor>(
-      `/api/invocations/${encodeURIComponent(props.invocation.id)}/workspace`,
+      `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
       controller.signal,
     );
   } catch (error) {
@@ -282,6 +287,7 @@ async function loadWorkspace() {
 }
 
 async function loadFile(path: string) {
+  if (!props.workspaceBase) return;
   fileRequest?.abort();
   const controller = new AbortController();
   fileRequest = controller;
@@ -290,7 +296,7 @@ async function loadFile(path: string) {
   file.value = undefined;
   try {
     file.value = await request<WorkspaceFile>(
-      `/api/invocations/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}`,
+      `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}`,
       controller.signal,
     );
   } catch (error) {
@@ -430,7 +436,7 @@ function message(error: unknown) {
         <section class="session-inspector__instruction-fallback">
           <h4>System instructions</h4>
           <p>Resolved instructions were not recorded for this invocation.</p>
-          <button type="button" @click="openWorkspaceInstructions">
+          <button v-if="workspaceBase" type="button" @click="openWorkspaceInstructions">
             <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />

@@ -3,7 +3,7 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 
 type Observation = AgentInvocationView["observations"][number];
-type SpanStatus = "completed" | "failed" | "recovered" | "running";
+type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
 
 type TraceSpan = {
   activityId: string;
@@ -37,7 +37,10 @@ const traceStartMs = computed(
 const traceEndMs = computed(() =>
   Math.max(
     timestamp(
-      props.invocation.completedAt || props.invocation.failedAt || props.invocation.updatedAt,
+      props.invocation.completedAt ||
+        props.invocation.failedAt ||
+        props.invocation.cancelledAt ||
+        props.invocation.updatedAt,
     ),
     ...spans.value.map((span) => span.endMs),
   ),
@@ -144,11 +147,13 @@ function pairedSpan(
   invocation: AgentInvocationView,
 ): TraceSpan {
   const id = eventId(start);
-  const finishName = start.name.replace(/\.start$/, ".finish");
+  const terminalNames = ["finish", "error", "abort", "cancel"].map((suffix) =>
+    start.name.replace(/\.start$/, `.${suffix}`),
+  );
   const finish = observations.find(
     (observation) =>
       observation.sequence > start.sequence &&
-      observation.name === finishName &&
+      terminalNames.includes(observation.name) &&
       eventId(observation) === id,
   );
   const attributes = { ...start.attributes, ...finish?.attributes };
@@ -180,7 +185,11 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
   const finish = observations.find((observation) => observation.name === "agent.invocation.finish");
   const startMs = timestamp(start?.timestamp || invocation.startedAt || invocation.createdAt);
   const endMs = timestamp(
-    finish?.timestamp || invocation.completedAt || invocation.failedAt || invocation.updatedAt,
+    finish?.timestamp ||
+      invocation.completedAt ||
+      invocation.failedAt ||
+      invocation.cancelledAt ||
+      invocation.updatedAt,
   );
   return {
     activityId: start ? eventId(start) : invocation.id,
@@ -201,6 +210,8 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
     status:
       invocation.status === "failed"
         ? "failed"
+        : invocation.status === "cancelled"
+          ? "cancelled"
         : invocation.status === "running" || invocation.status === "pending"
           ? "running"
           : "completed",
@@ -247,10 +258,19 @@ function spanStatus(
   invocation: AgentInvocationView,
   operation: string,
 ): SpanStatus {
+  if (finish?.name.endsWith(".error")) return "failed";
+  if (finish?.name.endsWith(".abort") || finish?.name.endsWith(".cancel")) return "cancelled";
   if (operation === "invoke_agent")
-    return invocation.status === "failed" ? "failed" : finish ? "completed" : "running";
+    return invocation.status === "failed"
+      ? "failed"
+      : invocation.status === "cancelled"
+        ? "cancelled"
+        : finish
+          ? "completed"
+          : "running";
   if (!finish) return "running";
-  const output = record(record(attributes["tool.output"])?.item);
+  const rawOutput = record(attributes["tool.output"]);
+  const output = record(rawOutput?.item) ?? rawOutput;
   const exitCode = numeric(output?.exitCode);
   return (exitCode !== undefined && exitCode !== 0) ||
     typeof attributes["error.message"] === "string"
