@@ -126,8 +126,11 @@ describe("agent channels", () => {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
       if (url.pathname === "/user") return Response.json({ message: "Requires authentication" }, { status: 401 })
-      if (url.pathname === "/app") return Response.json({ slug: "vitehub-app" })
-      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") return Response.json([])
+      if (url.pathname === "/app") return Response.json({ id: 2468, slug: "vitehub-app" })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, performed_via_github_app: { id: 2468 } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
       if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "POST") return Response.json({ id: 7 }, { status: 201 })
       throw new Error(`Unexpected GitHub API call: ${url}`)
     })
@@ -159,6 +162,42 @@ describe("agent channels", () => {
       headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer .+\..+\..+$/) }),
       method: "GET",
     }))
+    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+  })
+
+  it("bounds serialized GitHub activity run identity", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (init?.method === "GET") return Response.json([])
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      return Response.json({ id: 7 }, { status: 201 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "x".repeat(50_000), status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "x".repeat(50_000) },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+      expect(storedBody.length).toBeLessThan(65_536)
+      expect(storedBody).not.toContain("x".repeat(1_000))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
   })
 
   it("uses normalized finish context text for default GitHub PR replies", async () => {

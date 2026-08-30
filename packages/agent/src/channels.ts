@@ -1144,6 +1144,7 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
+const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
 const githubActivityUpdates = new Map<string, Promise<void>>()
 
@@ -1166,7 +1167,7 @@ interface GitHubActivityCommentState {
 }
 
 interface GitHubActivityIdentity {
-  app?: string
+  appId?: number
   login?: string
 }
 
@@ -1179,9 +1180,9 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
   const headers = githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent)
   const appMetadata = await githubApiJson(options.fetch || fetch, `${options.apiBaseUrl || "https://api.github.com"}/app`, headers)
-  const slug = isRecord(appMetadata) ? maybeString(appMetadata.slug) : undefined
-  if (!slug) throw new Error("[vitehub] GitHub App metadata did not include a slug.")
-  return { app: slug }
+  const resolvedAppId = isRecord(appMetadata) ? maybeNumber(appMetadata.id) : undefined
+  if (!resolvedAppId) throw new Error("[vitehub] GitHub App metadata did not include an ID.")
+  return { appId: resolvedAppId }
 }
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1211,8 +1212,12 @@ function githubActivityLinksState(links: readonly { label: string, url: string }
 function isOwnedGithubActivityComment(comment: unknown, identity: GitHubActivityIdentity): boolean {
   if (!isRecord(comment) || !hasRuntimeType(comment.body, "string") || !comment.body.includes(githubActivityMarker)) return false
   const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
-  const app = isRecord(comment.performed_via_github_app) ? maybeString(comment.performed_via_github_app.slug) : undefined
-  return Boolean(identity.app ? app === identity.app : identity.login && user === identity.login)
+  const appId = isRecord(comment.performed_via_github_app) ? maybeNumber(comment.performed_via_github_app.id) : undefined
+  return Boolean(identity.appId ? appId === identity.appId : identity.login && user === identity.login)
+}
+
+function githubActivityRunId(runId: string): string {
+  return createHash("sha256").update(runId).digest("base64url")
 }
 
 function githubActivityTarget(value: unknown): GitHubActivityTarget {
@@ -1240,6 +1245,7 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
             ? [{ label: maybeString(link.label)!, url: maybeString(link.url)! }]
             : []))
           const status = maybeString(item.status)
+          // SAFETY: The membership check limits status to AgentActivityStatus values.
           return [{ links, runId: maybeString(item.runId)!, ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
         })
       : []
@@ -1248,7 +1254,7 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
     const previousRunIds = Array.isArray(value.previousRunIds)
       ? value.previousRunIds.flatMap(runId => maybeString(runId) || []).filter(runId => runId !== current?.runId)
       : history.map(entry => entry.runId)
-    return { current, history, previousRunIds: [...new Set(previousRunIds)] }
+    return { current, history, previousRunIds: [...new Set(previousRunIds)].slice(0, githubActivityPreviousRunLimit) }
   }
   catch {
     return { history: [], previousRunIds: [] }
@@ -1328,7 +1334,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           && isOwnedGithubActivityComment(comment, identity))
         const existing = owned[0]
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-        const current = { links: githubActivityLinksState(context.activity.links), runId: context.activity.runId, status: context.activity.status }
+        const current = { links: githubActivityLinksState(context.activity.links), runId: githubActivityRunId(context.activity.runId), status: context.activity.status }
         const reconcileDuplicates = async () => {
           for (const duplicate of owned.slice(1)) {
             const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined
@@ -1361,7 +1367,8 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
                 .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
                 .slice(0, githubActivityHistoryLimit),
               previousRunIds: [previous.current?.runId, ...previous.previousRunIds]
-                .filter((runId): runId is string => runId !== undefined && runId !== current.runId),
+                .filter((runId): runId is string => runId !== undefined && runId !== current.runId)
+                .slice(0, githubActivityPreviousRunLimit),
             }
         const body = renderGithubActivity(context.activity, state)
         const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined

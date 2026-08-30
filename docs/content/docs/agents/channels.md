@@ -35,7 +35,7 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. GitHub reuses an authenticated app- or bot-owned issue or pull-request comment when one is visible, updates its status from queued through completion, renders normalized harness plans as a task list, and preserves earlier session links under a collapsed section.
 
-Activity updates are ordered within one process. Across concurrent hosts, GitHub delivery is eventually best-effort: intermediate updates can coalesce and separate hosts can temporarily create duplicate managed comments. A later update reconciles owned duplicates when possible. Updates from an older run do not replace the current run or regress its terminal state.
+Activity updates are ordered within one process. Across concurrent hosts, GitHub delivery is best-effort: intermediate updates can coalesce, separate hosts can temporarily create duplicate managed comments, and overlapping writes can briefly replace newer state. A later update reconciles owned duplicates and stale state when possible. Within one process, older updates do not replace the current or terminal run.
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'
