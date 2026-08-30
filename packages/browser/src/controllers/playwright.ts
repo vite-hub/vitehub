@@ -42,9 +42,10 @@ async function loadCloudflare(): Promise<NonNullable<PlaywrightControllerOptions
   try {
     const cloudflare = await import("@cloudflare/playwright")
     return {
-      connect(binding, sessionId) {
+      async connect(binding, sessionId) {
         // SAFETY: Cloudflare supplies the Browser Worker binding accepted by its Playwright adapter.
-        return cloudflare.connect(binding as never, sessionId)
+        const browser = await cloudflare.connect(binding as never, sessionId)
+        return asPlaywrightBrowser(browser)
       },
       async launch(binding, options) {
         // SAFETY: Cloudflare supplies the Browser endpoint accepted by its Playwright adapter.
