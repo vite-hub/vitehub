@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
+import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -59,8 +59,6 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
     }
   }
 }
-
-type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
 
 interface BabelNode {
   expression?: BabelNode
@@ -154,40 +152,11 @@ async function sourceModuleDeclaresCloudflareArtifacts(
   return declaresCloudflareArtifacts
 }
 
-async function sourceModuleUsesCloudflareArtifacts(
-  file: string,
-  resolveModule?: SourceModuleResolver,
-  visited = new Set<string>(),
-): Promise<boolean> {
-  const loaded = await readSourceModule(file)
-  if (!loaded || visited.has(loaded.file)) return false
-  visited.add(loaded.file)
-  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
-
-  const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
-  for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
-    const imports = match[1]?.trim()
-    if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").map(entry => entry.trim()).filter(Boolean).every(entry => /^type\b/.test(entry))) continue
-    const specifier = match[2]!
-    const resolvedModule = specifier.startsWith(".")
-      ? resolve(dirname(loaded.file), specifier)
-      : await resolveModule?.(specifier, loaded.file)
-    const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleUsesCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
-  }
-  return false
-}
-
 async function sourceModuleMayUseCloudflareArtifacts(
   file: string,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
-  resolveModule?: SourceModuleResolver,
 ): Promise<boolean> {
-  const loaded = await readSourceModule(file)
-  if (!loaded) return false
-  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
-  if (!await sourceModuleDeclaresWorkspaceStore(file, loader)) return false
-  return await sourceModuleUsesCloudflareArtifacts(file, resolveModule)
+  return await sourceModuleDeclaresWorkspaceStore(file, loader)
 }
 
 function vercelFunctionRuntimePackages() {
@@ -275,7 +244,6 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
   options: ResolvedWorkspaceModuleOptions,
-  resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
   inspection?: { artifactsOnly?: boolean },
   resolution?: { env?: Record<string, string | undefined>, hosting?: string },
@@ -284,7 +252,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
@@ -318,7 +286,6 @@ async function resolveCloudflareArtifactsConfigs(
     artifactsOnly?: boolean
     env?: Record<string, string | undefined>
     hosting?: string
-    resolveModule?: SourceModuleResolver
     definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>
   } = {},
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
@@ -328,7 +295,6 @@ async function resolveCloudflareArtifactsConfigs(
       definitions,
       rootDir,
       config,
-      options.resolveModule,
       options.aliases,
       { artifactsOnly: options.artifactsOnly },
       { env: options.env, hosting: options.hosting },
@@ -341,11 +307,10 @@ async function writeCloudflareArtifactsProviderOutput(
   rootDir: string,
   config: false | ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
-  resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
 ): Promise<void> {
   const configs = config
-    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
+    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
   const [configuredArtifacts, previousBindings] = await Promise.all([
@@ -1048,7 +1013,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
             roots.projectRoot,
             resolvedOptions,
             definitions,
-            resolved.createResolver?.(),
             resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
           ),
         ])
