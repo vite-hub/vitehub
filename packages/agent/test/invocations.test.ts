@@ -3498,6 +3498,12 @@ describe("Agent Invocations", () => {
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
+      const completedMigrationPlan = await firstClient.execute(`EXPLAIN QUERY PLAN
+        SELECT sequence FROM vitehub_agent_invocations
+        WHERE updated_at = '' AND sequence > 0 ORDER BY sequence LIMIT 100`)
+      expect(completedMigrationPlan.rows.map(row => row.detail)).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_missing_updated_at_sequence"),
+      )
 
       const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
       await initializedStore.list()

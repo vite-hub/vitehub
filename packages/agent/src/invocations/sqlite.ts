@@ -219,6 +219,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         BEGIN
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
+        ON ${table} (sequence) WHERE updated_at = ''`)
       let backfillSequence = 0
       while (true) {
         const missingSearch = await client.execute({
