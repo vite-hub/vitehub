@@ -824,6 +824,15 @@ function createVercelNativeWorkflowContents(
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
+export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
+  const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
+  const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
+  return contents
+    .replaceAll(pathToFileURL(retainedSourcesDir).href, pathToFileURL(publishedSourcesDir).href)
+    .replaceAll(serializedRetainedSourcesDir, serializedPublishedSourcesDir)
+    .replaceAll(retainedSourcesDir, publishedSourcesDir)
+}
+
 function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition, vercelNativeFiles: Record<string, string> = {}) {
   if (definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery") {
     return renderAgentWorkflowRegistryEntry(registryFile, definition)
@@ -1393,9 +1402,7 @@ async function generateProviderOutputsWithinLock(
       await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
       const rewriteRetainedSourceImports = async (file: string) => {
         const contents = await readFile(file, "utf8")
-        const rewritten = contents
-          .replaceAll(pathToFileURL(retainedSourcesDir).href, pathToFileURL(publishedSourcesDir).href)
-          .replaceAll(retainedSourcesDir, publishedSourcesDir)
+        const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
         if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
       }
       await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))

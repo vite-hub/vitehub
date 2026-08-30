@@ -12,7 +12,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -145,6 +145,16 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   await expect(stat(publishedWorkflowFile)).resolves.toBeDefined()
   await rm(join(rootDir, ".vitehub", "workflow-generations", "test"), { force: true, recursive: true })
   expect(() => buildSync({ bundle: true, entryPoints: [join(publishedDir, "vercel-native", publishedNativeFile!)], platform: "node", write: false })).not.toThrow()
+})
+
+it("rewrites JSON-escaped Windows paths when publishing retained Workflow sources", () => {
+  const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow-generations\test\sources`
+  const publishedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
+  const contents = `import step from ${JSON.stringify(`${retainedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`
+
+  expect(rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
+    `import step from ${JSON.stringify(`${publishedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`,
+  )
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {
