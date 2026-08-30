@@ -59,6 +59,7 @@ export type { ConsoleOptions } from "./console/vite.ts"
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
 function resolveServerOptions(config: ResolvedConfig) {
+  // SAFETY: Resolved environment configs use Vite's complete resolved resolve-options shape, matching the root fallback.
   const serverResolve = (config.environments?.nitro?.resolve
     ?? config.environments?.ssr?.resolve
     ?? config.resolve) as typeof config.resolve
