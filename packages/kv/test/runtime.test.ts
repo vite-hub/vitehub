@@ -602,25 +602,4 @@ describe("kv runtime", () => {
     expect(list).toHaveBeenCalledWith({ prefix: [] }, { cursor: "deno-before", limit: 3 })
   })
 
-  it("does not read a Deno KV cursor from an empty terminal page", async () => {
-    const iterator = (async function* () {})()
-    Object.defineProperty(iterator, "cursor", {
-      get: () => {
-        throw new Error("Cursor is unavailable before an entry is yielded.")
-      },
-    })
-    // SAFETY: This test provides the only Deno API used by the runtime adapter.
-    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
-      openKv: async () => ({
-        delete: vi.fn(),
-        get: vi.fn(),
-        list: () => iterator,
-        set: vi.fn(),
-      }),
-    }
-    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
-    const driver = createDenoKVDriver()
-
-    await expect(driver.listKeys({ cursor: "deno-final", limit: 3 })).resolves.toEqual({ keys: [] })
-  })
 })

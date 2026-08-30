@@ -224,6 +224,7 @@ describe("Console KV inspection", () => {
 
     await expect(kvHandler(event("", "DELETE"))).rejects.toMatchObject({ statusCode: 405 })
     await expect(kvHandler(event("", "POST"))).rejects.toMatchObject({ statusCode: 400 })
+    await expect(kvHandler(h3V1Event({ key: "x".repeat(64 * 1_024) }))).rejects.toMatchObject({ statusCode: 413 })
     await expect(kvHandler(event("?store=unknown"))).rejects.toMatchObject({ statusCode: 404 })
     await expect(kvHandler(event("?limit=501"))).rejects.toMatchObject({ statusCode: 400 })
   })

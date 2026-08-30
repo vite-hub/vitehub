@@ -28,7 +28,8 @@ async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; 
   try {
     body = await consoleRequestJSON(event)
   }
-  catch {
+  catch (error) {
+    if (Reflect.get(Object(error), "statusCode") === 413) throw error
     throw requestError(400, "Request body must be valid JSON.")
   }
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the object boundary before reading fields.
