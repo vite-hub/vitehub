@@ -1217,6 +1217,7 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
             await rename(reclaimPath, claimedReclaimPath)
           }
           catch (claimError) {
+            // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
             if ((claimError as NodeJS.ErrnoException).code === "ENOENT") continue
             throw claimError
           }
@@ -1232,6 +1233,7 @@ async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promi
           }
           if (reclaimerAlive) {
             await rename(claimedReclaimPath, reclaimPath).catch((restoreError) => {
+              // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
               if ((restoreError as NodeJS.ErrnoException).code !== "EEXIST") throw restoreError
             })
             await rm(claimedReclaimPath, { force: true })

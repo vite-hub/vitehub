@@ -1076,6 +1076,9 @@ describe("vitehub", () => {
       },
       nitro: nitroConfig,
     }])
+    compiled = undefined
+    module(nitro)
+    if (!compiled) throw new TypeError("Expected the updated Deno output callback.")
     await compiled()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
