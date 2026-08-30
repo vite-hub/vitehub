@@ -367,8 +367,9 @@ function spanStatus(
 }
 
 function spanDescription(attributes: Record<string, unknown>) {
-  const item = record(record(attributes["tool.input"])?.item);
-  const command = item?.command;
+  const rawInput = record(attributes["tool.input"]);
+  const input = record(rawInput?.item) ?? rawInput;
+  const command = input?.command;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   if (typeof command === "string") return compact(command, 90);
   const path = attributes["tool.path"];
