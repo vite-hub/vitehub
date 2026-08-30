@@ -718,18 +718,22 @@ function sourceInlineWorkspaceStoreOperations(
           SpreadElement(path: BabelNodePath) {
             // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
             const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
+            const position = (path.node as BabelNode & { start?: number }).start
             if (
-              !babelPathBelongsToExportedStore(path)
+              position === undefined
+              || !babelPathBelongsToExportedStore(path)
               || argument?.type !== "Identifier"
               || !argument.name
             ) return
             operations.push({
               kind: "spread",
               localName: argument.name,
-              position: (path.node as BabelNode & { start?: number }).start ?? 0,
+              position,
             })
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
+            const position = (path.node as BabelNode & { start?: number }).start
+            if (position === undefined) return
             if (!babelPathBelongsToExportedStore(path)) return
             const name = babelPropertyName(path)
             if (name === "store" && babelPropertyIsTopLevelDefaultExport(path)) return
@@ -754,7 +758,7 @@ function sourceInlineWorkspaceStoreOperations(
               operations.push({
                 kind: "property",
                 name,
-                position: (path.node as BabelNode & { start?: number }).start ?? 0,
+                position,
                 value: typeof value === "string" ? value : undefined,
               })
             }
