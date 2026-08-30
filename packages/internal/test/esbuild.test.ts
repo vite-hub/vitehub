@@ -504,7 +504,7 @@ describe("bundleEsmEntry", () => {
       platform: "node",
     })
 
-    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`)
     expect(loaded.default).toBe("bare replacement")
   })
 

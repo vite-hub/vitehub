@@ -284,6 +284,10 @@ export async function bundleEsmEntry(
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+  const plugins: Plugin[] = []
+  const resolvedAliasPlugin = createResolvedAliasPlugin(options.alias)
+  if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
+  plugins.push(...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
@@ -313,7 +317,7 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
-    plugins: [createResolvedAliasPlugin(options.alias), ...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime)].filter(Boolean) as Plugin[],
+    plugins,
     sourcemap: false,
     target: "es2022",
     write: options.signal ? false : true,
