@@ -224,7 +224,7 @@ export interface ProcessReconciler extends ProcessReconcilerRunContext {
 }
 
 export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
-  if (!Number.isFinite(options.intervalMs) || options.intervalMs <= 0 || options.intervalMs > 2_147_483_647) {
+  if (!Number.isFinite(options.intervalMs) || options.intervalMs < 1 || options.intervalMs > 2_147_483_647) {
     throw new TypeError("Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.")
   }
 
@@ -263,12 +263,18 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
 
   const execute = async (): Promise<void> => {
     queued = false
-    if (closed) return
     if (running) {
       rerun = true
       return await running
     }
-    running = (async () => {
+    let resolveActive!: () => void
+    let rejectActive!: (error: unknown) => void
+    const active = new Promise<void>((resolve, reject) => {
+      resolveActive = resolve
+      rejectActive = reject
+    })
+    running = active
+    void (async () => {
       do {
         rerun = false
         const currentReason = reason
@@ -279,12 +285,15 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
         catch (error) {
           await options.onError?.(error, currentReason)
         }
-      } while (!closed && rerun)
-    })().finally(() => {
-      running = undefined
+      } while (rerun)
+    })().then(resolveActive, rejectActive)
+    try {
+      await active
+    }
+    finally {
+      if (running === active) running = undefined
       scheduleRepair()
-    })
-    return await running
+    }
   }
 
   const wake = (nextReason: string) => {
@@ -327,6 +336,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
 
       status = "draining"
       closed = true
+      if (queued && !running) await Promise.resolve()
       const admittedRun = running
       if (timer) clearTimeout(timer)
       timer = undefined

@@ -55,6 +55,60 @@ describe("createProcessReconciler", () => {
     await reconciler.close()
   })
 
+  it("drains a wake admitted before its queued execution", async () => {
+    const run = vi.fn()
+    const reconciler = createProcessReconciler({ intervalMs: 60_000, run, signal: false })
+
+    reconciler.wake("webhook")
+    await reconciler.drain()
+
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith("webhook", expect.anything())
+    expect(reconciler.status()).toBe("drained")
+  })
+
+  it("drains a rerun admitted during reconciliation", async () => {
+    const first = deferred()
+    const reasons: string[] = []
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      run: async (reason) => {
+        reasons.push(reason)
+        if (reasons.length === 1) await first.promise
+      },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await vi.waitFor(() => expect(reasons).toEqual(["startup"]))
+    reconciler.wake("webhook")
+    const draining = reconciler.drain()
+    first.resolve()
+    await draining
+
+    expect(reasons).toEqual(["startup", "webhook"])
+    expect(reconciler.status()).toBe("drained")
+  })
+
+  it("publishes the active run to a reentrant drain", async () => {
+    const finished = deferred()
+    let draining: Promise<void> | undefined
+    const reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      run() {
+        draining = reconciler.drain()
+        finished.resolve()
+      },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await finished.promise
+    await draining
+
+    expect(reconciler.status()).toBe("drained")
+  })
+
   it("quiesces and waits for tracked work before reporting drained", async () => {
     const work = deferred()
     const lifecycle: string[] = []
@@ -212,7 +266,7 @@ describe("createProcessReconciler", () => {
 
     await expect(reconciler.drain()).rejects.toThrow("final tracked work failed")
     expect(reconciler.status()).toBe("failed")
-    expect(reconciler.track(Promise.resolve("terminal"))).resolves.toBe("terminal")
+    await expect(reconciler.track(Promise.resolve("terminal"))).resolves.toBe("terminal")
   })
 
   it("does not retain work tracked after a successful drain", async () => {
@@ -252,6 +306,9 @@ describe("createProcessReconciler", () => {
 
   it("rejects invalid repair intervals", () => {
     expect(() => createProcessReconciler({ intervalMs: 0, run() {} })).toThrow(
+      "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.",
+    )
+    expect(() => createProcessReconciler({ intervalMs: 0.5, run() {} })).toThrow(
       "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.",
     )
     expect(() => createProcessReconciler({ intervalMs: 2_147_483_648, run() {} })).toThrow(
