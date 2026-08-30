@@ -69,7 +69,7 @@ describe("ViteHub CLI", () => {
     await mkdir(packageDir, { recursive: true })
     await cp(resolve(import.meta.dirname, "../dist"), join(packageDir, "dist"), { recursive: true })
     await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
-    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(packageDir, "node_modules"), "dir")
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(packageDir, "node_modules"), "dir")
 
     const { stderr, stdout } = await execFileAsync(process.execPath, [join(packageDir, "dist/index.js"), "--version"], {
       cwd: rootDir,
