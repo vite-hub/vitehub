@@ -55,6 +55,11 @@ const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
 const detailsMaximized = ref(false);
+const inspectorTab = ref<"details" | "trace" | "workspace">("details");
+const inspectorActiveSurface = ref("view:details");
+const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["details"]);
+const inspectorOpenPaths = ref<string[]>([]);
+const inspectorSelectedPath = ref<string>();
 const activePage = ref<"health" | "sessions">("sessions");
 const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
@@ -795,6 +800,11 @@ onBeforeUnmount(() => {
               :invocation="invocationView"
               :maximized="true"
               :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+              v-model:tab="inspectorTab"
+              v-model:active-surface="inspectorActiveSurface"
+              v-model:open-views="inspectorOpenViews"
+              v-model:open-paths="inspectorOpenPaths"
+              v-model:selected-path="inspectorSelectedPath"
               class="min-h-0 flex-1"
               @close="closeDetails"
               @focus-activity="selectActivity"
@@ -819,6 +829,11 @@ onBeforeUnmount(() => {
                 <ConsoleSessionInspector
                   :invocation="invocationView"
                   :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+                  v-model:tab="inspectorTab"
+                  v-model:active-surface="inspectorActiveSurface"
+                  v-model:open-views="inspectorOpenViews"
+                  v-model:open-paths="inspectorOpenPaths"
+                  v-model:selected-path="inspectorSelectedPath"
                   class="h-full"
                   @close="closeDetails"
                   @focus-activity="selectActivity"
@@ -848,11 +863,16 @@ onBeforeUnmount(() => {
               <template #content>
                 <ConsoleSessionInspector
                   :invocation="invocationView"
+                  :maximizable="false"
                   :workspace-base="healthAvailable ? `${hostBase}/api/invocations` : undefined"
+                  v-model:tab="inspectorTab"
+                  v-model:active-surface="inspectorActiveSurface"
+                  v-model:open-views="inspectorOpenViews"
+                  v-model:open-paths="inspectorOpenPaths"
+                  v-model:selected-path="inspectorSelectedPath"
                   class="h-full"
                   @close="closeDetails"
                   @focus-activity="selectActivity"
-                  @toggle-maximized="detailsMaximized = true"
                 />
               </template>
             </USlideover>

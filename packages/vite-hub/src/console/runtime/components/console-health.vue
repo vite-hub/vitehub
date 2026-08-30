@@ -22,6 +22,7 @@ const error = ref<string>();
 const loading = ref(true);
 const refreshing = ref(false);
 let poll: ReturnType<typeof setInterval> | undefined;
+let healthRequest: AbortController | undefined;
 
 const checkedLabel = computed(() =>
   health.value
@@ -74,19 +75,29 @@ function readinessLabel(status: Diagnostic["status"]) {
 }
 
 async function load() {
+  healthRequest?.abort();
+  const controller = new AbortController();
+  healthRequest = controller;
   refreshing.value = true;
   try {
-    const response = await fetch(props.endpoint);
+    const response = await fetch(props.endpoint, { signal: controller.signal });
     if (!response.ok) throw new Error(`Health request failed with status ${response.status}.`);
     const payload: unknown = await response.json();
     if (!isHealth(payload)) throw new Error("The host returned an unsupported health payload.");
-    health.value = payload;
-    error.value = undefined;
+    if (healthRequest === controller) {
+      health.value = payload;
+      error.value = undefined;
+    }
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Health data is unavailable.";
+    if (cause instanceof Object && "name" in cause && cause.name === "AbortError") return;
+    if (healthRequest === controller) {
+      error.value = cause instanceof Error ? cause.message : "Health data is unavailable.";
+    }
   } finally {
-    loading.value = false;
-    refreshing.value = false;
+    if (healthRequest === controller) {
+      loading.value = false;
+      refreshing.value = false;
+    }
   }
 }
 
@@ -121,6 +132,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (poll) clearInterval(poll);
+  healthRequest?.abort();
 });
 </script>
 

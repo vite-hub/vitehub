@@ -15,8 +15,13 @@ type WorkspaceDescriptor = {
 type WorkspaceFile = { content: string; path: string; revision: string; size: number };
 
 const props = withDefaults(
-  defineProps<{ invocation: AgentInvocationView; maximized?: boolean; workspaceBase?: string }>(),
-  { maximized: false },
+  defineProps<{
+    invocation: AgentInvocationView;
+    maximized?: boolean;
+    maximizable?: boolean;
+    workspaceBase?: string;
+  }>(),
+  { maximized: false, maximizable: true },
 );
 const emit = defineEmits<{ close: []; focusActivity: [activityId: string]; toggleMaximized: [] }>();
 const tab = defineModel<InspectorTab>("tab", { default: "details" });
@@ -388,7 +393,9 @@ function message(error: unknown) {
         </UDropdownMenu>
       </div>
       <div class="session-inspector__actions">
-        <UTooltip :text="props.maximized ? 'Restore panel size' : 'Maximize panel'"
+        <UTooltip
+          v-if="props.maximizable"
+          :text="props.maximized ? 'Restore panel size' : 'Maximize panel'"
           ><UButton
             class="session-inspector__icon-button"
             :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
