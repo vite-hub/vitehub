@@ -71,24 +71,40 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
         let match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
           ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(canonicalAlias)
           : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
+        let matchedAlias: string | undefined
+        let matchedSpecifier: string | undefined
         if (!match && isAbsolute(specifier)) {
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
-            const resolvedAlias = await build.resolve(alias.specifier, {
-              importer: args.importer,
-              kind: args.kind,
-              namespace: args.namespace,
-              pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-              resolveDir: args.resolveDir,
-              with: args.with,
-            })
-            if (resolvedAlias.errors.length || resolvedAlias.external || resolvedAlias.namespace !== "file") continue
-            const normalizedAlias = normalizePathSeparators(resolve(resolvedAlias.path))
-            const canonicalAlias = normalizePathSeparators(await realpath(normalizedAlias).catch(() => normalizedAlias))
-            if (alias.prefix
-              ? normalizedSpecifier.startsWith(normalizedAlias) || canonicalSpecifier.startsWith(canonicalAlias)
-              : normalizedSpecifier === normalizedAlias || canonicalSpecifier === canonicalAlias) {
+            let resolvedAliasPath: string
+            if (args.resolveDir && alias.prefix && /^\.\.?[\\/]/.test(alias.specifier)) {
+              resolvedAliasPath = normalizePathSeparators(resolve(args.resolveDir, alias.specifier))
+            }
+            else {
+              const resolvedAlias = await build.resolve(alias.specifier, {
+                importer: args.importer,
+                kind: args.kind,
+                namespace: args.namespace,
+                pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+                resolveDir: args.resolveDir,
+                with: args.with,
+              })
+              if (resolvedAlias.errors.length || resolvedAlias.external || resolvedAlias.namespace !== "file") continue
+              resolvedAliasPath = normalizePathSeparators(resolve(resolvedAlias.path))
+            }
+            const normalizedAlias = `${resolvedAliasPath}${alias.prefix && !resolvedAliasPath.endsWith("/") ? "/" : ""}`
+            const canonicalAliasPath = normalizePathSeparators(await realpath(resolvedAliasPath).catch(() => resolvedAliasPath))
+            const canonicalAlias = `${canonicalAliasPath}${alias.prefix && !canonicalAliasPath.endsWith("/") ? "/" : ""}`
+            const normalizedMatch = alias.prefix
+              ? normalizedSpecifier.startsWith(normalizedAlias)
+              : normalizedSpecifier === normalizedAlias
+            const canonicalMatch = alias.prefix
+              ? canonicalSpecifier.startsWith(canonicalAlias)
+              : canonicalSpecifier === canonicalAlias
+            if (normalizedMatch || canonicalMatch) {
               match = alias
+              matchedAlias = canonicalMatch ? canonicalAlias : normalizedAlias
+              matchedSpecifier = canonicalMatch ? canonicalSpecifier : normalizedSpecifier
               break
             }
           }
@@ -111,10 +127,10 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
               : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
           }
         }
-        const matchedAlias = match && canonicalSpecifier.startsWith(match.canonicalSpecifier)
+        matchedAlias ||= match && canonicalSpecifier.startsWith(match.canonicalSpecifier)
           ? match.canonicalSpecifier
           : match?.specifier
-        const matchedSpecifier = matchedAlias === match?.canonicalSpecifier ? canonicalSpecifier : normalizedSpecifier
+        matchedSpecifier ||= matchedAlias === match?.canonicalSpecifier ? canonicalSpecifier : normalizedSpecifier
         const target = match?.prefix
           ? `${match.replacement}${matchedSpecifier.slice(matchedAlias!.length)}`
           : match?.replacement

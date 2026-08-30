@@ -158,6 +158,34 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("slices resolved relative prefix aliases from their absolute base", async () => {
+    const rootDir = await createTempDir()
+    const sourceDir = resolve(rootDir, "src")
+    const replacementDir = resolve(rootDir, "replacement")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(resolve(sourceDir, "jobs"), { recursive: true }),
+      mkdir(resolve(replacementDir, "jobs"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(resolve(sourceDir, "jobs/task.mjs"))}\n`, "utf8"),
+      writeFile(resolve(sourceDir, "jobs/task.mjs"), "export const value = 'original'\n", "utf8"),
+      writeFile(resolve(replacementDir, "jobs/task.mjs"), "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+    expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
   it("keeps explicit trailing-slash aliases exact", async () => {
     const rootDir = await createTempDir()
     const replacement = resolve(rootDir, "replacement.mjs")
