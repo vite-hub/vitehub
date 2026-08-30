@@ -54,13 +54,14 @@ export function discoverConsoleBuildCatalog(options: {
   projectRoot: string
   sections: readonly ConsoleSectionId[]
   serverDirs?: string[]
+  workflowDiscoveryRoot?: string
 }): ConsoleBuildCatalog {
   const agents = options.sections.includes("agents")
     ? discoverAgentDefinitionEntries(options.discoveryRoot, options.serverDirs)
     : []
   const workflows = options.sections.includes("workflows")
     ? discoverWorkflowDefinitions({
-        rootDir: options.discoveryRoot,
+        rootDir: options.workflowDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.serverDirs,
       })
         .filter(definition => definition.source !== "agent-workflow-recovery")

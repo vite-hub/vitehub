@@ -376,6 +376,7 @@ async function installConsole(
   nuxt: NuxtLike,
   projectRoot: string,
   discoveryRoot: string,
+  workflowDiscoveryRoot: string,
   sections: readonly ConsoleSectionId[],
   kvStores: readonly string[],
   fixture?: string,
@@ -500,7 +501,13 @@ async function installConsole(
     const discoverySections = canDiscoverWorkflows()
       ? sections
       : sections.filter(section => section !== "workflows")
-    const catalog = discoverConsoleBuildCatalog({ discoveryRoot, projectRoot, sections: discoverySections, serverDirs })
+    const catalog = discoverConsoleBuildCatalog({
+      discoveryRoot,
+      projectRoot,
+      sections: discoverySections,
+      serverDirs,
+      workflowDiscoveryRoot,
+    })
     const identity = await writeConsoleNitroPlugin(
       plugin,
       projectRoot,
@@ -1100,10 +1107,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       reconcileConsoleDefinitionsHandler(config, consoleSections.includes("workflows"))
       const consoleCatalog = discoverConsoleBuildCatalog({
-        discoveryRoot: rootDir,
+        discoveryRoot: viteRoot,
         projectRoot,
         sections: consoleSections,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        workflowDiscoveryRoot: rootDir,
       })
       await writeConsoleNitroPlugin(
         generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
@@ -1168,6 +1176,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nuxt,
       projectRoot,
       viteRoot,
+      rootDir,
       consoleSections,
       consoleKVStores,
       resolvedConsoleFixture,

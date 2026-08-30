@@ -711,28 +711,43 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it("discovers Nuxt Console Workflows from the runtime definition root", async () => {
+  it("discovers Nuxt Console Agents and Workflows from their runtime definition roots", async () => {
     const rootWorkflow = "/tmp/vitehub-nuxt/release.workflow.ts"
     const viteWorkflow = "/tmp/vitehub-nuxt/app/preview.workflow.ts"
+    const rootAgent = "/tmp/vitehub-nuxt/unrelated.agent.ts"
+    const viteAgent = "/tmp/vitehub-nuxt/app/support.agent.ts"
     await mkdir(resolve(viteWorkflow, ".."), { recursive: true })
     await writeFile(rootWorkflow, "export default defineWorkflow(async () => undefined)\n")
     await writeFile(viteWorkflow, "export default defineWorkflow(async () => undefined)\n")
+    await writeFile(rootAgent, "export default defineAgent({})\n")
+    await writeFile(viteAgent, "export default defineAgent({})\n")
     const development = createNuxt(true)
     development.nuxt.options.serverDir = undefined
     development.nuxt.options.vite.root = "/tmp/vitehub-nuxt/app"
 
     try {
-      await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
+      await viteHubNuxtModule({ agent: true, console: true, preset: "node", workflow: true }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
-      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      let generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
 
       expect(generated).toContain('"file":"release.workflow.ts","name":"release"')
       expect(generated).not.toContain('"name":"preview"')
+      expect(generated).toContain('fallbackName: "support"')
+      expect(generated).not.toContain('fallbackName: "unrelated"')
+
+      await development.runBuilderWatchHook(viteAgent)
+      generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain('"file":"release.workflow.ts","name":"release"')
+      expect(generated).not.toContain('"name":"preview"')
+      expect(generated).toContain('fallbackName: "support"')
+      expect(generated).not.toContain('fallbackName: "unrelated"')
     }
     finally {
       await rm(rootWorkflow, { force: true })
       await rm(viteWorkflow, { force: true })
+      await rm(rootAgent, { force: true })
+      await rm(viteAgent, { force: true })
     }
   })
 
