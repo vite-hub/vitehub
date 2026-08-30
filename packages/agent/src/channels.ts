@@ -1141,6 +1141,25 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
   return limit > 0 ? items.slice(0, limit) : items
 }
 
+async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, headers: Record<string, string>, limit: number): Promise<unknown[]> {
+  const firstResponse = await fetcher(githubApiPageUrl(url, 1), { headers, method: "GET" })
+  if (!firstResponse.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${firstResponse.status}.`)
+  const firstItems = await firstResponse.json().catch(() => undefined)
+  if (!Array.isArray(firstItems) || !firstItems.length) return []
+  const lastPage = githubApiLastPage(firstResponse.headers.get("link"))
+  if (!lastPage || lastPage === 1) return firstItems.slice(-limit).reverse()
+  const items: unknown[] = []
+  const pageLimit = Math.ceil(limit / 100)
+  for (let page = lastPage; page > Math.max(0, lastPage - pageLimit) && items.length < limit; page--) {
+    const response = await fetcher(githubApiPageUrl(url, page), { headers, method: "GET" })
+    if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+    const pageItems = await response.json().catch(() => undefined)
+    if (!Array.isArray(pageItems)) break
+    items.push(...pageItems.reverse())
+  }
+  return items.slice(0, limit)
+}
+
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
@@ -1394,14 +1413,10 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
         const knownActiveRun = trackActiveRuns && activeRuns.has(runId)
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
-        const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
+        const commentsUrl = `${commentsTarget}/comments`
         const knownCommentId = commentIds.get(activityKey)
-        const comments = await githubApiJsonPages(
-          fetcher,
-          commentsUrl,
-          headers,
-          knownCommentId ? githubActivityCommentLookupLimit : githubActivityRestartLookupLimit,
-        )
+        const comments = await githubApiJsonRecentPages(fetcher, commentsUrl, headers,
+          knownCommentId ? githubActivityCommentLookupLimit : githubActivityRestartLookupLimit)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
         let existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId)
@@ -1500,6 +1515,13 @@ function githubApiPageUrl(url: string, page: number): string {
 
 function githubApiNextPageUrl(link: string | null): string | undefined {
   return link?.split(",").map(part => part.trim()).find(part => part.endsWith(`rel="next"`))?.match(/^<([^>]+)>/)?.[1]
+}
+
+function githubApiLastPage(link: string | null): number | undefined {
+  const last = link?.split(",").map(part => part.trim()).find(part => part.endsWith(`rel="last"`))?.match(/^<([^>]+)>/)?.[1]
+  if (!last) return
+  const page = Number(new URL(last).searchParams.get("page"))
+  return Number.isSafeInteger(page) && page > 0 ? page : undefined
 }
 
 function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(

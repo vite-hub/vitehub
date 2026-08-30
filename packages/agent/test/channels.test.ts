@@ -114,7 +114,7 @@ describe("agent channels", () => {
       expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
       expect(stored?.body).toContain("agent-running-0969da")
       expect(stored?.body).toContain("- [ ] ⏳ Review changes")
-      expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com) \\*text\\*")
+      expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com\\) \\*text\\*")
       expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Previous sessions</summary>")
@@ -544,8 +544,12 @@ describe("agent channels", () => {
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
       if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
         const page = url.searchParams.get("page")
-        if (page === "1") return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 100 })))
-        if (page === "2") return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
+        if (page === null) {
+          return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 1 })), {
+            headers: { link: `<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=7>; rel="last"` },
+          })
+        }
+        if (page === "7") return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
         return Response.json([])
       }
       if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })

@@ -243,7 +243,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
-  it("does not await pending raw-stream usage after early termination", async () => {
+  it("does not await pending raw-stream usage after cancellation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const usage = new Promise<never>(() => {})
@@ -261,7 +261,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await iterator.return?.()
 
-    expect(finish).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
   })
 
   it("does not await pending raw-stream usage after full consumption", async () => {

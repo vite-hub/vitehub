@@ -11181,7 +11181,8 @@ describe("agent message protocol", () => {
         traceLog = context.traceLog
         return {
           fullStream: (async function* () {
-            yield { type: "finish" }
+            yield { type: "start" }
+            await new Promise<void>(() => {})
           })(),
           toUIMessageStream() {
             return new ReadableStream({
@@ -11228,7 +11229,7 @@ describe("agent message protocol", () => {
     expect(cancelReason).toBeUndefined()
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
-      "agent.stream.finish",
+      "agent.stream.start",
       "agent.invocation.cancelled",
     ])
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "cancelled" }])
