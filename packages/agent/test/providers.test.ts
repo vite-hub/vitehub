@@ -336,6 +336,12 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  it("serializes shared Provider Output finalization", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+
+    expect(hubAgent().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("activates eval tooling only while executable eval files exist", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-discovery-"))

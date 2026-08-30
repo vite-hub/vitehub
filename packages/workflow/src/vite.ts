@@ -304,6 +304,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

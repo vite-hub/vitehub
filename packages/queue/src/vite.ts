@@ -365,6 +365,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

@@ -2853,6 +2853,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || resolved.command !== "build") return
         await finalizeProviderDeploymentOutputs(providerOutput)

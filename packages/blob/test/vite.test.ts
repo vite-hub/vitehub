@@ -29,6 +29,10 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubBlob>) {
 }
 
 describe("hubBlob", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubBlob().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("uses the bundled driver in the Nitro Vercel shared runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-runtime-"))
     try {

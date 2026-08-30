@@ -719,6 +719,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)
