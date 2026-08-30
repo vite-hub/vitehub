@@ -23,28 +23,32 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     const root = resolve(options.base)
     const keys: string[] = []
 
-    async function* walk(directory: string): AsyncGenerator<string | undefined> {
-      let entries
-      try {
-        entries = await opendir(directory)
-      }
-      catch (error) {
-        if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
-        throw error
-      }
-      for await (const entry of entries) {
-        const path = join(directory, entry.name)
-        if (entry.isDirectory()) {
-          yield undefined
-          yield* walk(path)
-          continue
+    async function* walk(): AsyncGenerator<string | undefined> {
+      const pendingDirectories = [root]
+      while (pendingDirectories.length > 0) {
+        const directory = pendingDirectories.pop()!
+        let entries
+        try {
+          entries = await opendir(directory)
         }
-        if (entry.isFile()) yield relative(root, path)
+        catch (error) {
+          if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
+          throw error
+        }
+        for await (const entry of entries) {
+          const path = join(directory, entry.name)
+          if (entry.isDirectory()) {
+            pendingDirectories.push(path)
+            yield undefined
+            continue
+          }
+          if (entry.isFile()) yield relative(root, path)
+        }
       }
     }
 
     const continuation = cursor ? continuations.get(cursor) : undefined
-    const iterator = continuation?.iterator ?? (cursor ? undefined : walk(root))
+    const iterator = continuation?.iterator ?? (cursor ? undefined : walk())
     if (!iterator) {
       throw Object.assign(new TypeError("Invalid or expired fs-lite KV cursor."), { code: "KV_CURSOR_EXPIRED" })
     }

@@ -365,7 +365,7 @@ describe("kv runtime", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("bounds and resumes fs-lite listing in filesystem traversal order", async () => {
+  it("bounds and resumes fs-lite listing across directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
     try {
       await mkdir(join(root, "a"))
@@ -376,9 +376,10 @@ describe("kv runtime", () => {
 
       const first = await driver.listKeys({ limit: 1, prefix: "missing" })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
+      const third = await driver.listKeys({ cursor: second.cursor, limit: 1, prefix: "" })
 
       expect(first).toMatchObject({ keys: [], cursor: expect.any(String) })
-      expect(second.keys).toEqual(["a:x"])
+      expect([...second.keys, ...third.keys]).toEqual(expect.arrayContaining(["a0", "a:x"]))
     }
     finally {
       await rm(root, { force: true, recursive: true })
