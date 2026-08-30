@@ -76,6 +76,7 @@ interface BabelNode {
   specifiers?: BabelNode[]
   local?: BabelNode
   exported?: BabelNode
+  left?: BabelNode
   type?: string
   value?: BabelNode | unknown
 }
@@ -116,6 +117,14 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
   seen.add(path)
   for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
     if (current.node.type === "ExportDefaultDeclaration") return true
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && current.node.left.object?.type === "Identifier"
+      && current.node.left.object.name === "module"
+      && current.node.left.property?.type === "Identifier"
+      && current.node.left.property.name === "exports"
+    ) return true
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
       if (binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference, seen))) return true
@@ -277,8 +286,10 @@ async function sourceModuleMayUseCloudflareArtifacts(
   exportedName = "default",
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
-  if (!loaded || visited.has(loaded.file)) return false
-  visited.add(loaded.file)
+  if (!loaded) return false
+  const visitKey = `${loaded.file}\0${exportedName}`
+  if (visited.has(visitKey)) return false
+  visited.add(visitKey)
   if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
   for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
@@ -306,6 +317,18 @@ function sourceImportsFeedingWorkspaceStore(
     babel: {
       plugins: [() => ({
         visitor: {
+          ExportNamedDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            if (typeof specifier !== "string") return
+            for (const exported of path.node.specifiers ?? []) {
+              const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
+              if (exportedAs !== exportedName) continue
+              imports.push({
+                importedName: String(exported.local?.name ?? exported.local?.value),
+                specifier,
+              })
+            }
+          },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
             if (typeof specifier !== "string") return
