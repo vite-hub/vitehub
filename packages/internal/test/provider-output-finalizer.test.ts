@@ -412,6 +412,7 @@ describe("Provider Output finalizer", () => {
     ["malformed JSON", "not-json\n"],
     ["an object", '{"binding":"SETTINGS"}\n'],
     ["an array with an object", '["SETTINGS",{"binding":"OTHER"}]\n'],
+    ["an array with a non-string primitive", '["SETTINGS",42]\n'],
   ])("removes the Cloudflare backup when persisted ownership contains %s", async (_description, persistedOwnership) => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()

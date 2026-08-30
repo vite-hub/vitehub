@@ -221,15 +221,6 @@ function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
 
-type ProviderOutputOwnershipValue = boolean | null | number | string
-
-function isProviderOutputOwnershipValue(value: unknown): value is ProviderOutputOwnershipValue {
-  if (value === null) return true
-  const tag = Object.prototype.toString.call(value)
-  if (tag === "[object Number]") return Number.isFinite(Number(value))
-  return tag === "[object Boolean]" || tag === "[object String]"
-}
-
 function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
   if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
     throw new TypeError(`Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}`)
@@ -237,10 +228,11 @@ function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string
   return resolve(outputRoot, fileName)
 }
 
-async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<ProviderOutputOwnershipValue[]> {
+async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<string[]> {
   try {
     const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
-    if (!Array.isArray(parsed) || !parsed.every(isProviderOutputOwnershipValue)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted ownership files currently store KV binding names, so every entry must be a string.
+    if (!Array.isArray(parsed) || !parsed.every(value => typeof value === "string")) {
       throw new TypeError(`Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}`)
     }
     return parsed
