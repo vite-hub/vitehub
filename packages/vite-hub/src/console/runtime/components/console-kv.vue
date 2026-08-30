@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TableColumn, TableRow } from "@nuxt/ui";
+import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -80,6 +81,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function queryString(value: LocationQueryValue | LocationQueryValue[]): string | undefined {
+  return value === null || Array.isArray(value) ? undefined : value;
 }
 
 function parseList(value: unknown): KVListResponse {
@@ -226,7 +231,7 @@ async function loadKeys(
       listLoading.value = false;
     }
   }
-  if (retryExpiredCursor) await loadKeys({ keepSelection: true });
+  if (retryExpiredCursor) await loadKeys({ keepMissingSelection: true, keepSelection: true });
 }
 
 async function selectKey(key: string): Promise<void> {
@@ -241,11 +246,11 @@ function selectRow(_event: Event, row: TableRow<KVRow>): void {
 }
 
 async function refresh(): Promise<void> {
-  await loadKeys({ keepSelection: true });
+  await loadKeys({ keepMissingSelection: true, keepSelection: true });
 }
 
 async function loadMore(): Promise<void> {
-  await loadKeys({ append: true, keepSelection: true });
+  await loadKeys({ append: true, keepMissingSelection: true, keepSelection: true });
 }
 
 function syncRouteSelection(): void {
@@ -267,10 +272,9 @@ watch(selectedStore, async () => {
 });
 
 async function applyRouteSelection(): Promise<void> {
-  const store = route.query.store;
-  const key = route.query.key;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
-  if (typeof store !== "string") {
+  const store = queryString(route.query.store);
+  const key = queryString(route.query.key);
+  if (store === undefined) {
     if (selectedStore.value === "default" && selectedKey.value === undefined) return;
     applyingRouteSelection = true;
     selectedStore.value = "default";
@@ -282,7 +286,7 @@ async function applyRouteSelection(): Promise<void> {
     }
     return;
   }
-  if (typeof key !== "string") {
+  if (key === undefined) {
     if (selectedStore.value === store && selectedKey.value === undefined) return;
     applyingRouteSelection = true;
     selectedStore.value = store;
@@ -307,8 +311,7 @@ async function applyRouteSelection(): Promise<void> {
 
 onMounted(() => {
   rememberConsoleSection("kv");
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before KV lookup.
-  if (typeof route.query.store === "string") {
+  if (queryString(route.query.store) !== undefined) {
     void applyRouteSelection();
   } else void loadKeys();
 });

@@ -158,16 +158,19 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   ...(definitionSearchItems.value.length
     ? [{ id: "definitions", items: definitionSearchItems.value, label: "Definitions" }]
     : []),
-  ...(kvSearchItems.value.length || kvSearchTruncated.value
+  ...(kvSearchItems.value.length
     ? [{
         id: "kv",
-        items: [
-          ...kvSearchItems.value,
-          ...(kvSearchTruncated.value
-            ? [{ disabled: true, icon: "i-ph-warning-light", label: "More matching keys may exist" }]
-            : []),
-        ],
+        items: kvSearchItems.value,
         label: "KV keys",
+      }]
+    : []),
+  ...(kvSearchTruncated.value
+    ? [{
+        id: "kv-status",
+        ignoreFilter: true,
+        items: [{ disabled: true, icon: "i-ph-warning-light", label: "More matching keys may exist" }],
+        label: "KV status",
       }]
     : []),
   ...(agentsEnabled.value
