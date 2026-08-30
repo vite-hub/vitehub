@@ -71,6 +71,19 @@ async function installedVersion(path: string) {
   return version
 }
 
+async function requiredPeerSpecs() {
+  return {
+    ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
+    "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
+    "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
+    "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
+    "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
+    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
+  }
+}
+
 function requiredDependency(manifest: { dependencies?: Record<string, string> }, name: string) {
   const version = manifest.dependencies?.[name]
   if (!version) throw new Error(`Consumer fixture must declare ${name}`)
@@ -91,12 +104,7 @@ async function packPublicPackages(packDir: string) {
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
   const requiredPeers = {
-    ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
-    "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
-    "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
-    "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
-    "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
-    "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    ...await requiredPeerSpecs(),
     typescript: await installedVersion(join(repoRoot, "node_modules/typescript/package.json")),
   }
 
@@ -281,16 +289,7 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
 }
 
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
-  const requiredPeerSpecs: Record<string, string> = {
-    ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
-    "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
-    "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
-    "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
-    "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
-    "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
-    vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
-    vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
-  }
+  const requiredPeerVersions = await requiredPeerSpecs()
 
   for (const info of packageInfos) {
     const appDir = join(root, "absent-peers", info.name)
@@ -315,7 +314,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
         ].map(name => {
-          const spec = specs[name] || requiredPeerSpecs[name]
+          const spec = specs[name] || requiredPeerVersions[name as keyof typeof requiredPeerVersions]
           if (!spec) throw new Error(`Missing required peer spec for ${name}`)
           return [name, spec]
         })),
@@ -536,11 +535,11 @@ describe("published declaration diagnostics", () => {
     const fixtureSpecs = mixedPeerFixtureSpecs(
       "@vite-hub/ui",
       "vite",
-      [],
+      ["ai"],
       {},
-      { "@nuxt/ui": "1.0.0", "@types/node": "1.0.0", vite: "1.0.0" },
+      { ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0", vite: "1.0.0" },
     )
-    expect(fixtureSpecs).toMatchObject({ "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
+    expect(fixtureSpecs).toMatchObject({ ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
 
@@ -631,10 +630,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       await exercisePackagesWithoutOptionalPeers(root, specs)
 
       const optionalPeerSpecs = await addOptionalPeers(appDir)
+      const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeers, true)
       for (const optionalPeer of optionalPeers) {
-        await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, optionalPeerSpecs)
+        await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)
       }
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
