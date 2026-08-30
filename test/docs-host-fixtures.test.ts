@@ -1,14 +1,12 @@
-import { execFile, spawn } from "node:child_process"
+import { spawn } from "node:child_process"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 import { array, object, parse, picklist, string } from "valibot"
 
-const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = join(repoRoot, "fixtures/docs-hosts")
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
@@ -45,18 +43,23 @@ function parseSnippetContracts(source: string): SnippetContract[] {
 }
 
 async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}) {
-  try {
-    return await execFileAsync(command, args, {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
-      maxBuffer: 32 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
     })
-  }
-  catch (error) {
-    // SAFETY: Node's promisified execFile rejects with Error fields for captured process output.
-    const failure = error as Error & { stderr?: string, stdout?: string }
-    throw new Error(`${command} ${args.join(" ")} failed\n${failure.stdout || ""}${failure.stderr || ""}`, { cause: error })
-  }
+    let output = ""
+    child.stdout.on("data", chunk => output += chunk)
+    child.stderr.on("data", chunk => output += chunk)
+    child.once("error", reject)
+    // Use the direct process exit rather than close: a build may leave a descendant
+    // holding its inherited output pipe after the command itself has finished.
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve()
+      else reject(new Error(`${command} ${args.join(" ")} failed with ${signal ?? `code ${code}`}\n${output}`))
+    })
+  })
 }
 
 async function expectDenoLauncherToStart(appRoot: string) {
