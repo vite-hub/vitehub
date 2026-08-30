@@ -32,12 +32,14 @@ test('ends a repair pass after one commit, push, and review request', async () =
   assert.doesNotMatch(prompt, /repeat until the merge gate holds/)
 })
 
-test('repairs every exact-head actionable item before yielding', async () => {
+test('repairs a coherent exact-head actionable set before yielding', async () => {
   const prompt = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
 
   assert.match(prompt, /exact-head CI\/check failures and actionable bot review comments or threads/)
   assert.match(prompt, /Repair every current actionable CI\/CD failure, review finding or unresolved thread, merge conflict/)
-  assert.match(prompt, /Fix all actionable items in this bounded pass/)
+  assert.match(prompt, /Fix all actionable items in this bounded pass when they form one safe coherent change/)
+  assert.match(prompt, /repair one complete ownership cluster with its focused proof, push it, and leave other clusters for later passes/)
+  assert.match(prompt, /Do not stop unchanged or return `retry` merely because other actionable clusters remain/)
   assert.match(prompt, /Resolve conflicts and metadata only when they actually block this pull request/)
 })
 
