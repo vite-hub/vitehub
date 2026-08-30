@@ -132,6 +132,7 @@ import {
 import type {
   AgentActivityStatus,
   AgentActivityTask,
+  AgentActivityUpdate,
   AgentAdapter,
   AgentAdapterFactory,
   AgentAdapterRunContext,
@@ -1156,7 +1157,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   let state: {
     agentName?: string
     links: AgentActivityUpdate["links"]
-    runId?: string
+    runId: string
     status: AgentActivityStatus
     summary: string
     tasks: AgentActivityTask[]

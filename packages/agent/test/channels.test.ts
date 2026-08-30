@@ -49,8 +49,8 @@ describe("agent channels", () => {
       }
       const parsedBody: unknown = JSON.parse(String(init?.body))
       if (!isRuntimeRecord(parsedBody) || !hasRuntimeType(parsedBody.body, "string")) throw new Error("Invalid comment body.")
-      const body = parsedBody
-      stored = { body: body.body, id: 7 }
+      const body = parsedBody.body
+      stored = { body, id: 7 }
       return new Response(JSON.stringify(stored), { headers: { "content-type": "application/json" }, status: method === "POST" ? 201 : 200 })
     })
     vi.stubEnv("GITHUB_TOKEN", "test-token")
