@@ -430,6 +430,7 @@ describe("framework package contract", () => {
       'label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"',
     );
     expect(consoleSearch).not.toContain("prefix: debouncedSearchTerm.value");
+    expect(consoleSearch).not.toContain("watch(debouncedSearchTerm");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );

@@ -356,10 +356,6 @@ watch(searchTerm, (value) => {
   }, 150);
 });
 
-watch(debouncedSearchTerm, () => {
-  if (open.value) void loadNavigation(true)
-})
-
 watch(open, async (value) => {
   if (!value) return;
   await loadNavigation(true);
