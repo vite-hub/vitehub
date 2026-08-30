@@ -389,7 +389,7 @@ async function processStartIdentity(pid: number): Promise<string | undefined> {
 async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, processNamespace?: string, startedAt: string }): Promise<boolean> {
   if (owner.hostname !== hostname()) return true
   const processNamespace = await codexCredentialProcessNamespace
-  if (processNamespace === undefined) return true
+  if (process.platform === "linux" && processNamespace === undefined) return true
   if (processNamespace !== undefined && owner.processNamespace !== processNamespace) return true
   if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
   try {
