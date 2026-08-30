@@ -544,7 +544,7 @@ describe("agent channels", () => {
       if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
       if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
         const page = url.searchParams.get("page")
-        if (page === "1") {
+        if (page === null) {
           return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 1 })), {
             headers: { link: `<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=6>; rel="last"` },
           })
