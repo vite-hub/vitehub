@@ -1213,6 +1213,20 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("preserves Artifact defaults when optional environment overrides are absent", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { provider: "cloudflare-artifacts", binding: process.env.CUSTOM_BINDING } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ env: {}, viteRoot: root })).resolves.toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "WORKSPACE_ARTIFACTS" }] } },
+    })
+  })
+
   it("preserves environment-selected overrides through local aliases", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-store.ts"), `export default { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
@@ -1635,6 +1649,20 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([
       { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
     ])
+  })
+
+  it("resolves wrapped CommonJS default Workspace Definitions", async () => {
+    const root = await createViteRoot()
+    await rm(join(root, "src", "docs.workspace.ts"))
+    await writeFile(join(root, "src", "docs.workspace.cjs"), `module.exports = { default: { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } } }\n`)
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "DEFINITION_FILES", namespace: "definition-workspaces" }])
   })
 
   it("resolves definition-level Cloudflare Artifacts bindings through default re-exports", async () => {

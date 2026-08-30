@@ -302,7 +302,18 @@ function babelPathBelongsToExportedStore(path: BabelNodePath): boolean {
       && current.node.left.object.name === "module"
       && current.node.left.property?.type === "Identifier"
       && current.node.left.property.name === "exports"
-    ) return path.parentPath?.parentPath === current
+    ) {
+      if (path.parentPath?.parentPath === current) return true
+      for (let nested = path.parentPath; nested && nested !== current; nested = nested.parentPath) {
+        if (
+          nested.node.type === "ObjectProperty"
+          && babelPropertyName(nested) === "default"
+          && nested.parentPath?.node.type === "ObjectExpression"
+          && nested.parentPath.parentPath === current
+        ) return true
+      }
+      return false
+    }
     if (
       current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
@@ -737,7 +748,7 @@ function sourceImportsFeedingWorkspaceStore(
 
 type InlineWorkspaceStoreOperation =
   | { kind: "spread", localName: string, position: number }
-  | { kind: "property", name: string, position: number, value?: string }
+  | { environmentValue: boolean, kind: "property", name: string, position: number, value?: string }
 
 function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
   const bindingPath = path.scope.getBinding(name)?.path
@@ -751,16 +762,15 @@ function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = n
   return babelResolveIdentifierAlias(bindingPath, bindingPath.node.init.name, seen)
 }
 
-function babelEnvironmentValue(
+function babelEnvironmentKey(
   node: BabelNode | undefined,
   path: BabelBindingPath,
-  env: Record<string, string | undefined>,
   seen = new Set<BabelBindingPath>(),
 ): string | undefined {
   if (node?.type === "Identifier" && node.name) {
     const bindingPath = path.scope.getBinding(node.name)?.path
     if (!bindingPath || seen.has(bindingPath)) return
-    return babelEnvironmentValue(bindingPath.node.init, bindingPath, env, new Set(seen).add(bindingPath))
+    return babelEnvironmentKey(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
   }
   if (
     node?.type !== "MemberExpression"
@@ -772,7 +782,16 @@ function babelEnvironmentValue(
   ) return
   const key = node.property?.name ?? node.property?.value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
-  return typeof key === "string" ? env[key] : undefined
+  return typeof key === "string" ? key : undefined
+}
+
+function babelEnvironmentValue(
+  node: BabelNode | undefined,
+  path: BabelBindingPath,
+  env: Record<string, string | undefined>,
+): string | undefined {
+  const key = babelEnvironmentKey(node, path)
+  return key === undefined ? undefined : env[key]
 }
 
 function sourceInlineWorkspaceStoreOperations(
@@ -816,7 +835,8 @@ function sourceInlineWorkspaceStoreOperations(
             // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
             const valueNode = path.node.value as BabelNode | undefined
             let value = babelStringValue(valueNode, path)
-            if (value === undefined) value = babelEnvironmentValue(valueNode, path, env)
+            const environmentValue = value === undefined && babelEnvironmentKey(valueNode, path) !== undefined
+            if (environmentValue) value = babelEnvironmentValue(valueNode, path, env)
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property values cross the Babel boundary as unknown values.
             const stringValue = typeof value === "string" ? value : undefined
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names cross the Babel boundary as unknown values.
@@ -825,6 +845,7 @@ function sourceInlineWorkspaceStoreOperations(
                 kind: "property",
                 name,
                 position,
+                environmentValue,
                 value: stringValue,
               })
             }
@@ -848,7 +869,7 @@ function reconstructCloudflareArtifactStore(
         : {}
       continue
     }
-    if (operation.value === undefined) return
+    if (operation.value === undefined && !operation.environmentValue) return
     reconstructed[operation.name] = operation.value
   }
   if (reconstructed.provider !== "cloudflare-artifacts") return
