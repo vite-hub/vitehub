@@ -196,7 +196,7 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           overwrite: false
-          retention-days: 30
+          retention-days: 35
 
   publish-npm:
     name: publish npm packages
