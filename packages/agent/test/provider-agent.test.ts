@@ -1,77 +1,26 @@
-import { access, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
-import { spawnSync } from "node:child_process"
-import { EventEmitter } from "node:events"
-import { tmpdir } from "node:os"
+import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
+import { Server as HttpServer } from "node:http"
+import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
-import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: {
-  environment?: Record<string, string>
-  settings?: Record<string, unknown>
-}) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
 const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
   ? "/app/node_modules/@openai/codex/bin/codex.js"
   : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
-const readCodexSharedHome = vi.hoisted(() => vi.fn())
-const canonicalizeCodexSharedHome = vi.hoisted(() => vi.fn())
-const beforeCodexCredentialChmod = vi.hoisted(() => vi.fn())
-const beforeCodexHomeCopyFile = vi.hoisted(() => vi.fn())
-const beforeCodexHomeSymlink = vi.hoisted(() => vi.fn())
-const beforeCodexHomeLink = vi.hoisted(() => vi.fn())
-const readCodexHomeStat = vi.hoisted(() => vi.fn())
-const spawnProviderProcess = vi.hoisted(() => vi.fn())
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
-vi.mock("node:child_process", async (importOriginal) => {
-  const original = await importOriginal<typeof import("node:child_process")>()
-  return {
-    ...original,
-    spawn: (...args: Parameters<typeof original.spawn>) => spawnProviderProcess.getMockImplementation()
-      ? spawnProviderProcess(...args)
-      : original.spawn(...args),
-  }
-})
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const original = await importOriginal<typeof import("node:fs/promises")>()
-  return {
-    ...original,
-    chmod: async (...args: Parameters<typeof original.chmod>) => {
-      await beforeCodexCredentialChmod(...args)
-      return await original.chmod(...args)
-    },
-    copyFile: async (...args: Parameters<typeof original.copyFile>) => {
-      await beforeCodexHomeCopyFile(...args)
-      return await original.copyFile(...args)
-    },
-    link: async (...args: Parameters<typeof original.link>) => {
-      await beforeCodexHomeLink(...args)
-      return await original.link(...args)
-    },
-    readdir: (...args: Parameters<typeof original.readdir>) => readCodexSharedHome.getMockImplementation()
-      ? readCodexSharedHome(...args)
-      : original.readdir(...args),
-    realpath: (...args: Parameters<typeof original.realpath>) => canonicalizeCodexSharedHome.getMockImplementation()
-      ? canonicalizeCodexSharedHome(...args)
-      : original.realpath(...args),
-    stat: (...args: Parameters<typeof original.stat>) => readCodexHomeStat.getMockImplementation()
-      ? readCodexHomeStat(...args)
-      : original.stat(...args),
-    symlink: async (...args: Parameters<typeof original.symlink>) => {
-      await beforeCodexHomeSymlink(...args)
-      return await original.symlink(...args)
-    },
-  }
-})
 
-import { createProviderAgentAdapter, localWorkspaceHost, restrictWindowsCodexCredentialHome } from "../src/provider-agent.ts"
+import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
@@ -160,40 +109,40 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
-  it("passes cancellation to the Windows credential ACL helper", async () => {
-    const child = Object.assign(new EventEmitter(), {
-      stderr: new EventEmitter(),
-      stdout: new EventEmitter(),
-    })
-    spawnProviderProcess.mockImplementation((_command, _args, options) => {
-      // SAFETY: The production helper always supplies an AbortSignal to the spawned process.
-      const signal = options.signal as AbortSignal
-      signal.addEventListener("abort", () => child.emit("error", signal.reason), { once: true })
-      return child
-    })
-    const controller = new AbortController()
-    const cancelled = new DOMException("cancelled", "AbortError")
-
+  it("rejects provisioned Codex credentials on Windows before resolving them", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
+    const credentials = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
     try {
-      const restriction = restrictWindowsCodexCredentialHome("C:\\codex-shadow", controller.signal)
-      await vi.waitFor(() => expect(spawnProviderProcess).toHaveBeenCalledWith(
-        "powershell.exe",
-        expect.any(Array),
-        expect.objectContaining({ signal: controller.signal }),
-      ))
-      controller.abort(cancelled)
-
-      await expect(restriction).rejects.toBe(cancelled)
+      await expect(createProviderAgentAdapter({
+        credentials,
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context("thread-windows-credentials") as never)).rejects.toThrow("provisioned credentials are not supported on Windows")
+      expect(credentials).not.toHaveBeenCalled()
     }
     finally {
-      controller.abort(cancelled)
-      spawnProviderProcess.mockReset()
+      platform.mockRestore()
     }
+  })
+
+  it("resolves object-form Codex credentials with the invocation context", async () => {
+    const threadId = "thread-object-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const resolve = vi.fn((_context: unknown) => JSON.stringify({ OPENAI_API_KEY: "private" }))
+
+    await createProviderAgentAdapter({
+      credentials: { resolve },
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)
+
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(resolve.mock.calls[0]?.[0]).toMatchObject({ actor: { id: "actor" }, invoker: { id: "invoker" } })
   })
 
   it("passes only host process essentials and explicitly selected environment values", async () => {
     const threadId = "thread-environment"
-    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
 
@@ -208,8 +157,1044 @@ describe("Provider Agent Driver", () => {
     const lastRuntimeCall = createProviderRuntime.mock.lastCall
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
-    expect(provider.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ modelOptions: expect.anything() }))
     vi.unstubAllEnvs()
+  })
+
+  it("preserves ambient CODEX_HOME for unprovisioned Codex runs", async () => {
+    const threadId = "thread-ambient-codex-home"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CODEX_HOME", "/var/lib/ambient-codex")
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+        environment: expect.objectContaining({ CODEX_HOME: "/var/lib/ambient-codex" }),
+      }))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("preserves explicit provider runtime settings until ViteHub owns them", async () => {
+    const threadId = "thread-provider-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      provider: "codex",
+      providerSettings: {
+        binaryPath: "/opt/codex/bin/codex",
+        homePath: "/var/lib/codex",
+        launchArgs: "--custom-flag",
+      },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: {
+        binaryPath: "/opt/codex/bin/codex",
+        homePath: "/var/lib/codex",
+        launchArgs: "--custom-flag",
+      },
+    }))
+  })
+
+  it("appends ViteHub reasoning flags to explicit Codex launch arguments", async () => {
+    const threadId = "thread-provider-reasoning-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      providerSettings: { launchArgs: "--enable responses_websockets_v2" },
+      reasoningEffort: "high",
+      // SAFETY: This test fixture intentionally constructs the exact provider invocation contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({
+        launchArgs: '--enable responses_websockets_v2 -c "model_reasoning_effort=\\"high\\""',
+      }),
+    }))
+  })
+
+  it("forces file credential storage after explicit Codex launch arguments", async () => {
+    const threadId = "thread-provider-credential-settings"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      providerSettings: { launchArgs: '-c "cli_auth_credentials_store=\\"keyring\\""' },
+      // SAFETY: This test fixture intentionally constructs the exact provider invocation contract.
+    }).generate(context(threadId) as never)
+
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({
+        launchArgs: '-c "cli_auth_credentials_store=\\"keyring\\"" -c "cli_auth_credentials_store=\\"file\\""',
+      }),
+    }))
+  })
+
+  it("projects rotating Codex credentials into one protected profile Home", async () => {
+    const profile = `provider-test-${crypto.randomUUID()}`
+    let source = JSON.stringify({ OPENAI_API_KEY: "first" })
+    const credentials = vi.fn((_context: unknown) => ({ unseal: () => source }))
+    const adapter = createProviderAgentAdapter({
+      credentialProfile: profile,
+      credentials,
+      provider: "codex",
+      reasoningEffort: "high",
+      reasoningSummary: "detailed",
+    })
+    for (const threadId of ["thread-credentials-first", "thread-credentials-preserved", "thread-credentials-rotated"]) {
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context(threadId) as never)
+      if (threadId === "thread-credentials-first") {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
+        const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await writeFile(`${homePath}/auth.json`, '{"refreshed":true}\n', { mode: 0o600 })
+        await writeFile(`${homePath}/config.toml`, 'model = "gpt-5.6"\ncli_auth_credentials_store = "keyring"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n', { mode: 0o600 })
+      }
+      if (threadId === "thread-credentials-preserved") {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
+        const homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"refreshed":true}\n')
+        source = JSON.stringify({ OPENAI_API_KEY: "rotated" })
+      }
+    }
+
+    const calls = createProviderRuntime.mock.calls.slice(-3)
+    // SAFETY: These calls all come from the Codex adapter configured with credentials above.
+    const homes = calls.map(call => (call[0].settings as { homePath: string }).homePath)
+    expect(new Set(homes).size).toBe(1)
+    expect(credentials).toHaveBeenCalledTimes(3)
+    expect(credentials.mock.calls[0]?.[0]).toMatchObject({ abortSignal: undefined, actor: { id: "actor" }, invoker: { id: "invoker" } })
+    await expect(readFile(`${homes[0]}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"rotated"}\n')
+    await expect(readFile(`${homes[0]}/config.toml`, "utf8")).resolves.toBe('model = "gpt-5.6"\ncli_auth_credentials_store = "file"\n\n[projects."/workspace"]\ntrust_level = "trusted"\n')
+    expect((await stat(homes[0])).mode & 0o777).toBe(0o700)
+    expect((await stat(`${homes[0]}/auth.json`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${homes[0]}/config.toml`)).mode & 0o777).toBe(0o600)
+    expect(calls[0]?.[0]).toMatchObject({
+      settings: {
+        homePath: homes[0],
+        launchArgs: '-c "model_reasoning_effort=\\"high\\"" -c "model_reasoning_summary=\\"detailed\\"" -c "cli_auth_credentials_store=\\"file\\""',
+      },
+    })
+    expect(calls[0]?.[0].environment).not.toHaveProperty("OPENAI_API_KEY")
+    await rm(homes[0], { force: true, recursive: true })
+  })
+
+  it("repairs a named profile after an interrupted credential rotation", async () => {
+    const profile = `provider-interrupted-rotation-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    runtime("thread-interrupted-rotation-first", [event("turn.completed", "thread-interrupted-rotation-first", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context("thread-interrupted-rotation-first") as never)
+    await rm(join(homePath, ".vitehub-seed.sha256"))
+    await writeFile(join(homePath, "auth.json"), '{"OPENAI_API_KEY":"partial-rotation"}\n', { mode: 0o600 })
+
+    runtime("thread-interrupted-rotation-repair", [event("turn.completed", "thread-interrupted-rotation-repair", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context("thread-interrupted-rotation-repair") as never)
+
+    await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    await rm(homePath, { force: true, recursive: true })
+  })
+
+  it("repairs malformed persisted credentials when the external seed is unchanged", async () => {
+    const profile = `provider-malformed-auth-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    try {
+      runtime("thread-malformed-auth-first", [event("turn.completed", "thread-malformed-auth-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-malformed-auth-first") as never)
+      await writeFile(join(homePath, "auth.json"), "{", { mode: 0o600 })
+
+      runtime("thread-malformed-auth-repair", [event("turn.completed", "thread-malformed-auth-repair", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-malformed-auth-repair") as never)
+
+      await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("repairs oversized persisted credentials without reading them", async () => {
+    const profile = `provider-oversized-auth-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const credentials = JSON.stringify({ OPENAI_API_KEY: "original" })
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+
+    try {
+      runtime("thread-oversized-auth-first", [event("turn.completed", "thread-oversized-auth-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-oversized-auth-first") as never)
+      await writeFile(join(homePath, "auth.json"), "a".repeat(1_048_577), { mode: 0o600 })
+
+      runtime("thread-oversized-auth-repair", [event("turn.completed", "thread-oversized-auth-repair", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-oversized-auth-repair") as never)
+
+      await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toBe(`${credentials}\n`)
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("removes abandoned credential writes when reopening a named profile", async () => {
+    const profile = `provider-abandoned-write-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const abandonedAuth = join(homePath, `.auth.json-${crypto.randomUUID()}.next`)
+    const abandonedConfig = join(homePath, `.config.toml-${crypto.randomUUID()}.next`)
+    const unrelatedFile = join(homePath, ".auth.json-manual.next")
+    const adapter = createProviderAgentAdapter({
+      credentialProfile: profile,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+      provider: "codex",
+    })
+
+    try {
+      runtime("thread-abandoned-write-first", [event("turn.completed", "thread-abandoned-write-first", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-abandoned-write-first") as never)
+      await writeFile(abandonedAuth, '{"OPENAI_API_KEY":"old"}\n', { mode: 0o600 })
+      await writeFile(abandonedConfig, 'cli_auth_credentials_store = "keyring"\n', { mode: 0o600 })
+      await writeFile(unrelatedFile, "preserve\n", { mode: 0o600 })
+
+      runtime("thread-abandoned-write-reopen", [event("turn.completed", "thread-abandoned-write-reopen", { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(context("thread-abandoned-write-reopen") as never)
+
+      await expect(access(abandonedAuth)).rejects.toThrow()
+      await expect(access(abandonedConfig)).rejects.toThrow()
+      await expect(readFile(unrelatedFile, "utf8")).resolves.toBe("preserve\n")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("updates a credential-store setting after multiline TOML content", async () => {
+    const profile = `provider-multiline-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `instructions = """
+[this-is-string-content]
+"""
+cli_auth_credentials_store = "keyring"
+
+[projects."/workspace"]
+trust_level = "trusted"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-multiline-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("updates a credential-store setting after a multiline TOML array", async () => {
+    const profile = `provider-multiline-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `models = [
+  ["gpt-5.6"],
+]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-multiline-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("does not rewrite a table-scoped credential-store setting after a multiline array", async () => {
+    const profile = `provider-table-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `models = [
+  "gpt-5.6",
+]
+[provider]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-table-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(`cli_auth_credentials_store = "file"
+${config}`)
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("does not carry an array across a table after a quote-bearing multiline value", async () => {
+    const profile = `provider-table-quoted-array-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `values = ["""value"""", ]
+[provider]
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-table-quoted-array-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(`cli_auth_credentials_store = "file"
+${config}`)
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("ignores multiline delimiters in TOML comments", async () => {
+    const profile = `provider-commented-multiline-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = `# A documentation example may use """ here.
+cli_auth_credentials_store = "keyring"
+`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-commented-multiline-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe(config.replace('"keyring"', '"file"'))
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("updates an escaped basic quoted credential-store key", async () => {
+    const profile = `provider-escaped-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = '"cli_auth_credentials_\\u0073tore" = "keyring"\nmodel = "gpt-5.6"\n'
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-escaped-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\nmodel = "gpt-5.6"\n')
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("updates an eight-digit escaped basic quoted credential-store key", async () => {
+    const profile = `provider-long-escaped-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = '"cli_auth_credentials_\\U00000073tore" = "keyring"\nmodel = "gpt-5.6"\n'
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-long-escaped-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\nmodel = "gpt-5.6"\n')
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("replaces a complete multiline credential-store assignment", async () => {
+    const profile = `provider-multiline-value-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const config = 'cli_auth_credentials_store = """key\\\n  ring"""\nmodel = "gpt-5.6"\n'
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), config, { mode: 0o600 })
+    try {
+      const threadId = "thread-multiline-value-profile-config"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      await expect(readFile(join(homePath, "config.toml"), "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\nmodel = "gpt-5.6"\n')
+    }
+    finally {
+      await rm(homePath, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects a symlinked named-profile config without changing its target", async () => {
+    const profile = `provider-config-symlink-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const externalRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-config-target-"))
+    const externalConfig = join(externalRoot, "config.toml")
+    await mkdir(homePath, { recursive: true })
+    await writeFile(externalConfig, 'cli_auth_credentials_store = "file"\n', { mode: 0o644 })
+    await symlink(externalConfig, join(homePath, "config.toml"))
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-symlinked-profile-config") as never)).rejects.toThrow("profile config must not be a symbolic link")
+
+      expect((await stat(externalConfig)).mode & 0o777).toBe(0o644)
+      await expect(readFile(externalConfig, "utf8")).resolves.toBe('cli_auth_credentials_store = "file"\n')
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+      await rm(externalRoot, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["config", "config.toml", 'cli_auth_credentials_store = "file"\n'],
+    ["auth", "auth.json", '{"OPENAI_API_KEY":"external"}\n'],
+    ["seed", ".vitehub-seed.sha256", "external\n"],
+  ])("rejects a hard-linked named-profile %s without changing its target", async (kind, name, contents) => {
+    const profile = `provider-${kind}-hard-link-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const externalRoot = await mkdtemp(join(tmpdir(), `vitehub-codex-${kind}-target-`))
+    const externalFile = join(externalRoot, name)
+    await mkdir(homePath, { recursive: true })
+    await writeFile(externalFile, contents, { mode: 0o644 })
+    await link(externalFile, join(homePath, name))
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: () => JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context(`thread-hard-linked-profile-${kind}`) as never)).rejects.toThrow(`profile ${kind} must be a singly linked file`)
+
+      expect((await stat(externalFile)).mode & 0o777).toBe(0o644)
+      await expect(readFile(externalFile, "utf8")).resolves.toBe(contents)
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+      await rm(externalRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an oversized named-profile seed before reading it", async () => {
+    const profile = `provider-oversized-seed-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, ".vitehub-seed.sha256"), "a".repeat(66), { mode: 0o600 })
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-oversized-profile-seed") as never)).rejects.toThrow("profile seed must not exceed 65 bytes")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an oversized named-profile config before reading it", async () => {
+    const profile = `provider-oversized-config-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    await mkdir(homePath, { recursive: true })
+    await writeFile(join(homePath, "config.toml"), "a".repeat(1_048_577), { mode: 0o600 })
+
+    try {
+      await expect(createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "profile" }),
+        provider: "codex",
+        // SAFETY: This fixture intentionally supplies the complete provider invocation contract.
+      }).generate(context("thread-oversized-profile-config") as never)).rejects.toThrow("profile config must not exceed 1048576 bytes")
+    }
+    finally {
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes a named Codex credential profile across Agent Drivers", async () => {
+    const profile = `provider-shared-${crypto.randomUUID()}`
+    const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
+    const primary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex", reasoningEffort: "high" })
+    const auxiliary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex", reasoningEffort: "low" })
+    const invocations = [[primary, "thread-profile-primary"], [auxiliary, "thread-profile-auxiliary"]] as const
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    runtime(invocations[0][1], [event("turn.completed", invocations[0][1], { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+    })
+    runtime(invocations[1][1], [event("turn.completed", invocations[1][1], { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const primaryInvocation = primary.generate(context(invocations[0][1]) as never)
+    await primaryRunning
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const auxiliaryInvocation = auxiliary.generate(context(invocations[1][1]) as never)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const calls = createProviderRuntime.mock.calls.slice(-2)
+    // SAFETY: Both calls come from Codex adapters configured with a named credential profile.
+    const settings = calls.map(call => call[0].settings as { homePath: string, launchArgs: string })
+    expect(new Set(settings.map(value => value.homePath)).size).toBe(1)
+    expect(settings.map(value => value.launchArgs)).toEqual(expect.arrayContaining([
+      expect.stringContaining('model_reasoning_effort=\\"high\\"'),
+      expect.stringContaining('model_reasoning_effort=\\"low\\"'),
+    ]))
+    await rm(settings[0].homePath, { force: true, recursive: true })
+  })
+
+  it("isolates an auxiliary Codex Driver from its parent's named credential profile", async () => {
+    const profile = `provider-auxiliary-${crypto.randomUUID()}`
+    const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
+    const primary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    const auxiliary = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    runtime("thread-profile-parent", [event("turn.completed", "thread-profile-parent", { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+    })
+    runtime("thread-profile-parent", [event("turn.completed", "thread-profile-parent", { state: "completed" }, { turnId: "turn-1" })])
+
+    const primaryContext = context("thread-profile-parent")
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const primaryInvocation = primary.generate(primaryContext as never)
+    await primaryRunning
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context("thread-profile-parent"))
+    auxiliaryContext.context = primaryContext.context
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const auxiliaryInvocation = auxiliary.generate(auxiliaryContext as never)
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const calls = createProviderRuntime.mock.calls.slice(-2)
+    // SAFETY: Both calls come from Codex adapters configured from the same credential source.
+    const settings = calls.map(call => call[0].settings as { homePath: string })
+    expect(new Set(settings.map(value => value.homePath)).size).toBe(2)
+    await rm(settings[0].homePath, { force: true, recursive: true })
+  })
+
+  it("preserves an auxiliary Codex Driver's non-conflicting named credential profile", async () => {
+    const primaryProfile = `provider-primary-${crypto.randomUUID()}`
+    const auxiliaryProfile = `provider-auxiliary-${crypto.randomUUID()}`
+    const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
+    const primary = createProviderAgentAdapter({ credentialProfile: primaryProfile, credentials, provider: "codex" })
+    const auxiliary = createProviderAgentAdapter({ credentialProfile: auxiliaryProfile, credentials, provider: "codex" })
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const threadId = "thread-profile-non-conflicting-auxiliary"
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    const primaryContext = context(threadId)
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const primaryInvocation = primary.generate(primaryContext as never)
+    await primaryRunning
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    auxiliaryContext.context = primaryContext.context
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const auxiliaryInvocation = auxiliary.generate(auxiliaryContext as never)
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    // SAFETY: The last call comes from the auxiliary Codex adapter configured above.
+    const settings = createProviderRuntime.mock.calls.at(-1)?.[0].settings as { homePath: string }
+    expect(settings.homePath).toBe(`${process.cwd()}/.vitehub/data/codex/${auxiliaryProfile}`)
+    await rm(`${process.cwd()}/.vitehub/data/codex/${primaryProfile}`, { force: true, recursive: true })
+    await rm(settings.homePath, { force: true, recursive: true })
+  })
+
+  it.each(["codex", "claude-code"] as const)("isolates an auxiliary ambient %s run from its parent's provider session", async (provider) => {
+    const threadId = `thread-ambient-auxiliary-${provider}`
+    const adapter = createProviderAgentAdapter({ provider })
+    const seeded = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "seed-cursor",
+    })
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    await adapter.generate(context(threadId) as never)
+
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const primary = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+      turnResumeCursor: "primary-cursor",
+    })
+    const auxiliary = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "auxiliary-cursor",
+    })
+
+    const primaryContext = context(threadId)
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const primaryInvocation = adapter.generate(primaryContext as never)
+    await primaryRunning
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    auxiliaryContext.context = primaryContext.context
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const auxiliaryInvocation = adapter.generate(auxiliaryContext as never)
+    await vi.waitFor(() => expect(auxiliary.startSession).toHaveBeenCalledOnce())
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    await adapter.generate(context(threadId) as never)
+
+    expect(seeded.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(primary.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "seed-cursor" }))
+    expect(auxiliary.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "primary-cursor" }))
+  })
+
+  it("does not retain a named profile lock while credentials are resolving", async () => {
+    const profile = `provider-resolver-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    const controller = new AbortController()
+    let finishFirstResolution: ((credentials: string) => void) | undefined
+    const credentials = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>(resolve => finishFirstResolution = resolve))
+      .mockReturnValue(JSON.stringify({ tokens: { access_token: "shared" } }))
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    const firstThreadId = "thread-profile-pending-resolver"
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const first = adapter.generate(context(firstThreadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(credentials).toHaveBeenCalledOnce())
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+
+    const nextThreadId = "thread-profile-after-pending-resolver"
+    runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const next = adapter.generate(context(nextThreadId) as never)
+    try {
+      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+      await expect(next).resolves.toBeDefined()
+      expect(credentials).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      finishFirstResolution?.(JSON.stringify({ tokens: { access_token: "shared" } }))
+      await Promise.allSettled([next])
+      await rm(homePath, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves named profile invocation order across credential resolution", async () => {
+    const profile = `provider-ordered-resolver-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${profile}`
+    let finishFirstResolution!: (credentials: string) => void
+    const credentials = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>(resolve => finishFirstResolution = resolve))
+      .mockReturnValueOnce(JSON.stringify({ tokens: { access_token: "new" } }))
+    const adapter = createProviderAgentAdapter({ credentialProfile: profile, credentials, provider: "codex" })
+    const firstThreadId = "thread-profile-ordered-resolver-first"
+    const secondThreadId = "thread-profile-ordered-resolver-second"
+    runtime(firstThreadId, [event("turn.completed", firstThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    runtime(secondThreadId, [event("turn.completed", secondThreadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: The test contexts supply the complete provider invocation contract.
+    const first = adapter.generate(context(firstThreadId) as never)
+    await vi.waitFor(() => expect(credentials).toHaveBeenCalledOnce())
+    // SAFETY: The test contexts supply the complete provider invocation contract.
+    const second = adapter.generate(context(secondThreadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(credentials).toHaveBeenCalledOnce()
+
+    finishFirstResolution(JSON.stringify({ tokens: { access_token: "old" } }))
+    await Promise.all([first, second])
+    await expect(readFile(join(homePath, "auth.json"), "utf8")).resolves.toContain('"access_token":"new"')
+    await rm(homePath, { force: true, recursive: true })
+  })
+
+  it("removes an invocation-private Codex credential Home after runtime cleanup", async () => {
+    const threadId = "thread-private-credentials"
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        await expect(readFile(`${homePath}/auth.json`, "utf8")).resolves.toBe('{"OPENAI_API_KEY":"private"}\n')
+      },
+    })
+
+    const adapter = createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+
+    expect(homePath).toBeDefined()
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes an invocation-private Codex credential Home after a failed turn", async () => {
+    const threadId = "thread-private-credentials-failed"
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+      },
+    })
+
+    await expect(createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(threadId) as never)).rejects.toThrow("provider failed")
+
+    expect(homePath).toBeDefined()
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes an invocation-private Codex credential Home after cancellation", async () => {
+    const threadId = "thread-private-credentials-aborted"
+    const controller = new AbortController()
+    const deferredCleanup: Promise<unknown>[] = []
+    let homePath: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        // SAFETY: The mocked provider runtime records the normalized Codex homePath setting.
+        homePath = (createProviderRuntime.mock.lastCall![0].settings as { homePath: string }).homePath
+        controller.abort(new DOMException("cancelled", "AbortError"))
+      },
+    })
+
+    const runContext = context(threadId, { input: { abortSignal: controller.signal, prompt: "hello" } })
+    // SAFETY: This fixture replaces waitUntil with the same promise-accepting runtime contract.
+    runContext.runtime.waitUntil = ((cleanup: Promise<unknown>) => {
+      deferredCleanup.push(cleanup)
+    }) as never
+    await expect(createProviderAgentAdapter({
+      credentials: () => JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(runContext as never)).rejects.toThrow("cancelled")
+
+    expect(homePath).toBeDefined()
+    await Promise.allSettled(deferredCleanup)
+    await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an invocation-private credential root abandoned by a dead process", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const threadId = "thread-scavenge-private-credentials"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an abandoned credential root before using ambient Codex credentials", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const threadId = "thread-scavenge-before-ambient-codex"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges abandoned credentials before Workspace preparation fails", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    const runContext = context("thread-scavenge-before-workspace-failure", {
+      workspace: {
+        fs: {},
+        startSession: vi.fn(async () => { throw new Error("workspace failed") }),
+        tools: {},
+      },
+    })
+
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("workspace failed")
+    await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("scavenges an invocation-private credential root after its PID is reused", async () => {
+    const liveProcess = spawn(process.execPath, ["-e", "setInterval(() => {}, 1_000)"])
+    const spawned = once(liveProcess, "spawn")
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await spawned
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: liveProcess.pid,
+      processNamespace,
+      startedAt: "reused process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(staleRoot, "home"), { mode: 0o700 })
+    await writeFile(join(staleRoot, "home", "auth.json"), "secret", { mode: 0o600 })
+    try {
+      const threadId = "thread-scavenge-reused-private-credentials-pid"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      liveProcess.kill()
+      await once(liveProcess, "close")
+      await rm(staleRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a live credential root when the scavenger locale differs", async () => {
+    const startedAt = spawnSync("ps", ["-o", "lstart=", "-p", String(process.pid)], {
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: "C", LANG: "C" },
+    }).stdout.trim()
+    expect(startedAt).not.toBe("")
+    const liveRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    await writeFile(join(liveRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: process.pid,
+      processNamespace,
+      startedAt,
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(liveRoot, "home"), { mode: 0o700 })
+    const previousLocale = process.env.LC_ALL
+    process.env.LC_ALL = "fr_FR.UTF-8"
+    try {
+      const threadId = "thread-live-private-credentials-different-locale"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(liveRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      if (previousLocale === undefined) delete process.env.LC_ALL
+      else process.env.LC_ALL = previousLocale
+      await rm(liveRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves a credential root owned by another PID namespace", async () => {
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    if (processNamespace === undefined) return
+    const liveRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(liveRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace: `${processNamespace}-other`,
+      startedAt: "foreign namespace process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(liveRoot, "home"), { mode: 0o700 })
+    try {
+      const threadId = "thread-live-private-credentials-foreign-pid-namespace"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(liveRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(liveRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("ignores an abandoned credential root with a linked owner file", async () => {
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    const ownerTarget = join(tmpdir(), `vitehub-codex-owner-${crypto.randomUUID()}.json`)
+    await writeFile(ownerTarget, `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    await symlink(ownerTarget, join(staleRoot, ".vitehub-owner.json"))
+    try {
+      const threadId = "thread-linked-private-credential-owner"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(staleRoot, { force: true, recursive: true })
+      await rm(ownerTarget, { force: true })
+    }
+  })
+
+  it("ignores an abandoned credential root not owned by the current OS user", async () => {
+    if (!process.getuid) return
+    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-process-"))
+    await writeFile(join(staleRoot, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      startedAt: 1,
+    })}\n`, { mode: 0o600 })
+    const getuid = vi.spyOn(process, "getuid").mockReturnValue(process.getuid() + 1)
+    try {
+      const threadId = "thread-foreign-private-credentials"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" }).generate(context(threadId) as never)
+
+      await expect(access(staleRoot)).resolves.toBeUndefined()
+    }
+    finally {
+      getuid.mockRestore()
+      await rm(staleRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("fails closed before creating a named Codex Home for invalid credentials", async () => {
+    const credentialProfile = `provider-invalid-${crypto.randomUUID()}`
+    const homePath = `${process.cwd()}/.vitehub/data/codex/${credentialProfile}`
+    const calls = createProviderRuntime.mock.calls.length
+
+    await expect(createProviderAgentAdapter({
+      credentialProfile,
+      credentials: () => "not-json",
+      provider: "codex",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context("thread-invalid-credentials") as never)).rejects.toThrow("must be valid JSON")
+
+    expect(createProviderRuntime).toHaveBeenCalledTimes(calls)
+    await expect(access(homePath)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("keeps the host Codex executable fallback when the package is absent", async () => {
@@ -223,22 +1208,6 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
   })
 
-  it("keeps the installed Codex executable when provider setting overrides are undefined", async () => {
-    const threadId = "thread-undefined-provider-settings"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const providerContext = context(threadId) as never
-    await createProviderAgentAdapter({
-      provider: "codex",
-      providerSettings: { binaryPath: undefined, launchArgs: undefined },
-    }).generate(providerContext)
-
-    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-      settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
-    }))
-  })
-
   it("uses the installed Claude SDK executable", async () => {
     const threadId = "thread-project-claude"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -249,1141 +1218,6 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
       settings: { binaryPath: "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude" },
     }))
-  })
-
-  it("isolates resolved Codex credentials in a private shadow home and removes it after runtime shutdown", async () => {
-    const threadId = "thread-credentials"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
-    let shadowHome: string | undefined
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      expect(options.settings?.homePath).toEqual(expect.any(String))
-      shadowHome = String(options.settings?.homePath)
-      expect(options.settings).toMatchObject({
-        binaryPath: "/custom/codex",
-        homePath: expect.stringContaining("vitehub-codex-shadow-home-"),
-        launchArgs: "--enable responses_websockets_v2",
-      })
-      expect(options.settings).not.toHaveProperty("shadowHomePath")
-      expect((await lstat(shadowHome)).mode & 0o777).toBe(0o700)
-      expect((await lstat(join(shadowHome, "auth.json"))).mode & 0o777).toBe(0o600)
-      expect((await lstat(join(shadowHome, "auth.json"))).isSymbolicLink()).toBe(false)
-      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
-      expect(await readlink(join(shadowHome, "sessions"))).toBe(join(sharedHome, "sessions"))
-      expect(await readlink(join(shadowHome, "config.toml"))).toBe(join(sharedHome, "config.toml"))
-      return providerRuntimes.shift()
-    })
-    const credentials = vi.fn(async (metadata: { actor: { id: string } }) => {
-      expect(metadata.actor.id).toBe("actor")
-      return { unseal: () => '{ "tokens": { "access_token": "secret" } }' }
-    })
-
-    const adapter = createProviderAgentAdapter({
-      credentials,
-      provider: "codex",
-      providerSettings: {
-        binaryPath: "/custom/codex",
-        homePath: sharedHome,
-        launchArgs: "--enable responses_websockets_v2",
-      },
-    })
-    const runContext = context(threadId)
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    await adapter.generate(runContext as never)
-
-    expect(credentials).toHaveBeenCalledOnce()
-    expect(shadowHome).toBeDefined()
-    if (!shadowHome) throw new Error("Expected a Codex shadow home")
-    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(access(join(sharedHome, "sessions"))).resolves.toBeUndefined()
-    await rm(sharedHome, { force: true, recursive: true })
-  })
-
-  it("removes written Codex credentials when preparation stalls after the write", async () => {
-    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
-    let finishRestriction!: () => void
-    const restriction = new Promise<void>(resolve => finishRestriction = resolve)
-    beforeCodexCredentialChmod.mockImplementation(async (path) => {
-      if (String(path).endsWith("auth.json")) await restriction
-    })
-    const controller = new AbortController()
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-    })
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const result = Promise.resolve(adapter.generate(context("thread-stalled-credential-preparation", {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never))
-
-    try {
-      await vi.waitFor(() => expect(beforeCodexCredentialChmod).toHaveBeenCalledWith(expect.stringContaining("auth.json"), 0o600))
-      controller.abort("cancelled")
-      await expect(result).rejects.toBe("cancelled")
-      await vi.waitFor(async () => {
-        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
-      })
-    }
-    finally {
-      finishRestriction()
-      beforeCodexCredentialChmod.mockReset()
-      controller.abort("cancelled")
-      await result.catch(() => undefined)
-    }
-  })
-
-  it.each(["linux", "win32"] as const)("preserves Codex history through a private shadow home on %s", async (platformName) => {
-    const threadId = `thread-history-${platformName}`
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue(platformName)
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await writeFile(join(shadowHome, "history.jsonl"), `${JSON.stringify({ session_id: threadId })}\n`)
-      await writeFile(join(shadowHome, "config.toml"), "model_reasoning_effort = \"high\"\n", { flag: "a" })
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect(await readFile(join(sharedHome, "history.jsonl"), "utf8")).toBe(`${JSON.stringify({ session_id: threadId })}\n`)
-      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\nmodel_reasoning_effort = \"high\"\n")
-    }
-    finally {
-      platform.mockRestore()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("makes existing Codex memories available and persists new memories", async () => {
-    const threadId = "thread-codex-memories"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await mkdir(join(sharedHome, "memories"))
-    await writeFile(join(sharedHome, "memories", "existing.md"), "existing memory\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const memories = join(String(options.settings?.homePath), "memories")
-      expect(await readFile(join(memories, "existing.md"), "utf8")).toBe("existing memory\n")
-      await writeFile(join(memories, "new.md"), "new memory\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect(await readFile(join(sharedHome, "memories", "existing.md"), "utf8")).toBe("existing memory\n")
-      expect(await readFile(join(sharedHome, "memories", "new.md"), "utf8")).toBe("new memory\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("keeps renamed Codex credentials out of the shared home", async () => {
-    const threadId = "thread-renamed-codex-credentials"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "auth.json"), join(shadowHome, "auth.json.backup"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(join(sharedHome, "auth.json.backup"))).rejects.toMatchObject({ code: "ENOENT" })
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("persists deletion of an existing top-level Codex home entry", async () => {
-    const threadId = "thread-delete-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const sharedConfig = join(sharedHome, "config.toml")
-    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      await rm(join(String(options.settings?.homePath), "config.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("persists rename of an existing top-level Codex home entry", async () => {
-    const threadId = "thread-rename-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const sharedConfig = join(sharedHome, "config.toml")
-    const renamedConfig = join(sharedHome, "config.previous.toml")
-    await writeFile(sharedConfig, "model = \"gpt-5.6-sol\"\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "config.toml"), join(shadowHome, "config.previous.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(sharedConfig)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("persists case-only rename on case-sensitive Codex homes", async () => {
-    const threadId = "thread-case-rename-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const originalConfig = join(sharedHome, "Config.toml")
-    const renamedConfig = join(sharedHome, "config.toml")
-    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("persists case-only rename on case-insensitive Codex homes", async () => {
-    const threadId = "thread-insensitive-case-rename-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const originalConfig = join(sharedHome, "Config.toml")
-    const renamedConfig = join(sharedHome, "config.toml")
-    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
-    const originalEntry = await lstat(originalConfig)
-    readCodexHomeStat.mockImplementation(async (path) => String(path).toLowerCase().includes(".vitehub-case-probe-")
-      ? { dev: 1, ino: 1 }
-      : lstat(originalConfig))
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect((await readdir(sharedHome)).filter(entry => entry.toLowerCase() === "config.toml")).toEqual(["config.toml"])
-      const renamedEntry = await lstat(renamedConfig)
-      expect({ dev: renamedEntry.dev, ino: renamedEntry.ino }).toEqual({ dev: originalEntry.dev, ino: originalEntry.ino })
-      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-    }
-    finally {
-      readCodexHomeStat.mockReset()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("persists case-only rename from a case-insensitive shadow to a case-sensitive Codex home", async () => {
-    const threadId = "thread-mixed-case-rename-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const originalConfig = join(sharedHome, "Config.toml")
-    const renamedConfig = join(sharedHome, "config.toml")
-    await writeFile(originalConfig, "model = \"gpt-5.6-sol\"\n")
-    readCodexHomeStat.mockImplementation(async (path) => {
-      const value = String(path)
-      if (value.toLowerCase().includes(".vitehub-case-probe-")) {
-        if (value.includes("vitehub-codex-shadow-home-")) return { dev: 1, ino: 1 }
-        return { dev: 1, ino: value.includes(".VITEHUB-CASE-PROBE-") ? 2 : 1 }
-      }
-      return { isDirectory: () => false, isFile: () => true }
-    })
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "Config.toml"), join(shadowHome, "config.toml"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(originalConfig)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readFile(renamedConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-    }
-    finally {
-      readCodexHomeStat.mockReset()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("persists tracked directory renames without following nested links or removing external referents", async () => {
-    const threadId = "thread-rename-linked-codex-directory"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    const externalRules = join(externalHome, "rules")
-    const nestedReferent = join(externalHome, "nested.rules")
-    const sharedRules = join(sharedHome, "rules")
-    const renamedRules = join(sharedHome, "archived-rules")
-    await mkdir(externalRules)
-    await writeFile(join(externalRules, "default.rules"), "allow read\n")
-    await writeFile(nestedReferent, "allow nested\n")
-    await symlink(nestedReferent, join(externalRules, "nested.rules"))
-    await symlink(externalRules, sharedRules)
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rename(join(shadowHome, "rules"), join(shadowHome, "archived-rules"))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(sharedRules)).rejects.toMatchObject({ code: "ENOENT" })
-      expect((await lstat(renamedRules)).isDirectory()).toBe(true)
-      expect(await readFile(join(renamedRules, "default.rules"), "utf8")).toBe("allow read\n")
-      expect((await lstat(join(renamedRules, "nested.rules"))).isSymbolicLink()).toBe(true)
-      expect(await readlink(join(renamedRules, "nested.rules"))).toBe(nestedReferent)
-      expect(await readFile(join(externalRules, "default.rules"), "utf8")).toBe("allow read\n")
-      expect(await readFile(nestedReferent, "utf8")).toBe("allow nested\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("persists independent deletion of case-distinct Codex home entries", async () => {
-    for (const [index, removedEntries] of [["State.toml"], ["State.toml", "state.toml"]].entries()) {
-      const threadId = `thread-case-delete-codex-state-${index}`
-      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-      await writeFile(join(sharedHome, "State.toml"), "upper = true\n")
-      await writeFile(join(sharedHome, "state.toml"), "lower = true\n")
-      createProviderRuntime.mockImplementationOnce(async (options) => {
-        const shadowHome = String(options.settings?.homePath)
-        for (const entry of removedEntries) await rm(join(shadowHome, entry))
-        return providerRuntimes.shift()
-      })
-
-      try {
-        const adapter = createProviderAgentAdapter({
-          credentials: '{"tokens":{"access_token":"secret"}}',
-          provider: "codex",
-          providerSettings: { homePath: sharedHome },
-        })
-        // SAFETY: This test fixture intentionally constructs the exact provider run context.
-        await adapter.generate(context(threadId) as never)
-
-        await expect(access(join(sharedHome, "State.toml"))).rejects.toMatchObject({ code: "ENOENT" })
-        if (removedEntries.length === 1) expect(await readFile(join(sharedHome, "state.toml"), "utf8")).toBe("lower = true\n")
-        else await expect(access(join(sharedHome, "state.toml"))).rejects.toMatchObject({ code: "ENOENT" })
-      }
-      finally {
-        await rm(sharedHome, { force: true, recursive: true })
-      }
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("replaces a tracked non-empty Codex home directory", async () => {
-    const threadId = "thread-replace-codex-state-directory"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const sharedRules = join(sharedHome, "rules")
-    await mkdir(sharedRules)
-    await writeFile(join(sharedRules, "old.rules"), "allow old\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowRules = join(String(options.settings?.homePath), "rules")
-      await rm(shadowRules)
-      await mkdir(shadowRules)
-      await writeFile(join(shadowRules, "new.rules"), "allow new\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(join(sharedRules, "old.rules"))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readFile(join(sharedRules, "new.rules"), "utf8")).toBe("allow new\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("removes owned Codex home links without removing or replacing their referents", async () => {
-    const threadId = "thread-delete-linked-codex-state"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    const originalReferent = join(externalHome, "original.toml")
-    const replacementReferent = join(externalHome, "replacement.toml")
-    const removedLink = join(sharedHome, "removed.toml")
-    const replacedLink = join(sharedHome, "replaced.toml")
-    await writeFile(originalReferent, "original = true\n")
-    await writeFile(replacementReferent, "replacement = true\n")
-    await symlink(originalReferent, removedLink)
-    await symlink(originalReferent, replacedLink)
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rm(join(shadowHome, "removed.toml"))
-      await rm(join(shadowHome, "replaced.toml"))
-      await rm(replacedLink)
-      await symlink(replacementReferent, replacedLink)
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      await expect(access(removedLink)).rejects.toMatchObject({ code: "ENOENT" })
-      expect(await readFile(originalReferent, "utf8")).toBe("original = true\n")
-      expect(await readlink(replacedLink)).toBe(replacementReferent)
-      expect(await readFile(replacementReferent, "utf8")).toBe("replacement = true\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform === "win32")("restricts Codex credential home ACLs on Windows", async () => {
-    const threadId = "thread-windows-credential-acl"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      const script = String.raw`
-$ErrorActionPreference = "Stop"
-$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_CODEX_CREDENTIAL_HOME "auth.json"))) {
-  $entry = Get-Item -LiteralPath $path
-  $security = $entry.GetAccessControl()
-  $owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
-  $rules = @($security.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-  if ($owner.Value -ne $identity.Value -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $identity.Value -or $rules[0].AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
-    throw "Credential ACL is not restricted to the current principal: $path"
-  }
-}
-`
-      const command = Buffer.from(script, "utf16le").toString("base64")
-      const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", command], {
-        env: { ...process.env, VITEHUB_CODEX_CREDENTIAL_HOME: shadowHome },
-        encoding: "utf8",
-        windowsHide: true,
-      })
-      expect(result.status, result.stderr || result.stdout).toBe(0)
-      return providerRuntimes.shift()
-    })
-
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-    })
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    await adapter.generate(context(threadId) as never)
-  }, 15_000)
-
-  it("uses CODEX_HOME as the shared Codex home", async () => {
-    const threadId = "thread-environment-codex-home"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-environment-home-"))
-    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        env: { CODEX_HOME: sharedHome },
-        provider: "codex",
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("uses ambient CODEX_HOME as the shared Codex home", async () => {
-    const threadId = "thread-ambient-codex-home"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-ambient-home-"))
-    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
-    vi.stubEnv("CODEX_HOME", sharedHome)
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("persists new top-level Codex state directories", async () => {
-    const threadId = "thread-new-codex-state-directory"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await mkdir(join(shadowHome, "rules"))
-      await writeFile(join(shadowHome, "rules", "default.rules"), "allow read\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect(await readFile(join(sharedHome, "rules", "default.rules"), "utf8")).toBe("allow read\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("preserves case-distinct Codex home entries on case-sensitive macOS volumes", async () => {
-    const threadId = "thread-macos-credentials"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await writeFile(join(sharedHome, "config.toml"), "model = \"gpt-5.6-sol\"\n")
-    await writeFile(join(sharedHome, "Auth.json"), "ambient credentials\n")
-    await mkdir(join(sharedHome, "Sessions"))
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin")
-    let shadowHome: string | undefined
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      shadowHome = String(options.settings?.homePath)
-      const config = await lstat(join(shadowHome, "config.toml"))
-      expect(config.isSymbolicLink()).toBe(true)
-      expect(await readFile(join(shadowHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-      expect(await readFile(join(shadowHome, "auth.json"), "utf8")).toBe('{"tokens":{"access_token":"secret"}}\n')
-      await expect(access(join(shadowHome, "Auth.json"))).rejects.toMatchObject({ code: "ENOENT" })
-      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions").sort()
-      expect(sessionEntries).toEqual(["Sessions", "sessions"])
-      await Promise.all(sessionEntries.map(async entry => expect(await readlink(join(String(shadowHome), entry))).toBe(join(sharedHome, entry))))
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-    }
-    finally {
-      platform.mockRestore()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-
-    expect(shadowHome).toBeDefined()
-    if (!shadowHome) throw new Error("Expected a Codex shadow home")
-    await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" })
-  })
-
-  it("deduplicates case-equivalent shared entries when the shadow home rejects them", async () => {
-    const threadId = "thread-case-insensitive-shadow-home"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await mkdir(join(sharedHome, "Sessions"))
-    await writeFile(join(sharedHome, "Sessions", "existing.jsonl"), "existing session\n")
-    const linkedShadowEntries = new Set<string>()
-    beforeCodexHomeSymlink.mockImplementation((_source, target) => {
-      const path = String(target)
-      if (!path.includes("vitehub-codex-shadow-home-")) return
-      const key = path.toLowerCase()
-      if (linkedShadowEntries.has(key)) {
-        throw Object.assign(new Error("case-equivalent shadow entry"), { code: "EEXIST" })
-      }
-      linkedShadowEntries.add(key)
-    })
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      const sessionEntries = (await readdir(shadowHome)).filter(entry => entry.toLowerCase() === "sessions")
-      expect(sessionEntries).toEqual(["Sessions"])
-      expect(await readFile(join(shadowHome, "Sessions", "existing.jsonl"), "utf8")).toBe("existing session\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-    }
-    finally {
-      beforeCodexHomeSymlink.mockReset()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("ignores dangling links in the shared Codex home", async () => {
-    const threadId = "thread-dangling-codex-home-link"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    await symlink(join(sharedHome, "missing-skills"), join(sharedHome, "skills"))
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await expect(adapter.generate(context(threadId) as never)).resolves.toBeDefined()
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("uses Windows junctions for linked shared Codex home directories", async () => {
-    const threadId = "thread-windows-linked-codex-home-directory"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    await mkdir(join(externalHome, "skills"))
-    await symlink(join(externalHome, "skills"), join(sharedHome, "skills"))
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect(beforeCodexHomeSymlink).toHaveBeenCalledWith(
-        join(sharedHome, "skills"),
-        expect.stringContaining("vitehub-codex-shadow-home-"),
-        "junction",
-      )
-    }
-    finally {
-      platform.mockRestore()
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("copies linked shared Codex home files on Windows", async () => {
-    const threadId = "thread-windows-linked-codex-home-file"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    const externalConfig = join(externalHome, "config.toml")
-    await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
-    await symlink(externalConfig, join(sharedHome, "config.toml"))
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await writeFile(join(shadowHome, "config.toml"), "model = \"gpt-5.6-terra\"\n")
-      return providerRuntimes.shift()
-    })
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect(beforeCodexHomeLink).not.toHaveBeenCalledWith(
-        join(sharedHome, "config.toml"),
-        expect.any(String),
-      )
-      expect(await readFile(externalConfig, "utf8")).toBe("model = \"gpt-5.6-sol\"\n")
-      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("model = \"gpt-5.6-terra\"\n")
-    }
-    finally {
-      platform.mockRestore()
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("preserves unchanged linked shared Codex home files on Windows", async () => {
-    const threadId = "thread-windows-unchanged-linked-codex-home-file"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    const externalConfig = join(externalHome, "config.toml")
-    const sharedConfig = join(sharedHome, "config.toml")
-    await writeFile(externalConfig, "model = \"gpt-5.6-sol\"\n")
-    await symlink(externalConfig, sharedConfig)
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect((await lstat(sharedConfig)).isSymbolicLink()).toBe(true)
-      expect(await readlink(sharedConfig)).toBe(externalConfig)
-    }
-    finally {
-      platform.mockRestore()
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("replaces shared Codex home links without writing through them", async () => {
-    const threadId = "thread-shared-codex-home-link"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const externalHome = await mkdtemp(join(tmpdir(), "vitehub-codex-external-home-"))
-    const externalConfig = join(externalHome, "config.toml")
-    await writeFile(externalConfig, "external = true\n")
-    await symlink(externalConfig, join(sharedHome, "config.toml"))
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      const shadowHome = String(options.settings?.homePath)
-      await rm(join(shadowHome, "config.toml"))
-      await writeFile(join(shadowHome, "config.toml"), "sandbox = true\n")
-      return providerRuntimes.shift()
-    })
-
-    try {
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      await adapter.generate(context(threadId) as never)
-
-      expect((await lstat(join(sharedHome, "config.toml"))).isFile()).toBe(true)
-      expect(await readFile(join(sharedHome, "config.toml"), "utf8")).toBe("sandbox = true\n")
-      expect(await readFile(externalConfig, "utf8")).toBe("external = true\n")
-    }
-    finally {
-      await rm(sharedHome, { force: true, recursive: true })
-      await rm(externalHome, { force: true, recursive: true })
-    }
-  })
-
-  it("serializes credential overlays that share a Codex home", async () => {
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    let releaseFirst!: () => void
-    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
-    const first = runtime("thread-shared-home-first", [event("turn.completed", "thread-shared-home-first", { state: "completed" }, { turnId: "turn-1" })], {
-      beforeEvent: () => firstBlocked,
-    })
-    runtime("thread-shared-home-second", [event("turn.completed", "thread-shared-home-second", { state: "completed" }, { turnId: "turn-1" })])
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-
-    try {
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const firstInvocation = adapter.generate(context("thread-shared-home-first") as never)
-      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const secondInvocation = adapter.generate(context("thread-shared-home-second") as never)
-      await new Promise(resolve => setTimeout(resolve, 25))
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
-
-      releaseFirst()
-      await expect(firstInvocation).resolves.toBeDefined()
-      await expect(secondInvocation).resolves.toBeDefined()
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
-    }
-    finally {
-      releaseFirst()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("serializes direct Codex runs with credential overlays that share a home", async () => {
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    let releaseCredentialRun!: () => void
-    const credentialRunBlocked = new Promise<void>(resolve => releaseCredentialRun = resolve)
-    const credentialRuntime = runtime("thread-shared-home-credential", [event("turn.completed", "thread-shared-home-credential", { state: "completed" }, { turnId: "turn-1" })], {
-      beforeEvent: () => credentialRunBlocked,
-    })
-    runtime("thread-shared-home-direct", [event("turn.completed", "thread-shared-home-direct", { state: "completed" }, { turnId: "turn-1" })])
-    const credentialAdapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const directAdapter = createProviderAgentAdapter({
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-
-    try {
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const credentialInvocation = credentialAdapter.generate(context("thread-shared-home-credential") as never)
-      await vi.waitFor(() => expect(credentialRuntime.sendTurn).toHaveBeenCalledOnce())
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const directInvocation = directAdapter.generate(context("thread-shared-home-direct") as never)
-      await new Promise(resolve => setTimeout(resolve, 25))
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
-
-      releaseCredentialRun()
-      await expect(credentialInvocation).resolves.toBeDefined()
-      await expect(directInvocation).resolves.toBeDefined()
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
-    }
-    finally {
-      releaseCredentialRun()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("retains the Codex home lock through overlapping materialization and persistence", async () => {
-    vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
-    let finishMaterialization!: () => void
-    const materialization = new Promise<string[]>(resolve => finishMaterialization = () => resolve([]))
-    let finishPersistence!: () => void
-    const persistence = new Promise<string[]>(resolve => finishPersistence = () => resolve([]))
-    readCodexSharedHome
-      .mockImplementationOnce(async (path: string) => {
-        expect(path).toBe(sharedHome)
-        return await materialization
-      })
-      .mockImplementationOnce(async (path: string) => {
-        expect(path).toContain("vitehub-codex-shadow-home-")
-        return await persistence
-      })
-    const controller = new AbortController()
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const firstResult = Promise.resolve(adapter.generate(context("thread-stalled-home-first", {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-    }) as never))
-
-    try {
-      await vi.waitFor(() => expect(readCodexSharedHome).toHaveBeenCalledOnce())
-      controller.abort("cancelled")
-      const outcome = await Promise.race([
-        firstResult.then(() => "resolved", error => error),
-        new Promise(resolve => setTimeout(() => resolve("still pending"), 100)),
-      ])
-      expect(outcome).toBe("cancelled")
-      await vi.advanceTimersByTimeAsync(10_000)
-      await vi.waitFor(async () => {
-        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
-      })
-
-      const second = runtime("thread-stalled-home-second", [event("turn.completed", "thread-stalled-home-second", { state: "completed" }, { turnId: "turn-1" })])
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const secondResult = adapter.generate(context("thread-stalled-home-second") as never)
-      await vi.advanceTimersByTimeAsync(25)
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
-
-      finishMaterialization()
-      await vi.advanceTimersByTimeAsync(25)
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
-
-      finishPersistence()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(secondResult).resolves.toBeDefined()
-      expect(second.startSession).toHaveBeenCalledOnce()
-    }
-    finally {
-      finishMaterialization()
-      finishPersistence()
-      controller.abort("cancelled")
-      await firstResult.catch(() => undefined)
-      vi.useRealTimers()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("bounds stalled Codex shared-home canonicalization after abort", async () => {
-    vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const shadowHomesBefore = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))
-    const canonicalization = new Promise<string>(() => undefined)
-    canonicalizeCodexSharedHome.mockImplementationOnce(async (path: string) => {
-      expect(path).toBe(sharedHome)
-      return await canonicalization
-    })
-    const controller = new AbortController()
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const invocation = context("thread-stalled-home-canonicalization", {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-    })
-    const backgroundTasks: Promise<unknown>[] = []
-    invocation.runtime.waitUntil = (task?: Promise<unknown>) => {
-      if (task) backgroundTasks.push(task)
-    }
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const result = Promise.resolve(adapter.generate(invocation as never))
-
-    try {
-      await vi.waitFor(() => expect(canonicalizeCodexSharedHome).toHaveBeenCalledOnce())
-      controller.abort("cancelled")
-      await expect(result).rejects.toBe("cancelled")
-      await vi.waitFor(async () => {
-        expect(new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("vitehub-codex-shadow-home-")))).toEqual(shadowHomesBefore)
-      })
-      expect(backgroundTasks.length).toBeGreaterThan(0)
-      let workflowSettled = false
-      void Promise.all(backgroundTasks).then(() => workflowSettled = true)
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(workflowSettled).toBe(true)
-    }
-    finally {
-      controller.abort("cancelled")
-      await result.catch(() => undefined)
-      vi.useRealTimers()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("serializes symlink aliases for the same Codex home", async () => {
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const aliasRoot = await mkdtemp(join(tmpdir(), "vitehub-codex-home-alias-"))
-    const alias = join(aliasRoot, "codex")
-    await symlink(sharedHome, alias)
-    let releaseFirst!: () => void
-    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
-    const first = runtime("thread-home-alias-first", [event("turn.completed", "thread-home-alias-first", { state: "completed" }, { turnId: "turn-1" })], {
-      beforeEvent: () => firstBlocked,
-    })
-    runtime("thread-home-alias-second", [event("turn.completed", "thread-home-alias-second", { state: "completed" }, { turnId: "turn-1" })])
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-
-    try {
-      const sharedHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: sharedHome } })
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const firstInvocation = sharedHomeAdapter.generate(context("thread-home-alias-first") as never)
-      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
-      const aliasHomeAdapter = createProviderAgentAdapter({ credentials: "{}", provider: "codex", providerSettings: { homePath: alias } })
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const secondInvocation = aliasHomeAdapter.generate(context("thread-home-alias-second") as never)
-      await new Promise(resolve => setTimeout(resolve, 25))
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
-
-      releaseFirst()
-      await expect(firstInvocation).resolves.toBeDefined()
-      await expect(secondInvocation).resolves.toBeDefined()
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
-    }
-    finally {
-      releaseFirst()
-      await Promise.all([
-        rm(sharedHome, { force: true, recursive: true }),
-        rm(aliasRoot, { force: true, recursive: true }),
-      ])
-    }
-  })
-
-  it.runIf(process.platform !== "win32")("serializes case-equivalent Codex homes on case-insensitive volumes", async () => {
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const equivalentHome = sharedHome.toUpperCase()
-    if (!await access(equivalentHome).then(() => true, () => false)) {
-      await rm(sharedHome, { force: true, recursive: true })
-      return
-    }
-    let releaseFirst!: () => void
-    const firstBlocked = new Promise<void>(resolve => releaseFirst = resolve)
-    const first = runtime("thread-macos-home-first", [event("turn.completed", "thread-macos-home-first", { state: "completed" }, { turnId: "turn-1" })], {
-      beforeEvent: () => firstBlocked,
-    })
-    runtime("thread-macos-home-second", [event("turn.completed", "thread-macos-home-second", { state: "completed" }, { turnId: "turn-1" })])
-    const firstAdapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-    const secondAdapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: equivalentHome },
-    })
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-
-    try {
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const firstInvocation = firstAdapter.generate(context("thread-macos-home-first") as never)
-      await vi.waitFor(() => expect(first.sendTurn).toHaveBeenCalledOnce())
-      // SAFETY: These fixtures intentionally construct the exact provider run context.
-      const secondInvocation = secondAdapter.generate(context("thread-macos-home-second") as never)
-      await new Promise(resolve => setTimeout(resolve, 25))
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
-
-      releaseFirst()
-      await expect(firstInvocation).resolves.toBeDefined()
-      await expect(secondInvocation).resolves.toBeDefined()
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
-    }
-    finally {
-      releaseFirst()
-      await Promise.all([
-        rm(sharedHome, { force: true, recursive: true }),
-        rm(equivalentHome, { force: true, recursive: true }),
-      ])
-    }
-  })
-
-  it("passes Codex reasoning selections to provider session startup", async () => {
-    const threadId = "thread-reasoning-options"
-    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-
-    const adapter = createProviderAgentAdapter({
-      model: "gpt-5.6-sol",
-      provider: "codex",
-      reasoningEffort: "high",
-      reasoningSummary: "detailed",
-    })
-    const runContext = context(threadId)
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    await adapter.generate(runContext as never)
-
-    expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({
-      model: "gpt-5.6-sol",
-      modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" },
-    }))
-  })
-
-  it("rejects malformed Codex credentials before starting a provider runtime", async () => {
-    const runtimeCalls = createProviderRuntime.mock.calls.length
-
-    const adapter = createProviderAgentAdapter({
-      credentials: "not-json",
-      provider: "codex",
-    })
-    const runContext = context("thread-invalid-credentials")
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    await expect(adapter.generate(runContext as never)).rejects.toThrow("must be valid JSON")
-
-    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
   })
 
   it("does not request another provider event after the turn completes", async () => {
@@ -1866,6 +1700,43 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it("replays message history instead of resuming an ephemeral credential Home", async () => {
+    const threadId = "thread-private-credentials-resume"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "deleted-home-cursor",
+    })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchHistoricalImage = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const fetchLaterHistoricalImage = vi.fn(async () => new Uint8Array([4, 5, 6]))
+    const adapter = createProviderAgentAdapter({ credentials: () => "{}", provider: "codex" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }, { fetchData: fetchHistoricalImage, mediaType: "image/png", name: "diagram.png", type: "image" }], role: "user" },
+        { parts: [{ id: "call-1", input: { path: "notes.txt" }, name: "read_file", state: "running", type: "tool-call" }], role: "assistant" },
+        { parts: [{ id: "call-1", name: "read_file", output: { text: "first answer" }, state: "completed", type: "tool-result" }], role: "tool" },
+        { parts: [{ data: { selection: "first answer" }, type: "data-selection" }, { data: { context: "kept" }, type: "data-chat-user-message-context" }, { title: "Notes", type: "source", url: "https://example.com/notes" }], role: "assistant" },
+        { parts: [{ fetchData: fetchLaterHistoricalImage, mediaType: "image/jpeg", name: "second.jpg", type: "image", url: "https://assets.example/second.jpg?token=secret" }], role: "user" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(fetchHistoricalImage).not.toHaveBeenCalled()
+    expect(fetchLaterHistoricalImage).not.toHaveBeenCalled()
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: '<message role="user">\nhello\n{"mediaType":"image/png","name":"diagram.png","type":"image"}\n</message>\n<message role="assistant">\n{"input":{"path":"notes.txt"},"toolCallId":"call-1","toolName":"read_file","type":"tool-call"}\n</message>\n<message role="tool">\n{"output":{"text":"first answer"},"toolCallId":"call-1","toolName":"read_file","type":"tool-result"}\n</message>\n<message role="assistant">\n{"context":"kept"}\nhttps://example.com/notes\n</message>\n<message role="user">\n{"mediaType":"image/jpeg","name":"second.jpg","type":"image"}\n</message>\n<message role="user">\ncontinue\n</message>',
+      threadId,
+    }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(second.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
   it("clears a provider cursor when the invocation fails", async () => {
@@ -3055,6 +2926,32 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
+  it("cancels while the Capability server is starting", async () => {
+    const threadId = "thread-cancel-capability-startup"
+    const provider = runtime(threadId, [])
+    const controller = new AbortController()
+    const listen = vi.spyOn(HttpServer.prototype, "listen").mockImplementation(function (this: HttpServer) {
+      return this
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+        tools: { stalled: { execute: vi.fn(), name: "stalled" } },
+      }) as never)
+
+      await vi.waitFor(() => expect(listen).toHaveBeenCalledOnce())
+      controller.abort("cancelled")
+
+      await expect(result).rejects.toBe("cancelled")
+      expect(provider.close).toHaveBeenCalledOnce()
+      expect(provider.startSession).not.toHaveBeenCalled()
+    }
+    finally {
+      listen.mockRestore()
+    }
+  })
+
   it("retains an already-aborted late provider close before deleting its root", async () => {
     const threadId = "thread-cancel-late-close"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
@@ -3079,164 +2976,6 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
   })
 
-  it("removes Codex credentials when aborted provider cleanup never settles", async () => {
-    vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const otherHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    let finishClose: (() => void) | undefined
-    try {
-      const threadId = "thread-cancel-provider-cleanup"
-      const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
-      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
-      const controller = new AbortController()
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      const runContext = context(threadId, {
-        input: { abortSignal: controller.signal, prompt: "hello" },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const result = adapter.generate(runContext as never)
-
-      await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
-      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
-      const runtimeCall = createProviderRuntime.mock.lastCall
-      expect(runtimeCall).toBeDefined()
-      // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
-      const root = (runtimeCall![0] as { cwd: string }).cwd
-      await expect(access(shadowHome)).resolves.toBeUndefined()
-      await expect(access(root)).resolves.toBeUndefined()
-      await writeFile(join(shadowHome, "aborted-state.json"), "must not persist\n")
-      controller.abort("cancelled")
-      await expect(result).rejects.toBe("cancelled")
-      await vi.advanceTimersByTimeAsync(10_000)
-
-      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
-      await vi.waitFor(async () => await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
-      await expect(access(join(sharedHome, "aborted-state.json"))).rejects.toMatchObject({ code: "ENOENT" })
-
-      const runtimeCalls = createProviderRuntime.mock.calls.length
-      const concurrentEvents = [
-        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-        event("turn.completed", "thread-after-stalled-home", { state: "completed" }, { turnId: "turn-1" }),
-      ]
-      const sameSessionProvider = runtime(threadId, concurrentEvents)
-      const sameHomeProvider = runtime("thread-after-stalled-home", concurrentEvents)
-      const otherHomeAdapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: otherHome },
-      })
-      // SAFETY: This fixture intentionally reuses the stalled invocation's session with another credential home.
-      const sameSessionResult = otherHomeAdapter.generate(context(threadId) as never)
-      // SAFETY: This fixture intentionally reuses the stalled invocation's credential home with another session.
-      const sameHomeResult = adapter.generate(context("thread-after-stalled-home") as never)
-      await vi.advanceTimersByTimeAsync(25)
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
-
-      finishClose?.()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(sameSessionResult).resolves.toBeDefined()
-      await expect(sameHomeResult).resolves.toBeDefined()
-      expect(sameSessionProvider.startSession).toHaveBeenCalledOnce()
-      expect(sameHomeProvider.startSession).toHaveBeenCalledOnce()
-    }
-    finally {
-      finishClose?.()
-      vi.useRealTimers()
-      await Promise.all([
-        rm(sharedHome, { force: true, recursive: true }),
-        rm(otherHome, { force: true, recursive: true }),
-      ])
-    }
-  })
-
-  it("removes Codex credentials when aborted provider startup never settles", async () => {
-    vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    let finishStartup: (() => void) | undefined
-    try {
-      const threadId = "thread-cancel-provider-startup"
-      const runtimeCalls = createProviderRuntime.mock.calls.length
-      const lateProvider = runtime(threadId, [])
-      providerRuntimes.pop()
-      createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => finishStartup = () => resolve(lateProvider)))
-      const controller = new AbortController()
-      const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
-        provider: "codex",
-        providerSettings: { homePath: sharedHome },
-      })
-      const runContext = context(threadId, {
-        input: { abortSignal: controller.signal, prompt: "hello" },
-      })
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const result = adapter.generate(runContext as never)
-
-      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
-      expect(createProviderRuntime.mock.lastCall?.[0].settings?.homePath).toEqual(expect.any(String))
-      const shadowHome = String(createProviderRuntime.mock.lastCall?.[0].settings?.homePath)
-      await expect(access(shadowHome)).resolves.toBeUndefined()
-      controller.abort("cancelled")
-      await expect(result).rejects.toBe("cancelled")
-      await vi.advanceTimersByTimeAsync(10_000)
-
-      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
-      const nextThreadId = "thread-after-cancelled-provider-startup"
-      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const nextResult = adapter.generate(context(nextThreadId) as never)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
-
-      finishStartup?.()
-      await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
-      await expect(nextResult).resolves.toBeDefined()
-      expect(nextProvider.startSession).toHaveBeenCalledOnce()
-    }
-    finally {
-      finishStartup?.()
-      vi.useRealTimers()
-      await rm(sharedHome, { force: true, recursive: true })
-    }
-  })
-
-  it("releases provider resources when Capability tool-server startup stalls after abort", async () => {
-    const threadId = "thread-cancel-tool-server-startup"
-    const provider = runtime(threadId, [])
-    const controller = new AbortController()
-    let finishConnect!: () => void
-    const connect = vi.spyOn(McpServer.prototype, "connect").mockImplementationOnce(() => new Promise<void>(resolve => finishConnect = resolve))
-    const close = vi.spyOn(McpServer.prototype, "close")
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact provider run context.
-    const result = Promise.resolve(adapter.generate(context(threadId, {
-      input: { abortSignal: controller.signal, prompt: "hello" },
-      tools: { search: { execute: vi.fn(), name: "search" } },
-    }) as never))
-    const settled = vi.fn()
-    void result.then(settled, settled)
-
-    try {
-      await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce())
-      controller.abort("cancelled")
-      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
-      await expect(result).rejects.toBe("cancelled")
-      expect(provider.close).toHaveBeenCalledOnce()
-
-      finishConnect()
-      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
-    }
-    finally {
-      finishConnect?.()
-      connect.mockRestore()
-      close.mockRestore()
-    }
-  })
-
   it("times out a provider turn and releases its resources", async () => {
     const threadId = "thread-timeout"
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
@@ -3252,18 +2991,15 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).toHaveBeenCalledOnce()
   })
 
-  it("retains the shared-home lock after forced credential removal until runtime shutdown", async () => {
+  it("keeps a completed turn successful when provider cleanup stalls", async () => {
     vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    let finishClose: (() => void) | undefined
     try {
-      const threadId = "thread-cleanup-timeout-first"
+      const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
       const adapter = createProviderAgentAdapter({
-        credentials: '{"tokens":{"access_token":"secret"}}',
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
         provider: "codex",
-        providerSettings: { homePath: sharedHome },
       })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const stream = await adapter.stream!(context(threadId) as never)
@@ -3272,87 +3008,292 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
-      expect(runtimeCall?.[0].settings?.homePath).toEqual(expect.any(String))
-      const shadowHome = String(runtimeCall?.[0].settings?.homePath)
-      await expect(access(shadowHome)).resolves.toBeUndefined()
+      // SAFETY: The mocked Codex runtime call records the credential homePath setting.
+      const home = (runtimeCall![0].settings as { homePath: string }).homePath
+      await expect(access(home)).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10_000)
 
       await expect(result).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ recoverable: true, type: "error" }),
       ]))
-      await vi.waitFor(async () => await expect(access(shadowHome)).rejects.toMatchObject({ code: "ENOENT" }))
-      const nextThreadId = "thread-cleanup-timeout-second"
-      const nextProvider = runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
-      // SAFETY: This test fixture intentionally constructs the exact provider run context.
-      const nextResult = adapter.generate(context(nextThreadId) as never)
-      await vi.advanceTimersByTimeAsync(25)
-      expect(nextProvider.startSession).not.toHaveBeenCalled()
-
-      finishClose?.()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(nextResult).resolves.toBeDefined()
-      expect(nextProvider.startSession).toHaveBeenCalledOnce()
+      await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
-      finishClose?.()
       vi.useRealTimers()
-      await rm(sharedHome, { force: true, recursive: true })
     }
   })
 
-  it("persists completed Codex state before forcing credentials cleanup when close stalls", async () => {
+  it("quarantines a named credential profile when provider cleanup stalls", async () => {
     vi.useFakeTimers()
-    const sharedHome = await mkdtemp(join(tmpdir(), "vitehub-codex-shared-home-"))
-    const threadId = "thread-completed-state-stalled-close"
-    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    providerRuntimes.pop()
-    let finishClose!: () => void
-    provider.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
-    let shadowHome: string | undefined
-    let finishPersistenceCopy: (() => void) | undefined
-    let persistenceCopies = 0
-    beforeCodexHomeCopyFile.mockImplementation(async (source) => {
-      if (String(source) !== join(String(shadowHome), "completed-state.json")) return
-      persistenceCopies += 1
-      await new Promise<void>(resolve => finishPersistenceCopy = resolve)
-    })
-    createProviderRuntime.mockImplementationOnce(async (options) => {
-      shadowHome = String(options.settings?.homePath)
-      await writeFile(join(shadowHome, "completed-state.json"), "persist me\n")
-      return provider
-    })
-    const adapter = createProviderAgentAdapter({
-      credentials: '{"tokens":{"access_token":"secret"}}',
-      provider: "codex",
-      providerSettings: { homePath: sharedHome },
-    })
-
     try {
+      const threadId = "thread-profile-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const options = {
+        credentialProfile: `cleanup-timeout-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const stream = await adapter.stream!(context(threadId) as never)
-      const result = collect(stream)
+      const result = createProviderAgentAdapter(options).generate(context(threadId) as never)
+
       await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(10_000)
-      await vi.waitFor(() => expect(finishPersistenceCopy).toBeDefined())
+      await expect(result).resolves.toBeDefined()
 
-      finishClose()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(persistenceCopies).toBe(1)
-      finishPersistenceCopy?.()
-
-      await expect(result).resolves.toEqual(expect.arrayContaining([
-        expect.objectContaining({ recoverable: true, type: "error" }),
-      ]))
-      await vi.waitFor(async () => await expect(access(shadowHome!)).rejects.toMatchObject({ code: "ENOENT" }))
-      expect(await readFile(join(sharedHome, "completed-state.json"), "utf8")).toBe("persist me\n")
-      expect(persistenceCopies).toBe(1)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
     }
     finally {
-      finishClose?.()
-      finishPersistenceCopy?.()
-      beforeCodexHomeCopyFile.mockReset()
       vi.useRealTimers()
-      await rm(sharedHome, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { credentialProfile: undefined, name: "invocation-private credential Home", quarantined: false },
+    { credentialProfile: `cancelled-cleanup-${crypto.randomUUID()}`, name: "named credential profile", quarantined: true },
+  ])("finalizes the $name when cancelled provider cleanup stalls", async ({ credentialProfile, quarantined }) => {
+    vi.useFakeTimers()
+    try {
+      const threadId = `thread-cancelled-cleanup-${crypto.randomUUID()}`
+      const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const controller = new AbortController()
+      const options = {
+        credentialProfile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+      const runtimeCall = createProviderRuntime.mock.lastCall
+      expect(runtimeCall).toBeDefined()
+      // SAFETY: The mocked Codex runtime call records the credential homePath setting.
+      const home = (runtimeCall![0].settings as { homePath: string }).homePath
+      controller.abort(new DOMException("cancelled", "AbortError"))
+      await expect(result).rejects.toMatchObject({ name: "AbortError" })
+      await expect(access(home)).resolves.toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      if (quarantined) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+      }
+      else {
+        await vi.waitFor(async () => {
+          await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+        })
+      }
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("quarantines a named credential profile when provider cleanup rejects", async () => {
+    const threadId = "thread-profile-cleanup-rejection"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(new Error("close failed"))
+    const options = {
+      credentialProfile: `cleanup-rejection-${crypto.randomUUID()}`,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex" as const,
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+  })
+
+  it("quarantines a named credential profile when provider cleanup rejects without a reason", async () => {
+    const threadId = "thread-profile-valueless-cleanup-rejection"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(undefined)
+    const options = {
+      credentialProfile: `valueless-cleanup-rejection-${crypto.randomUUID()}`,
+      credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+      provider: "codex" as const,
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(threadId) as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+  })
+
+  it("releases a named credential profile when only Capability cleanup stalls", async () => {
+    vi.useFakeTimers()
+    let client: McpClient | undefined
+    const toolCallController = new AbortController()
+    let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<unknown> | undefined
+    try {
+      const threadId = "thread-profile-tool-cleanup-timeout"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn(mcp) {
+          client = new McpClient({ name: "provider-test", version: "1" })
+          const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+            requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+          })
+          await client.connect(transport)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).catch(() => undefined)
+          await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+        },
+      })
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
+      const options = {
+        credentialProfile: `tool-cleanup-timeout-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        tools: { stalled: { execute, name: "stalled" } },
+      }) as never)
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(result).resolves.toBeDefined()
+
+      runtime(`${threadId}-next`, [event("turn.completed", `${threadId}-next`, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).resolves.toBeDefined()
+    }
+    finally {
+      resolveExecute?.()
+      toolCallController.abort()
+      await toolCall
+      await client?.close().catch(() => undefined)
+      vi.useRealTimers()
+    }
+  })
+
+  it("quarantines a named credential profile when provider cleanup rejects while Capability cleanup stalls", async () => {
+    vi.useFakeTimers()
+    let client: McpClient | undefined
+    const toolCallController = new AbortController()
+    let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<unknown> | undefined
+    try {
+      const threadId = "thread-profile-rejected-provider-stalled-tool"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn(mcp) {
+          client = new McpClient({ name: "provider-test", version: "1" })
+          const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+            requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+          })
+          await client.connect(transport)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).catch(() => undefined)
+          await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+        },
+      })
+      provider.close.mockRejectedValueOnce(new Error("close failed"))
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
+      const options = {
+        credentialProfile: `rejected-provider-stalled-tool-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        tools: { stalled: { execute, name: "stalled" } },
+      }) as never)
+      const rejection = Promise.resolve(result).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10_000)
+      const cleanupError = await rejection
+      expect(cleanupError).toBeInstanceOf(AggregateError)
+      expect(cleanupError).toHaveProperty("message", "[vitehub] Provider Agent Driver cleanup failed.")
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+    }
+    finally {
+      resolveExecute?.()
+      toolCallController.abort()
+      await toolCall
+      await client?.close().catch(() => undefined)
+      vi.useRealTimers()
+    }
+  })
+
+  it("quarantines a named credential profile while deferred runtime and Capability cleanup stall", async () => {
+    vi.useFakeTimers()
+    let client: McpClient | undefined
+    const toolCallController = new AbortController()
+    let resolveExecute: (() => void) | undefined
+    let toolCall: Promise<void> | undefined
+    try {
+      const threadId = "thread-profile-deferred-runtime-tool-timeout"
+      let resolveTurn!: () => void
+      const turnPending = new Promise<void>(resolve => resolveTurn = resolve)
+      const execute = vi.fn(() => new Promise<void>(resolve => resolveExecute = resolve))
+      const provider = runtime(threadId, [], {
+        async onSendTurn(mcp) {
+          client = new McpClient({ name: "provider-test", version: "1" })
+          const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+            requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+          })
+          await client.connect(transport)
+          toolCall = client.callTool({ arguments: {}, name: "stalled" }, undefined, { signal: toolCallController.signal }).then(() => undefined, () => undefined)
+          await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+          await turnPending
+        },
+      })
+      const controller = new AbortController()
+      const closeWorkspace = vi.fn(async () => undefined)
+      const options = {
+        credentialProfile: `deferred-tool-cleanup-${crypto.randomUUID()}`,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex" as const,
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = createProviderAgentAdapter(options).generate(context(threadId, {
+        input: { abortSignal: controller.signal, prompt: "hello" },
+        tools: { stalled: { execute, name: "stalled" } },
+        workspace: {
+          fs: {},
+          startSession: vi.fn(async () => ({
+            close: closeWorkspace,
+            commit: vi.fn(async () => undefined),
+            diff: vi.fn(async () => ({ entries: [] })),
+            exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+            readFile: vi.fn(async () => new Uint8Array()),
+          })),
+          tools: {},
+        },
+        workspaceDefinition: { mode: "write", name: "docs" },
+      }) as never)
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+      const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
+      controller.abort(new DOMException("cancelled", "AbortError"))
+      await vi.advanceTimersByTimeAsync(10_000)
+      await rejected
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
+      resolveTurn()
+      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      expect(closeWorkspace).not.toHaveBeenCalled()
+      resolveExecute?.()
+      toolCallController.abort()
+      await toolCall
+      await vi.waitFor(() => expect(closeWorkspace).toHaveBeenCalledOnce())
+    }
+    finally {
+      toolCallController.abort()
+      await client?.close().catch(() => undefined)
+      vi.useRealTimers()
     }
   })
 
@@ -3482,28 +3423,79 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     expect(provider.close).not.toHaveBeenCalled()
   })
 
-  it("retains the Workspace root until late runtime creation is closed", async () => {
+  it("retains a named credential profile lock until late runtime creation is closed", async () => {
     const threadId = "thread-late-runtime"
+    const nextThreadId = "thread-after-late-runtime"
+    const credentialProfile = `provider-late-${crypto.randomUUID()}`
+    const controller = new AbortController()
     const lateRuntime = runtime(threadId, [])
     providerRuntimes.pop()
     let resolveRuntime!: (value: typeof lateRuntime) => void
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const adapter = createProviderAgentAdapter({
+      credentialProfile,
+      credentials: () => JSON.stringify({ tokens: { access_token: "shared" } }),
+      provider: "codex",
+    })
+    const runtimeCalls = createProviderRuntime.mock.calls.length
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
-      input: { prompt: "hello", timeout: 20 },
+    const result = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
 
-    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const root = (runtimeCall![0] as { cwd: string }).cwd
+    // SAFETY: The mocked Codex runtime call records the credential homePath setting.
+    const homePath = (runtimeCall![0].settings as { homePath: string }).homePath
     await expect(access(root)).resolves.toBeUndefined()
+    runtime(nextThreadId, [event("turn.completed", nextThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const next = adapter.generate(context(nextThreadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1)
     resolveRuntime(lateRuntime)
     await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    await expect(next).resolves.toBeDefined()
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2)
     await vi.waitFor(() => expect(access(root)).rejects.toMatchObject({ code: "ENOENT" }))
+    await rm(homePath, { force: true, recursive: true })
+  })
+
+  it("quarantines a named credential profile when late runtime creation fails to close", async () => {
+    const threadId = "thread-late-runtime-close-rejection"
+    const credentialProfile = `provider-late-close-rejection-${crypto.randomUUID()}`
+    const controller = new AbortController()
+    const lateRuntime = runtime(threadId, [])
+    providerRuntimes.pop()
+    lateRuntime.close.mockRejectedValueOnce(new Error("close failed"))
+    let resolveRuntime!: (value: typeof lateRuntime) => void
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    createProviderRuntime.mockImplementationOnce(() => new Promise(resolve => resolveRuntime = resolve) as never)
+    const options = {
+      credentialProfile,
+      credentials: () => JSON.stringify({ tokens: { access_token: "shared" } }),
+      provider: "codex" as const,
+    }
+    const adapter = createProviderAgentAdapter(options)
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    resolveRuntime(lateRuntime)
+    await vi.waitFor(() => expect(lateRuntime.close).toHaveBeenCalledOnce())
+    // SAFETY: This fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter(options).generate(context(`${threadId}-next`) as never)).rejects.toThrow("is unavailable until this process restarts")
   })
 
   it("preserves cancellation when waitUntil rejects late cleanup registration", async () => {
@@ -3540,16 +3532,20 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
   it("removes the Workspace root when late runtime creation rejects", async () => {
     const threadId = "thread-late-runtime-rejection"
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    const controller = new AbortController()
+    const cancelled = new DOMException("cancelled", "AbortError")
     let rejectRuntime!: (reason: unknown) => void
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     createProviderRuntime.mockImplementationOnce(() => new Promise((_resolve, reject) => rejectRuntime = reject) as never)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
-      input: { prompt: "hello", timeout: 20 },
+      input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
 
-    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalled())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 1))
+    controller.abort(cancelled)
+    await expect(result).rejects.toBe(cancelled)
     const runtimeCall = createProviderRuntime.mock.lastCall
     expect(runtimeCall).toBeDefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -3628,57 +3624,15 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
-    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps the session lock until a stalled deferred runtime close settles", async () => {
-    vi.useFakeTimers()
-    try {
-      const threadId = "thread-late-start-lock"
-      let finishStartup!: () => void
-      let finishClose!: () => void
-      const first = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
-      first.close.mockImplementationOnce(() => new Promise<undefined>(resolve => finishClose = () => resolve(undefined)))
-      const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      const adapter = createProviderAgentAdapter({ provider: "codex" })
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const firstResult = adapter.generate(context(threadId, { input: { prompt: "hello", timeout: 50 } }) as never)
-
-      await vi.advanceTimersByTimeAsync(50)
-      await expect(firstResult).rejects.toMatchObject({ name: "TimeoutError" })
-      await vi.advanceTimersByTimeAsync(10_000)
-
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const secondResult = adapter.generate(context(threadId) as never)
-      await vi.advanceTimersByTimeAsync(25)
-      expect(second.startSession).not.toHaveBeenCalled()
-
-      finishStartup()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(first.close).toHaveBeenCalledOnce()
-      await vi.advanceTimersByTimeAsync(9_999)
-      expect(second.startSession).not.toHaveBeenCalled()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(second.startSession).not.toHaveBeenCalled()
-
-      finishClose()
-      await vi.advanceTimersByTimeAsync(0)
-      await expect(secondResult).resolves.toBeDefined()
-      expect(second.startSession).toHaveBeenCalledOnce()
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("retains the session and provider root until deferred Workspace cleanup settles", async () => {
+  it("stops deferred provider work before closing the Workspace", async () => {
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
-    let finishWorkspaceClose!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
-    const nextProvider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
-      close: vi.fn(() => new Promise<void>(resolve => finishWorkspaceClose = resolve)),
+      close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
       diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
@@ -3694,23 +3648,9 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
 
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(session.close).not.toHaveBeenCalled()
-    const runtimeCall = createProviderRuntime.mock.lastCall
-    expect(runtimeCall).toBeDefined()
-    // SAFETY: This test fixture intentionally reads the Provider runtime working directory.
-    const root = (runtimeCall![0] as { cwd: string }).cwd
     finishStartup()
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     await vi.waitFor(() => expect(session.close).toHaveBeenCalledOnce())
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const nextResult = adapter.generate(context(threadId) as never)
-    await new Promise(resolve => setTimeout(resolve, 25))
-    expect(nextProvider.startSession).not.toHaveBeenCalled()
-    await expect(access(root)).resolves.toBeUndefined()
-
-    finishWorkspaceClose()
-    await expect(nextResult).resolves.toBeDefined()
-    await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
-    expect(nextProvider.startSession).toHaveBeenCalledOnce()
     expect(provider.stopSession).toHaveBeenCalledWith(threadId)
     expect(provider.close.mock.invocationCallOrder[0]).toBeLessThan(session.close.mock.invocationCallOrder[0]!)
   })
@@ -3737,7 +3677,7 @@ foreach ($path in @($env:VITEHUB_CODEX_CREDENTIAL_HOME, (Join-Path $env:VITEHUB_
     rejectStartup(new Error("late startup failed"))
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
     expect(provider.stopSession).not.toHaveBeenCalled()
-    expect(waitUntil).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledTimes(2)
   })
 
   it("closes the Workspace when provider shutdown fails", async () => {

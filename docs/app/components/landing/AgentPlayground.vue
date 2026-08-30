@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PropertyHelp from "./PropertyHelp.vue"
 import highlighter from "#mdc-highlighter"
+import * as v from "valibot"
 
 type HastNode = {
   type: string
@@ -307,7 +308,14 @@ const agentProperties: Record<AgentPropertyKey, {
     to: "/docs/agents/channels/",
   },
 }
-const agentPropertyOrder: AgentPropertyKey[] = ["driver", "runtime", "workspace", "capabilities", "channels"]
+const agentPropertyOrder: readonly AgentPropertyKey[] = [
+  "driver",
+  "runtime",
+  "workspace",
+  "capabilities",
+  "channels",
+]
+const highlightLanguageSchema = v.string()
 
 const driverOptions = [
   { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
@@ -356,7 +364,6 @@ const capabilityOptions = [
   { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
   { code: "chatSummary()", icon: "i-lucide-message-square-text", key: "chat-summary", label: "Chat summary" },
   { code: "progressSummary()", icon: "i-lucide-list-collapse", key: "progress-summary", label: "Progress summary" },
-  { code: "papercuts({ report })", icon: "i-lucide-bug", key: "papercuts", label: "Papercut reports" },
   { code: "cost()", icon: "i-lucide-receipt", key: "cost", label: "Cost" },
 ] satisfies PlaygroundOption[]
 
@@ -548,10 +555,10 @@ function syntaxHighlightPlugin() {
     const styles = new Set<string>()
 
     function visit(node: HastNode) {
-      const language = node.properties?.language
+      const language = v.safeParse(highlightLanguageSchema, node.properties?.language)
 
-      if (node.tagName === "pre" && language && language !== "text") {
-        tasks.push(highlighter(nodeText(node), language, syntaxThemes).then((result) => {
+      if (node.tagName === "pre" && language.success && language.output !== "text") {
+        tasks.push(highlighter(nodeText(node), language.output, syntaxThemes).then((result) => {
           const className = Array.isArray(node.properties?.className)
             ? node.properties.className.join(" ")
             : String(node.properties?.className ?? "")
@@ -564,7 +571,7 @@ function syntaxHighlightPlugin() {
           }
 
           if (code) {
-            // SAFETY: The highlighter returns the same recursive HAST node shape used by this renderer.
+            // SAFETY: The markdown highlighter returns HAST children for the code node.
             code.children = result.tree as HastNode[]
           }
 
@@ -685,8 +692,10 @@ function channelItemsFor(currentKey: string) {
 }
 
 async function addProperty(value: unknown) {
-  const key = agentPropertyOrder.find(key => key === value)
-  if (!key) return
+  const key = agentPropertyOrder.find(propertyKey => propertyKey === value)
+  if (!key) {
+    return
+  }
 
   if (!selectedAgentConfig.value.visiblePropertyKeys.includes(key)) {
     selectedAgentConfig.value.visiblePropertyKeys.push(key)
@@ -714,7 +723,9 @@ function removeProperty(key: AgentPropertyKey) {
 
 async function addCapability(value: unknown) {
   const key = capabilityOptions.find(option => option.key === value)?.key
-  if (!key || selectedAgentConfig.value.capabilityKeys.includes(key)) return
+  if (!key || selectedAgentConfig.value.capabilityKeys.includes(key)) {
+    return
+  }
 
   if (key === "access") {
     selectedAgentConfig.value.capabilityKeys.unshift(key)
@@ -732,7 +743,9 @@ function removeCapability(index: number) {
 
 async function addChannel(value: unknown) {
   const key = channelOptions.find(option => option.key === value)?.key
-  if (!key || selectedAgentConfig.value.channelKeys.includes(key)) return
+  if (!key || selectedAgentConfig.value.channelKeys.includes(key)) {
+    return
+  }
 
   selectedAgentConfig.value.channelKeys.push(key)
   await nextTick()

@@ -50,9 +50,6 @@ export {
   openapi,
 } from "./openapi.ts"
 export {
-  papercuts,
-} from "./papercuts.ts"
-export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
@@ -275,13 +272,6 @@ export type {
   OpenAPIRequestPatch,
   OpenAPIResponseContext,
 } from "./openapi.ts"
-export type {
-  Papercut,
-  PapercutReportContext,
-  PapercutReportEvent,
-  PapercutSource,
-  PapercutsOptions,
-} from "./papercuts.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,
