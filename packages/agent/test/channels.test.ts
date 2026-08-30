@@ -46,6 +46,7 @@ describe("agent channels", () => {
   it("creates and updates one GitHub Agent activity comment with session history", async () => {
     const { github } = await import("../src/channels.ts")
     let stored: { body: string, id: number } | undefined
+    const deleteStored = () => { stored = undefined }
     let failNextCommentsGet = false
     const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -123,6 +124,13 @@ describe("agent channels", () => {
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("retry-run", "running") as never)
       expect(stored?.body).toContain("https://console.test/invocations/retry-run")
+
+      // A deleted cached comment must be rediscovered as missing and recreated.
+      deleteStored()
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("replacement-run", "running") as never)
+      expect(methods.filter(method => method === "POST")).toHaveLength(2)
+      expect(stored?.body).toContain("https://console.test/invocations/replacement-run")
 
       const largeActivity = context("run-3", "running")
       largeActivity.activity.tasks = Array.from({ length: 100 }, (_, index) => ({ status: "pending", title: `${index}: ${"x".repeat(1_000)}` }))
@@ -410,9 +418,13 @@ describe("agent channels", () => {
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
-      const first = channel.activity?.update(context(channel, "run-first") as never)
+      const firstContext = context(channel, "run-first")
+      const secondContext = context(channel, "run-second")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      const first = channel.activity?.update(firstContext as never)
       await vi.waitFor(() => expect(identityCalls).toBe(1))
-      const second = channel.activity?.update(context(channel, "run-second") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      const second = channel.activity?.update(secondContext as never)
 
       await Promise.resolve()
       expect(identityCalls).toBe(1)

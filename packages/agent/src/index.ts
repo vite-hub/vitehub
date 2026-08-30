@@ -4982,7 +4982,7 @@ async function finishAgentInvocation<
   const durationMs = Date.now() - context.startedAt
   const outcomeCancelled = outcome.status === "cancelled"
   const outcomeFailed = outcome.status === "error"
-  let failed = outcomeFailed
+  let failed = outcomeFailed || outcomeCancelled
   let error = outcome.status === "error" ? outcome.error : undefined
   let result = outcome.status === "success" ? outcome.result : undefined
   let usage = outcome.status === "success" ? outcome.usage : undefined
@@ -5039,7 +5039,7 @@ async function finishAgentInvocation<
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
-    if (hasFinishWork(context)) {
+    if (!outcomeCancelled && hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -6765,11 +6765,12 @@ function createInlineAgentInvocationController<
     }, { ...input, abortSignal }, {
       kind: "run",
       onFinish(outcome) {
-        if (outcome.status === "cancelled") return
-        onFinish(outcome.status === "success"
+        onFinish(outcome.status === "cancelled"
+          ? { status: "cancelled" }
+          : outcome.status === "success"
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
-          : { error: outcome.error, status: "failed" })
+            ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
+            : { error: outcome.error, status: "failed" })
       },
       renderOutput: true,
     }),

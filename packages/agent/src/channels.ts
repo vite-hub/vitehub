@@ -1146,6 +1146,7 @@ const githubActivityHistoryLimit = 10
 const githubActivityLinkLimit = 3
 const githubActivityLinkUrlLimit = 1_000
 const githubActivityBodyLimit = 65_000
+const githubActivityCommentLookupLimit = 100
 const githubActivityPreviousRunLimit = 100
 const githubActivityTaskLimit = 25
 const githubActivityActiveRuns = new Map<string, Set<string>>()
@@ -1361,18 +1362,16 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const terminal = ["cancelled", "completed", "failed"].includes(context.activity.status)
         const commentsUrl = `${commentsTarget}/comments?sort=created&direction=desc`
         const knownCommentId = commentIds.get(activityKey)
-        const knownComment = knownCommentId
-          ? await githubApiJson(fetcher, `${apiBaseUrl}/repos/${target.repository}/issues/comments/${knownCommentId}`, headers)
-          : undefined
-        const comments = knownCommentId ? [knownComment] : await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
+        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, githubActivityCommentLookupLimit)
         const owned = comments.filter(comment => maybeNumber(isRecord(comment) ? comment.id : undefined)
           && isOwnedGithubActivityComment(comment, identity))
-        const existing = owned[0]
+        const existing = owned.find(comment => maybeNumber(isRecord(comment) ? comment.id : undefined) === knownCommentId) || owned[0]
+        if (knownCommentId && !existing) commentIds.delete(activityKey)
         if (mode === "initialize" && existing) return
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
         const current = { links: githubActivityLinksState(context.activity.links), runId, status: context.activity.status }
         const reconcileDuplicates = async () => {
-          for (const duplicate of owned.slice(1)) {
+          for (const duplicate of owned.filter(comment => comment !== existing)) {
             const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined
             if (!duplicateId) continue
             await githubApi(fetcher, `${apiBaseUrl}/repos/${target.repository}/issues/comments/${duplicateId}`, {
@@ -1385,7 +1384,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const staleRun = previous.current?.runId !== current.runId
           && (knownActiveRun
             || previous.previousRunIds.includes(current.runId)
-            || owned.slice(1).some(comment => {
+            || owned.filter(comment => comment !== existing).some(comment => {
               const state = decodeGithubActivityState(isRecord(comment) ? comment.body : undefined)
               return state.current?.runId === current.runId || state.previousRunIds.includes(current.runId)
             }))
