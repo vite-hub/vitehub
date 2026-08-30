@@ -1502,6 +1502,42 @@ describe("framework generated types", () => {
     await expect(readFile(generatedDrinks, "utf8")).rejects.toThrow()
   })
 
+  it("keeps the latest overlapping resolved Source configuration", async () => {
+    const { root } = await createNestedProject()
+    const apiMeals = join(root, "api/collections/meals.ts")
+    const backendMeals = join(root, "backend/collections/meals.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    await mkdir(dirname(apiMeals), { recursive: true })
+    await mkdir(dirname(backendMeals), { recursive: true })
+    await writeFile(apiMeals, collectionModule("meals"))
+    await writeFile(backendMeals, collectionModule("meals"))
+    const plugin = sourcePlugin()
+
+    let releaseFirstResolution: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMeals
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseFirstResolution = resolve
+    })
+    const firstResolutionStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+    const firstResolution = configResolved(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    await firstResolutionStarted
+    const secondResolution = configResolved(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["backend"] })
+    releaseFirstResolution?.()
+    await Promise.all([firstResolution, secondResolution])
+
+    const watcherAdd = vi.fn()
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: watcherAdd, on: vi.fn() },
+    })
+    expect(watcherAdd).toHaveBeenCalledWith([join(root, "backend")])
+    expect(await readFile(generatedMeals, "utf8")).toContain("backend/collections/meals.ts")
+  })
+
   it("retries a Source refresh paused after preparation", async () => {
     vi.useFakeTimers()
     try {

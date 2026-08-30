@@ -508,22 +508,33 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       bindUnresolvedListenerRoots(projectRoot)
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
-      const configuredState = configuredStateByRoot.get(projectRoot)
-      const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
-      const handlers = await prepareSources({ projectRoot, serverDirs })
-      const handlerKey = await generatedHandlerKey(handlers)
-      configuredStateByRoot.set(projectRoot, {
-        handlerKey,
-        nitroContribution: configuredState?.nitroContribution,
-        serverDirs: serverDirs?.slice(),
-      })
-      if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        viteConfig.nitro = replaceConfiguredNitroContribution(
-          viteConfig.nitro,
-          handlers,
-          configuredState?.nitroContribution,
-        )
+      const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
+      const runTransition = async () => {
+        const configuredState = configuredStateByRoot.get(projectRoot)
+        const serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? configuredState?.serverDirs
+        const handlers = await prepareSources({ projectRoot, serverDirs })
+        const handlerKey = await generatedHandlerKey(handlers)
+        configuredStateByRoot.set(projectRoot, {
+          handlerKey,
+          nitroContribution: configuredState?.nitroContribution,
+          serverDirs: serverDirs?.slice(),
+        })
+        if (!viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
+          viteConfig.nitro = replaceConfiguredNitroContribution(
+            viteConfig.nitro,
+            handlers,
+            configuredState?.nitroContribution,
+          )
+        }
       }
+      const transition = previousTransition.then(runTransition, runTransition)
+      configurationTransitionByRoot.set(projectRoot, transition)
+      void transition.finally(() => {
+        if (configurationTransitionByRoot.get(projectRoot) === transition) {
+          configurationTransitionByRoot.delete(projectRoot)
+        }
+      }).catch(() => {})
+      return transition
     },
     configureServer(server) {
       const root = resolveViteHubProjectRoot(server.config.root ?? latestProjectRoot ?? process.cwd())
