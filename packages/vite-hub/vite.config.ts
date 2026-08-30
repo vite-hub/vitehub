@@ -99,6 +99,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-session-trace-model.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-session-trace.vue",
         to: "dist/console/runtime/components",
       },

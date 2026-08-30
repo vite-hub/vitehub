@@ -316,6 +316,9 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",
     );
+    expect(
+      existsSync(`${packageRoot}/dist/console/runtime/components/console-session-trace-model.ts`),
+    ).toBe(true);
     expect(sessionTrace).toContain("session-trace__waterfall");
     expect(sessionTrace).toContain('start.name === "agent.approval.request"');
     expect(sessionTrace).toContain('"completed", "error", "failed"');
