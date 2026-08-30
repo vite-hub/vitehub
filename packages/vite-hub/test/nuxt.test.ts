@@ -632,6 +632,8 @@ describe("ViteHub Nuxt integration", () => {
       `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache","sessions"])`,
     )
 
+    mocks.vitehub.mockReturnValue([])
+
     const disabled = createNuxt(true)
     disabled.nuxt.options.vite.kv = false
     const applicationKVHandler = { handler: "/tmp/application-kv-handler.ts", route: "/api/_vitehub/console/kv" }
@@ -641,24 +643,19 @@ describe("ViteHub Nuxt integration", () => {
     const pages: Array<{ file: string; name: string; path: string }> = []
     disabled.runPagesHook(pages)
     const disabledNitroConfig = nitroOptions(disabled.nuxt)
-    await mocks.objectHook.withImplementation(
-      config => config,
-      () => disabled.runNitroConfigHook(disabledNitroConfig),
-    )
+    await disabled.runNitroConfigHook(disabledNitroConfig)
 
     expect(pages).toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
     expect(disabledNitroConfig.handlers).toContain(applicationKVHandler)
 
     const conflicting = createNuxt(true)
+    conflicting.nuxt.options.vite.kv = { driver: "fs-lite" }
     conflicting.nuxt.options.nitro = { handlers: [applicationKVHandler] }
 
     await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, conflicting.nuxt)
 
-    await mocks.objectHook.withImplementation(
-      config => config,
-      () => expect(conflicting.runNitroConfigHook(nitroOptions(conflicting.nuxt))).rejects.toThrow(
-        "[vitehub] Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /tmp/application-kv-handler.ts.",
-      ),
+    await expect(conflicting.runNitroConfigHook(nitroOptions(conflicting.nuxt))).rejects.toThrow(
+      "[vitehub] Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /tmp/application-kv-handler.ts.",
     )
   })
 
