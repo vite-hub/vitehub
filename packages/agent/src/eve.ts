@@ -52,14 +52,17 @@ async function loadMountedExtension(
   await previous
 
   const scope = Symbol.for("eve.ext-config-scope")
+  // SAFETY: Eve owns this symbol-keyed global configuration bridge and restores its prior value below.
   const container = globalThis as Record<symbol, unknown>
   const existingScope = container[scope]
   container[scope] = namespace
   try {
     const extension = (await loadExtension()).default
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Extension modules are external input and the factory contract must be checked before invocation.
     if (typeof extension !== "function") {
       throw new TypeError(`[vitehub] Eve extension ${JSON.stringify(packageName)} must have a default factory export.`)
     }
+    // SAFETY: The mounted-extension symbol check below validates the only mounted value property ViteHub consumes.
     const mounted = extension(config) as Record<symbol, unknown>
     if (mounted?.[Symbol.for("eve.mounted-extension")] !== true) {
       throw new TypeError(`[vitehub] ${JSON.stringify(packageName)} did not return an Eve mounted extension.`)
@@ -73,6 +76,7 @@ async function loadMountedExtension(
 
 function approvedToolNamesFromContext(context: AgentCapabilityContext): Set<string> {
   const approved = context.invocation?.input.get().context?.["vitehub.eve.approvedTools"]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation context is external input and approved tool names must be strings.
   return new Set(Array.isArray(approved) ? approved.filter((name): name is string => typeof name === "string") : [])
 }
 
@@ -103,6 +107,7 @@ function toViteHubTool(
       ? {
           async execute(input: unknown, options: ToolExecutionOptions = {}) {
             const callId = options.toolCallId ?? `${name}-${Date.now()}`
+            // SAFETY: This adapter supplies Eve's documented execution context while unsupported members throw explicitly.
             return await execute(input, {
               abortSignal: options.abortSignal ?? new AbortController().signal,
               callId,
@@ -138,6 +143,7 @@ function toViteHubTool(
               toolInput: input,
               toolName: name,
             })
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve approval callbacks may return a decision object or a legacy scalar.
             const decision = typeof status === "object" && status && "type" in status
               ? status.type
               : status === true
@@ -158,10 +164,14 @@ function toViteHubTool(
 }
 
 function isEveTool(value: unknown): value is EveToolDefinition {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve tool exports cross a package boundary and require runtime shape validation.
+  // SAFETY: The record assertion only reads the execute discriminator used to establish EveToolDefinition.
   return typeof value === "object" && value !== null && typeof (value as EveToolDefinition).execute === "function"
 }
 
 function isEveDynamicTool(value: unknown): value is EveDynamicToolDefinition {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve dynamic exports cross a package boundary and require runtime shape validation.
+  // SAFETY: The record assertion only reads the kind discriminator used to establish EveDynamicToolDefinition.
   return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "eve:dynamic"
 }
 
@@ -189,6 +199,7 @@ async function resolveEveTools(
   for (const [exportName, exported] of Object.entries(module)) {
     if (isEveDynamicTool(exported)) {
       const events = Object.entries(exported.events)
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve event handlers are external extension exports and must be callable.
         .filter(([, handler]) => typeof handler === "function")
         .map(([event]) => event)
       if (events.some(event => event !== "session.started" && event !== "step.started") || events.length > 1) {
@@ -214,9 +225,11 @@ async function resolveEveTools(
         addEveTool(tools, namespace, exportName, resolved, context)
         continue
       }
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic extension output must be validated before enumerating its tools.
       if (typeof resolved !== "object") {
         throw new TypeError(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.`)
       }
+      // SAFETY: isEveTool validates every enumerated value before it enters the ViteHub tool registry.
       for (const [name, tool] of Object.entries(resolved as Record<string, EveToolDefinition>)) {
         addEveTool(tools, namespace, name, tool, context)
       }

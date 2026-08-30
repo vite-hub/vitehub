@@ -160,7 +160,29 @@ function babelNamespaceMemberNames(
   const parent = path.parentPath
   if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
     const name = parent.node.property?.name ?? parent.node.property?.value
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
     return typeof name === "string" ? [name] : []
+  }
+  if (
+    parent?.node.type === "VariableDeclarator"
+    && parent.node.init === path.node
+    && parent.node.id?.type === "ObjectPattern"
+  ) {
+    // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+    const properties = (parent.node.id as BabelNode & { properties?: BabelNode[] }).properties
+    return properties?.flatMap((property) => {
+      // SAFETY: Babel's ObjectProperty discriminator below guards the key and value fields consumed here.
+      const objectProperty = property as BabelNode & {
+        key?: { name?: unknown, value?: unknown }
+        value?: { name?: string, type?: string }
+      }
+      if (objectProperty.type !== "ObjectProperty" || objectProperty.value?.type !== "Identifier" || !objectProperty.value.name) return []
+      const references = parent.scope.getBinding(objectProperty.value.name)?.referencePaths ?? []
+      if (!references.some(reachesRequestedExport)) return []
+      const name = objectProperty.key?.name ?? objectProperty.key?.value
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel destructuring keys cross the parser boundary as identifiers or literals.
+      return typeof name === "string" ? [name] : []
+    }) ?? []
   }
   if (
     parent?.node.type === "VariableDeclarator"
@@ -177,6 +199,14 @@ function babelNamespaceMemberNames(
 
 function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boolean {
   for (let current = path.parentPath; current; current = current.parentPath) {
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && current.node.left.object?.type === "Identifier"
+      && current.node.left.object.name === "module"
+      && current.node.left.property?.type === "Identifier"
+      && current.node.left.property.name === "exports"
+    ) return true
     if (
       current.node.type === "ObjectProperty"
       && babelPropertyName(current) === "store"
@@ -233,6 +263,7 @@ function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, s
     && node.callee.property.name === "join"
   ) {
     const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel literal evaluation must validate every computed array element before joining it.
     if (values?.every(value => typeof value === "string")) return values.join("-")
   }
 }
@@ -345,6 +376,7 @@ function sourceImportsFeedingWorkspaceStore(
         visitor: {
           ExportNamedDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const exported of path.node.specifiers ?? []) {
               const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
@@ -357,10 +389,12 @@ function sourceImportsFeedingWorkspaceStore(
           },
           ExportAllDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export-all sources may be absent or non-string parser nodes.
             if (typeof specifier === "string") imports.push({ importedName: exportedName, specifier })
           },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel import sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const imported of path.node.specifiers ?? []) {
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
@@ -399,6 +433,7 @@ function sourceImportsFeedingWorkspaceStore(
               || path.node.init.arguments?.length !== 1
             ) return
             const specifier = path.node.init.arguments[0]?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
             const reachesRequestedExport = binding?.referencePaths?.some(reference => exportedName === "default"

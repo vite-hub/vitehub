@@ -1422,15 +1422,19 @@ async function resolveEveExtensionPackage(
     const packagePath = join(directory, "package.json")
     if (existsSync(packagePath)) {
       const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the package name must be validated before use.
       if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
         if (!validate) return packageJson.name
         const dist = packageJson.eve?.extension?.dist
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the manifest path must be a string.
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The external manifest version selects the supported contract table.
         const contracts = typeof manifest.formatVersion === "number"
           ? supportedEveExtensionContracts[manifest.formatVersion]
           : undefined
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External manifests must supply a contract-version record before enumeration.
         if (manifest.kind !== "eve-extension" || !contracts || !manifest.requires || typeof manifest.requires !== "object") {
           throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
         }
