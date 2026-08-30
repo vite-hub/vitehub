@@ -399,6 +399,27 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toEqual({ errors: "public subpath", root: "aliased root" })
   })
 
+  it("resolves bare package alias replacements", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "alias-target")
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: "./index.mjs", type: "module" }), "utf8")
+    await writeFile(join(packageDir, "index.mjs"), 'export default "bare replacement"\n', "utf8")
+    await writeFile(entry, 'import value from "alias-source"\nexport default value\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "alias-source": "alias-target" },
+      format: "esm",
+      platform: "node",
+    })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("bare replacement")
+  })
+
   it("prefers Node exports over module exports in Node bundles", async () => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "node_modules", "conditional-package")

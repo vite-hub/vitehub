@@ -26,6 +26,7 @@ const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
+const skipResolvedAlias = "vitehubSkipResolvedAlias"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
@@ -40,15 +41,24 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
-      build.onResolve({ filter: /.*/ }, (args) => {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        if (args.pluginData?.[skipResolvedAlias]) return
         const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
         const normalizedSpecifier = isAbsolute(specifier) ? resolve(specifier) : specifier
         const replacement = replacements.get(normalizedSpecifier)
-        if (replacement) return { path: replacement }
         const prefix = prefixes.find(([candidate]) => normalizedSpecifier.startsWith(candidate))
-        return prefix ? { path: `${prefix[1]}${normalizedSpecifier.slice(prefix[0].length)}` } : undefined
+        const target = replacement ?? (prefix ? `${prefix[1]}${normalizedSpecifier.slice(prefix[0].length)}` : undefined)
+        if (!target) return
+        return build.resolve(target, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
       })
     },
   }
