@@ -818,10 +818,12 @@ function isNetlifyHosting(config: ResolvedConfig): boolean {
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
-  for (const alias of config.resolve.alias) {
+  for (const [index, alias] of config.resolve.alias.entries()) {
     if (typeof alias.find === "string" && typeof alias.replacement === "string") {
       aliases[alias.find] = alias.replacement
-      aliases[`${alias.find}/`] = `${alias.replacement.replace(/\/$/, "")}/`
+      if (!alias.find.endsWith("/")) {
+        aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
+      }
     }
   }
   return aliases

@@ -27,6 +27,7 @@ const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
+const encodedAliasPrefixMarker = "\0vitehub-prefix:"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function normalizePathSeparators(path: string): string {
@@ -36,8 +37,11 @@ function normalizePathSeparators(path: string): string {
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
-  const resolvedEntries = Promise.all(entries.map(async ([specifier, replacement]) => {
-    const prefix = specifier.endsWith("/") && !Object.hasOwn(aliases!, `${specifier}/`)
+  const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
+    const markerIndex = encodedSpecifier.lastIndexOf(encodedAliasPrefixMarker)
+    const explicitlyEncodedPrefix = markerIndex !== -1
+    const specifier = explicitlyEncodedPrefix ? encodedSpecifier.slice(0, markerIndex) : encodedSpecifier
+    const prefix = explicitlyEncodedPrefix || (specifier.endsWith("/") && !Object.hasOwn(aliases!, `${specifier}/`))
     const resolvedSpecifier = isAbsolute(specifier) ? normalizePathSeparators(resolve(specifier)) : specifier
     const canonicalSpecifier = isAbsolute(resolvedSpecifier)
       ? normalizePathSeparators(await realpath(resolvedSpecifier).catch(() => resolvedSpecifier))
