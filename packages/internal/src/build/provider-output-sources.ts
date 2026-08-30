@@ -15,13 +15,22 @@ const ignoredSourceDirectories = new Set([
   ".nuxt",
   ".output",
   ".vercel",
+  ".vitest-tmp",
   "coverage",
   "dist",
   "node_modules",
 ])
 
+const ignoredGeneratedDirectories = new Set([".vitehub", ".vitest-tmp"])
+
 function isTransientSourceDirectory(path: string): boolean {
   return basename(path).startsWith(".drizzle-generate-")
+}
+
+function ignoredSourceAncestor(root: string, path: string): string | undefined {
+  const segments = relative(root, path).split(sep)
+  const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
+  return ignoredIndex === -1 ? undefined : resolve(root, ...segments.slice(0, ignoredIndex + 1))
 }
 
 function pathContains(parent: string, child: string): boolean {
@@ -121,7 +130,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (!nested) return true
           const first = nested.split(sep)[0]!
           if (first === "node_modules") return false
-          if (first === ".vitehub" || (ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
+          const ignoredAncestor = ignoredSourceAncestor(root, resolvedSource)
+          if (ignoredAncestor || (ignoredSourceDirectories.has(first) && !(packageRoots.has(root) && first === "dist"))) {
             return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
           }
           return true

@@ -62,6 +62,34 @@ it("excludes transient Drizzle generation directories from retained workspaces",
   await expect(readFile(join(dirname(dirname(retained.resolve(handler))), "packages", "database", "test", ".drizzle-generate-one", "migration.sql"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("excludes nested generated output directories from retained workspaces", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-output-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const handler = join(rootDir, "server.ts")
+  const generatedTest = join(workspace, "packages", "workflow", "examples", "vite", ".vitehub", "workflow", "sources", "test.ts")
+  const temporaryTest = join(workspace, "playground", "vite", ".vitest-tmp", "project", "test.ts")
+  await Promise.all([mkdir(rootDir, { recursive: true }), mkdir(dirname(generatedTest), { recursive: true }), mkdir(dirname(temporaryTest), { recursive: true })])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    writeFile(generatedTest, "throw new Error('generated test must not be retained')\n"),
+    writeFile(temporaryTest, "throw new Error('temporary test must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  const retainedWorkspace = dirname(dirname(retained.resolve(handler)))
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(join(retainedWorkspace, "packages", "workflow", "examples", "vite", ".vitehub", "workflow", "sources", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(retainedWorkspace, "playground", "vite", ".vitest-tmp", "project", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains explicitly requested sources in transient Drizzle generation directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-transient-"))
   tempDirs.push(rootDir)
