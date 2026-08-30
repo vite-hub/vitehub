@@ -238,6 +238,18 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
+  it("keeps fallback installation-token budgets isolated", async () => {
+    await installFakeGitHubCommands()
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(undefined, { status: 403 })))
+    let token = "first-installation-token"
+    const host = createGitHubHost({ credentials: () => ({ token }), reserve: 10 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    token = "second-installation-token"
+    await expect(host.ensureGraphQLBudget("contributor/fork", { cost: 60 }))
+      .resolves.toMatchObject({ remaining: 40 })
+  })
+
   it("reserves cached GraphQL budget before admitting more work", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
@@ -258,14 +270,14 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
-  it("releases reservations observed as consumed by GitHub", async () => {
+  it("preserves unsent reservations across external credential use", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
 
     await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
     process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "40"
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 20 }))
-      .resolves.toMatchObject({ remaining: 20 })
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
   it("releases abandoned GraphQL reservations", async () => {
@@ -611,15 +623,24 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_HEAD_SHA = "expected-head"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
     const controller = new AbortController()
-    if (control === "abort") setTimeout(() => controller.abort(new Error("callback cancelled")), 20)
+    let callbackStarted: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      callbackStarted = resolve
+    })
 
-    await expect(host.withPullRequestCheckout({
+    const checkout = host.withPullRequestCheckout({
       headSha: "expected-head",
       number: 126,
       repository: "vite-hub/vitehub",
     }, async ({ signal }) => await new Promise((_resolve, reject) => {
+      callbackStarted?.()
       signal.addEventListener("abort", () => reject(signal.reason), { once: true })
-    }), control === "abort" ? { signal: controller.signal } : { timeout: 20 })).rejects.toThrow(
+    }), control === "abort" ? { signal: controller.signal } : { timeout: 20 })
+    if (control === "abort") {
+      await started
+      controller.abort(new Error("callback cancelled"))
+    }
+    await expect(checkout).rejects.toThrow(
       control === "abort" ? "callback cancelled" : "timed out",
     )
   })

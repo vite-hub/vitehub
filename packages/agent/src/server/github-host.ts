@@ -204,7 +204,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
-  const observations = new Map<string, GitHubGraphQLRateLimit>()
   const reservations = new Map<string, { points: number, resetAt: number }>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
@@ -250,6 +249,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       },
       signal: input.signal,
     })
+    if (response.status === 403) {
+      const key = `token:${tokenKey}`
+      fallbackIdentities.set(tokenKey, key)
+      return key
+    }
     if (!response.ok) throw new Error(`GitHub user request failed with ${response.status}.`)
     const body: unknown = await response.json()
     const id = isRuntimeRecord(body) ? body.id : undefined
@@ -407,8 +411,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           settled = true
           const outstanding = reservations.get(key)
           if (outstanding?.resetAt !== reserved.resetAt) return
-          const releasedPoints = Math.min(outstanding.points, options.cost - actualCost)
-          reservations.set(key, { points: outstanding.points - releasedPoints, resetAt: outstanding.resetAt })
+          const releasedPoints = options.cost - actualCost
+          reservations.set(key, {
+            points: Math.max(0, outstanding.points - options.cost),
+            resetAt: outstanding.resetAt,
+          })
           const current = limits.get(key)
           if (current?.resetAt === reserved.resetAt) {
             limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
@@ -436,12 +443,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-          const previousObservation = observations.get(key)
           const previousReservation = reservations.get(key)
-          const sameWindow = previousObservation?.resetAt === limit.resetAt
-            && previousReservation?.resetAt === limit.resetAt
-          const consumed = sameWindow ? Math.max(0, previousObservation.remaining - limit.remaining) : 0
-          const outstanding = sameWindow ? Math.max(0, previousReservation.points - consumed) : 0
+          const outstanding = previousReservation?.resetAt === limit.resetAt ? previousReservation.points : 0
           const observed = { ...limit, remaining: limit.remaining - outstanding }
           const current = limits.get(key)
           const reconciled = current !== limitBeforeCheck
@@ -450,7 +453,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             && current.remaining <= observed.remaining
             ? current
             : observed
-          observations.set(key, limit)
           reservations.set(key, { points: outstanding, resetAt: limit.resetAt })
           limits.set(key, reconciled)
           return reconciled
