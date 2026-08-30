@@ -15,7 +15,7 @@ import type { H3Event } from "h3"
 import type { SourceItem, SourceName, SourceReader } from "./core/types.ts"
 
 export interface ContentHandler {
-  (event: ContentHandlerEvent): Promise<unknown>
+  (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
 }
 

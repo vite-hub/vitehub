@@ -6,7 +6,7 @@ import type { H3Event } from "h3"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 
 export interface CollectionHandler {
-  (event: CollectionHandlerEvent): Promise<unknown>
+  (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
 }
 
