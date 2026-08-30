@@ -355,6 +355,35 @@ test('cools down explicit retries while waking immediately for state changes', a
 
 })
 
+test('preserves retry attempts through transient blocked merge states', () => {
+  const now = Date.parse('2026-08-30T02:00:00Z')
+  const blocked = { ...pullRequest(1), mergeStateStatus: 'BLOCKED' }
+  const firstRetry = retryPassFingerprint('vite-hub/vitehub', blocked, policyFingerprint, now)
+  const recalculating = { ...blocked, mergeStateStatus: 'UNKNOWN' }
+  const secondRetry = retryPassFingerprint(
+    'vite-hub/vitehub',
+    recalculating,
+    policyFingerprint,
+    now + retryCooldownMs,
+    recalculating,
+    firstRetry,
+  )
+
+  assert.equal(
+    successfulPassFingerprint('vite-hub/vitehub', blocked, policyFingerprint),
+    successfulPassFingerprint('vite-hub/vitehub', recalculating, policyFingerprint),
+  )
+  assert.match(secondRetry ?? '', /^retry:v2:2:/)
+  assert.notEqual(
+    successfulPassFingerprint('vite-hub/vitehub', blocked, policyFingerprint),
+    successfulPassFingerprint('vite-hub/vitehub', { ...blocked, mergeStateStatus: 'DIRTY' }, policyFingerprint),
+  )
+  assert.notEqual(
+    successfulPassFingerprint('vite-hub/vitehub', blocked, policyFingerprint),
+    successfulPassFingerprint('vite-hub/vitehub', { ...blocked, mergeStateStatus: 'CLEAN' }, policyFingerprint),
+  )
+})
+
 test('tolerates numeric completion hashes decoded by filesystem storage', async () => {
   assert.equal((await selectPullRequestJobs(
     ['vite-hub/vitehub'],
