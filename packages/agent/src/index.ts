@@ -5240,10 +5240,7 @@ async function materializeAgentStructuredOutput(
     if (!hasStream) return result
     streamResult = cloneWithPropertyDescriptors(streamResult, descriptors)
   }
-  if (toAgentRunResult(streamResult).text !== undefined) {
-    await Promise.allSettled([...streamSources.values()].map(({ cancel }) => cancel()))
-    return result
-  }
+  const existingText = toAgentRunResult(streamResult).text
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   const source = cancellableAsyncIterableSource(streamAgentOutputToEvents(streamResult))
@@ -5268,7 +5265,7 @@ async function materializeAgentStructuredOutput(
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
   }
-  return resultWithUsageRecord(text, usageRecord)
+  return existingText !== undefined ? result : resultWithUsageRecord(text, usageRecord)
 }
 
 type AgentInvocationExecutionOptions =
@@ -6677,13 +6674,21 @@ function createInlineAgentInvocationController<
           hasExplicitRaw ? Reflect.get(started, "raw") : started,
         )
         let text = ""
+        let hasTextDelta = false
         let finishReason: unknown
         for await (const chunk of normalizeUiMessageStream(started.toUIMessageStream())) {
-          text += uiMessageTextDelta(chunk) || ""
+          const delta = uiMessageTextDelta(chunk)
+          if (delta !== undefined) {
+            hasTextDelta = true
+            text += delta
+          }
           if (isRuntimeRecord(chunk) && chunk.type === "finish" && chunk.finishReason !== undefined)
             finishReason = chunk.finishReason
         }
-        materializedStreamResult = { ...(finishReason !== undefined ? { finishReason } : {}), text }
+        materializedStreamResult = {
+          ...(finishReason !== undefined ? { finishReason } : {}),
+          ...(hasTextDelta ? { text } : {}),
+        }
       }
       const outcome = await finished
       if (outcome.status === "completed") {

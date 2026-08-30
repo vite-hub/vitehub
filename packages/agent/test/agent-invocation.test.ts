@@ -149,6 +149,33 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it("settles nested inline streams when the result already contains text", async () => {
+    let cleanedUp = false
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            fullStream: (async function* () {
+              try {
+                yield { delta: "streamed", type: "text-delta" }
+              }
+              finally {
+                cleanedUp = true
+              }
+            })(),
+            text: "existing text",
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toMatchObject({ text: "existing text" })
+    expect(result).not.toHaveProperty("fullStream")
+    expect(cleanedUp).toBe(true)
+  })
+
   it("removes nested stream surfaces from inferred raw child results", async () => {
     const agent = defineAgent({
       driver: {
@@ -307,6 +334,29 @@ describe("Agent Invocation controllers", () => {
     })
     expect(result).not.toHaveProperty("toUIMessageStream")
     expect(() => structuredClone(result)).not.toThrow()
+  })
+
+  it("preserves existing text when an inline UI-message stream emits no text", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            text: "existing text",
+            toUIMessageStream: () => new ReadableStream({
+              start(controller) {
+                controller.enqueue({ finishReason: "tool-calls", type: "finish" })
+                controller.close()
+              },
+            }),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toMatchObject({ finishReason: "tool-calls", text: "existing text" })
+    expect(result).not.toHaveProperty("toUIMessageStream")
   })
 
   it("returns a readable Response after settling the public result", async () => {
