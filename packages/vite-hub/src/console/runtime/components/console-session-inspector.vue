@@ -62,7 +62,10 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(workspaceSupported.value ? (["workspace"] as const) : []),
+  ...(workspaceSupported.value === true ||
+  (workspaceSupported.value === undefined && openViews.value.includes("workspace"))
+    ? (["workspace"] as const)
+    : []),
 ]);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
@@ -543,10 +546,7 @@ function message(error: unknown) {
       class="session-inspector__details"
       @select-activity="emit('focusActivity', $event)"
     >
-      <template
-        v-if="invocationUsage || !invocation.configuration?.instructions?.length"
-        #metadata
-      >
+      <template v-if="invocationUsage || !invocation.configuration?.instructions?.length" #metadata>
         <section v-if="invocationUsage">
           <h4>Usage</h4>
           <dl class="grid grid-cols-2 gap-3">
@@ -587,10 +587,7 @@ function message(error: unknown) {
               </dd>
             </div>
           </dl>
-          <p
-            v-if="record(invocationUsage.cost)"
-            class="mt-3 text-[11px] leading-4 text-dimmed"
-          >
+          <p v-if="record(invocationUsage.cost)" class="mt-3 text-[11px] leading-4 text-dimmed">
             {{ record(invocationUsage.cost)?.estimated === true ? "Estimated" : "Reported" }}
             by {{ stringValue(record(invocationUsage.cost)?.source) || "the provider" }}
           </p>

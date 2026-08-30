@@ -41,10 +41,7 @@ export function traceStartBoundaryMs(invocationStartMs: number, spanStartMs: num
   return Math.min(invocationStartMs, ...spanStartMs);
 }
 
-export function isDeniedApproval(
-  operation: string,
-  attributes: Record<string, unknown>,
-): boolean {
+export function isDeniedApproval(operation: string, attributes: Record<string, unknown>): boolean {
   return operation === "tool_approval" && attributes["approval.approved"] === false;
 }
 
@@ -58,6 +55,10 @@ export function isStandaloneFailureObservation(name: string): boolean {
 
 export function isStandaloneSuccessfulToolObservation(name: string): boolean {
   return name === "agent.tool.finish";
+}
+
+export function isTerminalToolObservation(name: string): boolean {
+  return name.startsWith("agent.tool.") && name !== "agent.tool.start";
 }
 
 export function standaloneSuccessfulToolSequences(

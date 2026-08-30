@@ -312,8 +312,9 @@ describe("framework package contract", () => {
     );
     expect(sessionInspector).toContain("Workspace unavailable");
     expect(sessionInspector).toContain("invocationUsage.totalTokens");
-    expect(sessionInspector).toContain('workspace.pullRequest !== undefined');
-    expect(sessionInspector).toContain('hasPullRequest && (pullRequest === undefined');
+    expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
+    expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
+    expect(sessionInspector).toContain('openViews.value.includes("workspace")');
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",
@@ -324,6 +325,14 @@ describe("framework package contract", () => {
     expect(sessionTrace).toContain("session-trace__waterfall");
     expect(sessionTrace).toContain('start.name === "agent.approval.request"');
     expect(sessionTrace).toContain('"completed", "error", "failed"');
+    expect(sessionTrace).toContain("traceSpanEndMs(");
+    expect(sessionTrace).toContain("isTerminalToolObservation");
+    expect(
+      readFileSync(
+        `${packageRoot}/dist/console/runtime/components/console-session-code-preview.vue`,
+        "utf8",
+      ),
+    ).toContain("highlightingFailed");
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
     ).toContain("<h1>Health</h1>");

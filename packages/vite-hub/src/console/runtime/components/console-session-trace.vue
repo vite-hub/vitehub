@@ -5,6 +5,7 @@ import {
   isDeniedApproval,
   isStandaloneFailureObservation,
   standaloneSuccessfulToolSequences,
+  isTerminalToolObservation,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
@@ -40,12 +41,11 @@ const selectedSpanId = ref<string>();
 const copied = ref(false);
 
 const spans = computed(() => buildSpans(props.invocation));
-const traceStartMs = computed(
-  () =>
-    traceStartBoundaryMs(
-      timestamp(props.invocation.startedAt || props.invocation.createdAt),
-      spans.value.map((span) => span.startMs),
-    ),
+const traceStartMs = computed(() =>
+  traceStartBoundaryMs(
+    timestamp(props.invocation.startedAt || props.invocation.createdAt),
+    spans.value.map((span) => span.startMs),
+  ),
 );
 const traceEndMs = computed(() =>
   Math.max(
@@ -75,7 +75,13 @@ const selectedAttributes = computed(() =>
         "span.operation": selectedSpan.value.operation,
         "span.status": selectedSpan.value.status,
         "span.start_time": new Date(selectedSpan.value.startMs).toISOString(),
-        "span.end_time": new Date(selectedSpan.value.endMs).toISOString(),
+        "span.end_time": new Date(
+          traceSpanEndMs(
+            selectedSpan.value.startMs,
+            selectedSpan.value.endMs,
+            selectedSpan.value.durationMs,
+          ),
+        ).toISOString(),
         "span.duration_ms": selectedSpan.value.durationMs,
         "span.events": selectedSpan.value.eventNames,
         ...selectedSpan.value.attributes,
@@ -130,6 +136,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   for (const observation of observations) {
     const failed = isStandaloneFailureObservation(observation.name);
     const successfulTool = standaloneSuccessfulTools.has(observation.sequence);
+    const terminalTool = failed && isTerminalToolObservation(observation.name);
     if (!failed && !successfulTool) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
@@ -137,15 +144,17 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
     const cancelled = observation.name === "agent.task.cancelled";
-    const operation = successfulTool
-      ? "execute_tool"
-      : isTerminalTaskObservation(observation.name)
-        ? "run_task"
-        : "error";
+    const operation =
+      successfulTool || terminalTool
+        ? "execute_tool"
+        : isTerminalTaskObservation(observation.name)
+          ? "run_task"
+          : "error";
     const target = operationTarget(operation, observation.attributes ?? {}, invocation);
-    const durationMs = successfulTool
-      ? Math.max(0, traceDurationMs(operation, observation.attributes ?? {}, 0))
-      : 0;
+    const durationMs =
+      successfulTool || terminalTool
+        ? Math.max(0, traceDurationMs(operation, observation.attributes ?? {}, 0))
+        : 0;
     result.push({
       activityId: activityId(observation),
       attributes: { ...observation.attributes },
@@ -156,10 +165,10 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
       icon: successfulTool
         ? spanIcon(operation)
         : cancelled
-        ? "i-lucide-ban"
-        : recovered
-          ? "i-lucide-circle-check"
-          : "i-lucide-circle-alert",
+          ? "i-lucide-ban"
+          : recovered
+            ? "i-lucide-circle-check"
+            : "i-lucide-circle-alert",
       id: `${id}:${successfulTool ? "terminal" : "error"}:${observation.sequence}`,
       name: target
         ? `${operation} ${target}`
@@ -228,16 +237,18 @@ function pairedSpan(
   const id = eventId(start);
   const attributes = { ...start.attributes, ...finish?.attributes };
   const startMs = timestamp(start.timestamp);
-  const endMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
+  const observedEndMs = finish ? timestamp(finish.timestamp) : timestamp(invocation.updatedAt);
   const operation = operationName(start, attributes);
   const target = operationTarget(operation, attributes, invocation);
   const status = spanStatus(finish, attributes, invocation, operation);
+  const durationMs = Math.max(0, traceDurationMs(operation, attributes, observedEndMs - startMs));
+  const endMs = traceSpanEndMs(startMs, observedEndMs, durationMs);
   return {
     activityId: activityId(start),
     attributes,
     depth: operation === "invoke_agent" ? 0 : 1,
     description: spanDescription(attributes),
-    durationMs: Math.max(0, traceDurationMs(operation, attributes, endMs - startMs)),
+    durationMs,
     endMs,
     eventNames: [start.name, ...(finish ? [finish.name] : [])],
     icon: spanIcon(operation),
@@ -375,14 +386,6 @@ function spanStatus(
   operation: string,
 ): SpanStatus {
   if (isDeniedApproval(operation, attributes)) return "failed";
-  if (finish?.name.endsWith(".error")) return "failed";
-  if (finish?.name.endsWith(".failed")) return "failed";
-  if (
-    finish?.name.endsWith(".abort") ||
-    finish?.name.endsWith(".cancel") ||
-    finish?.name.endsWith(".cancelled")
-  )
-    return "cancelled";
   if (operation === "invoke_agent")
     return invocation.status === "failed"
       ? "failed"
@@ -391,6 +394,14 @@ function spanStatus(
         : finish
           ? "completed"
           : "running";
+  if (finish?.name.endsWith(".error")) return "failed";
+  if (finish?.name.endsWith(".failed")) return "failed";
+  if (
+    finish?.name.endsWith(".abort") ||
+    finish?.name.endsWith(".cancel") ||
+    finish?.name.endsWith(".cancelled")
+  )
+    return "cancelled";
   if (!finish)
     return invocation.status === "failed"
       ? "failed"

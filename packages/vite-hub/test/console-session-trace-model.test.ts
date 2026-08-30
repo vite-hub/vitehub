@@ -4,6 +4,7 @@ import {
   isDeniedApproval,
   isStandaloneFailureObservation,
   isStandaloneSuccessfulToolObservation,
+  isTerminalToolObservation,
   standaloneSuccessfulToolSequences,
   isTerminalTaskObservation,
   traceDurationMs,
@@ -79,6 +80,13 @@ describe("Console session trace model", () => {
     expect(isStandaloneSuccessfulToolObservation("agent.model.finish")).toBe(false);
   });
 
+  it("recognizes failed tool terminals without a start", () => {
+    expect(isTerminalToolObservation("agent.tool.error")).toBe(true);
+    expect(isTerminalToolObservation("agent.tool.failed")).toBe(true);
+    expect(isTerminalToolObservation("agent.tool.start")).toBe(false);
+    expect(isTerminalToolObservation("agent.model.failed")).toBe(false);
+  });
+
   it("deduplicates successful terminals within each tool lifecycle", () => {
     const observations = [
       { attributes: { "tool.id": "standalone" }, name: "agent.tool.finish", sequence: 1 },
@@ -97,8 +105,6 @@ describe("Console session trace model", () => {
     );
 
     expect(standaloneSequences).toEqual(new Set([1]));
-    expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(
-      new Set([1, 4, 7]),
-    );
+    expect(new Set([...representedSequences, ...standaloneSequences])).toEqual(new Set([1, 4, 7]));
   });
 });

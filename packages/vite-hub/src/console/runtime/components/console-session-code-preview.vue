@@ -5,6 +5,7 @@ import type { BundledLanguage, SpecialLanguage } from "shiki";
 const props = defineProps<{ content: string; path: string }>();
 const html = ref("");
 const loading = ref(false);
+const highlightingFailed = ref(false);
 let renderId = 0;
 
 const language = computed<BundledLanguage | SpecialLanguage>(() => languageForPath(props.path));
@@ -15,6 +16,7 @@ watch(
     const id = ++renderId;
     loading.value = true;
     html.value = "";
+    highlightingFailed.value = false;
     try {
       const { codeToHtml } = await import("shiki/bundle/web");
       const rendered = await codeToHtml(content, {
@@ -23,6 +25,8 @@ watch(
         themes: { dark: "github-dark", light: "github-light" },
       });
       if (id === renderId) html.value = rendered;
+    } catch {
+      if (id === renderId) highlightingFailed.value = true;
     } finally {
       if (id === renderId) loading.value = false;
     }
@@ -66,6 +70,7 @@ function languageForPath(path: string): BundledLanguage | SpecialLanguage {
     <div v-if="loading && !html" class="session-inspector__state">
       <UIcon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
     </div>
+    <pre v-else-if="highlightingFailed" class="session-code-preview__plain">{{ content }}</pre>
     <div v-else class="session-code-preview__html" v-html="html" />
   </div>
 </template>
