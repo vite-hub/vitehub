@@ -64,7 +64,6 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/browser/vite", ["vite"]],
   ["@vite-hub/channels/vite", ["vite"]],
   ["@vite-hub/database/vite", ["vite"]],
-  ["@vite-hub/email/vite", ["vite"]],
   ["@vite-hub/kv/vite", ["vite"]],
   ["@vite-hub/markdown-template/vite", ["vite"]],
   ["@vite-hub/queue/vite", ["vite"]],
