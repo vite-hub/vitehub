@@ -4131,7 +4131,7 @@ async function chatTriggerMessages(
   } catch {}
 
   if (message.id && durableContainsCurrent) {
-    durable = durable.slice(durableCurrentIndexBeforeBoundary)
+    durable = durable.slice(0, durableCurrentIndexBeforeBoundary + 1)
   } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)

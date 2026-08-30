@@ -17498,9 +17498,9 @@ describe("server helpers", () => {
     adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
     Reflect.set(thread ?? {}, "_threadHistory", {
       getMessages: vi.fn(async () => [
-        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-        message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+        message("20", "current", "2026-06-10T12:00:20.000Z"),
+        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
       ]),
     })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
