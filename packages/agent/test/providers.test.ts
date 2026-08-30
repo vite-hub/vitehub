@@ -17474,13 +17474,12 @@ describe("server helpers", () => {
         const createThread = chatBoundary.createThread.bind(chatBoundary)
         vi.spyOn(chatBoundary, "createThread").mockImplementation((...arguments_) => {
           const thread = createThread(...arguments_)
-          Reflect.set(thread, "_threadHistory", {
-            getMessages: vi.fn(async () => [
-              message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
-              message("20", "current", "2026-06-10T12:00:20.000Z"),
-              message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
-            ]),
-          })
+          const history = Reflect.get(thread, "_threadHistory") as { getMessages(threadId: string, limit?: number): Promise<Message[]> }
+          vi.spyOn(history, "getMessages").mockResolvedValue([
+            message("19-same-time", "same-time previous", "2026-06-10T12:00:20.000Z"),
+            message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+            message("20", "current", "2026-06-10T12:00:20.000Z"),
+          ])
           return thread
         })
       },
@@ -17517,7 +17516,13 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
-    adapter.fetchMessages.mockResolvedValue({ messages: [message("19", "previous", "2026-06-10T12:00:19.000Z")] })
+    adapter.fetchMessages.mockResolvedValue({
+      messages: [
+        message("19", "previous", "2026-06-10T12:00:19.000Z"),
+        message("20", "current", "2026-06-10T12:00:20.000Z"),
+        message("21", "newer cached", "2026-06-10T12:00:20.000Z"),
+      ],
+    })
     await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "same-time previous", "current"]])

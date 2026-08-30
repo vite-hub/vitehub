@@ -4086,6 +4086,8 @@ async function chatTriggerMessages(
     ? durable.flatMap((item, index) => (isCurrentChatSdkMessage(item, message) ? [index] : [])).at(-1) ?? -1
     : -1
   const durableContainsCurrent = durableCurrentIndexBeforeBoundary >= 0
+  const fetchedAfterCurrentIds = new Set<string>()
+  const fetchedBeforeCurrent: ChatSdkMessage[] = []
   let foundCurrent = false
   let scanned = 0
   try {
@@ -4103,11 +4105,23 @@ async function chatTriggerMessages(
       }
       if (fetchedNewestFirst.length >= fetchedLimit) break
       const isCurrent = isCurrentChatSdkMessage(item, message)
-      if (!foundCurrent && isCurrent) foundCurrent = true
+      if (!foundCurrent && isCurrent) {
+        foundCurrent = true
+        for (const future of fetchedBeforeCurrent) {
+          if (future.id) fetchedAfterCurrentIds.add(future.id)
+        }
+      }
       if (foundCurrent) {
         fetchedNewestFirst.push(isCurrent ? current : await chatSdkMessageToUiMessage(item))
-      } else if (durableContainsCurrent && item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime()) {
-        fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+      } else {
+        fetchedBeforeCurrent.push(item)
+      }
+    }
+    if (!foundCurrent && durableContainsCurrent) {
+      for (const item of fetchedBeforeCurrent) {
+        if (item.metadata.dateSent.getTime() < message.metadata.dateSent.getTime()) {
+          fetchedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+        }
       }
     }
     if (!message.id) {
@@ -4131,7 +4145,9 @@ async function chatTriggerMessages(
   } catch {}
 
   if (message.id && durableContainsCurrent) {
-    durable = durable.slice(0, durableCurrentIndexBeforeBoundary + 1)
+    durable = durable
+      .slice(0, durableCurrentIndexBeforeBoundary + 1)
+      .filter((item) => !item.id || !fetchedAfterCurrentIds.has(item.id))
   } else if (message.id && foundCurrent) {
     const currentTime = message.metadata.dateSent.getTime()
     durable = durable.filter((item) => isCurrentChatSdkMessage(item, message) || item.metadata.dateSent.getTime() < currentTime)
