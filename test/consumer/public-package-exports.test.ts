@@ -165,9 +165,11 @@ async function importPackagesWithoutRootFallback(
     const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
       !manifest.peerDependenciesMeta?.[name]?.optional,
     )
+    const declaredTypeDependencies = packageTypeDependencies(manifest)
     await withoutRootDependencies(appDir, new Set([
       info.packageName,
       ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+      ...declaredTypeDependencies,
       ...requiredPeers,
       ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
     ]), async () => {
@@ -191,6 +193,10 @@ async function importPackagesWithoutRootFallback(
       await typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers)
     })
   }
+}
+
+function packageTypeDependencies(manifest: { dependencies?: Record<string, string> }) {
+  return Object.keys(manifest.dependencies || {}).filter(name => name.startsWith("@types/"))
 }
 
 async function importPackagesWithoutDeclarationPeer(
@@ -488,6 +494,12 @@ function isKnownDrizzleTypeScript6Diagnostic(diagnostic: ts.Diagnostic) {
 }
 
 describe("published declaration diagnostics", () => {
+  it("keeps declared type dependencies visible to the package compiler", () => {
+    expect(packageTypeDependencies({
+      dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
+    })).toEqual(["@types/ws"])
+  })
+
   it("keeps other runtime peers while omitting a declaration-only peer", () => {
     const withoutVite = declarationPeerAbsentRuntimeContracts("vite")
     const withoutNuxtUi = declarationPeerAbsentRuntimeContracts("@nuxt/ui")
