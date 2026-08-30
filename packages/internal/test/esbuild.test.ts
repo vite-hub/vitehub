@@ -158,6 +158,45 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("resolves bare aliases independently for each importer", async () => {
+    const rootDir = await createTempDir()
+    const rootPackageDir = resolve(rootDir, "node_modules/example")
+    const nestedDir = resolve(rootDir, "nested")
+    const nestedPackageDir = resolve(nestedDir, "node_modules/example")
+    const candidate = resolve(nestedPackageDir, "index.json")
+    const replacement = resolve(rootDir, "replacement.json")
+    const entry = resolve(rootDir, "entry.mjs")
+    const rootImporter = resolve(rootDir, "root-importer.mjs")
+    const nestedImporter = resolve(nestedDir, "nested-importer.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(rootPackageDir, { recursive: true }),
+      mkdir(nestedPackageDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(resolve(rootPackageDir, "package.json"), `${JSON.stringify({ main: "index.json", name: "example" })}\n`, "utf8"),
+      writeFile(resolve(rootPackageDir, "index.json"), `${JSON.stringify({ value: "root-package" })}\n`, "utf8"),
+      writeFile(resolve(nestedPackageDir, "package.json"), `${JSON.stringify({ main: "index.json", name: "example" })}\n`, "utf8"),
+      writeFile(candidate, `${JSON.stringify({ value: "nested-package" })}\n`, "utf8"),
+      writeFile(replacement, `${JSON.stringify({ value: "replacement" })}\n`, "utf8"),
+      writeFile(rootImporter, `export { default as rootValue } from ${JSON.stringify(candidate)}\n`, "utf8"),
+      writeFile(nestedImporter, `export { default as nestedValue } from ${JSON.stringify(candidate)} with { type: "json" }\n`, "utf8"),
+      writeFile(entry, 'export { rootValue } from "./root-importer.mjs"\nexport { nestedValue } from "./nested/nested-importer.mjs"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: replacement },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("nested-package")
+    expect(output).toContain("replacement")
+  })
+
   it("slices resolved relative prefix aliases from their absolute base", async () => {
     const rootDir = await createTempDir()
     const sourceDir = resolve(rootDir, "src")

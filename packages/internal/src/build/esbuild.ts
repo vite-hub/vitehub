@@ -98,7 +98,16 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             const resolutionScope = packageMarkerIndex === -1
               ? ""
               : normalizedSpecifier.slice(0, packageMarkerIndex + packageMarker.length)
-            const cacheKey = [alias.specifier, alias.prefix, resolutionScope].join("\0")
+            const cacheKey = [
+              alias.specifier,
+              alias.prefix,
+              resolutionScope,
+              args.importer,
+              args.resolveDir,
+              args.kind,
+              args.namespace,
+              JSON.stringify(args.with),
+            ].join("\0")
             let resolution = resolvedBareAliasPaths.get(cacheKey)
             if (!resolution) {
               resolution = (async () => {
