@@ -274,12 +274,14 @@ describe("Agent Invocation controllers", () => {
 
   it("preserves streamed result prototypes and property descriptors", async () => {
     class ProviderResult {
+      #requestId = "request-1"
+
       fullStream = (async function* () {
         yield { delta: "nested", type: "text-delta" }
       })()
 
       get requestId() {
-        return "request-1"
+        return this.#requestId
       }
     }
     const providerResult = new ProviderResult()
@@ -294,6 +296,7 @@ describe("Agent Invocation controllers", () => {
     })
 
     const result = await (await startAgentInvocation(agent, runtime(), {})).result
+    expect(result).toBe(providerResult)
     expect(result).toBeInstanceOf(ProviderResult)
     expect(result).toMatchObject({ providerData: "preserved", requestId: "request-1", text: "nested" })
     expect(Object.getOwnPropertyDescriptor(result, "providerData")?.enumerable).toBe(false)
