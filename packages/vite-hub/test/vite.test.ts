@@ -1045,7 +1045,7 @@ describe("vitehub", () => {
     await compiled()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
-      conditions: ["module", "node", "production", "launch"],
+      conditions: ["browser", "launch"],
     }))
 
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
