@@ -238,7 +238,10 @@ function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string
 async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<ProviderOutputOwnershipValue[]> {
   try {
     const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
-    return Array.isArray(parsed) ? parsed.filter(isProviderOutputOwnershipValue) : []
+    if (!Array.isArray(parsed) || !parsed.every(isProviderOutputOwnershipValue)) {
+      throw new TypeError(`Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}`)
+    }
+    return parsed
   }
   catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return []

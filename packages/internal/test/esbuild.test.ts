@@ -197,6 +197,58 @@ describe("bundleEsmEntry", () => {
     expect(output).toContain("replacement")
   })
 
+  it("resolves bare aliases independently for each plugin context", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const candidate = resolve(packageDir, "index.mjs")
+    const otherCandidate = resolve(rootDir, "other-example.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ main: "index.mjs", name: "example" })}\n`, "utf8"),
+      writeFile(candidate, "export const value = 'original'\n", "utf8"),
+      writeFile(otherCandidate, "export const value = 'other'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, 'export { value as first } from "context:first"\nexport { value as second } from "context:second"\n', "utf8"),
+    ])
+
+    const plugin: Plugin = {
+      name: "plugin-context-alias",
+      setup(build) {
+        build.onResolve({ filter: /^context:/ }, args => ({
+          namespace: "plugin-context",
+          path: args.path,
+          pluginData: { context: args.path },
+        }))
+        build.onLoad({ filter: /.*/, namespace: "plugin-context" }, args => ({
+          contents: `export { value } from ${JSON.stringify(candidate)}`,
+          loader: "js",
+          pluginData: args.pluginData,
+          resolveDir: rootDir,
+        }))
+        build.onResolve({ filter: /^example$/ }, args => ({
+          namespace: "file",
+          path: args.pluginData?.context === "context:first" ? candidate : otherCandidate,
+        }))
+      },
+    }
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: replacement },
+      format: "esm",
+      platform: "node",
+      plugins: [plugin],
+      workingDir: rootDir,
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("replacement")
+    expect(output).toContain("original")
+  })
+
   it("slices resolved relative prefix aliases from their absolute base", async () => {
     const rootDir = await createTempDir()
     const sourceDir = resolve(rootDir, "src")

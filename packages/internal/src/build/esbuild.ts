@@ -130,7 +130,9 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               args.namespace,
               JSON.stringify(args.with),
             ].join("\0")
-            let resolution = resolvedBareAliasPaths.get(cacheKey)
+            // pluginData is opaque resolver-owned state, so it cannot be represented
+            // safely in a stable cache key.
+            let resolution = args.pluginData ? undefined : resolvedBareAliasPaths.get(cacheKey)
             if (!resolution) {
               resolution = (async () => {
                 let resolvedAliasPath: string
@@ -155,7 +157,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   normalized: `${resolvedAliasPath}${alias.prefix && !resolvedAliasPath.endsWith("/") ? "/" : ""}`,
                 }
               })()
-              resolvedBareAliasPaths.set(cacheKey, resolution)
+              if (!args.pluginData) resolvedBareAliasPaths.set(cacheKey, resolution)
             }
             const paths = await resolution
             if (!paths) continue

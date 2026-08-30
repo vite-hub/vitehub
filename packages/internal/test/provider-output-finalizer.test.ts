@@ -407,7 +407,11 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(denoCron, "utf8")).resolves.toBe("previous\n")
   })
 
-  it("removes the Cloudflare backup when persisted ownership is invalid", async () => {
+  it.each([
+    ["malformed JSON", "not-json\n"],
+    ["an object", '{"binding":"SETTINGS"}\n'],
+    ["an array with an object", '["SETTINGS",{"binding":"OTHER"}]\n'],
+  ])("removes the Cloudflare backup when persisted ownership contains %s", async (_description, persistedOwnership) => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
     const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
@@ -415,7 +419,7 @@ describe("Provider Output finalizer", () => {
     await mkdir(outputRoot, { recursive: true })
     await Promise.all([
       writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
-      writeFile(join(outputRoot, ownershipFile), "not-json\n"),
+      writeFile(join(outputRoot, ownershipFile), persistedOwnership),
     ])
     contributeProviderDeploymentOutput(catalog, {
       owner: "kv",
@@ -435,7 +439,7 @@ describe("Provider Output finalizer", () => {
     await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
 
     await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
-    await expect(readFile(join(outputRoot, ownershipFile), "utf8")).resolves.toBe("not-json\n")
+    await expect(readFile(join(outputRoot, ownershipFile), "utf8")).resolves.toBe(persistedOwnership)
     expect(existsSync(`${outputRoot}.previous`)).toBe(false)
   })
 
