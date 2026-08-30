@@ -3,9 +3,8 @@ import { defineConfig } from "vite-plus";
 export const queueVercelDeclarations = {
   name: "queue-vercel-declarations",
   generateBundle(_options: unknown, bundle: Record<string, { code: string, type: string }>) {
-    for (const fileName of ["runtime/hosted.d.ts", "internal/runtime/vercel-vite.d.ts"]) {
-      const chunk = bundle[fileName]
-      if (chunk?.type === "chunk") {
+    for (const [fileName, chunk] of Object.entries(bundle)) {
+      if (chunk.type === "chunk" && fileName.endsWith(".d.ts") && chunk.code.includes("@vercel/functions")) {
         chunk.code = `/// <reference types="ws" />\n${chunk.code}`
       }
     }
