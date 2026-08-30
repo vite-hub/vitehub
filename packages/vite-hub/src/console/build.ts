@@ -163,6 +163,8 @@ export async function discoverConsoleBuildCatalog(options: {
   discoveryRoot: string
   projectRoot: string
   queueDiscoveryRoot?: string
+  rateLimitDiscoveryRoot?: string
+  rateLimitScanDirs?: string[]
   sections: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
   serverDirs?: string[]
@@ -197,8 +199,8 @@ export async function discoverConsoleBuildCatalog(options: {
     : []
   const rateLimits = options.sections.includes("rate-limits")
     ? discoverRateLimitDeclarations({
-        rootDir: options.discoveryRoot,
-        scanDirs: options.serverDirs,
+        rootDir: options.rateLimitDiscoveryRoot ?? options.discoveryRoot,
+        scanDirs: options.rateLimitScanDirs ?? (options.rateLimitDiscoveryRoot ? undefined : options.serverDirs),
       }).map(declaration => rateLimitDefinition(options.projectRoot, declaration))
     : []
   const queues = options.sections.includes("queues")

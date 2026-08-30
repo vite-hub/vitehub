@@ -934,19 +934,22 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       await mkdir(join(root, "packages/database/server/databases"), { recursive: true })
+      await mkdir(join(root, "packages/rate-limit/policies"), { recursive: true })
       await mkdir(join(root, "packages/workspace/server/workspaces/docs/workspace"), { recursive: true })
       await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
       await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["databases", "workspaces", "schedules"],
+        sections: ["databases", "rate-limits", "workspaces", "schedules"],
       })
       const config = {
         database: { projectRoot: "packages/database" },
+        rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
         root,
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
@@ -956,6 +959,8 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"rate-limits":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
+      expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
       expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
       expect(generated).toContain('"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"}')

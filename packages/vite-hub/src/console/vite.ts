@@ -263,6 +263,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let generatedPlugin: string | undefined
   let databaseDiscoveryRoot: string | undefined
   let projectRoot: string | undefined
+  let rateLimitDiscoveryRoot: string | undefined
+  let rateLimitScanDirs: string[] | undefined
   let root: string | undefined
   let serverDirs: string[] | undefined
   let scheduleDiscoveryRoot: string | undefined
@@ -272,7 +274,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -339,6 +341,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         database?: unknown
         kv?: unknown
         queue?: unknown
+        rateLimit?: unknown
         schedule?: unknown
         workspace?: unknown
         workflow?: unknown
@@ -351,6 +354,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
+      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit)
+      rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+        ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+        : undefined
       scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
       workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
@@ -381,7 +388,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       if (!cliDiscovery && !fixture) {
         const initialSections = sections.filter(section => section !== "workflows")
-        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
+        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -478,7 +485,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      const viteConfig = config as typeof config & { database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
@@ -486,6 +493,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
+      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit)
+      rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+        ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+        : undefined
       scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
       workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
       const nitro = viteConfig.nitro ??= {}
