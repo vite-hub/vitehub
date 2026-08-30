@@ -1,5 +1,6 @@
 import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
+import { isRuntimeNumber, isRuntimeObject } from "./internal/runtime-value.ts"
 
 import type {
   AgentChatAgentHookArgs,
@@ -47,7 +48,8 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
 const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
 
 export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
-  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
+  // SAFETY: the object guard establishes the WeakMap key contract, and an omitted source means the guarded invoker is the derived invoker.
+  if (isRuntimeObject(invoker)) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
 }
 
 export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
@@ -55,7 +57,7 @@ export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
 }
 
 export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
-  return typeof invoker === "object" && invoker !== null ? derivedChatInvokers.get(invoker) : undefined
+  return isRuntimeObject(invoker) ? derivedChatInvokers.get(invoker) : undefined
 }
 
 function uiMessageText(message: UIMessageLike): string {
@@ -347,15 +349,23 @@ function selectChatSession(messages: UIMessageLike[], sessions: AgentChatOptions
 }
 
 function normalizedMaxMessages(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
+  return isRuntimeNumber(value) && Number.isFinite(value) && value > 0
     ? Math.max(1, Math.floor(value))
     : undefined
 }
 
 function normalizedMaxAgeMs(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
+  return isRuntimeNumber(value) && Number.isFinite(value) && value >= 0
     ? Math.max(0, value)
     : undefined
+}
+
+function validChatTriggerHistory(triggerHistory: unknown): triggerHistory is Exclude<AgentChatTriggerHistory, "none"> {
+  if (!isRuntimeObject(triggerHistory) || !("source" in triggerHistory) || triggerHistory.source !== "thread") return false
+  if (!("maxMessages" in triggerHistory) || normalizedMaxMessages(triggerHistory.maxMessages) === undefined) return false
+  return !("maxAgeMs" in triggerHistory)
+    || triggerHistory.maxAgeMs === undefined
+    || normalizedMaxAgeMs(triggerHistory.maxAgeMs) !== undefined
 }
 
 export function resolveChatTriggerHistory(
@@ -368,7 +378,7 @@ export function resolveChatTriggerHistory(
 
 export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
   if (triggerHistory === "none") return
-  if (!triggerHistory || triggerHistory.source !== "thread") return
+  if (!validChatTriggerHistory(triggerHistory)) return
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
@@ -387,7 +397,7 @@ function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Excl
 function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   const sessionMessages = selectChatSession(messages, sessions, triggerSession)
   const limit = chatTriggerHistoryLimit(triggerHistory)
-  if (!limit || !triggerHistory || triggerHistory === "none") return sessionMessages.slice(-1)
+  if (!limit || !validChatTriggerHistory(triggerHistory)) return sessionMessages.slice(-1)
   return selectRecentChatHistory(sessionMessages, triggerHistory).slice(-limit)
 }
 

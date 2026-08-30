@@ -17462,15 +17462,18 @@ describe("server helpers", () => {
         message("19", "previous", "2026-06-10T12:00:19.000Z"),
         message("20", "current", "2026-06-10T12:00:20.000Z"),
         message("21", "newer cached", "2026-06-10T12:01:00.000Z"),
+        message("22", "newest cached", "2026-06-10T12:02:00.000Z"),
       ],
     })
     const runs: string[][] = []
+    // SAFETY: createTestChatAdapter implements the adapter methods exercised by this webhook fixture.
+    const platformAdapter = adapter as never
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
-          platforms: { telegram: () => adapter as never },
+          platforms: { telegram: () => platformAdapter },
           stream: false,
-          triggerHistory: { maxAgeMs: 30_000, maxMessages: 10, source: "thread" },
+          triggerHistory: { maxAgeMs: 30_000, maxMessages: 2, source: "thread" },
           webhooks: { telegram: {} },
         }),
       ],
@@ -17481,6 +17484,7 @@ describe("server helpers", () => {
         },
       },
     })
+    // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     await expect(handler(chatWebhookRequest(20, 456, "current"), "telegram")).resolves.toMatchObject({ status: 200 })

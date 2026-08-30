@@ -4054,10 +4054,12 @@ async function chatTriggerMessages(
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
+  let foundCurrent = false
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
-      if (fetchedNewestFirst.length >= limit) break
+      if (!foundCurrent && item.id && message.id && item.id === message.id) foundCurrent = true
+      if (foundCurrent) fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
+      if (foundCurrent && fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
