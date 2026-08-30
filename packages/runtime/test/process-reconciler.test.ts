@@ -175,6 +175,33 @@ describe("createProcessReconciler", () => {
     await reconciler.close()
   })
 
+  it("runs an admitted rerun when error reporting fails", async () => {
+    const reasons: string[] = []
+    let reconciler!: ProcessReconciler
+    const retry = deferred()
+    reconciler = createProcessReconciler({
+      intervalMs: 60_000,
+      onError() {
+        reconciler.wake("retry")
+        throw new Error("error reporting failed")
+      },
+      run(reason) {
+        reasons.push(reason)
+        if (reason === "startup") throw new Error("reconciliation failed")
+        return retry.promise
+      },
+      signal: false,
+    })
+
+    reconciler.wake("startup")
+    await vi.waitFor(() => expect(reasons).toEqual(["startup", "retry"]))
+    const draining = reconciler.drain()
+    retry.resolve()
+
+    await expect(draining).rejects.toThrow("error reporting failed")
+    expect(reconciler.status()).toBe("failed")
+  })
+
   it("starts periodic repair without an event-driven wake", async () => {
     vi.useFakeTimers()
     const run = vi.fn()
@@ -357,5 +384,10 @@ describe("createProcessReconciler", () => {
     expect(() => createProcessReconciler({ intervalMs: 2_147_483_648, run() {} })).toThrow(
       "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.",
     )
+  })
+
+  it.each(["SIGKILL", "SIGSTOP"] as const)("rejects the uncatchable %s signal", (signal) => {
+    expect(() => createProcessReconciler({ intervalMs: 60_000, run() {}, signal: signal as never }))
+      .toThrow(`Process reconciler signal ${signal} cannot be handled.`)
   })
 })

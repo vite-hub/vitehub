@@ -202,6 +202,7 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
 }
 
 export type ProcessReconcilerStatus = "accepting" | "drained" | "draining" | "failed"
+export type ProcessReconcilerSignal = Exclude<NodeJS.Signals, "SIGKILL" | "SIGSTOP">
 
 export interface ProcessReconcilerRunContext {
   track<T>(work: Promise<T>): Promise<T>
@@ -214,7 +215,7 @@ export interface ProcessReconcilerOptions {
   onQuiesce?: () => Promise<void> | void
   repairReason?: string
   run: (reason: string, context: ProcessReconcilerRunContext) => Promise<void> | void
-  signal?: false | NodeJS.Signals
+  signal?: false | ProcessReconcilerSignal
 }
 
 export interface ProcessReconciler extends ProcessReconcilerRunContext {
@@ -227,6 +228,10 @@ export interface ProcessReconciler extends ProcessReconcilerRunContext {
 export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
   if (!Number.isFinite(options.intervalMs) || options.intervalMs < 1 || options.intervalMs > 2_147_483_647) {
     throw new TypeError("Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.")
+  }
+  const configuredSignal: string | false | undefined = options.signal
+  if (configuredSignal === "SIGKILL" || configuredSignal === "SIGSTOP") {
+    throw new TypeError(`Process reconciler signal ${configuredSignal} cannot be handled.`)
   }
 
   let closed = false
@@ -289,6 +294,8 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
     })
     running = active
     void (async () => {
+      let failure: unknown
+      let hasFailure = false
       do {
         rerun = false
         const currentReason = reason
@@ -297,9 +304,20 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
           await invokeCallback(() => options.run(currentReason, { track }))
         }
         catch (error) {
-          if (options.onError) await invokeCallback(() => options.onError!(error, currentReason))
+          if (options.onError) {
+            try {
+              await invokeCallback(() => options.onError!(error, currentReason))
+            }
+            catch (reportingError) {
+              if (!hasFailure) {
+                failure = reportingError
+                hasFailure = true
+              }
+            }
+          }
         }
       } while (rerun)
+      if (hasFailure) throw failure
     })().then(resolveActive, rejectActive)
     try {
       await active
