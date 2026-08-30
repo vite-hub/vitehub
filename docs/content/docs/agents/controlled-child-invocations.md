@@ -26,6 +26,18 @@ if (current.outcome === 'available') {
 
 Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
 
+When a Capability tool delegates work, pass its trusted `invoker` through the start options. The child then uses the same resolved identity and access scope as the parent. Do not accept this value from model tool input.
+
+```ts
+async function delegate(capabilityContext: AgentCapabilityContext) {
+  return startAgentInvocation(researcher, runtimeContext, {
+    prompt: 'Compare the two deployment options.',
+  }, {
+    invoker: capabilityContext.invoker,
+  })
+}
+```
+
 Await `child.result` when the caller needs the completed Agent result. This works for inline and Workflow-backed invocations. Application Capability tools must convert the result to a JSON-compatible value before returning delegated work to a model. Most Agent results can be returned directly, but web API objects such as `Response` need explicit conversion.
 
 ```ts

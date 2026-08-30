@@ -65,6 +65,7 @@ import {
   normalizeAgentInvokerOptions,
   portableResolvedAgentInvokerInput,
   resolveAgentInvoker,
+  withResolvedAgentInvokerInput,
 } from "./invoker.ts"
 import {
   parseScheduledAgentTurnInput,
@@ -2162,6 +2163,11 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
 
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
+}
+
+export interface StartAgentInvocationOptions {
+  invoker?: AgentInvoker
+  runId?: string
 }
 
 type AgentInvocationContext<
@@ -6726,9 +6732,10 @@ export async function startAgentInvocation<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: { runId?: string } = {},
+  options: StartAgentInvocationOptions = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS, TOutput | Response | AgentRunResult>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
+  if (options.invoker) input = withResolvedAgentInvokerInput(input, options.invoker)
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
     invocationContext,

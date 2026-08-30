@@ -90,6 +90,25 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it("forwards a trusted parent invoker to the child", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: ({ invoker }) => invoker,
+      },
+      invoker: {
+        resolve: () => {
+          throw new Error("must not resolve an already trusted invoker")
+        },
+      },
+      runtime: false,
+    })
+    const invoker = { id: "user-1", kind: "user", meta: { scope: "support" } }
+
+    const controller = await startAgentInvocation(agent, runtime(), {}, { invoker })
+
+    await expect(controller.result).resolves.toEqual(invoker)
+  })
+
   it("settles inline streams before resolving the public result", async () => {
     const agent = defineAgent({
       driver: {
