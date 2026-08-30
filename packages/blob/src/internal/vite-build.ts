@@ -13,7 +13,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
@@ -76,6 +76,7 @@ interface GenerateProviderOutputsOptions {
   providerOutput?: ProviderOutputCatalog
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 interface GeneratedBlobArtifacts {
@@ -366,8 +367,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ].join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
-  const generatedDir = ensureGeneratedDir(rootDir, productName)
+async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, generatedDir = ensureGeneratedDir(rootDir, productName)) {
   await mkdir(generatedDir, { recursive: true })
 
   const userAppEntry = resolveBlobUserAppEntry(rootDir)
@@ -545,26 +545,31 @@ function hasSiblingVercelRuntime(providerOutput: ProviderOutputCatalog | undefin
 }
 
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
+  options.signal?.throwIfAborted()
   const packages = getVercelBlobRuntimePackages(options.blob)
   const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
   const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
   const outputName = options.serverFunctionName ?? "__server.func"
   if (packages.length) {
     if (shared) await mkdir(resolve(options.rootDir, ".vercel/output/functions", outputName), { recursive: true })
+    options.signal?.throwIfAborted()
     await copyVercelFunctionRuntimePackages({
       packages,
       rootDir: options.rootDir,
       serverFunctionName: options.serverFunctionName,
+      signal: options.signal,
     })
   }
   if (!shared) {
+    options.signal?.throwIfAborted()
     const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
+    options.signal?.throwIfAborted()
     await writeFile(resolve(options.rootDir, ".vercel/output/functions", outputName, vercelBlobOutputMarker), createHash("sha256").update(entry).digest("hex"), "utf8")
   }
 }
 
 function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): VercelFunctionRuntimePackage[] {
-  const packages = new Set<string>()
+  const packages = new Set<string>([blobPackageName])
   const filesSdkPeers = new Set<string>()
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
@@ -598,11 +603,12 @@ function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
   }
 }
 
-function registerSupportedProviderRuntimeModules(
+export function registerSupportedProviderRuntimeModules(
   providerOutput: ProviderOutputCatalog | undefined,
   artifacts: GeneratedBlobArtifacts,
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   cloudflareOwnedByNitro = false,
+  generation?: ProviderDeploymentOutputGeneration,
 ): void {
   const runtimeModuleFiles: Record<string, string> = shouldCreateProviderOutput(blob)
     ? cloudflareOwnedByNitro
@@ -615,11 +621,16 @@ function registerSupportedProviderRuntimeModules(
     ...(!cloudflareOwnedByNitro && shouldCreateProviderOutput(blob)
       ? { vercelRuntimePackages: getVercelBlobRuntimePackages(blob) }
       : {}),
-  })
+  }, generation)
 }
 
-export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
+export async function generateProviderOutputs(
+  options: GenerateProviderOutputsOptions,
+  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
+): Promise<GeneratedBlobArtifacts> {
+  options.signal?.throwIfAborted()
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
+  options.signal?.throwIfAborted()
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
@@ -630,20 +641,22 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution) },
       rootDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
   }
   if (cleanupVercel) {
-    await writeProviderDeploymentOutputs({
+    await write({
       clientOutDir: options.clientOutDir,
       cleanup: { vercel: cleanupVercel },
       rootDir: options.rootDir,
     })
+    options.signal?.throwIfAborted()
   }
-  await writeProviderDeploymentOutputs({
+  await write({
     afterWrite: createVercel || stageSharedVercelRuntime
       ? () => copyVercelBlobRuntimePackages(options)
       : undefined,
@@ -652,19 +665,22 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.blob, options.providerOutput, options.serverFunctionName) : undefined,
   })
+  options.signal?.throwIfAborted()
   if (createCloudflare) {
     const r2Buckets = createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))
     await mkdir(dirname(resolve(options.rootDir, cloudflareBlobOutputState)), { recursive: true })
+    options.signal?.throwIfAborted()
     await writeFile(resolve(options.rootDir, cloudflareBlobOutputState), `${JSON.stringify({ r2_buckets: r2Buckets }, null, 2)}\n`, "utf8")
   }
   else {
+    options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareBlobOutputState), { force: true })
   }
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "cloudflareOwnedByNitro" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.blob)
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "cloudflareOwnedByNitro" | "providerOutput" | "rootDir"> & { generatedDir?: string }): Promise<GeneratedBlobArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.blob, options.generatedDir)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   return artifacts
 }

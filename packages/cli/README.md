@@ -20,6 +20,14 @@ pnpm vitehub --help
 
 `@vite-hub/cli` requires Node.js 24 or newer. The current `vite-hub` distribution requires Node.js 24.15 or newer.
 
+Print the installed CLI version without loading project config:
+
+```sh
+pnpm vitehub --version
+```
+
+`-v` is equivalent.
+
 ## Open project help
 
 Run help from the project root. The CLI loads the project config before it prints help, so only run it in a repository whose config you trust.

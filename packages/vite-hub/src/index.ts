@@ -21,10 +21,10 @@ import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
@@ -85,6 +85,28 @@ const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
   .filter(([, allowed]) => allowed)
   .map(([name]) => name)
 
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
+  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (!isRecord(manifest) || !("exports" in manifest)) return []
+  const packageExports = manifest.exports
+  if (!isRecord(packageExports)) return []
+  return Object.keys(packageExports).flatMap((subpath) => {
+    if (subpath !== "." && !subpath.startsWith("./")) return []
+    const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
+    try {
+      return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
+    }
+    catch {
+      return []
+    }
+  })
+}))
+
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
   "\0#vitehub/env/server",
@@ -144,9 +166,14 @@ function frameworkDependencyResolver(
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
-): Plugin {
+): Plugin & ViteHubProviderImportContributor {
   return {
     name: "vite-hub/dependencies",
+    vitehub: {
+      providerOutput: {
+        getImportAliases: () => generatedOwnerProviderImportAliases,
+      },
+    },
     enforce: "pre",
     config() {
       const aliases = { ...frameworkProviderImportAliases }
@@ -387,6 +414,8 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -560,6 +589,7 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        providerOutput = useProviderOutputCatalog(config)
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
@@ -571,6 +601,21 @@ function deploymentPlugins(
         if (config.command === "build" && nitro.preset !== nitroPreset) {
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
         }
+      },
+      buildStart() {
+        providerOutputGenerations.capture(this, providerOutput)
+      },
+      async buildEnd(error) {
+        if (error) await providerOutputGenerations.reset(this, providerOutput, error)
+      },
+      async renderError(error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+      },
+      closeBundle: {
+        order: "post",
+        async handler() {
+          await finalizeProviderDeploymentOutputs(providerOutput)
+        },
       },
     } as Plugin,
   ]

@@ -36,6 +36,18 @@ interface WorkflowRuntimeAdapter {
   run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>>
 }
 
+function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
+  if (!event || !hasRuntimeType(event, "object")) return undefined
+  const candidate = "settled" in event ? event.settled : undefined
+  // SAFETY: hasRuntimeType establishes that the runtime event member is callable.
+  if (hasRuntimeType(candidate, "function")) return candidate as (promise: PromiseLike<unknown>) => void
+  const context = "context" in event ? event.context : undefined
+  if (!context || !hasRuntimeType(context, "object")) return undefined
+  const nested = "settled" in context ? context.settled : undefined
+  // SAFETY: hasRuntimeType establishes that the nested runtime event member is callable.
+  return hasRuntimeType(nested, "function") ? nested as (promise: PromiseLike<unknown>) => void : undefined
+}
+
 function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
   throw createWorkflowError({
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
@@ -232,7 +244,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
         })
       }
-      return await startVercelWorkflow(name, definition, payload)
+      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event))
     },
   }
 }
