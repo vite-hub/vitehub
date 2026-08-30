@@ -10,7 +10,7 @@ import {
   withAgentInvocationControlId,
 } from "../src/internal/agent-invocation-control.ts"
 
-import type { AgentRuntimeContext, AgentToolDefinition } from "../src/index.ts"
+import type { AgentAdapter, AgentRuntimeContext, AgentToolDefinition } from "../src/index.ts"
 
 function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeContext {
   return {
@@ -21,12 +21,22 @@ function runtime(overrides: Partial<AgentRuntimeContext> = {}): AgentRuntimeCont
   }
 }
 
+function backedController(id: string) {
+  return createBackedAgentInvocationController({
+    cancel: async () => undefined,
+    errorOutcome: () => "unavailable",
+    id,
+    inspect: async () => undefined,
+    result: Promise.resolve(),
+  })
+}
+
 describe("Agent Invocation controllers", () => {
   it("isolates active invocation owners by route state", () => {
     const firstState = {}
     const secondState = {}
-    const firstController = { id: "first" } as never
-    const secondController = { id: "second" } as never
+    const firstController = backedController("first")
+    const secondController = backedController("second")
     const unregisterFirst = registerActiveAgentInvocation("shared-key", firstController, Promise.resolve(), firstState)
     const unregisterSecond = registerActiveAgentInvocation("shared-key", secondController, Promise.resolve(), secondState)
 
@@ -133,6 +143,8 @@ describe("Agent Invocation controllers", () => {
 
   it("maps Workflow-backed identity and lifecycle without promising cancellation support", async () => {
     const waitUntilTasks: Array<Promise<unknown>> = []
+    const parent = new AbortController()
+    const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
     const agent = defineAgent({
       driver: { run: ({ run }) => run?.runId },
       runtime: workflow("controlled-child"),
@@ -141,7 +153,7 @@ describe("Agent Invocation controllers", () => {
       run: { origin: "parent", runId: "parent-run", threadId: "thread-1" },
       runtime: "vercel",
       waitUntil: promise => waitUntilTasks.push(Promise.resolve(promise)),
-    }), {})
+    }), { abortSignal: parent.signal })
 
     expect(controller.id).not.toBe("parent-run")
     await expect(controller.inspect()).resolves.toMatchObject({ outcome: "available" })
@@ -150,6 +162,8 @@ describe("Agent Invocation controllers", () => {
       outcome: "unsupported",
     })
     await Promise.all(waitUntilTasks)
+    await vi.waitFor(() => expect(removeEventListener).toHaveBeenCalledOnce())
+    parent.abort("too late")
     await expect(controller.inspect()).resolves.toEqual({
       invocation: { id: controller.id, output: controller.id, status: "completed" },
       outcome: "available",
@@ -196,7 +210,50 @@ describe("Agent Invocation controllers", () => {
     expect(cancel).not.toHaveBeenCalled()
   })
 
+  it("stops observing parent cancellation after explicit backed invocation settlement", async () => {
+    const parent = new AbortController()
+    const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
+    const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
+    let settle!: () => void
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    createBackedAgentInvocationController({
+      cancel,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      parentAbortSignal: parent.signal,
+      result: Promise.resolve(),
+      settled,
+    })
+
+    settle()
+    await settled
+    expect(removeEventListener).toHaveBeenCalledOnce()
+    parent.abort("too late")
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it("keeps observing parent cancellation when only a backed start result settles", async () => {
+    const parent = new AbortController()
+    const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
+    createBackedAgentInvocationController({
+      cancel,
+      errorOutcome: () => "unavailable",
+      id: "child",
+      inspect: async () => ({ id: "child", status: "running" }),
+      parentAbortSignal: parent.signal,
+      result: Promise.resolve({ id: "child", status: "queued" }),
+    })
+
+    await Promise.resolve()
+    parent.abort("stop queued child")
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+  })
+
   it("keeps subagents serializable while assigning fresh trusted identities", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
     const child = defineAgent({ driver: { run: ({ run }) => run?.runId }, runtime: false })
     const parent = defineAgent({
       capabilities: [subagents({
@@ -204,9 +261,10 @@ describe("Agent Invocation controllers", () => {
           researcher: { agent: child, description: "Research one question." },
         },
       })],
-      driver: { model: {} as never },
+      driver: { model: new MockLanguageModelV3() },
     })
-    const resolved = await parent.resolve(runtime()) as unknown as {
+    // SAFETY: defineAgent resolves capability tools onto this internal adapter before returning it.
+    const resolved = await parent.resolve(runtime()) as AgentAdapter & {
       tools: Record<string, AgentToolDefinition>
     }
     const tool = resolved.tools.run_researcher!
@@ -216,6 +274,7 @@ describe("Agent Invocation controllers", () => {
     expect(first).toMatch(/^ainv_/)
     expect(second).toMatch(/^ainv_/)
     expect(second).not.toBe(first)
-    expect((tool.inputSchema as { properties?: Record<string, unknown> }).properties).not.toHaveProperty("runId")
+    if (!tool.inputSchema || !("properties" in tool.inputSchema)) throw new Error("Expected a JSON Schema input.")
+    expect(tool.inputSchema.properties).not.toHaveProperty("runId")
   })
 })

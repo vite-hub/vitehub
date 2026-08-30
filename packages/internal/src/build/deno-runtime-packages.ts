@@ -636,10 +636,9 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
-    if (!runtimePackage.packageJsonPath) continue
+    if (!runtimePackage.packageJsonPath || runtimePackage.onlyIfOptionalDependencies) continue
     const packageJsonPath = await realpath(runtimePackage.packageJsonPath)
     const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
-    if (runtimePackage.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) continue
     rootPackagePaths.set(runtimePackage.name, {
       hoistedPeer: false,
       path: packageJsonPath,
@@ -681,6 +680,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   }
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
+  if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   if (outputNodeModules === rootOutputNodeModules) {
     const existingPath = rootPackagePaths.get(name)
     const normalizedPeerRange = options.peerRange ? normalizePeerRange(options.peerRange, packageJson.version) : undefined
@@ -701,7 +701,6 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     })
   }
   const packageDir = dirname(resolvedPackageJsonPath)
-  if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
   const targetDir = join(outputNodeModules, ...name.split("/"))

@@ -1,12 +1,13 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocationSummary } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
 interface ConsoleInvocationDetail {
-  invocation: AgentInvocationSummary
+  invocation: AgentInvocationSummary & { usage?: ReturnType<typeof invocationUsage> }
   observations: readonly TraceEventLogEntry[]
 }
 
@@ -22,7 +23,8 @@ const invocationHandler: (event: ConsoleRequestEvent) => Promise<ConsoleInvocati
     })
   }
   const { observations, ...summary } = invocation
-  return { invocation: summary, observations }
+  const usage = invocationUsage(invocation)
+  return { invocation: { ...summary, ...(usage ? { usage } : {}) }, observations }
 }
 
 export default invocationHandler

@@ -68,6 +68,8 @@ export default defineConfig({
         from: "src/console/runtime/components/console-search.vue",
         to: "dist/console/runtime/components",
       },
+      { from: "src/console/runtime/components/console-usage-summary.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-usage.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
@@ -100,6 +102,7 @@ export default defineConfig({
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/search.get.ts",
       "src/console/runtime/server/sections.get.ts",
+      "src/console/runtime/server/usage.get.ts",
     ],
     exports: {
       exclude: ["bin"],
@@ -116,6 +119,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/search.get"]
         delete exports["./console/runtime/server/sections.get"]
         delete exports["./console/runtime/server/sections"]
+        delete exports["./console/runtime/server/usage.get"]
         return {
           ...exports,
           "./console/sections": "./dist/console/runtime/server/sections.js",

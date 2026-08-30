@@ -1214,19 +1214,25 @@ export interface AgentProviderSealedCredential {
 
 export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
 
-export type AgentProviderCredentialResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<AgentProviderCredentialValue, AgentAdapterMetadataContext<TRuntimeConfig>>
+export interface AgentProviderCredentialContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentAdapterMetadataContext<TRuntimeConfig> {
+  abortSignal?: AbortSignal
+}
 
-export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | (string & {})
+export type AgentProviderCredentialResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
+
+type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+/** A non-empty reasoning effort advertised by the selected Codex model. */
+export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
 export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
-  /**
-   * Advanced Codex runtime settings. A durable `homePath` used with `credentials`
-   * must resolve to storage exclusively owned by one ViteHub provider host process.
-   * Isolated replicas may use the same path value, but must not share the underlying storage.
-   */
+  /** Advanced Codex runtime settings passed to the provider runtime. */
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
@@ -1845,12 +1851,13 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentialProfile?: string
   credentials?: true
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
   providerSettings?: string[]
-  reasoningEffort?: string
+  reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
 }
 

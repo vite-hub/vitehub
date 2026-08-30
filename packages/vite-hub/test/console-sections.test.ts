@@ -18,9 +18,9 @@ function memoryStorage(initial?: string) {
 
 describe("Console section preferences", () => {
   it("prioritizes the last active section without losing configured sections", () => {
-    expect(prioritizeConsoleSectionIds(["agents", "kv"], "kv")).toEqual(["kv", "agents"])
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], "kv")).toEqual(["kv", "agents", "usage"])
     expect(prioritizeConsoleSectionIds(["agents"], "kv")).toEqual(["agents"])
-    expect(prioritizeConsoleSectionIds(["agents", "kv"], undefined)).toEqual(["agents", "kv"])
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], undefined)).toEqual(["agents", "usage", "kv"])
   })
 
   it("persists and validates the last section", () => {

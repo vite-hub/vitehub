@@ -23,6 +23,16 @@ export const buildWarningBudget = Object.freeze([
     maximum: 1,
     text: "Deploying to Cloudflare requires using D1 database",
   },
+  {
+    name: "Fontshare fetch retries",
+    maximum: 3,
+    text: "Could not fetch from https://api.fontshare.com/v2/fonts",
+  },
+  {
+    name: "Bunny Fonts fetch retries",
+    maximum: 3,
+    text: "Could not fetch from https://fonts.bunny.net/list",
+  },
   { name: "build plugin timings", maximum: 3, text: "[PLUGIN_TIMINGS]" },
   { name: "VueUse pure annotations", maximum: 2, text: "[INVALID_ANNOTATION]" },
   {

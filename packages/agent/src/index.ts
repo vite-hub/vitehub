@@ -195,6 +195,7 @@ import type {
 import type {
   AgentInvocationController,
   AgentInvocationSnapshot,
+  BackedAgentInvocationOptions,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
@@ -453,8 +454,14 @@ export type {
   AgentToolSet,
   AgentToolStep,
   AgentWaitUntil,
+  AgentProviderCredentialContext,
+  AgentProviderCredentialResolver,
+  AgentProviderCredentialValue,
+  AgentProviderSealedCredential,
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
+  CodexReasoningEffort,
+  CodexReasoningSummary,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -694,6 +701,7 @@ interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
   invocationJournal?: AgentInvocationJournal
   run: AgentWorkflowRun<TOutput>
+  settled?: Promise<void>
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -955,12 +963,23 @@ async function runAgentAsWorkflow<
     ...(inheritedRun ? { run: inheritedRun } : {}),
     ...(context.trace ? { trace: context.trace } : {}),
   }
+  const workflowSettlementTasks: Promise<unknown>[] = []
+  const observeSettlement = (promise: PromiseLike<unknown>) => {
+    workflowSettlementTasks.push(Promise.resolve(promise))
+  }
+  const waitUntil = (promise: PromiseLike<unknown>) => {
+    const task = Promise.resolve(promise)
+    workflowSettlementTasks.push(task)
+    context.waitUntil?.(task)
+  }
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
-    waitUntil: context.waitUntil,
+    settled: observeSettlement,
+    waitUntil,
     context: {
       ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
-      waitUntil: context.waitUntil,
+      settled: observeSettlement,
+      waitUntil,
     },
   }
   // Durable Channel recovery may be a fresh provider start while still owning
@@ -1026,6 +1045,13 @@ async function runAgentAsWorkflow<
     }
     throw error
   }
+  const settled = run.status === "cancelled" || run.status === "completed" || run.status === "failed"
+    ? Promise.resolve()
+    : workflowSettlementTasks.length
+      ? Promise.allSettled(workflowSettlementTasks).then(() => undefined)
+      : undefined
+  const started: StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> = { handle, run }
+  if (settled) started.settled = settled
   // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
   // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
   let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
@@ -1033,7 +1059,7 @@ async function runAgentAsWorkflow<
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id
-      if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
+      if (!await deferRecovery(run.id, sourceRunId)) return started
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
@@ -1043,7 +1069,8 @@ async function runAgentAsWorkflow<
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
   }
-  return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
+  if (invocationJournal) started.invocationJournal = invocationJournal
+  return started
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -1480,6 +1507,7 @@ function defineBaseAgent<
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
           ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+            credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             env: driver.env,
             execution: driver.execution,
@@ -1985,6 +2013,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
       ? { ...(settings.driver as AgentModelDriver), instructions }
       : {
           capacity: driver.capacity,
+          credentialProfile: driver.credentialProfile,
           credentials: driver.credentials,
           env: driver.env,
           execution: driver.execution,
@@ -4177,50 +4206,45 @@ async function resultWithStreamedTextAndUsage(
       }
     }
     const canonicalUsage = canonicalUsageRecord?.usage
-    const canonicalResolvedUsage = canonicalUsage
-      ? {
-          ...canonicalUsage,
-          ...(normalizedUsage?.details ? { details: normalizedUsage.details } : {}),
-          ...(normalizedUsage?.inputTokenDetails ? { inputTokenDetails: normalizedUsage.inputTokenDetails } : {}),
-          ...(normalizedUsage?.outputTokenDetails ? { outputTokenDetails: normalizedUsage.outputTokenDetails } : {}),
-          ...(normalizedUsage?.raw !== undefined ? { raw: normalizedUsage.raw } : {}),
-        }
-      : undefined
+    let canonicalResolvedUsage: AgentUsage | undefined
+    if (canonicalUsage) {
+      canonicalResolvedUsage = { ...canonicalUsage }
+      if (normalizedUsage?.details) canonicalResolvedUsage.details = normalizedUsage.details
+      if (normalizedUsage?.inputTokenDetails) canonicalResolvedUsage.inputTokenDetails = normalizedUsage.inputTokenDetails
+      if (normalizedUsage?.outputTokenDetails) canonicalResolvedUsage.outputTokenDetails = normalizedUsage.outputTokenDetails
+      if (normalizedUsage?.raw !== undefined) canonicalResolvedUsage.raw = normalizedUsage.raw
+    }
     const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
     const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
     const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
     const usageValues = [fallbackUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage, streamedUsage]
     const inputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.inputTokenDetails))
     const outputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.outputTokenDetails))
-    const mergedUsage = usageValues.some(Boolean)
-      ? {
-          ...mergedAgentUsageScalars(...usageValues),
-          ...(usageValues.some(value => value?.details)
-            ? {
-                details: {
-                  ...mergedReadableObjects(...usageValues.map(value => value?.details)),
-                },
-              }
-            : {}),
-          ...(Object.keys(inputTokenDetails).length ? { inputTokenDetails } : {}),
-          ...(Object.keys(outputTokenDetails).length ? { outputTokenDetails } : {}),
-        }
-      : undefined
+    let mergedUsage: AgentUsage | undefined
+    if (usageValues.some(Boolean)) {
+      mergedUsage = mergedAgentUsageScalars(...usageValues)
+      if (usageValues.some(value => value?.details)) {
+        mergedUsage.details = mergedReadableObjects(...usageValues.map(value => value?.details))
+      }
+      if (Object.keys(inputTokenDetails).length) mergedUsage.inputTokenDetails = inputTokenDetails
+      if (Object.keys(outputTokenDetails).length) mergedUsage.outputTokenDetails = outputTokenDetails
+    }
     const canonicalUsageRecordProperties = mergedUsageRecords(canonicalUsageRecord)
     const usageRecordValues = [fallbackUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties, canonicalUsageRecordProperties, streamedUsageRecordProperties]
-    const mergedUsageRecord = mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord
-      ? {
-          ...mergedUsageRecords(...usageRecordValues),
-          ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
-            const values = usageRecordValues.map(value => value[key])
-            if (values.some(Boolean)) {
-              properties[key] = mergedUsageRecordMetadata(key, ...values)
-            }
-            return properties
-          }, {}),
-          ...(mergedUsage ? { usage: mergedUsage } : {}),
-        }
-      : undefined
+    let mergedUsageRecord: AgentUsageRecord | undefined
+    if (mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord) {
+      mergedUsageRecord = {
+        ...mergedUsageRecords(...usageRecordValues),
+        ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
+          const values = usageRecordValues.map(value => value[key])
+          if (values.some(Boolean)) {
+            properties[key] = mergedUsageRecordMetadata(key, ...values)
+          }
+          return properties
+        }, {}),
+      }
+      if (mergedUsage) mergedUsageRecord.usage = mergedUsage
+    }
     const normalizedWithoutUsage = { ...normalized }
     delete normalizedWithoutUsage.usage
     const finishResult = {
@@ -4351,12 +4375,13 @@ async function finishStreamAgentInvocation<
   catch (finishError) {
     await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
   }
-  await lifecycle.finish({
+  const finishOutcome: Parameters<typeof lifecycle.finish>[0] = {
     result: finishResult,
     status: "success",
     usage: finishUsage,
-    ...(outcome.usageResolved ? { usageResolved: true } : {}),
-  })
+  }
+  if (outcome.usageResolved) finishOutcome.usageResolved = true
+  await lifecycle.finish(finishOutcome)
   assignResolvedUsageRecord(result, finishUsage)
   const rawDescriptor = result && hasRuntimeType(result, "object")
     ? Object.getOwnPropertyDescriptor(result, "raw")
@@ -5556,14 +5581,15 @@ async function executeAgentInvocationWithCapacityLease<
                 ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
                 : undefined
               if (!outcome.failed && !outcome.completed) {
-                await lifecycle.finish({
+                const lifecycleOutcome: Parameters<typeof lifecycle.finish>[0] = {
                   result: finishResult,
                   status: "success",
-                  ...(finishUsageRecord
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run) }
-                    : {}),
                   usageResolved: true,
-                })
+                }
+                if (finishUsageRecord) {
+                  lifecycleOutcome.usage = await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                }
+                await lifecycle.finish(lifecycleOutcome)
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
@@ -5736,14 +5762,15 @@ async function executeAgentInvocationWithCapacityLease<
             finishTask = (async () => {
               const finishUsageRecord = streamed.finishUsage()
               if (!finalOutcome.failed && !finalOutcome.completed) {
-                await lifecycle.finish({
+                const lifecycleOutcome: Parameters<typeof lifecycle.finish>[0] = {
                   result: finishResult,
                   status: "success",
-                  ...(finishUsageRecord
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run) }
-                    : {}),
                   usageResolved: true,
-                })
+                }
+                if (finishUsageRecord) {
+                  lifecycleOutcome.usage = await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                }
+                await lifecycle.finish(lifecycleOutcome)
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
@@ -6158,19 +6185,7 @@ async function executeAgentInvocationWithCapacityLease<
             : finishOutcome, streamFailureMessage, outputExtensions)
         }
       }
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
-        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
-          const settled = await Promise.race([
-            finishTask.then(() => true, () => true),
-            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
-          ])
-          if (settled) await finishTask
-          else void finishTask.catch(() => {})
-          return
-        }
-        await finishTask
-      }, {
+      const finalizationOptions: NonNullable<Parameters<typeof finalizeUiMessageStreamOutput>[3]> = {
         abortSignal: invocation.input.abortSignal,
         detachPendingReaderCancellation: options.holdCapacity !== true,
         cancelOnAbort: options.holdCapacity === true || rendererSource
@@ -6183,9 +6198,22 @@ async function executeAgentInvocationWithCapacityLease<
               ])
             }
           : undefined,
-        ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
         projection,
-      })
+      }
+      if (collectToolResult) finalizationOptions.onNormalizedChunk = collectToolResult
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
+        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
+          const settled = await Promise.race([
+            finishTask.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await finishTask
+          else void finishTask.catch(() => {})
+          return
+        }
+        await finishTask
+      }, finalizationOptions)
     }
 
     let isStreamResult = hasTraceableStreamResult(rendered)
@@ -6516,14 +6544,14 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const { handle, invocationJournal, run } = started
+  const { handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
     return snapshot
   }
-  return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -6535,9 +6563,13 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    parentAbortSignal,
     result: Promise.resolve(run),
-  })
+  }
+  if (settled) {
+    controllerOptions.settled = settled
+    if (parentAbortSignal) controllerOptions.parentAbortSignal = parentAbortSignal
+  }
+  return createBackedAgentInvocationController(controllerOptions)
 }
 
 function createInlineAgentInvocationController<

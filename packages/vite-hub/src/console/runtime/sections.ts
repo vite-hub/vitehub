@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "kv"] as const
+export const consoleSectionIds = ["agents", "usage", "kv"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -8,6 +8,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-bot",
     label: "Agents",
     routeName: "vitehub-console-agents",
+  },
+  usage: {
+    description: "Review token use and cost evidence over time.",
+    icon: "i-lucide-chart-no-axes-combined",
+    label: "Usage",
+    routeName: "vitehub-console-usage",
   },
   kv: {
     description: "Inspect configured KV stores without changing data.",
@@ -34,7 +40,7 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
 }
 
 export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown }): ConsoleSectionId[] {
-  return [...(options.agent ? ["agents" as const] : []), ...(options.kv ? ["kv" as const] : [])]
+  return [...(options.agent ? ["agents" as const, "usage" as const] : []), ...(options.kv ? ["kv" as const] : [])]
 }
 
 export function prioritizeConsoleSectionIds(
