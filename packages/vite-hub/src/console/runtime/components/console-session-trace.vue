@@ -3,10 +3,12 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
+  isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
   standaloneSuccessfulToolSequences,
   isTerminalToolObservation,
   isTerminalTaskObservation,
+  lifecycleTerminalNames,
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
@@ -215,8 +217,8 @@ function traceStarts(observations: Observation[]): Observation[] {
       continue;
     }
     if (
-      observation.name.startsWith("agent.tool.") &&
-      [".finish", ".error", ".abort", ".cancel"].some((suffix) => observation.name.endsWith(suffix))
+      isTerminalToolObservation(observation.name) &&
+      isLifecycleTerminalObservation(observation.name)
     )
       openTools.delete(id);
     if (
@@ -272,9 +274,7 @@ function pairedTerminal(
       ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
       : start.name === "agent.approval.request"
         ? ["agent.approval.decision"]
-        : ["finish", "completed", "error", "failed", "abort", "cancel", "cancelled"].map((suffix) =>
-            start.name.replace(/\.start$/, `.${suffix}`),
-          );
+        : lifecycleTerminalNames(start.name);
   const startIndex =
     observations.filter(
       (observation) =>

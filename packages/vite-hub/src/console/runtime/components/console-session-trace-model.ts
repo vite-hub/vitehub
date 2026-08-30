@@ -4,6 +4,16 @@ export type TraceObservationIdentity = {
   sequence: number;
 };
 
+const lifecycleTerminalSuffixes = [
+  "finish",
+  "completed",
+  "error",
+  "failed",
+  "abort",
+  "cancel",
+  "cancelled",
+] as const;
+
 export function traceEventId(observation: TraceObservationIdentity): string {
   const attributes = observation.attributes ?? {};
   for (const key of [
@@ -59,6 +69,16 @@ export function isStandaloneSuccessfulToolObservation(name: string): boolean {
 
 export function isTerminalToolObservation(name: string): boolean {
   return name.startsWith("agent.tool.") && name !== "agent.tool.start";
+}
+
+export function isLifecycleTerminalObservation(name: string): boolean {
+  return lifecycleTerminalSuffixes.some((suffix) => name.endsWith(`.${suffix}`));
+}
+
+export function lifecycleTerminalNames(startName: string): string[] {
+  return lifecycleTerminalSuffixes.map((suffix) =>
+    startName.replace(/\.start$/, `.${suffix}`),
+  );
 }
 
 export function standaloneSuccessfulToolSequences(

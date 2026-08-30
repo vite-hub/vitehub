@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   isDeniedApproval,
+  isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
   isStandaloneSuccessfulToolObservation,
   isTerminalToolObservation,
   standaloneSuccessfulToolSequences,
   isTerminalTaskObservation,
+  lifecycleTerminalNames,
   traceDurationMs,
   traceEventId,
   traceSpanEndMs,
@@ -85,6 +87,29 @@ describe("Console session trace model", () => {
     expect(isTerminalToolObservation("agent.tool.failed")).toBe(true);
     expect(isTerminalToolObservation("agent.tool.start")).toBe(false);
     expect(isTerminalToolObservation("agent.model.failed")).toBe(false);
+  });
+
+  it("recognizes every paired lifecycle terminal suffix", () => {
+    for (const suffix of [
+      "finish",
+      "completed",
+      "error",
+      "failed",
+      "abort",
+      "cancel",
+      "cancelled",
+    ])
+      expect(isLifecycleTerminalObservation(`agent.tool.${suffix}`)).toBe(true);
+    expect(isLifecycleTerminalObservation("agent.tool.start")).toBe(false);
+    expect(lifecycleTerminalNames("agent.tool.start")).toEqual([
+      "agent.tool.finish",
+      "agent.tool.completed",
+      "agent.tool.error",
+      "agent.tool.failed",
+      "agent.tool.abort",
+      "agent.tool.cancel",
+      "agent.tool.cancelled",
+    ]);
   });
 
   it("deduplicates successful terminals within each tool lifecycle", () => {
