@@ -711,6 +711,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
         : undefined,
       resolveKVStores: (kv) => {
         if (kv === false) return false
+        if (kv === undefined && !options.kv) return false
         const resolved = resolveKVViteConfig(
           // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
           (kv ?? configuredKV) as KVModuleOptions | undefined,

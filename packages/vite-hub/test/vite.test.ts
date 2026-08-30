@@ -239,6 +239,23 @@ describe("vitehub", () => {
   it("derives Console KV registration from the resolved Vite KV configuration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-"))
     try {
+      for (const [name, kv] of [["omitted", undefined], ["disabled", false]] as const) {
+        const inactiveRoot = join(root, name)
+        const inactive = dependencyPluginByName(
+          vitehub({ console: true, kv, preset: "node" }),
+          "vite-hub/console",
+        )
+        const inactiveConfig: Record<string, unknown> = { root: inactiveRoot }
+        await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
+        await callHook(inactive.configResolved, [inactiveConfig])
+
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveConfig.nitro).not.toMatchObject({
+          handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        })
+      }
+
       const named = dependencyPluginByName(
         vitehub({ console: true, kv: true, preset: "node" }),
         "vite-hub/console",
