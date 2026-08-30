@@ -124,6 +124,7 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
     }
     if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") {
       const declarator = current.parentPath
+      if (declarator?.node.type === "ExportDefaultDeclaration") return true
       return declarator?.node.type === "VariableDeclarator"
         && declarator.node.init === current.node
         && declarator.node.id?.type === "Identifier"
@@ -226,12 +227,20 @@ async function sourceModuleMayUseCloudflareArtifacts(
   const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
   for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
     const imports = match[1]?.trim()
+    if (!imports) continue
     if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").map(entry => entry.trim()).filter(Boolean).every(entry => /^type\b/.test(entry))) continue
+    const defaultImport = imports.split(",", 1)[0]?.trim()
+    if (
+      defaultImport
+      && /^[A-Za-z_$][\w$]*$/.test(defaultImport)
+      && !new RegExp(`\\bstore\\s*:\\s*${defaultImport}\\b`).test(loaded.source)
+    ) continue
     const specifier = match[2]!
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
+    if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
     if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited)) return true
   }
   return false

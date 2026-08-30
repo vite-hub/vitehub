@@ -1537,6 +1537,28 @@ describe("hubWorkspace", () => {
     await expect(closeBundle.handler()).resolves.toBeUndefined()
   })
 
+  it("does not inspect unrelated default exports or non-script imports for Cloudflare Artifacts", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "deployment.ts"), `export default { provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "style.css"), `.workspace { display: block; }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "#generated-workspace-store"`,
+      `import deployment from "./deployment"`,
+      `import "./style.css"`,
+      `console.log(deployment)`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ store: { provider: "memory" } })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+
+    await expect(closeBundle.handler()).resolves.toBeUndefined()
+  })
+
   it("emits aliased definition-level Cloudflare Artifacts bindings when assets are disabled", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "workspace-store.ts"), [
@@ -1626,6 +1648,13 @@ describe("hubWorkspace", () => {
         "workspace-store.mjs": `export const workspaceStore = function () { return { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`,
       },
       name: "function expression-returned options",
+    },
+    {
+      definition: `import workspaceStore from "./workspace-store.mjs"\nexport default { store: workspaceStore() }\n`,
+      files: {
+        "workspace-store.mjs": `export default () => ({ binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" })\n`,
+      },
+      name: "default-exported arrow factory-returned options",
     },
   ])("emits definition-level Cloudflare Artifacts bindings from $name when assets are disabled", async ({ definition, files }) => {
     const root = await createViteRoot()
