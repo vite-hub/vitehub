@@ -49,7 +49,7 @@ const capabilities = [diagnostics({
 }), ...(consoleClient
   ? [otlp({
       content: { inputs: true, instructions: true, outputs: true },
-      endpoint: consoleClient.endpoint('/api/otlp/v1/traces'),
+      endpoint: consoleClient.endpoint('/api/otlp'),
       headers: consoleClient.headers,
       resource: { 'service.namespace': 'vitehub' },
     })]
