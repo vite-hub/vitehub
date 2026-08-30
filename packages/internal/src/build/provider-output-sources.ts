@@ -119,7 +119,12 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       const scopedRoot = configuredRoot ?? root
       const segments = relative(scopedRoot, path).split(sep)
       const ignoredIndex = segments.findIndex(segment => ignoredSourceDirectories.has(segment))
-      return ignoredIndex === -1 ? [] : [resolve(scopedRoot, ...segments.slice(0, ignoredIndex + 1))]
+      if (ignoredIndex === -1) return []
+      const retainedSourcesIndex = ignoredGeneratedDirectories.has(segments[ignoredIndex]!)
+        ? segments.findIndex((segment, index) => index > ignoredIndex && (segment === "sources" || segment.endsWith("-sources")))
+        : -1
+      const outputRootIndex = retainedSourcesIndex === -1 ? ignoredIndex : retainedSourcesIndex
+      return [resolve(scopedRoot, ...segments.slice(0, outputRootIndex + 1))]
     })
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")

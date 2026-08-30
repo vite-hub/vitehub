@@ -287,14 +287,16 @@ it("preserves workspace-relative imports from generated sources without their ow
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-generated-workspace-"))
   tempDirs.push(workspace)
   const rootDir = join(workspace, "app")
-  const entry = join(rootDir, ".vitehub", "blob-generations", "one", "runtime.mjs")
+  const entry = join(rootDir, ".vitehub", "blob-generations", "one", "sources", "runtime.mjs")
   const dependency = join(workspace, "packages", "blob", "dist", "runtime.js")
-  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(dependency), { recursive: true })])
+  const unrelatedOutput = join(rootDir, ".vitehub", "workflow", "sources", "stale.ts")
+  await Promise.all([mkdir(dirname(entry), { recursive: true }), mkdir(dirname(dependency), { recursive: true }), mkdir(dirname(unrelatedOutput), { recursive: true })])
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
     writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
-    writeFile(entry, 'export { value } from "../../../../packages/blob/dist/runtime.js"\n'),
+    writeFile(entry, 'export { value } from "../../../../../packages/blob/dist/runtime.js"\n'),
     writeFile(dependency, 'export const value = "retained"\n'),
+    writeFile(unrelatedOutput, "throw new Error('unrelated output must not be retained')\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -304,6 +306,7 @@ it("preserves workspace-relative imports from generated sources without their ow
   })
 
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+  await expect(readFile(retained.resolve(unrelatedOutput), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("retains relative imports that escape a package-scoped Vite root", async () => {
