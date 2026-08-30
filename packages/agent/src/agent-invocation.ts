@@ -237,15 +237,19 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     return snapshot
   }
   const inspect = async (): Promise<AgentInvocationInspection<TOutput>> => {
-    if (terminalSnapshot) return { invocation: { ...terminalSnapshot }, outcome: "available" }
+    const cachedTerminalSnapshot = terminalSnapshot
+    if (cachedTerminalSnapshot) return { invocation: { ...cachedTerminalSnapshot }, outcome: "available" }
     try {
       const snapshot = observeTerminalSnapshot(await options.inspect())
-      if (terminalSnapshot) return { invocation: { ...terminalSnapshot }, outcome: "available" }
+      const settledTerminalSnapshot = terminalSnapshot
+      if (settledTerminalSnapshot) return { invocation: { ...settledTerminalSnapshot }, outcome: "available" }
       return snapshot
         ? { invocation: snapshot, outcome: "available" }
         : { id: options.id, outcome: "unavailable" }
     }
     catch {
+      const settledTerminalSnapshot = terminalSnapshot
+      if (settledTerminalSnapshot) return { invocation: { ...settledTerminalSnapshot }, outcome: "available" }
       return { id: options.id, outcome: "unavailable" }
     }
   }
@@ -278,7 +282,11 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
       const output = await options.result()
       const snapshot: AgentInvocationSnapshot<TOutput> = { id: options.id, status: "completed" }
       if (output !== undefined) snapshot.output = output
-      observeTerminalSnapshot(snapshot)
+      const authoritativeSnapshot = observeTerminalSnapshot(snapshot)
+      if (authoritativeSnapshot?.status === "cancelled") {
+        throw new DOMException("The invocation was cancelled.", "AbortError")
+      }
+      if (authoritativeSnapshot?.status === "failed") throw authoritativeSnapshot.error
       return output
     }
     catch (error) {
