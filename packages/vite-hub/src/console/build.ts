@@ -66,6 +66,7 @@ function queueDefinition(
 export function discoverConsoleBuildCatalog(options: {
   discoveryRoot: string
   projectRoot: string
+  queueDiscoveryRoot?: string
   sections: readonly ConsoleSectionId[]
   serverDirs?: string[]
   workflowDiscoveryRoot?: string
@@ -83,7 +84,7 @@ export function discoverConsoleBuildCatalog(options: {
     : []
   const queues = options.sections.includes("queues")
     ? discoverQueueDefinitions({
-        rootDir: options.discoveryRoot,
+        rootDir: options.queueDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.serverDirs,
       }).map(definition => queueDefinition(options.projectRoot, definition))
     : []

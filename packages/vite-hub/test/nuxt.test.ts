@@ -137,7 +137,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server" as string | undefined,
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; workflow?: boolean },
+      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; queue?: boolean; workflow?: boolean },
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -712,6 +712,35 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("uses the effective and replay-resolved Queue configuration for the Nuxt Console", async () => {
+    const configured = createNuxt(true)
+    configured.nuxt.options.vite.queue = false
+
+    await viteHubNuxtModule({ console: true, preset: "node", queue: true }, configured.nuxt)
+    const configuredPages: Array<{ file: string; name: string; path: string }> = []
+    configured.runPagesHook(configuredPages)
+
+    expect(configuredPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    expect(nitroHandlerRoutes(nitroOptions(configured.nuxt))).not.toContain("/api/_vitehub/console/definitions")
+
+    const replayed = createNuxt(true, [{
+      name: "vite-hub/queue-replay",
+      config: () => ({ queue: false } as UserConfig),
+    }])
+
+    await viteHubNuxtModule({ console: true, preset: "node", queue: true }, replayed.nuxt)
+    const replayedNitroConfig = nitroOptions(replayed.nuxt)
+    await replayed.runNitroConfigHook(replayedNitroConfig)
+    const replayedPages: Array<{ file: string; name: string; path: string }> = []
+    replayed.runPagesHook(replayedPages)
+
+    expect(replayedPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    expect(nitroHandlerRoutes(replayedNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
+  })
+
   it("discovers Nuxt Console Agents and Workflows from their runtime definition roots", async () => {
     const rootWorkflow = "/tmp/vitehub-nuxt/release.workflow.ts"
     const viteWorkflow = "/tmp/vitehub-nuxt/app/preview.workflow.ts"
@@ -1086,6 +1115,29 @@ describe("ViteHub Nuxt integration", () => {
     }
     finally {
       await rm(definition, { force: true })
+    }
+  })
+
+  it("discovers Nuxt Queue Definitions from the Queue runtime root", async () => {
+    const rootQueue = "/tmp/vitehub-nuxt/email.queue.ts"
+    const viteQueue = "/tmp/vitehub-nuxt/app/preview.queue.ts"
+    await mkdir(resolve(viteQueue, ".."), { recursive: true })
+    await writeFile(rootQueue, "export default defineQueue({})\n")
+    await writeFile(viteQueue, "export default defineQueue({})\n")
+    const development = createNuxt(true)
+    Reflect.deleteProperty(development.nuxt.options, "serverDir")
+    development.nuxt.options.vite.root = "/tmp/vitehub-nuxt/app"
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain('"file":"email.queue.ts"')
+      expect(generated).not.toContain("preview.queue.ts")
+    }
+    finally {
+      await rm(rootQueue, { force: true })
+      await rm(viteQueue, { force: true })
     }
   })
 
