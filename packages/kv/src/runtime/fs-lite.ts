@@ -45,7 +45,9 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
 
     const continuation = cursor ? continuations.get(cursor) : undefined
     const iterator = continuation?.iterator ?? (cursor ? undefined : walk(root))
-    if (!iterator) throw new TypeError("Invalid or expired fs-lite KV cursor.")
+    if (!iterator) {
+      throw Object.assign(new TypeError("Invalid or expired fs-lite KV cursor."), { code: "KV_CURSOR_EXPIRED" })
+    }
     if (cursor && continuation) {
       clearTimeout(continuation.timeout)
       continuations.delete(cursor)

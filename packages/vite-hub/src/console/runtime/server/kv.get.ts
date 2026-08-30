@@ -95,7 +95,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     return append('"')
   }
 
-  function serialize(input: unknown, depth: number, arrayValue: boolean, key: string): boolean {
+  function serialize(input: unknown, depth: number, arrayValue: boolean, key: string, applyToJSON = true): boolean {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
     if (typeof input === "string") return appendString(input)
     if (input === null) return append("null")
@@ -111,7 +111,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     if (typeof input === "bigint") {
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
-      if (typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key)
+      if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
       throw new TypeError("Cannot serialize bigint as JSON.")
     }
 
@@ -119,9 +119,9 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     const object = Object(input)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
     const toJSON: unknown = Reflect.get(object, "toJSON")
-    if (typeof toJSON === "function") {
+    if (applyToJSON && typeof toJSON === "function") {
       const replacement = toJSON.call(input, key)
-      if (replacement !== input) return serialize(replacement, depth, arrayValue, key)
+      if (replacement !== input) return serialize(replacement, depth, arrayValue, key, false)
     }
     const boxed = input instanceof Number || input instanceof String || input instanceof Boolean || Object.prototype.toString.call(input) === "[object BigInt]"
       ? Reflect.apply(object.valueOf, input, [])
@@ -145,11 +145,16 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     let count = 0
     for (const key in object) {
       if (!Object.prototype.hasOwnProperty.call(object, key)) continue
-      const item: unknown = Reflect.get(object, key)
+      let item: unknown = Reflect.get(object, key)
+      if (item !== null && (typeof item === "object" || typeof item === "bigint")) {
+        const toJSON: unknown = Reflect.get(Object(item), "toJSON")
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
+        if (typeof toJSON === "function") item = toJSON.call(item, key)
+      }
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
       if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
       if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
-      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false, key)) return false
+      if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false, key, false)) return false
       count += 1
     }
     if (count > 0 && !append(`\n${"  ".repeat(depth)}`)) return false
@@ -206,7 +211,7 @@ function selectStore(storage: KVStorage, stores: readonly string[], requested: s
 
 export default async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   | ConsoleKVValue
-  | { cursor?: string; error?: string; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
+  | { cursor?: string; error?: string; errorCode?: "cursor_expired"; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }
 > {
   assertConsoleRequest(event)
   const url = consoleRequestURL(event)
@@ -239,7 +244,13 @@ export default async function consoleKVHandler(event: ConsoleRequestEvent): Prom
     store: selected.name,
     stores: inspection.stores,
   }
-  if (pageResult[0]) return { ...response, error: pageResult[0].message }
+  if (pageResult[0]) {
+    const cause = pageResult[0].cause
+    const errorCode = cursor && cause instanceof Object && "code" in cause && cause.code === "KV_CURSOR_EXPIRED"
+      ? "cursor_expired"
+      : undefined
+    return { ...response, error: pageResult[0].message, ...(errorCode ? { errorCode } : {}) }
+  }
   const page = pageResult[1]
   const listed = { ...response, keys: page.keys }
   return page.cursor ? { ...listed, cursor: page.cursor } : listed

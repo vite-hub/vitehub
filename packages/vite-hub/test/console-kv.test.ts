@@ -115,6 +115,7 @@ describe("Console KV inspection", () => {
         ["boxed-custom", Object.assign(new Number(7), { toJSON: () => "replacement" })],
         ["boxed-bigint", Object(1n)],
         ["keyed", { toJSON: (key: string) => ({ key }) }],
+        ["omitted", { child: { toJSON: () => undefined }, kept: true }],
         ["large-structured", { content: "x".repeat(256 * 1_024 + 1) }],
         ["nullable", null],
         ["large", "x".repeat(256 * 1_024 + 1)],
@@ -145,6 +146,9 @@ describe("Console KV inspection", () => {
     await expect(kvHandler(event("?key=boxed-bigint"))).resolves.toMatchObject({ format: "text", value: "1" })
     await expect(kvHandler(event("?key=keyed"))).resolves.toMatchObject({
       value: "{\n  \"key\": \"\"\n}",
+    })
+    await expect(kvHandler(event("?key=omitted"))).resolves.toMatchObject({
+      value: "{\n  \"kept\": true\n}",
     })
     await expect(kvHandler(event("?key=nullable"))).resolves.toMatchObject({
       found: true,
@@ -210,5 +214,18 @@ describe("Console KV inspection", () => {
       store: "default",
       stores: ["default", "cache"],
     })
+  })
+
+  it("identifies only expired cursors as retryable", async () => {
+    const { storage } = memoryKV({ default: new Map() })
+    const expiredCause = Object.assign(new Error("expired"), { code: "KV_CURSOR_EXPIRED" })
+    storage.list = async () => [Object.assign(new Error("list unavailable"), { cause: expiredCause }), undefined]
+    installConsoleKV("/project", storage)
+
+    await expect(kvHandler(event("?cursor=continuation"))).resolves.toMatchObject({
+      error: "list unavailable",
+      errorCode: "cursor_expired",
+    })
+    await expect(kvHandler(event())).resolves.not.toHaveProperty("errorCode")
   })
 })

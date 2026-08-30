@@ -11,6 +11,7 @@ import ConsoleSearch from "./console-search.vue";
 interface KVListResponse {
   cursor?: string;
   error?: string;
+  errorCode?: "cursor_expired";
   keys: string[];
   limit: number;
   prefix: string;
@@ -70,6 +71,7 @@ function parseList(value: unknown): KVListResponse {
     cursor: typeof source.cursor === "string" ? source.cursor : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     error: typeof source.error === "string" ? source.error : undefined,
+    errorCode: source.errorCode === "cursor_expired" ? source.errorCode : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
@@ -157,7 +159,11 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     }));
     if (listRequest !== controller) return;
     stores.value = value.stores;
-    if (value.error) throw new Error(value.error);
+    if (value.error) {
+      const error = new Error(value.error);
+      if (value.errorCode) Object.assign(error, { code: value.errorCode });
+      throw error;
+    }
     keys.value = options.append ? [...keys.value, ...value.keys] : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
@@ -166,7 +172,10 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
     if (listRequest === controller) {
-      retryExpiredCursor = options.append === true;
+      retryExpiredCursor = options.append === true
+        && error instanceof Object
+        && "code" in error
+        && error.code === "cursor_expired";
       if (!retryExpiredCursor) listError.value = error;
     }
   } finally {

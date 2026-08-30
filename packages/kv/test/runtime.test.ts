@@ -512,6 +512,29 @@ describe("kv runtime", () => {
     expect(upstashScan).toHaveBeenCalledOnce()
   })
 
+  it("rejects Upstash overflow that exceeds the retained byte budget", async () => {
+    upstashScan = vi.fn(async () => [0, ["page", "x".repeat(1024 * 1024 + 1)]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    await expect(driver.listKeys({ limit: 1 })).rejects.toThrow("continuation size limit")
+  })
+
+  it("marks expired Upstash continuations separately from malformed cursors", async () => {
+    upstashScan = vi.fn(async () => [0, ["one", "two"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const first = await driver.listKeys({ limit: 1 })
+    await driver.listKeys({ cursor: first.cursor, limit: 1 })
+
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({
+      code: "KV_CURSOR_EXPIRED",
+    })
+    await expect(driver.listKeys({ cursor: "malformed", limit: 1 })).rejects.not.toMatchObject({
+      code: "KV_CURSOR_EXPIRED",
+    })
+  })
+
   it("passes a bounded page size to Deno KV for selective prefixes", async () => {
     const list = vi.fn((_selector: { prefix: [] }, _options: { cursor?: string; limit?: number } = {}) => {
       const iterator = (async function* () {
