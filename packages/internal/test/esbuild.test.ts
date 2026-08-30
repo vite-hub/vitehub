@@ -350,6 +350,30 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("aliased")
   })
 
+  it("applies package aliases only to the exact public specifier", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "exact-alias")
+    const entry = join(rootDir, "entry.mjs")
+    const target = join(rootDir, "target.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: { "./errors": "./errors.mjs" }, type: "module" }), "utf8")
+    await writeFile(join(packageDir, "errors.mjs"), 'export default "public subpath"\n', "utf8")
+    await writeFile(entry, 'import root from "exact-alias"\nimport errors from "exact-alias/errors"\nexport default { errors, root }\n', "utf8")
+    await writeFile(target, 'export default "aliased root"\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "exact-alias": target },
+      format: "esm",
+      platform: "node",
+    })
+
+    // SAFETY: This bundle exports values from the exact alias and the untouched package subpath.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: { errors: string, root: string } }
+    expect(loaded.default).toEqual({ errors: "public subpath", root: "aliased root" })
+  })
+
   it("prefers Node exports over module exports in Node bundles", async () => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "node_modules", "conditional-package")

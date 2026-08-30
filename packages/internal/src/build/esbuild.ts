@@ -28,21 +28,15 @@ const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
-function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
-  if (!aliases) return
-  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/") && !isAbsolute(specifier)))
-}
-
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
-  const resolvedAliases = Object.entries(aliases || {}).filter(([specifier]) => isAbsolute(specifier))
-  if (!resolvedAliases.length) return
-  const replacements = new Map(resolvedAliases.map(([specifier, replacement]) => [resolve(specifier), replacement]))
+  const exactAliases = Object.entries(aliases || {}).filter(([specifier]) => !specifier.endsWith("/"))
+  if (!exactAliases.length) return
+  const replacements = new Map(exactAliases.map(([specifier, replacement]) => [isAbsolute(specifier) ? resolve(specifier) : specifier, replacement]))
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
       build.onResolve({ filter: /.*/ }, (args) => {
-        if (!args.resolveDir) return
-        const replacement = replacements.get(resolve(args.resolveDir, args.path))
+        const replacement = replacements.get(isAbsolute(args.path) && args.resolveDir ? resolve(args.resolveDir, args.path) : args.path)
         return replacement ? { path: replacement } : undefined
       })
     },
@@ -259,12 +253,10 @@ export async function bundleEsmEntry(
   options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const aliases = resolveEsbuildAliases(options.alias)
-  const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+  const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
-    alias: aliases,
     banner: options.banner || (format === "esm" && platform === "node")
       ? {
           js: [
