@@ -71,12 +71,13 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
     const canonicalSpecifier = isAbsolute(resolvedSpecifier)
       ? normalizePathSeparators(await realpath(resolvedSpecifier).catch(() => resolvedSpecifier))
       : resolvedSpecifier
+    const resolvedReplacement = isAbsolute(replacement)
+      ? normalizePathSeparators(resolve(replacement))
+      : replacement
     return {
       canonicalSpecifier: `${canonicalSpecifier}${prefix && !canonicalSpecifier.endsWith("/") ? "/" : ""}`,
       prefix,
-      replacement: isAbsolute(replacement)
-        ? `${normalizePathSeparators(resolve(replacement))}${/[\\/]$/.test(replacement) ? "/" : ""}`
-        : replacement,
+      replacement: `${resolvedReplacement}${prefix && !/[\\/]$/.test(resolvedReplacement) ? "/" : ""}`,
       specifier: `${resolvedSpecifier}${prefix && !resolvedSpecifier.endsWith("/") ? "/" : ""}`,
     }
   }))

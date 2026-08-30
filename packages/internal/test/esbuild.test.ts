@@ -325,6 +325,32 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
+  it("joins prefix alias replacements that omit a trailing slash", async () => {
+    const rootDir = await createTempDir()
+    const sourceDir = resolve(rootDir, "source")
+    const replacementDir = resolve(rootDir, "replacement")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(sourceDir),
+      mkdir(replacementDir),
+    ])
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(resolve(sourceDir, "job.mjs"))}\n`, "utf8"),
+      writeFile(resolve(sourceDir, "job.mjs"), "export const value = 'original'\n", "utf8"),
+      writeFile(resolve(replacementDir, "job.mjs"), "export const value = 'replacement'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [`${sourceDir}/\0vitehub-prefix:0`]: replacementDir },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+  })
+
   it("resolves relative prefix aliases from a stable base for nested importers", async () => {
     const rootDir = await createTempDir()
     const sourceDir = resolve(rootDir, "src")
