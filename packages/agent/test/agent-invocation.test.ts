@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
+import { awaitAgentInvocationResult, createBackedAgentInvocationController } from "../src/agent-invocation.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
@@ -162,6 +162,7 @@ describe("Agent Invocation controllers", () => {
       outcome: "unsupported",
     })
     await Promise.all(waitUntilTasks)
+    await expect(controller.result).resolves.toBe(controller.id)
     await vi.waitFor(() => expect(removeEventListener).toHaveBeenCalledOnce())
     parent.abort("too late")
     await expect(controller.inspect()).resolves.toEqual({
@@ -238,16 +239,17 @@ describe("Agent Invocation controllers", () => {
   it("keeps observing parent cancellation when only a backed start result settles", async () => {
     const parent = new AbortController()
     const cancel = vi.fn(async () => ({ id: "child", status: "cancelled" as const }))
-    createBackedAgentInvocationController({
+    const controller = createBackedAgentInvocationController({
       cancel,
       errorOutcome: () => "unavailable",
       id: "child",
       inspect: async () => ({ id: "child", status: "running" }),
       parentAbortSignal: parent.signal,
-      result: Promise.resolve({ id: "child", status: "queued" }),
+      result: new Promise(() => {}),
+      startResult: Promise.resolve({ id: "child", status: "queued" }),
     })
 
-    await Promise.resolve()
+    await expect(awaitAgentInvocationResult(controller)).resolves.toEqual({ id: "child", status: "queued" })
     parent.abort("stop queued child")
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
   })

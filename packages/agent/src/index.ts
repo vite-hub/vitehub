@@ -6540,10 +6540,32 @@ function workflowOperationOutcome(error: unknown): "unsupported" | "unavailable"
     : "unavailable"
 }
 
+async function awaitWorkflowAgentInvocationResult<CALL_OPTIONS, TOutput>(
+  started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
+): Promise<TOutput> {
+  let current = started.run
+  if (started.settled && current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
+    await started.settled
+  }
+  while (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
+    // SAFETY: the Workflow handle and started run share the same output contract.
+    current = await started.handle.getRun(current.id) as AgentWorkflowRun<TOutput>
+    if (current.status !== "cancelled" && current.status !== "completed" && current.status !== "failed") {
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+  }
+  // SAFETY: a completed Agent Workflow stores the Agent output in its result field.
+  if (current.status === "completed") return current.result as TOutput
+  if (current.status === "cancelled") throw new DOMException("Agent invocation was cancelled.", "AbortError")
+  throw current.metadata instanceof Error
+    ? current.metadata
+    : new Error("Agent invocation Workflow failed.", { cause: current.metadata })
+}
+
 function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
-): AgentInvocationController<TOutput | Response, CALL_OPTIONS, AgentWorkflowRun<TOutput>> {
+): AgentInvocationController<TOutput | Response, CALL_OPTIONS, TOutput> {
   const { handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
@@ -6551,7 +6573,7 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
     }
     return snapshot
   }
-  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response, AgentWorkflowRun<TOutput>> = {
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response, TOutput> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -6563,7 +6585,8 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    result: Promise.resolve(run),
+    result: awaitWorkflowAgentInvocationResult(started),
+    startResult: Promise.resolve(run),
   }
   if (settled) {
     controllerOptions.settled = settled

@@ -85,7 +85,14 @@ export interface BackedAgentInvocationOptions<TOutput = unknown, TResult = unkno
   inspect: () => Promise<AgentInvocationSnapshot<TOutput> | undefined>
   parentAbortSignal?: AbortSignal
   result: Promise<TResult>
+  startResult?: Promise<unknown>
   settled?: Promise<unknown>
+}
+
+const agentInvocationStartResult = Symbol.for("vitehub.agentInvocationStartResult")
+
+type InternalAgentInvocationController = AgentInvocationController & {
+  [agentInvocationStartResult]: Promise<unknown>
 }
 
 export function createAgentInvocationController<
@@ -96,6 +103,7 @@ export function createAgentInvocationController<
   id: string,
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<TResult>,
+  startResult: Promise<unknown> = result,
 ): AgentInvocationController<TOutput, CALL_OPTIONS, TResult> {
   const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
@@ -121,11 +129,13 @@ export function createAgentInvocationController<
     },
     support,
   }
+  Object.defineProperty(controller, agentInvocationStartResult, { value: startResult })
   return Object.freeze(controller)
 }
 
-export function awaitAgentInvocationResult<TResult>(controller: AgentInvocationController<unknown, unknown, TResult>): Promise<TResult> {
-  return controller.result
+export function awaitAgentInvocationResult(controller: AgentInvocationController): Promise<unknown> {
+  // SAFETY: createAgentInvocationController attaches the private start result to every controller it returns.
+  return (controller as InternalAgentInvocationController)[agentInvocationStartResult]
 }
 
 function randomAgentInvocationId(): string {
@@ -235,7 +245,7 @@ export function createBackedAgentInvocationController<TOutput = unknown, TResult
     async sendInput() {
       return { id: options.id, outcome: "unsupported" }
     },
-  }, options.result)
+  }, options.result, options.startResult)
   if (options.parentAbortSignal) {
     const parentAbortSignal = options.parentAbortSignal
     const cancel = () => void controller.cancel(parentAbortSignal.reason)
