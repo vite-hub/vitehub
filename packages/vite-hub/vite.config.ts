@@ -181,6 +181,7 @@ export default defineConfig({
         delete exports["./console/runtime/sections"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
+        delete exports["./console/runtime/server/blob.get"];
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation.get"];

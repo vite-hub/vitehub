@@ -142,6 +142,12 @@ watch(filteredDefinitions, (available) => {
   selectedName.value = available[0]?.name;
 });
 
+watch(() => props.section, (section) => {
+  rememberConsoleSection(section);
+  filter.value = "";
+  void loadDefinitions();
+});
+
 onMounted(() => {
   rememberConsoleSection(props.section);
   void loadDefinitions();
