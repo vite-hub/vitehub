@@ -46,7 +46,7 @@ fi
 if [ "$1" = "repo" ] && [ "$2" = "clone" ] && [ -n "$VITEHUB_TEST_CLONE_DELAY" ]; then
   sleep "$VITEHUB_TEST_CLONE_DELAY"
 fi
-if [ "$1" = "api" ] && [ "$2" = "rate_limit" ]; then
+if [ "$1" = "api" ] && [ "$2" = "--hostname" ] && [ "$3" = "github.com" ] && [ "$4" = "rate_limit" ]; then
   if [ -n "$VITEHUB_TEST_RATE_LIMIT_DELAY" ]; then sleep "$VITEHUB_TEST_RATE_LIMIT_DELAY"; fi
   printf '%s\\n' "{\\"resources\\":{\\"graphql\\":{\\"remaining\\":\${VITEHUB_TEST_RATE_LIMIT_REMAINING:-100},\\"reset\\":\${VITEHUB_TEST_RATE_LIMIT_RESET:-2000000000}}}}"
 fi
@@ -302,14 +302,34 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 49 })
   })
 
+  it("settles underestimated GraphQL reservations with their actual cost", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.settle(70)
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 21 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
   it("rejects an invalid actual GraphQL cost", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
 
     const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
-    expect(() => reservation.settle(61)).toThrow(
-      "GitHub GraphQL actual cost must be a non-negative integer no greater than its reservation.",
-    )
+    expect(() => reservation.settle(-1)).toThrow("GitHub GraphQL actual cost must be a non-negative integer.")
+  })
+
+  it("pins GraphQL budget checks to github.com", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
+
+    expect(await readFile(commandLog, "utf8")).toContain("gh api --hostname github.com rate_limit")
   })
 
   it("refreshes a cached GraphQL budget after its reset", async () => {

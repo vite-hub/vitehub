@@ -404,8 +404,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         limits.set(key, reserved)
         let settled = false
         const settle = (actualCost: number) => {
-          if (!Number.isSafeInteger(actualCost) || actualCost < 0 || actualCost > options.cost) {
-            throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer no greater than its reservation.")
+          if (!Number.isSafeInteger(actualCost) || actualCost < 0) {
+            throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer.")
           }
           if (settled) return
           settled = true
@@ -436,7 +436,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const check = (async () => {
         const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
         try {
-          const result = await exec("gh", ["api", "rate_limit"], {
+          const result = await exec("gh", ["api", "--hostname", "github.com", "rate_limit"], {
             encoding: "utf8",
             env: { ...process.env, ...auth.env },
             maxBuffer,
