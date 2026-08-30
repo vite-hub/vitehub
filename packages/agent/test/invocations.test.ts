@@ -3505,8 +3505,10 @@ describe("Agent Invocations", () => {
       expect(migratedAgent.rows[0]?.status).toBe("completed")
       expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
       const migratedUpdateTrigger = await firstClient.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'vitehub_agent_invocations_legacy_updated_at_update'",
+        "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'vitehub_agent_invocations_legacy_%update%'",
       )
+      expect(migratedUpdateTrigger.rows).toHaveLength(1)
+      expect(migratedUpdateTrigger.rows[0]?.name).toBe("vitehub_agent_invocations_legacy_lifecycle_update_v2")
       expect(migratedUpdateTrigger.rows[0]?.sql).toContain("status = COALESCE")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })

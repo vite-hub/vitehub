@@ -207,8 +207,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         BEGIN
           UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
         END`)
-      await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
-      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_update
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
         AFTER UPDATE OF record ON ${table}
         WHEN NEW.updated_at IS OLD.updated_at
         BEGIN
@@ -217,6 +216,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
           WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
         AFTER UPDATE OF search, record ON ${table}
         WHEN NEW.search_version = OLD.search_version
