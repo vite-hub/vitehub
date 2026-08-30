@@ -14,6 +14,7 @@ export interface ConsoleRequestEvent {
       method?: string
       socket?: { remoteAddress?: string }
       url?: string
+      [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
     }
     res?: {
       setHeader(name: string, value: string): void
@@ -32,6 +33,21 @@ export interface ConsoleRequestEvent {
       set(name: string, value: string): void
     }
   }
+}
+
+export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<unknown> {
+  if (event.req?.json) return event.req.json()
+  const request = event.node?.req
+  if (!request?.[Symbol.asyncIterator]) throw new SyntaxError("Request body is unavailable.")
+  const decoder = new TextDecoder()
+  let body = ""
+  // SAFETY: The iterator presence check above proves this H3 v1 request can be consumed as an async byte stream.
+  for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
+    body += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true })
+  }
+  body += decoder.decode()
+  return JSON.parse(body)
 }
 
 function consoleRequestError(statusCode: number, statusMessage: string): Error {

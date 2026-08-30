@@ -501,6 +501,20 @@ describe("kv runtime", () => {
     expect(upstashScan).toHaveBeenCalledOnce()
   })
 
+  it("deduplicates Upstash keys across scan pages", async () => {
+    upstashScan = vi.fn()
+      .mockResolvedValueOnce([7, ["one", "one"]])
+      .mockResolvedValueOnce([0, ["one", "two"]])
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+
+    const first = await driver.listKeys({ limit: 2 })
+    const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
+
+    expect(first).toMatchObject({ keys: ["one"], cursor: expect.any(String) })
+    expect(second).toEqual({ keys: ["two"] })
+  })
+
   it("does not replay an oversized Upstash scan to resume overflow", async () => {
     upstashScan = vi.fn()
       .mockResolvedValueOnce([7, ["one", "two", "three"]])

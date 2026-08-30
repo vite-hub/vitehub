@@ -11,6 +11,13 @@ interface UpstashCursor {
   cursor: number
 }
 
+interface UpstashContinuation extends UpstashCursor {
+  bytes: number
+  keys: string[]
+  seen: Set<string>
+  timeout: ReturnType<typeof setTimeout>
+}
+
 function decodeCursor(cursor?: string): UpstashCursor {
   if (!cursor) return { cursor: 0 }
   try {
@@ -37,7 +44,7 @@ function escapeRedisGlob(value: string): string {
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => UpstashClient }
-  const continuations = new Map<string, { bytes: number; cursor: number; keys: string[]; timeout: ReturnType<typeof setTimeout> }>()
+  const continuations = new Map<string, UpstashContinuation>()
   const maximumContinuations = 32
   const maximumContinuationBytes = 1024 * 1024
   let continuationBytes = 0
@@ -50,8 +57,9 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     continuations.delete(cursor)
   }
 
-  function retainContinuation(keys: string[], providerCursor: number): string {
-    const bytes = keys.reduce((total, key) => total + new TextEncoder().encode(key).byteLength, 0)
+  function retainContinuation(keys: string[], providerCursor: number, seen: Set<string>): string {
+    const encoder = new TextEncoder()
+    const bytes = [...seen].reduce((total, key) => total + encoder.encode(key).byteLength, 0)
     if (bytes > maximumContinuationBytes) {
       throw new RangeError("Upstash KV scan overflow exceeds the continuation size limit.")
     }
@@ -64,7 +72,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const timeout = setTimeout(() => releaseContinuation(cursor), 15 * 60_000)
     // SAFETY: Node timers expose unref while web-runtime timers are numbers; the optional call keeps both hosts valid.
     ;(timeout as { unref?: () => void }).unref?.()
-    continuations.set(cursor, { bytes, cursor: providerCursor, keys, timeout })
+    continuations.set(cursor, { bytes, cursor: providerCursor, keys, seen, timeout })
     continuationBytes += bytes
     while (continuations.size > maximumContinuations) {
       const oldestCursor = continuations.keys().next().value
@@ -81,25 +89,44 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     if (retained && cursor) releaseContinuation(cursor)
     let providerCursor: number
     let keys: string[]
+    let seen: Set<string>
     if (retained) {
       providerCursor = retained.cursor
       keys = retained.keys
+      seen = retained.seen
+      if (keys.length === 0 && providerCursor !== 0) {
+        const scanned = await driver.getInstance().scan(providerCursor, {
+          count: limit,
+          match: `${escapeRedisGlob(prefix)}*`,
+        })
+        providerCursor = scanned[0]
+        for (const key of scanned[1]) {
+          if (seen.has(key)) continue
+          seen.add(key)
+          keys.push(key)
+        }
+      }
     }
     else {
       const state = decodeCursor(cursor)
-      ;[providerCursor, keys] = await driver.getInstance().scan(state.cursor, {
+      providerCursor = state.cursor
+      seen = new Set()
+      const scanned = await driver.getInstance().scan(providerCursor, {
         count: limit,
         match: `${escapeRedisGlob(prefix)}*`,
       })
+      providerCursor = scanned[0]
+      keys = []
+      for (const key of scanned[1]) {
+        if (seen.has(key)) continue
+        seen.add(key)
+        keys.push(key)
+      }
     }
     const pageKeys = keys.slice(0, limit)
     const overflow = keys.slice(limit)
-    const nextCursor = overflow.length > 0
-      ? retainContinuation(overflow, providerCursor)
-      : encodeCursor({ cursor: providerCursor })
-    return providerCursor === 0 && overflow.length === 0
-      ? { keys: pageKeys }
-      : { keys: pageKeys, cursor: nextCursor }
+    if (providerCursor === 0 && overflow.length === 0) return { keys: pageKeys }
+    return { keys: pageKeys, cursor: retainContinuation(overflow, providerCursor, seen) }
   }
   return driver
 }

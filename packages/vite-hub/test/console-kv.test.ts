@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Readable } from "node:stream"
 
 import {
   consoleKVKey,
@@ -33,6 +34,12 @@ function event(query = "", method = "GET", body?: unknown): ConsoleRequestEvent 
     node: { req: { method, url: `http://localhost/api/_vitehub/console/kv${query}` } },
     req: { json: async () => body, method, url: `http://localhost/api/_vitehub/console/kv${query}` },
   }
+}
+
+function h3V1Event(body: unknown): ConsoleRequestEvent {
+  const request = Readable.from([JSON.stringify(body)])
+  Object.assign(request, { method: "POST", url: "http://localhost/api/_vitehub/console/kv" })
+  return { method: "POST", node: { req: request } }
 }
 
 function memoryKV(stores: Record<string, Map<string, unknown>>): { storage: KVStorage; writes: ReturnType<typeof vi.fn> } {
@@ -148,6 +155,10 @@ describe("Console KV inspection", () => {
       store: "default",
       type: "object",
       value: "{\n  \"enabled\": true\n}",
+    })
+    await expect(kvHandler(h3V1Event({ key: "config" }))).resolves.toMatchObject({
+      found: true,
+      key: "config",
     })
     await expect(kvHandler(event("", "POST", { key: "boxed" }))).resolves.toMatchObject({ value: "7" })
     await expect(kvHandler(event("", "POST", { key: "boxed-custom" }))).resolves.toMatchObject({ value: "\"replacement\"" })

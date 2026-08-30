@@ -12,6 +12,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
@@ -678,7 +679,8 @@ describe("ViteHub Nuxt integration", () => {
       name: "@vite-hub/kv/vite",
       api: { getConfig: () => ({ kv: retainedOptions }) },
       configResolved(config) {
-        retainedOptions = config.kv as KVModuleOptions
+        // SAFETY: This fixture mirrors hubKv's supported Vite config extension and normalizes it through the production resolver.
+        retainedOptions = resolveKVViteConfig(config.kv as KVModuleOptions).kv || {}
       },
     }])
     retained.nuxt.options.vite.kv = {

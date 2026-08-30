@@ -1,4 +1,4 @@
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleKV } from "./kv.ts"
 
 import type { KVResult, KVStorage } from "@vite-hub/kv"
@@ -26,7 +26,7 @@ function requestError(statusCode: number, statusMessage: string): Error {
 async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; store: string | null }> {
   let body: unknown
   try {
-    body = await event.req?.json?.()
+    body = await consoleRequestJSON(event)
   }
   catch {
     throw requestError(400, "Request body must be valid JSON.")
