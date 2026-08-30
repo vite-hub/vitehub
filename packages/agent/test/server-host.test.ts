@@ -13,12 +13,15 @@ import {
 import { createGitHubHost, parseGraphQLRateLimit } from "../src/server/github.ts"
 
 const originalPath = process.env.PATH
+const originalGitHubHost = process.env.GH_HOST
 const temporaryDirectories = new Set<string>()
 
 afterEach(async () => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   process.env.PATH = originalPath
+  if (originalGitHubHost === undefined) delete process.env.GH_HOST
+  else process.env.GH_HOST = originalGitHubHost
   delete process.env.VITEHUB_TEST_HEAD_SHA
   delete process.env.VITEHUB_TEST_CLONE_DELAY
   delete process.env.VITEHUB_TEST_COMMAND_LOG
@@ -37,7 +40,7 @@ async function installFakeGitHubCommands(): Promise<void> {
   await Promise.all([
     writeFile(join(root, "gh"), `#!/bin/sh
 if [ -n "$VITEHUB_TEST_COMMAND_LOG" ]; then
-  printf 'gh %s|%s|%s\\n' "$*" "$GIT_CONFIG_VALUE_1" "$GH_TOKEN" >> "$VITEHUB_TEST_COMMAND_LOG"
+  printf 'gh %s|%s|%s|%s\\n' "$*" "$GIT_CONFIG_VALUE_1" "$GH_TOKEN" "$GH_HOST" >> "$VITEHUB_TEST_COMMAND_LOG"
 fi
 if [ -n "$VITEHUB_TEST_RATE_LIMIT" ]; then
   printf '%s\\n' "$VITEHUB_TEST_RATE_LIMIT" >&2
@@ -135,6 +138,19 @@ describe("GitHub host", () => {
     })
 
     await expect(host.access({ repository: "contributor/fork" })).resolves.toMatchObject({ token: "fallback-token" })
+  })
+
+  it("pins public GitHub commands to github.com", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-command-${crypto.randomUUID()}.log`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    process.env.GH_HOST = "enterprise.example.com"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+
+    await host.command(["api", "user"])
+
+    expect(await readFile(commandLog, "utf8")).toContain("gh api user||token|github.com")
   })
 
   it.each(["abort", "timeout"] as const)("cancels credential resolution on %s", async (control) => {
@@ -330,6 +346,20 @@ describe("GitHub host", () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 9 }))
       .resolves.toMatchObject({ remaining: 51 })
+  })
+
+  it("drops reservations from an expired GraphQL quota window", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const expired = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    expired.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 90 }))
+      .resolves.toMatchObject({ remaining: 10 })
+    expired.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
   it("rejects an actual GraphQL cost above its reservation", async () => {

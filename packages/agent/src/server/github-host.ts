@@ -380,7 +380,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
-        env: { ...process.env, ...input.env, ...auth.env },
+        env: { ...process.env, ...input.env, ...auth.env, GH_HOST: "github.com" },
         maxBuffer,
         signal: operation.signal,
       }
@@ -484,7 +484,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-          const outstanding = [...(reservations.get(key) ?? [])]
+          const activeReservations = reservations.get(key)
+          if (activeReservations) {
+            for (const reservation of activeReservations) {
+              if (reservation.resetAt !== limit.resetAt) activeReservations.delete(reservation)
+            }
+            if (activeReservations.size === 0) reservations.delete(key)
+          }
+          const outstanding = [...(activeReservations ?? [])]
             .filter(reservation => reservation.resetAt === limit.resetAt)
             .reduce((points, reservation) => points + reservation.points, 0)
           const current = limits.get(key)
