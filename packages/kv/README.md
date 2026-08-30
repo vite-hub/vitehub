@@ -62,4 +62,6 @@ Cursors are opaque and provider-specific. Pass a returned cursor back to the sam
 
 KV operations return `[error, value]`. Provider failures use `ViteHubError` with code `KV_OPERATION_FAILED`, operation/store details, and the provider failure in `cause`. Invalid configuration and unknown named stores still throw before provider execution.
 
+Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These operations are atomic in the provider. Deno KV, Cloudflare KV, and `fs-lite` reject them because they cannot provide the same contract without extra storage or non-atomic calls.
+
 Learn more at [vitehub.dev](https://vitehub.dev).

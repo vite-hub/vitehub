@@ -118,7 +118,21 @@ describe("chat message trigger input", () => {
     expect(resolveChatSessionId(messages, { idleTimeoutMs: 60_000, strategy: "hybrid" })).toBe("conversation-a:idle:m2")
   })
 
-  it("derives trigger history from explicit thread history", () => {
+  it("keeps trigger history current-only when omitted", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two"])
+  })
+
+  it("does not derive trigger history from thread history", () => {
     const result = createChatMessageTriggerInput({
       threadHistory: { maxMessages: 2 },
     }, {
@@ -132,10 +146,10 @@ describe("chat message trigger input", () => {
     expect(result.input.messages?.map(message => message.parts
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
       .map(part => part.text)
-      .join(""))).toEqual(["two", "three"])
+      .join(""))).toEqual(["three"])
   })
 
-  it("lets trigger history override derived thread history", () => {
+  it("uses an explicit trigger history window", () => {
     const result = createChatMessageTriggerInput({
       threadHistory: { maxMessages: 10 },
       triggerHistory: { maxMessages: 1, source: "thread" },
@@ -150,6 +164,56 @@ describe("chat message trigger input", () => {
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
       .map(part => part.text)
       .join(""))).toEqual(["two"])
+  })
+
+  it("keeps only the contiguous recent trigger history", () => {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxAgeMs: 30 * 60 * 1_000, maxMessages: 20, source: "thread" },
+    }, {
+      messages: [
+        { createdAt: "2026-08-29T20:00:00.000Z", parts: [{ text: "old", type: "text" }], role: "user" },
+        { createdAt: "2026-08-29T21:55:00.000Z", parts: [{ text: "recent", type: "text" }], role: "assistant" },
+        { createdAt: "2026-08-29T22:00:00.000Z", parts: [{ text: "latest", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["recent", "latest"])
+    expect(result.input.messages?.at(-1)?.role).toBe("user")
+  })
+
+  it.each([null, -1])("fails closed when the runtime trigger history age bound is %s", (maxAgeMs) => {
+    const triggerInput = JSON.parse(JSON.stringify({
+      messages: [
+        { createdAt: "2026-08-29T22:00:00.000Z", parts: [{ text: "one", type: "text" }], role: "user" },
+        { createdAt: "2026-08-29T22:00:00.000Z", parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+      triggerHistory: { maxAgeMs, maxMessages: 20, source: "thread" },
+    }))
+    const result = createChatMessageTriggerInput({}, triggerInput)
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two"])
+  })
+
+  it("treats an explicitly undefined trigger history age bound as omitted", () => {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxAgeMs: undefined, maxMessages: 20, source: "thread" },
+    }, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["one", "two"])
   })
 
   it("keeps stateless trigger history explicit", () => {
@@ -375,7 +439,9 @@ describe("chat message trigger input", () => {
   })
 
   it("drops incomplete UI tool calls from follow-up history", () => {
-    const result = createChatMessageTriggerInput({}, {
+    const result = createChatMessageTriggerInput({
+      triggerHistory: { maxMessages: 2, source: "thread" },
+    }, {
       messages: [
         {
           parts: [

@@ -75,10 +75,19 @@ export function isStandaloneFailureObservation(name: string): boolean {
   return name.endsWith(".error") || name.endsWith(".failed") || isTerminalTaskObservation(name);
 }
 
-export function isStandaloneSuccessfulLifecycleObservation(name: string): boolean {
+export function isStandaloneSuccessfulLifecycleObservation(
+  observation: TraceObservationIdentity,
+): boolean {
+  const attributes = observation.attributes ?? {};
+  const hasStepIdentity = ["step.id", "tool.id", "approval.id", "model.call.id"].some(
+    (key) => {
+      const result = v.safeParse(stringSchema, attributes[key]);
+      return result.success && result.output.length > 0;
+    },
+  );
   return (
-    !name.startsWith("agent.invocation.") &&
-    (name.endsWith(".finish") || name.endsWith(".completed"))
+    hasStepIdentity &&
+    (observation.name.endsWith(".finish") || observation.name.endsWith(".completed"))
   );
 }
 
@@ -123,7 +132,7 @@ export function standaloneSuccessfulLifecycleSequences(
       representedIdentities.delete(identity);
       continue;
     }
-    if (!isStandaloneSuccessfulLifecycleObservation(observation.name)) continue;
+    if (!isStandaloneSuccessfulLifecycleObservation(observation)) continue;
     if (representedSequences.has(observation.sequence)) {
       representedIdentities.add(identity);
       continue;

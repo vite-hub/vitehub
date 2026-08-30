@@ -79,11 +79,47 @@ describe("Console session trace model", () => {
   });
 
   it("recognizes successful lifecycle terminals without a start", () => {
-    expect(isStandaloneSuccessfulLifecycleObservation("agent.tool.finish")).toBe(true);
-    expect(isStandaloneSuccessfulLifecycleObservation("agent.model.finish")).toBe(true);
-    expect(isStandaloneSuccessfulLifecycleObservation("agent.task.completed")).toBe(true);
-    expect(isStandaloneSuccessfulLifecycleObservation("agent.invocation.finish")).toBe(false);
-    expect(isStandaloneSuccessfulLifecycleObservation("agent.tool.start")).toBe(false);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "tool.id": "tool" },
+        name: "agent.tool.finish",
+        sequence: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "model.call.id": "model" },
+        name: "agent.model.finish",
+        sequence: 1,
+      }),
+    ).toBe(true);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "step.id": "task" },
+        name: "agent.task.completed",
+        sequence: 2,
+      }),
+    ).toBe(true);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        name: "agent.stream.finish",
+        sequence: 3,
+      }),
+    ).toBe(false);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "agent.invocation.id": "invocation" },
+        name: "agent.invocation.finish",
+        sequence: 4,
+      }),
+    ).toBe(false);
+    expect(
+      isStandaloneSuccessfulLifecycleObservation({
+        attributes: { "tool.id": "tool" },
+        name: "agent.tool.start",
+        sequence: 5,
+      }),
+    ).toBe(false);
   });
 
   it("recognizes failed tool terminals without a start", () => {
@@ -130,6 +166,7 @@ describe("Console session trace model", () => {
       { attributes: { "tool.id": "paired" }, name: "agent.tool.finish", sequence: 7 },
       { attributes: { "step.id": "model" }, name: "agent.model.finish", sequence: 8 },
       { attributes: { "step.id": "task" }, name: "agent.task.completed", sequence: 9 },
+      { name: "agent.stream.finish", sequence: 10 },
     ];
 
     const representedSequences = new Set([4, 7]);

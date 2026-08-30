@@ -166,7 +166,7 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const kvEnabled = sections.includes("kv")
-  const definitionsEnabled = sections.includes("workflows")
+  const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
@@ -272,6 +272,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     if (workflow) sections = [...sections, "workflows"]
   }
 
+  function resolveQueueRegistration(queue: unknown): void {
+    const configured = queue ?? options.sections?.includes("queues")
+    sections = sections.filter(section => section !== "queues")
+    if (configured) sections = [...sections, "queues"]
+  }
+
   function reconcileKVHandler(nitro: ConsoleNitroConfig): void {
     const route = "/api/_vitehub/console/kv"
     const kvHandler = join(consoleRuntimeRoot, "server/kv.get.js")
@@ -294,7 +300,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     const handlers = Array.isArray(nitro.handlers)
       ? nitro.handlers.filter(handler => handler?.handler !== definitionsHandler)
       : []
-    if (sections.includes("workflows")) {
+    if (consoleDefinitionSectionIds.some(section => sections.includes(section))) {
       const conflictingHandler = handlers.find(handler => handler?.route === route)
       if (conflictingHandler) {
         throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
@@ -314,10 +320,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
         kv?: unknown
+        queue?: unknown
         workflow?: unknown
         vitehubCliDiscovery?: true
       }
       resolveKVRegistration(viteConfig.kv)
+      resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
@@ -436,8 +444,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig, workflow?: unknown }
+      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, workflow?: unknown }
       resolveKVRegistration(viteConfig.kv)
+      resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
