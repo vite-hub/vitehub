@@ -1339,6 +1339,22 @@ import "z-peer-consumer"
     await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
   })
 
+  it("accepts distinct peer installations for a bare workspace wildcard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-workspace-peer-"))
+    await writeJson(join(root, "package.json"), {})
+    for (const [name, version] of [["peer-consumer-a", "1.1.0"], ["peer-consumer-b", "2.0.0"]]) {
+      const consumerDir = join(root, "node_modules", name)
+      await writeJson(join(consumerDir, "package.json"), { name, peerDependencies: { "shared-peer": "workspace:" }, version: "1" })
+      await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version })
+    }
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
+  })
+
   it("does not replace an explicitly imported root package with a peer", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-explicit-peer-"))
     await writeJson(join(root, "package.json"), {})

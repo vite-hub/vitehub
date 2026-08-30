@@ -640,7 +640,7 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
 
 function normalizePeerRange(range: string): string | null {
   if (validRange(range)) return range
-  if (range === "workspace:*") return "*"
+  if (range === "workspace:" || range === "workspace:*") return "*"
   const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
   if (workspaceRange && validRange(workspaceRange)) return workspaceRange
   return null
