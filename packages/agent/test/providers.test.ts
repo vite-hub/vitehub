@@ -17446,7 +17446,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    const adapter = createTestChatAdapter({ persistThreadHistory: true })
     const message = (id: string, text: string, date: string) => new Message({
       attachments: [],
       author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
@@ -17487,9 +17487,10 @@ describe("server helpers", () => {
     // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
+    await expect(handler(chatWebhookRequest(21, 456, "newer cached"), "telegram")).resolves.toMatchObject({ status: 200 })
     await expect(handler(chatWebhookRequest(20, 456, "current"), "telegram")).resolves.toMatchObject({ status: 200 })
 
-    expect(runs).toEqual([["previous", "current"]])
+    expect(runs).toEqual([["newer cached"], ["previous", "current"]])
   })
 
   it("exports authenticated Channel history with attachment data", async () => {
@@ -17776,8 +17777,10 @@ describe("server helpers", () => {
     Reflect.deleteProperty(nearest, "id")
     const includedCurrent = historicalMessage("current id-less")
     Reflect.deleteProperty(includedCurrent, "id")
+    const newer = historicalMessage("newer id-less")
+    Reflect.deleteProperty(newer, "id")
     adapter.fetchMessages.mockResolvedValue({
-      messages: [previous, nearest, includedCurrent],
+      messages: [previous, nearest, includedCurrent, newer],
     })
     const runs: string[][] = []
     const agent = defineAgent({

@@ -4069,7 +4069,7 @@ async function chatTriggerMessages(
 
   const fetchedNewestFirst: UIMessageLike[] = []
   const fetchedLimit = message.id ? limit : limit - 1
-  let foundCurrent = !message.id
+  let foundCurrent = false
   let scanned = 0
   try {
     for await (const item of thread.messages) {
@@ -4096,7 +4096,11 @@ async function chatTriggerMessages(
     if (existing === -1) deduped.push(item)
     else deduped[existing] = item
     return deduped
-  }, [])
+  }, []).sort((left, right) => {
+    const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0
+    const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0
+    return leftTime - rightTime
+  })
 
   if (current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
