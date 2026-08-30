@@ -5,12 +5,27 @@ import { dirname, join } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+it("retains absolute alias keys with their copied source trees", () => {
+  const aliases = retainProviderOutputAliases({
+    "/app/src": "/app/replacements",
+    "#server": "/app/server.ts",
+  }, {
+    resolve: path => path.startsWith("/app/") ? path.replace("/app/", "/retained/") : path,
+  })
+
+  expect(aliases).toEqual({
+    "/app/src": "/retained/replacements",
+    "/retained/src": "/retained/replacements",
+    "#server": "/retained/server.ts",
+  })
 })
 
 it("retains a generation's source-root layout and generated dependencies", async () => {

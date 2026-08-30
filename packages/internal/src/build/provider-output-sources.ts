@@ -9,6 +9,24 @@ interface RetainProviderOutputSourcesOptions {
   roots: string[]
 }
 
+interface RetainedProviderOutputSources {
+  resolve: (path: string) => string
+}
+
+/** Rewrites both sides of absolute aliases and retains the original key for imports that still use it. */
+export function retainProviderOutputAliases(
+  aliases: Record<string, string>,
+  retainedSources: RetainedProviderOutputSources,
+): Record<string, string> {
+  return Object.fromEntries(Object.entries(aliases).flatMap(([specifier, target]) => {
+    const retainedSpecifier = retainedSources.resolve(specifier)
+    const retainedTarget = retainedSources.resolve(target)
+    return retainedSpecifier === specifier
+      ? [[specifier, retainedTarget]]
+      : [[specifier, retainedTarget], [retainedSpecifier, retainedTarget]]
+  }))
+}
+
 const ignoredSourceDirectories = new Set([
   ".git",
   ".netlify",

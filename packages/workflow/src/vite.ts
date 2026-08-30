@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -109,7 +109,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
-          paths: Object.values(aliases),
+          paths: [...Object.keys(aliases), ...Object.values(aliases)],
           roots: [resolved.root],
         })
       : undefined
@@ -125,8 +125,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
-    const retainedAliases = Object.fromEntries(Object.entries(aliases)
-      .map(([specifier, target]) => [specifier, retainedSources?.resolve(target) ?? target]))
+    const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, retainedAliases, artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
     const workflowApi = workflowRequire?.resolve("workflow/api")
@@ -223,19 +222,19 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
+            ...Object.keys(importAliases),
             ...Object.values(importAliases),
+            ...Object.keys(runtimeImportAliases.cloudflare),
             ...Object.values(runtimeImportAliases.cloudflare),
+            ...Object.keys(runtimeImportAliases.vercel),
             ...Object.values(runtimeImportAliases.vercel),
           ],
           roots: [config.root],
         })
-        const retainedImportAliases = Object.fromEntries(Object.entries(importAliases)
-          .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const retainedImportAliases = retainProviderOutputAliases(importAliases, retainedSources)
         const retainedRuntimeImportAliases = {
-          cloudflare: Object.fromEntries(Object.entries(runtimeImportAliases.cloudflare)
-            .map(([specifier, target]) => [specifier, retainedSources.resolve(target)])),
-          vercel: Object.fromEntries(Object.entries(runtimeImportAliases.vercel)
-            .map(([specifier, target]) => [specifier, retainedSources.resolve(target)])),
+          cloudflare: retainProviderOutputAliases(runtimeImportAliases.cloudflare, retainedSources),
+          vercel: retainProviderOutputAliases(runtimeImportAliases.vercel, retainedSources),
         }
         const retainedDefinitionRoot = retainedSources.resolve(config.root)
         const retainedServerDirs = workflowServerDirs?.map(directory => retainedSources.resolve(directory))

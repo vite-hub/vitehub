@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -662,15 +662,14 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(contributionArtifactDir, "sources"),
-          paths: [...definitions.map(definition => definition.handler), ...Object.values(aliases)],
+          paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
           roots: [rootDir],
         })
         const retainedDefinitions = definitions.map(definition => ({
           ...definition,
           handler: retainedSources.resolve(definition.handler),
         }))
-        const retainedAliases = Object.fromEntries(Object.entries(aliases)
-          .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const retainedAliases = retainProviderOutputAliases(aliases, retainedSources)
         const bundleExternal = workflow
           ? ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"]
           : undefined

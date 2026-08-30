@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2784,7 +2784,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
-              paths: [...definitions.map(definition => definition.handler), ...Object.values(providerImportAliases)],
+              paths: [...definitions.map(definition => definition.handler), ...Object.keys(providerImportAliases), ...Object.values(providerImportAliases)],
               roots: [config.root],
             })
           : undefined
@@ -2792,8 +2792,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...definition,
           handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
         }))
-        const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
-          .map(([specifier, target]) => [specifier, retainedSources?.resolve(target) ?? target]))
+        const retainedProviderImportAliases = retainedSources
+          ? retainProviderOutputAliases(providerImportAliases, retainedSources)
+          : providerImportAliases
         contributeProviderDeploymentOutput(providerOutput, {
           discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
           owner: "agent",
