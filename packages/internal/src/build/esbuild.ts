@@ -17,6 +17,7 @@ interface BundleEsmEntryOptions {
   packages?: "bundle" | "external"
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
+  preserveSymlinks?: boolean
   rootDir?: string
   signal?: AbortSignal
   workingDir?: string
@@ -334,6 +335,7 @@ export async function bundleEsmEntry(
     outfile,
     packages: options.packages,
     platform,
+    preserveSymlinks: options.preserveSymlinks,
     plugins: [
       ...(options.plugins ?? []),
       createFileUrlPlugin(),

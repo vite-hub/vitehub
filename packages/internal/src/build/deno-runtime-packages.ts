@@ -27,6 +27,7 @@ interface FinalizeDenoDeploymentOutputOptions {
   hasScheduleIntegration?: boolean
   mainFields?: string[]
   outputDir?: string
+  preserveSymlinks?: boolean
   rootDir: string
 }
 
@@ -106,13 +107,15 @@ function collectCreateRequireAliases(source: string): Set<string> {
   return aliases
 }
 
+const staticFromPattern = /(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+[A-Za-z_$][\w$]*)?|[A-Za-z_$][\w$]*(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*))?)\s*\bfrom\b\s*["']([^"']+)["']/gm
+
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
   const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
   const executableSource = maskInertImportText(source, createRequireAliases)
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:import|export)[^;]*?\bfrom\s*["']([^"']+)["']/gm,
+    staticFromPattern,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -148,7 +151,7 @@ function collectStaticPackageNames(source: string): Set<string> {
   const executableSource = maskInertImportText(source)
   for (const pattern of [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:import|export)[^;]*?\bfrom\s*["']([^"']+)["']/gm,
+    staticFromPattern,
   ]) {
     for (const match of executableSource.matchAll(pattern)) {
       const name = packageNameFromSpecifier(match[1]!)
@@ -1302,6 +1305,7 @@ async function finalizeStagedDenoDeploymentOutput(
       format: "esm",
       packages: "external",
       platform: "neutral",
+      preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
       plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
       rootDir: options.rootDir,
@@ -1319,6 +1323,7 @@ async function finalizeStagedDenoDeploymentOutput(
         format: "esm",
         packages: "external",
         platform: "neutral",
+        preserveSymlinks: options.preserveSymlinks,
         mainFields: options.mainFields,
         plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
         rootDir: options.rootDir,

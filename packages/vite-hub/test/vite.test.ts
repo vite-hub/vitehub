@@ -1064,6 +1064,7 @@ describe("vitehub", () => {
             conditions: ["module", "node", "development|production", "browser", "launch"],
             extensions: [".mts", ".mjs", ".ts", ".js"],
             mainFields: ["server", "module", "main"],
+            preserveSymlinks: true,
           },
         },
       },
@@ -1085,6 +1086,7 @@ describe("vitehub", () => {
       conditions: ["module", "node", "production", "browser", "launch"],
       extensions: [".mts", ".mjs", ".ts", ".js"],
       mainFields: ["server", "module", "main"],
+      preserveSymlinks: true,
     }))
   })
 

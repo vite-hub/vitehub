@@ -78,6 +78,18 @@ export {
 `)).toEqual(["multiline-export", "multiline-package"])
   })
 
+  it("does not cross semicolonless statement boundaries while finding static imports", () => {
+    expect(collectDenoRuntimePackageNames(`
+const from = 0
+export default 1
+from
+"not-a-package"
+import {
+  value,
+} from "real-package"
+`)).toEqual(["real-package"])
+  })
+
   it("finds literal dynamic imports with attributes", () => {
     expect(collectDenoRuntimePackageNames(`
 await import("data-package", { with: { type: "json" } })

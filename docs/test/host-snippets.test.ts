@@ -19,7 +19,7 @@ function normalize(source: string) {
 }
 
 function sourceBlocks(source: string) {
-  return [...source.matchAll(/```(ts|json) \[([^\]]+)\]\n([\s\S]*?)\n```/g)].map(match => ({
+  return [...normalize(source).matchAll(/```(ts|json) \[([^\]]+)\]\n([\s\S]*?)\n```/g)].map(match => ({
     label: match[2]!,
     source: normalize(match[3]!),
   }))
@@ -30,6 +30,12 @@ async function readContracts() {
 }
 
 describe("launch-critical documentation snippets", () => {
+  it("reads source blocks from CRLF pages", () => {
+    expect(sourceBlocks("```ts [vite.config.ts]\r\nexport default {}\r\n```\r\n")).toEqual([
+      { label: "vite.config.ts", source: "export default {}" },
+    ])
+  })
+
   it("sources every TypeScript and JSON block from an executable fixture", async () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]

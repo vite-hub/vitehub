@@ -68,6 +68,7 @@ function resolveServerOptions(config: ResolvedConfig) {
     conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
     extensions: serverResolve.extensions,
     mainFields: serverResolve.mainFields,
+    preserveSymlinks: serverResolve.preserveSymlinks,
   }
 }
 
@@ -397,7 +398,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
-  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[] },
+  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -431,12 +432,13 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[] } = {
+  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean } = {
     alias: [],
     conditions: [],
     extensions: [],
     hasScheduleIntegration: false,
     mainFields: [],
+    preserveSymlinks: false,
   }
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
@@ -624,6 +626,7 @@ function deploymentPlugins(
           extensions: serverResolve.extensions,
           hasScheduleIntegration: config.plugins?.some(plugin => plugin.name === "@vite-hub/schedule/vite") ?? false,
           mainFields: serverResolve.mainFields,
+          preserveSymlinks: serverResolve.preserveSymlinks,
         }
         providerOutput = useProviderOutputCatalog(config)
         if (plan.preset === "cloudflare") {
