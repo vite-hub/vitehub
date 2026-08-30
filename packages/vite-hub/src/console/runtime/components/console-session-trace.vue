@@ -4,9 +4,11 @@ import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
   isStandaloneFailureObservation,
+  isStandaloneSuccessfulToolObservation,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
+  traceSpanEndMs,
 } from "./console-session-trace-model";
 
 type Observation = AgentInvocationView["observations"][number];
@@ -49,7 +51,7 @@ const traceEndMs = computed(() =>
         props.invocation.cancelledAt ||
         props.invocation.updatedAt,
     ),
-    ...spans.value.map((span) => span.endMs),
+    ...spans.value.map((span) => traceSpanEndMs(span.startMs, span.endMs, span.durationMs)),
   ),
 );
 const traceDurationMs = computed(() => Math.max(1, traceEndMs.value - traceStartMs.value));
@@ -118,28 +120,39 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   );
 
   for (const observation of observations) {
-    if (!isStandaloneFailureObservation(observation.name)) continue;
+    const failed = isStandaloneFailureObservation(observation.name);
+    const successfulTool = isStandaloneSuccessfulToolObservation(observation.name);
+    if (!failed && !successfulTool) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
     const recovered =
       observation.attributes?.["error.recoverable"] === true && invocation.status === "completed";
     const cancelled = observation.name === "agent.task.cancelled";
-    const operation = isTerminalTaskObservation(observation.name) ? "run_task" : "error";
+    const operation = successfulTool
+      ? "execute_tool"
+      : isTerminalTaskObservation(observation.name)
+        ? "run_task"
+        : "error";
     const target = operationTarget(operation, observation.attributes ?? {}, invocation);
+    const durationMs = successfulTool
+      ? Math.max(0, traceDurationMs(operation, observation.attributes ?? {}, 0))
+      : 0;
     result.push({
       activityId: activityId(observation),
       attributes: { ...observation.attributes },
       depth: 1,
-      durationMs: 0,
+      durationMs,
       endMs: at,
       eventNames: [observation.name],
-      icon: cancelled
+      icon: successfulTool
+        ? spanIcon(operation)
+        : cancelled
         ? "i-lucide-ban"
         : recovered
           ? "i-lucide-circle-check"
           : "i-lucide-circle-alert",
-      id: `${id}:error:${observation.sequence}`,
+      id: `${id}:${successfulTool ? "terminal" : "error"}:${observation.sequence}`,
       name: target
         ? `${operation} ${target}`
         : recovered && observation.name === "agent.stream.error"
@@ -147,8 +160,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
           : humanize(observation.name),
       operation: recovered ? "recovery" : operation,
       sequence: observation.sequence,
-      startMs: at,
-      status: cancelled ? "cancelled" : recovered ? "recovered" : "failed",
+      startMs: at - durationMs,
+      status: successfulTool
+        ? "completed"
+        : cancelled
+          ? "cancelled"
+          : recovered
+            ? "recovered"
+            : "failed",
     });
   }
 

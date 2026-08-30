@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   isDeniedApproval,
   isStandaloneFailureObservation,
+  isStandaloneSuccessfulToolObservation,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
+  traceSpanEndMs,
 } from "../src/console/runtime/components/console-session-trace-model";
 
 describe("Console session trace model", () => {
@@ -46,6 +48,11 @@ describe("Console session trace model", () => {
     expect(traceDurationMs("execute_tool", {}, 9)).toBe(9);
   });
 
+  it("includes recorded duration in trace bounds", () => {
+    expect(traceSpanEndMs(1_000, 1_000, 42)).toBe(1_042);
+    expect(traceSpanEndMs(1_000, 1_100, 42)).toBe(1_100);
+  });
+
   it("recognizes terminal Provider task observations without a start", () => {
     expect(isTerminalTaskObservation("agent.task.failed")).toBe(true);
     expect(isTerminalTaskObservation("agent.task.cancelled")).toBe(true);
@@ -57,5 +64,11 @@ describe("Console session trace model", () => {
     expect(isStandaloneFailureObservation("agent.custom-step.failed")).toBe(true);
     expect(isStandaloneFailureObservation("agent.stream.error")).toBe(true);
     expect(isStandaloneFailureObservation("agent.model.completed")).toBe(false);
+  });
+
+  it("recognizes successful tool terminals without a start", () => {
+    expect(isStandaloneSuccessfulToolObservation("agent.tool.finish")).toBe(true);
+    expect(isStandaloneSuccessfulToolObservation("agent.tool.start")).toBe(false);
+    expect(isStandaloneSuccessfulToolObservation("agent.model.finish")).toBe(false);
   });
 });

@@ -33,6 +33,10 @@ export function traceDurationMs(
   return typeof recorded === "number" && Number.isFinite(recorded) ? recorded : fallback;
 }
 
+export function traceSpanEndMs(startMs: number, endMs: number, durationMs: number): number {
+  return Math.max(endMs, startMs + durationMs);
+}
+
 export function isDeniedApproval(
   operation: string,
   attributes: Record<string, unknown>,
@@ -46,4 +50,8 @@ export function isTerminalTaskObservation(name: string): boolean {
 
 export function isStandaloneFailureObservation(name: string): boolean {
   return name.endsWith(".error") || name.endsWith(".failed") || isTerminalTaskObservation(name);
+}
+
+export function isStandaloneSuccessfulToolObservation(name: string): boolean {
+  return name === "agent.tool.finish";
 }
