@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -43,8 +43,16 @@ function parseSnippetContracts(source: string): SnippetContract[] {
   return parse(snippetContractsSchema, JSON.parse(source))
 }
 
-async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = {}, shell = false) {
-  await new Promise<void>((resolve, reject) => {
+async function run(
+  command: string,
+  args: string[],
+  cwd = repoRoot,
+  env: NodeJS.ProcessEnv = {},
+  shell = false,
+  completedArtifacts: string[] = [],
+) {
+  await new Promise<void>((finish, reject) => {
+    let artifactsCompleted = false
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...env },
@@ -55,10 +63,31 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
     child.stdout.on("data", chunk => output += chunk)
     child.stderr.on("data", chunk => output += chunk)
     child.once("error", reject)
+    const completed = Promise.all(completedArtifacts.map(async (artifact) => {
+      for (let attempt = 0; attempt < 600; attempt++) {
+        try {
+          await access(resolve(cwd, artifact))
+          return
+        }
+        catch {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      throw new Error(`${command} ${args.join(" ")} did not emit ${artifact}\n${output}`)
+    }))
+    if (completedArtifacts.length > 0) {
+      void completed.then(async () => {
+        artifactsCompleted = true
+        await new Promise(resolve => setTimeout(resolve, 5_000))
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")
+        await new Promise(resolve => setTimeout(resolve, 1_000))
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+      }, reject)
+    }
     // Use the direct process exit rather than close: a build may leave a descendant
     // holding its inherited output pipe after the command itself has finished.
     child.once("exit", (code, signal) => {
-      if (code === 0) resolve()
+      if (code === 0 || artifactsCompleted && (signal === "SIGTERM" || signal === "SIGKILL")) finish()
       else reject(new Error(`${command} ${args.join(" ")} failed with ${signal ?? `code ${code}`}\n${output}`))
     })
   })
@@ -181,6 +210,7 @@ describe("host documentation fixtures", () => {
         repoRoot,
         { VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host },
         process.platform === "win32",
+        host === "deno" ? hostArtifacts.deno.map(artifact => join(appRoot, artifact)) : [],
       )
 
       for (const artifact of hostArtifacts[host]) {
