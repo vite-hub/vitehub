@@ -324,11 +324,12 @@ function createTitleChatAdapter(setThreadTitle: (threadId: string, title: string
   return Object.assign(createTestChatAdapter(), { setThreadTitle })
 }
 
-function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
+function chatWebhookRequest(messageId: number, threadId = 456, text = "hello", date?: number) {
   return new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
     body: JSON.stringify({
       message: {
         chat: { id: threadId, type: "private" },
+        ...(date === undefined ? {} : { date }),
         from: { id: 123, username: "maxi" },
         message_id: messageId,
         text,
@@ -17487,8 +17488,8 @@ describe("server helpers", () => {
     // SAFETY: defineAgent returns the runtime shape required by the internal webhook route fixture.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    await expect(handler(chatWebhookRequest(21, 456, "newer cached"), "telegram")).resolves.toMatchObject({ status: 200 })
-    await expect(handler(chatWebhookRequest(20, 456, "current"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(chatWebhookRequest(21, 456, "newer cached", 1_781_092_860), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(chatWebhookRequest(20, 456, "current", 1_781_092_820), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["newer cached"], ["previous", "current"]])
   })
@@ -17776,6 +17777,7 @@ describe("server helpers", () => {
     Reflect.deleteProperty(previous, "id")
     Reflect.deleteProperty(nearest, "id")
     const includedCurrent = historicalMessage("current id-less")
+    includedCurrent.metadata.dateSent = new Date("2026-06-10T12:00:22.000Z")
     Reflect.deleteProperty(includedCurrent, "id")
     const newer = historicalMessage("newer id-less")
     Reflect.deleteProperty(newer, "id")

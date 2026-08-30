@@ -4083,9 +4083,13 @@ async function chatTriggerMessages(
     }
   } catch {}
 
-  const durable = await durableChatThreadMessages(thread, limit)
+  let durable = await durableChatThreadMessages(thread, limit)
+  if (!message.id) {
+    const currentIndex = durable.findIndex((item) => isCurrentChatSdkMessage(item, message))
+    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
+  }
   let messages = [
-    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
+    ...(await Promise.all(durable.map((item) => (isCurrentChatSdkMessage(item, message) ? current : chatSdkMessageToUiMessage(item))))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -4105,8 +4109,9 @@ async function chatTriggerMessages(
   if (current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
     messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [current]
-  } else if (!current.id || !messages.some((item) => item.id === current.id)) {
-    messages.push(current)
+  } else {
+    const currentIndex = messages.findIndex((item) => item === current)
+    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [...messages, current]
   }
   return messages.slice(-limit)
 }
