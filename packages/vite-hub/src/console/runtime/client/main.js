@@ -8,6 +8,7 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import ConsoleApp from "../components/console-app.vue";
 import ConsoleHome from "../components/console-home.vue";
+import ConsoleBlob from "../components/console-blob.vue";
 import ConsoleKv from "../components/console-kv.vue";
 import ConsoleDefinitions from "../components/console-definitions.vue";
 import { isConsoleSectionId } from "../sections";
@@ -69,6 +70,18 @@ const router = createRouter({
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
         hostBase,
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleBlob,
+      name: "vitehub-console-blob",
+      path: "/blob",
+      meta: { consoleSection: "blob", title: "Blob · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        blobBase: "/api/_vitehub/console/blob",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
       },
@@ -153,4 +166,8 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = String(to.meta.title ?? "ViteHub Console");
 });
-createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");
+createApp(App)
+  .use(router)
+  .use(ui, { router: () => router.currentRoute.value })
+  .use(createViteHubUI())
+  .mount("#app");

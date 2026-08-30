@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "kv", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "usage", "blob", "kv", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -14,6 +14,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-chart-no-axes-combined",
     label: "Usage",
     routeName: "vitehub-console-usage",
+  },
+  blob: {
+    description: "Inspect configured Blob stores and object metadata without downloading contents.",
+    icon: "i-lucide-file-box",
+    label: "Blob",
+    routeName: "vitehub-console-blob",
   },
   kv: {
     description: "Inspect configured KV stores without changing data.",
@@ -57,11 +63,12 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; schedule?: unknown; workflow?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.agent ? ["agents" as const, "usage" as const] : []),
+    ...(options.blob ? ["blob" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
     ...(workflowEnabled ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),

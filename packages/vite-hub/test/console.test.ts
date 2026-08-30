@@ -17,6 +17,9 @@ import {
   consoleInvocationsBindingRootRegistryKey,
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
+  consoleBlobKey,
+  consoleBlobRegistryKey,
+  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
   consoleInvocationsRevisionRegistryKey,
@@ -115,6 +118,8 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
+  delete scope[consoleBlobKey]
+  delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
@@ -129,6 +134,11 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   delete scope[consoleSectionsKey]
   delete scope[consoleSectionsRootKey]
+  Reflect.deleteProperty(process, consoleBlobKey)
+  Reflect.deleteProperty(process, consoleBlobRootKey)
+  Reflect.deleteProperty(process, consoleBlobRegistryKey)
+  Reflect.deleteProperty(process, consoleInvocationsKey)
+  Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
@@ -447,10 +457,11 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
         console: { exposure: "host-managed" },
         kvStores: ["default", "cache"],
         preset: "node",
-        sections: ["agents", "usage", "kv"],
+        sections: ["agents", "usage", "blob", "kv"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -473,13 +484,14 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
         "/api/_vitehub/console/usage",
+        "/api/_vitehub/console/blob",
         "/_vitehub",
         "/_vitehub/**",
         "/api/_vitehub/console/kv",
       ])
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
-      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","kv"])`)
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
@@ -487,9 +499,52 @@ describe("Agent invocation console", () => {
         `fallbackName: "review"`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("registers Blob inspection without loading the Agent server graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["blob"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/blob",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/blob"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
+      )
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -710,6 +765,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { exposure: "host-managed" },
         preset: "cloudflare",
+        resolveKVStores: () => false,
         sections: ["schedules"],
       })
       const configHook = plugin.config
@@ -724,9 +780,9 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/api/_vitehub/console/sections",
-        "/api/_vitehub/console/definitions",
         "/_vitehub",
         "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
       ])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)

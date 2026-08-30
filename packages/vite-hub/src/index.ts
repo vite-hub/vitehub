@@ -6,7 +6,7 @@ import frameworkPackageManifest from "../package.json" with { type: "json" }
 
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
-import { hubBlob } from "@vite-hub/blob/vite"
+import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -55,6 +55,7 @@ import type { Plugin, PluginOption, UserConfig } from "vite"
 export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
+type DeploymentServicesManifest = Record<DeploymentService, object>
 
 const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
@@ -378,7 +379,7 @@ function shellQuote(value: string): string {
 
 function deploymentNitroModule(
   plan: DeploymentPlan,
-  services: object,
+  services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
@@ -410,7 +411,7 @@ function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
   blobEnabled: boolean,
-  services: object,
+  services: DeploymentServicesManifest,
   options: ViteHubOptions,
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
@@ -663,8 +664,15 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
+  const resolvedConsoleBlob = configuredBlob
+    ? resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, preset: plan.preset })
+  const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset })
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -700,6 +708,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
+      blobStores: consoleBlobStores,
       console: options.console === true ? true : options.console,
       kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
@@ -767,7 +776,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob(
-      presetBlobOptions(plan, options.blob),
+      configuredBlob,
       {
       importBase: `${generatedImportBase}/blob`,
       nitroOwned: true,

@@ -56,6 +56,7 @@ export type ConsoleOptions =
   | { access?: never, exposure: "host-managed" }
 
 interface ConsoleVitePluginOptions {
+  blobStores?: readonly string[]
   console?: true | ConsoleOptions
   kvStores?: readonly string[]
   preset?: string
@@ -159,22 +160,30 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const blobEnabled = sections.includes("blob")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(blobEnabled
+      ? [
+          `import { installConsoleBlob } from "vite-hub/console/blob"`,
+          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
+        ]
+      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -183,6 +192,9 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(blobEnabled
+      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
+      : []),
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
@@ -206,6 +218,7 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
@@ -219,7 +232,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -246,6 +259,7 @@ export function generatedConsolePluginRegistration(value: string): boolean {
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
   let sections = options.sections ?? []
   let kvStores = options.kvStores ?? []
+  const blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
   let projectRoot: string | undefined
   let root: string | undefined
@@ -256,7 +270,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -362,6 +376,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           sections,
           catalog.agents,
           catalog,
+          blobStores,
           kvStores,
           fixture,
           options.invocationRootState?.binding,
@@ -374,6 +389,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
+                join(consoleRuntimeRoot, "server/blob.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
@@ -419,6 +435,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           : []),
         ...(sections.includes("usage")
           ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
+          : []),
+        ...(sections.includes("blob")
+          ? [{
+              handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+              route: "/api/_vitehub/console/blob",
+            }]
           : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },

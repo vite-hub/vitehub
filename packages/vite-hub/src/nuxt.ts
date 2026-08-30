@@ -7,6 +7,7 @@ import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
+import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -268,22 +269,30 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const blobEnabled = sections.includes("blob")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleSections } from "vite-hub/console/sections"`,
+    ...(blobEnabled
+      ? [
+          `import { installConsoleBlob } from "vite-hub/console/blob"`,
+          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
+        ]
+      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -292,6 +301,9 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(blobEnabled
+      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
+      : []),
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
@@ -315,6 +327,7 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
@@ -328,7 +341,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -384,6 +397,7 @@ async function installConsole(
   workflowDiscoveryRoot: string,
   queueDiscoveryRoot: string,
   sections: readonly ConsoleSectionId[],
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   serverDirs?: string[],
@@ -433,6 +447,13 @@ async function installConsole(
         : []),
       ...(sections.includes("usage")
         ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
+        : []),
+      ...(sections.includes("blob")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/blob.vue"),
+            name: "vitehub-console-blob",
+            path: "/_vitehub/blob",
+          }]
         : []),
       ...(sections.includes("kv")
         ? [{
@@ -504,6 +525,12 @@ async function installConsole(
           },
         ]
       : []),
+    ...(sections.includes("blob")
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+          route: "/api/_vitehub/console/blob",
+        }]
+      : []),
     ...(sections.includes("kv")
       ? [{
           handler: join(consoleRuntimeRoot, "server/kv.get.js"),
@@ -537,6 +564,7 @@ async function installConsole(
       sections,
       catalog.agents,
       catalog,
+      blobStores,
       kvStores,
       fixture,
       invocationRootState?.binding,
@@ -852,10 +880,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
+  const explicitBlob = Boolean(options.blob && options.blob !== true && ("driver" in options.blob || "stores" in options.blob))
+  const consoleBlobEnabled = Boolean(options.blob) && (plan.services.blob.supported || explicitBlob)
+  const resolvedConsoleBlob = consoleBlobEnabled
+    ? resolveBlobViteConfig(options.blob === true ? undefined : options.blob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
   const effectiveQueue = nuxt.options.vite?.queue ?? options.queue
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
-  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, preset: plan.preset, queue: effectiveQueue, workflow: effectiveWorkflow })
+  const consoleSections = resolveConsoleSectionIds({ ...options, blob: consoleBlobEnabled, kv: effectiveKV, preset: plan.preset, queue: effectiveQueue, workflow: effectiveWorkflow })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -1119,6 +1155,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
+        blob: consoleBlobEnabled,
         kv: resolvedKV,
         preset: plan.preset,
         queue: effectiveQueue === false
@@ -1154,6 +1191,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleSections,
         consoleCatalog.agents,
         consoleCatalog,
+        consoleBlobStores,
         consoleKVStores,
         resolvedConsoleFixture,
         consoleInvocationRootState.binding,
@@ -1214,6 +1252,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       rootDir,
       rootDir,
       consoleSections,
+      consoleBlobStores,
       consoleKVStores,
       resolvedConsoleFixture,
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,

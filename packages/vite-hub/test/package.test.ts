@@ -395,6 +395,8 @@ describe("framework package contract", () => {
     );
     expect(consoleIndexRoute).toContain("<ConsoleHome");
     expect(consoleIndexRoute).toContain(":sections-base=");
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true);
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8");
     expect(consoleKVRoute).toContain(`sections.includes("kv")`);
@@ -439,10 +441,12 @@ describe("framework package contract", () => {
     );
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClient).toContain("/blob");
     expect(consoleClient).toContain("/kv");
     expect(consoleClient).toContain("/workflows");
     expect(consoleClient).toContain("/queues");
     expect(consoleClient).toContain("/schedules");
+    expect(consoleClient).toContain("currentRoute.value");
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8"),
     ).toContain("vitehub-console");
