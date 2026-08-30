@@ -59,9 +59,9 @@ export type { ConsoleOptions } from "./console/vite.ts"
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 
 function resolveServerOptions(config: ResolvedConfig) {
-  const serverResolve = config.environments?.nitro?.resolve
+  const serverResolve = (config.environments?.nitro?.resolve
     ?? config.environments?.ssr?.resolve
-    ?? config.resolve
+    ?? config.resolve) as typeof config.resolve
   const conditions = serverResolve.conditions ?? defaultServerConditions
   return {
     alias: serverResolve.alias,

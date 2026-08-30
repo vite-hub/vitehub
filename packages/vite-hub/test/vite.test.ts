@@ -1042,7 +1042,7 @@ describe("vitehub", () => {
     module(nitro)
     if (!compiled) throw new TypeError("Expected the Deno output callback.")
 
-    await compiled()
+    await (compiled as () => Promise<void>)()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
@@ -1079,7 +1079,7 @@ describe("vitehub", () => {
     compiled = undefined
     module(nitro)
     if (!compiled) throw new TypeError("Expected the updated Deno output callback.")
-    await compiled()
+    await (compiled as () => Promise<void>)()
 
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       alias: [

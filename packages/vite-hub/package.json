@@ -201,7 +201,7 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "dropbox": "catalog:storage",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "google-auth-library": "catalog:storage",
     "mlly": "catalog:unjs",
     "uploadthing": "catalog:storage",
