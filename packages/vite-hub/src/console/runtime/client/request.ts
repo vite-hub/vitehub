@@ -63,10 +63,11 @@ export async function loadConsoleKVPages(
     pages.push(page)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
-    if (cursor === undefined || cursors.has(cursor)) {
+    if (cursor === undefined) {
       hasMore = false
       continue
     }
+    if (cursors.has(cursor)) break
     cursors.add(cursor)
     if (pages.length >= (options.maxPages ?? Number.POSITIVE_INFINITY)) break
     page = record(await requestConsole(base, {

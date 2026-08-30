@@ -53,7 +53,7 @@ describe("Console requests", () => {
           { cursor: "next", keys: ["first"] },
           { cursor: "next", keys: ["second"] },
         ],
-        truncated: false,
+        truncated: true,
       })
     expect(fetch).toHaveBeenNthCalledWith(1, "/host/api/_vitehub/console/kv?store=cache", expect.any(Object))
     expect(fetch).toHaveBeenNthCalledWith(2, "/host/api/_vitehub/console/kv?cursor=next&store=cache", expect.any(Object))
