@@ -64,6 +64,8 @@ interface BabelNode {
   arguments?: BabelNode[]
   callee?: BabelNode
   computed?: boolean
+  declaration?: BabelNode
+  declarations?: BabelNode[]
   elements?: Array<BabelNode | null>
   expression?: BabelNode
   init?: BabelNode
@@ -126,10 +128,20 @@ function babelPropertyName(path: BabelObjectPropertyPath): unknown {
 }
 
 function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boolean {
-  if (babelPathIsExported(path)) return true
-  if (!name) return false
+  if (!name) return babelPathIsExported(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (current.node.type !== "ExportNamedDeclaration") continue
+    const declaration = current.node.declaration
+    if (declaration?.type === "VariableDeclaration") {
+      if (declaration.declarations?.some(item => item.id?.type === "Identifier" && item.id.name === name)) return true
+    }
+    else if (
+      (declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration")
+      && declaration.id?.name === name
+    ) return true
+  }
   const binding = path.scope.getBinding(name)
-  return binding?.referencePaths?.some(babelPathIsExported) ?? false
+  return binding?.referencePaths?.some(reference => babelBindingIsExportedAs(reference, name, name)) ?? false
 }
 
 function babelBindingIsExportedAs(path: BabelNodePath, localName: string, exportedName: string): boolean {
