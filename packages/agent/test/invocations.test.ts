@@ -3447,6 +3447,14 @@ describe("Agent Invocations", () => {
         updated_at TEXT,
         record TEXT NOT NULL
       )`)
+      await setupClient.execute(`CREATE TRIGGER vitehub_agent_invocations_legacy_updated_at_update
+        AFTER UPDATE OF record ON vitehub_agent_invocations
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE vitehub_agent_invocations
+          SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`)
       await setupClient.execute({
         args: [JSON.stringify({
           agentName: "review",
@@ -3496,6 +3504,10 @@ describe("Agent Invocations", () => {
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       expect(migratedAgent.rows[0]?.status).toBe("completed")
       expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
+      const migratedUpdateTrigger = await firstClient.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'vitehub_agent_invocations_legacy_updated_at_update'",
+      )
+      expect(migratedUpdateTrigger.rows[0]?.sql).toContain("status = COALESCE")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
