@@ -57,6 +57,7 @@ import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
@@ -950,10 +951,11 @@ describe("Agent invocation console", () => {
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
       })
-      const plugin = plugins.flat(Infinity).find(candidate => candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console")
-      if (!plugin || typeof plugin !== "object") throw new TypeError("Expected the ViteHub Console plugin.")
+      const plugin = (plugins as unknown[]).flat(Infinity).find(candidate => candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console") as Plugin | undefined
+      if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
 
       await callPluginHook(plugin.config, {}, [{ root }, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [{ root }])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/config.ts"')

@@ -1235,12 +1235,12 @@ describe("ViteHub Nuxt integration", () => {
     )
     try {
       const development = createNuxt(true)
-      development.nuxt.options.vite.rateLimit = {
-        projectRoot: "packages/policies",
-        scanDirs: ["rules"],
-      }
-
-      await viteHubNuxtModule({ console: true, preset: "node", rateLimit: true }, development.nuxt)
+      await viteHubNuxtModule({
+        console: true,
+        preset: "node",
+        rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
+      }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 

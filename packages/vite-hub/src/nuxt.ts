@@ -1236,16 +1236,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
       const consoleCatalog = await discoverConsoleBuildCatalog({
-        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.database),
+        databaseDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.database ?? nuxt.options.vite?.database ?? options.database),
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,
-        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit),
-        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit),
+        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
         sections: consoleSections,
-        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.schedule),
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.schedule ?? nuxt.options.vite?.schedule ?? options.schedule),
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
-        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace),
+        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
         workflowDiscoveryRoot: rootDir,
       })
       await writeConsoleNitroPlugin(

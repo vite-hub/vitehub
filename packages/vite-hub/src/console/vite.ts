@@ -497,13 +497,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database)
-      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit)
+      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? databaseDiscoveryRoot
+      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? rateLimitDiscoveryRoot
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
-        : undefined
-      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule)
-      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace)
+        : rateLimitScanDirs
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
+      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? workspaceDiscoveryRoot
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)

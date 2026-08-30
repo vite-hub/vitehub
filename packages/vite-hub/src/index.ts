@@ -226,7 +226,7 @@ export interface ViteHubOptions {
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean
-  rateLimit?: boolean
+  rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   sandbox?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
