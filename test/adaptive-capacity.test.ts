@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createProcessAgentCapacity } from '@vite-hub/agent/runtime/process'
 import {
@@ -41,6 +42,14 @@ test('rejects invalid process capacity policy', () => {
     () => createProcessAgentCapacity({ concurrency: 2, memory: { reserveBytes: -1 } }),
     /memory\.reserveBytes/,
   )
+})
+
+test('discounts reclaimable inactive file cache from cgroup memory usage', async () => {
+  const patch = await readFile(new URL('../patches/@vite-hub__agent@0.0.1.patch', import.meta.url), 'utf8')
+
+  assert.match(patch, /readFile\(`\$\{root\}\/memory\.stat`, "utf8"\)/)
+  assert.match(patch, /parseEvent\(memoryStat, "inactive_file"\)/)
+  assert.match(patch, /Math\.max\(0, Number\(current\.trim\(\)\) - inactiveFile\)/)
 })
 
 test('shares adaptive capacity and queues across separate agent definitions', async () => {

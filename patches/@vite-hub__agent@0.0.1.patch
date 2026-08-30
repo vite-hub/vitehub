@@ -182,7 +182,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..c7c39051e8fad426b73026892b9942ddc8c70786
 --- /dev/null
 +++ b/dist/runtime/process.js
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,123 @@
 +import { readFile } from "node:fs/promises";
 +import { availableParallelism, freemem } from "node:os";
 +
@@ -263,17 +263,19 @@ index 0000000000000000000000000000000000000000..c7c39051e8fad426b73026892b9942dd
 +	const relative = membership.split(/\r?\n/).map(line => line.split(":")).find(parts => parts[0] === "0")?.[2];
 +	if (relative === void 0) throw new Error("cgroup v2 membership is unavailable");
 +	const root = `/sys/fs/cgroup${relative === "/" ? "" : relative}`;
-+	const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
++	const [current, high, max, events, cpuPressure, memoryPressure, memoryStat] = await Promise.all([
 +		readFile(`${root}/memory.current`, "utf8"),
 +		readFile(`${root}/memory.high`, "utf8"),
 +		readFile(`${root}/memory.max`, "utf8"),
 +		readFile(`${root}/memory.events`, "utf8"),
 +		readFile(`${root}/cpu.pressure`, "utf8"),
-+		readFile(`${root}/memory.pressure`, "utf8")
++		readFile(`${root}/memory.pressure`, "utf8"),
++		readFile(`${root}/memory.stat`, "utf8")
 +	]);
++	const inactiveFile = parseEvent(memoryStat, "inactive_file");
 +	return {
 +		cpuPressure: parsePressure(cpuPressure),
-+		memoryCurrent: Number(current.trim()),
++		memoryCurrent: Math.max(0, Number(current.trim()) - inactiveFile),
 +		memoryHigh: parseLimit(high),
 +		memoryHighEvents: parseEvent(events, "high"),
 +		memoryMax: parseLimit(max),
