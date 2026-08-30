@@ -981,7 +981,12 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "serve",
-        resolve: { alias: [{ find: "@", replacement: join(root, "src") }] },
+        resolve: {
+          alias: [
+            { find: "@", replacement: join(root, "src") },
+            { find: "@/", replacement: join(root, "nested") },
+          ],
+        },
         root,
       })
 
@@ -999,6 +1004,8 @@ describe("agent Vite plugin", () => {
                   alias: {
                     "@": join(root, "src"),
                     "@/\0vitehub-prefix:0": `${join(root, "src")}/`,
+                    "@/": join(root, "nested"),
+                    "@//": `${join(root, "nested")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
                   external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),

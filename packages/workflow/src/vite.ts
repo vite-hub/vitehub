@@ -71,7 +71,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
     if (!(alias.find instanceof RegExp)) {
       aliases[alias.find] = alias.replacement
       if (alias.find.endsWith("/")) {
-        aliases[`${alias.find}/`] = alias.replacement
+        aliases[`${alias.find}/`] = `${alias.replacement.replace(/\/$/, "")}/`
       }
       else {
         aliases[`${alias.find}/\0vitehub-prefix:${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
