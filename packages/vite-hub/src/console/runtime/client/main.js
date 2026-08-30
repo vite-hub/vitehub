@@ -39,6 +39,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -51,6 +52,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -76,6 +78,19 @@ const router = createRouter({
         sectionsBase,
       },
     },
+    {
+      component: ConsoleApp,
+      name: "vitehub-console-usage",
+      path: "/usage",
+      meta: { consoleSection: "usage", title: "Usage · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        apiBase: "/api/_vitehub/console/invocations",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
+      },
+    },
   ],
 });
 
@@ -91,5 +106,4 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = String(to.meta.title ?? "ViteHub Console");
 });
-
 createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");

@@ -362,6 +362,9 @@ async function installConsole(
             },
           ]
         : []),
+      ...(sections.includes("usage")
+        ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
+        : []),
       ...(sections.includes("kv")
         ? [
             {
@@ -406,6 +409,9 @@ async function installConsole(
             route: "/api/_vitehub/console/search",
           },
         ]
+      : []),
+    ...(sections.includes("usage")
+      ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
       : []),
   ]
   for (const handler of additions) {

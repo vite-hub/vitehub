@@ -186,6 +186,7 @@ describe("optional peer imports", () => {
   })
 
   it("keeps the bundled Vercel Blob driver statically reachable for selected Vercel outputs", async () => {
+    const built = await readFile(new URL("../dist/drivers/vercel-bundled.js", import.meta.url), "utf8")
     const closure = (await readLocalClosure(new URL("../dist/drivers/vercel-bundled.js", import.meta.url))).join("\n")
 
     expect(closure).not.toContain('from "files-sdk"')
@@ -193,7 +194,7 @@ describe("optional peer imports", () => {
     expect(closure).not.toContain('from "@vercel/blob"')
     expect(closure).not.toContain('from "undici"')
     expect(closure).not.toContain('from "stream"')
-    expect(closure).not.toContain('from "node:module"')
+    expect(built).not.toContain('from "node:module"')
     expect(closure).toContain("globalThis.fetch")
     expect(closure).toContain("vercel-storage.com")
   })
@@ -204,6 +205,45 @@ describe("optional peer imports", () => {
     expect(closure).not.toContain('from "node:module"')
     expect(closure).not.toContain('from "@vite-hub/netlify-blobs-runtime"')
     expect(closure).not.toContain("getEnvironment2().get")
+  })
+
+  it("preserves Vercel retry behavior without a CommonJS runtime", async () => {
+    const attempts: number[] = []
+    await expect(retry((_, attempt) => {
+      attempts.push(attempt)
+      if (attempt === 1) throw new Error("retry")
+      return "done"
+    }, { minTimeout: 0, randomize: false, retries: 1 })).resolves.toBe("done")
+    expect(attempts).toEqual([1, 2])
+
+    const error = new Error("stop")
+    await expect(retry((bail) => {
+      bail(error)
+    }, { minTimeout: 0, retries: 2 })).rejects.toBe(error)
+  })
+
+  it("throttles Vercel callbacks with a leading call and the latest trailing call", () => {
+    expect(() => Reflect.apply(throttle, undefined, [null, 100])).toThrowError(
+      "Expected the first argument to be a `function`, got `object`.",
+    )
+
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const calls: string[] = []
+      const throttled = throttle((value: string) => calls.push(value), 100)
+
+      throttled("first")
+      throttled("stale")
+      throttled("latest")
+      expect(calls).toEqual(["first"])
+
+      vi.advanceTimersByTime(100)
+      expect(calls).toEqual(["first", "latest"])
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps the Cloudflare-native R2 driver free of HTTP fallback peers", async () => {

@@ -1,4 +1,5 @@
 import { toAgentPublicError } from "./agent-error.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
@@ -36,24 +37,108 @@ export type AgentInvocationStreamEvent =
   | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
-export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEvent {
+  const event: unknown = JSON.parse(line)
+  if (!isRuntimeRecord(event) || !hasRuntimeType(event.type, "string")) {
+    throw new TypeError("Invalid Agent Invocation Stream event.")
+  }
+  // SAFETY: The stream endpoint owns the event payloads; the reader validates their shared discriminated-union boundary.
+  return event as AgentInvocationStreamEvent
+}
+
+export function readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let completed = false
+  let error: unknown
   let pending = ""
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      pending += value
-      const lines = pending.split("\n")
-      pending = lines.pop() || ""
-      for (const line of lines) {
-        if (line.trim()) yield JSON.parse(line) as AgentInvocationStreamEvent
+  let cancellation: Promise<void> | undefined
+  let interrupted = false
+  let released = false
+
+  function releaseReader(): void {
+    if (released) return
+    released = true
+    reader.releaseLock()
+  }
+
+  const events = (async function* () {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+          if (interrupted) break
+          pending += decoder.decode()
+          completed = true
+          break
+        }
+        pending += decoder.decode(value, { stream: true })
+        const lines = pending.split("\n")
+        pending = lines.pop() || ""
+        for (const line of lines) {
+          if (line.trim()) yield parseAgentInvocationStreamEvent(line)
+        }
+      }
+      if (!interrupted && pending.trim()) yield parseAgentInvocationStreamEvent(pending)
+    }
+    catch (cause) {
+      error = cause
+      throw cause
+    }
+    finally {
+      try {
+        if (!completed) {
+          cancellation ||= reader.cancel(error)
+          if (error) await cancellation.catch(() => undefined)
+          else await cancellation
+        }
+      }
+      finally {
+        releaseReader()
       }
     }
-    if (pending.trim()) yield JSON.parse(pending) as AgentInvocationStreamEvent
-  }
-  finally {
-    reader.releaseLock()
+  })()
+
+  return {
+    async [Symbol.asyncDispose]() {
+      await this.return(undefined)
+    },
+    [Symbol.asyncIterator]() {
+      return this
+    },
+    next: events.next.bind(events),
+    async return(value) {
+      let cancellationError: unknown
+      let cancellationFailed = false
+      if (!completed) {
+        interrupted = true
+        try {
+          cancellation ||= reader.cancel()
+          await cancellation
+        }
+        catch (cause) {
+          cancellationError = cause
+          cancellationFailed = true
+        }
+      }
+      const result = await events.return(value)
+      releaseReader()
+      if (cancellationFailed) throw cancellationError
+      return result
+    },
+    async throw(cause) {
+      if (!completed) {
+        interrupted = true
+        cancellation ||= reader.cancel(cause)
+        await cancellation.catch(() => undefined)
+      }
+      try {
+        return await events.throw(cause)
+      }
+      finally {
+        releaseReader()
+      }
+    },
   }
 }
 
@@ -166,10 +251,10 @@ export function createAgentInvocationStreamResponse(
           if (emit(controller, { type: "done" })) close(controller)
         })
     },
-    cancel() {
+    cancel(reason) {
       clearInactivityTimeout()
       closed = true
-      abort()
+      abort(reason)
     },
   }), {
     headers: { "content-type": "application/x-ndjson" },

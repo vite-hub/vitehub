@@ -23,6 +23,16 @@ export const buildWarningBudget = Object.freeze([
     maximum: 1,
     text: "Deploying to Cloudflare requires using D1 database",
   },
+  {
+    name: "Fontshare fetch retries",
+    maximum: 3,
+    text: "Could not fetch from https://api.fontshare.com/v2/fonts",
+  },
+  {
+    name: "Bunny Fonts fetch retries",
+    maximum: 3,
+    text: "Could not fetch from https://fonts.bunny.net/list",
+  },
   { name: "build plugin timings", maximum: 3, text: "[PLUGIN_TIMINGS]" },
   { name: "VueUse pure annotations", maximum: 2, text: "[INVALID_ANNOTATION]" },
   {
@@ -33,6 +43,16 @@ export const buildWarningBudget = Object.freeze([
   },
   { name: "Nuxt UI button imports", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT]" },
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
+  {
+    name: "Google Fonts icon metadata fetch",
+    maximum: 1,
+    text: "Could not fetch from https://fonts.google.com/metadata/icons?key=material_symbols&incomplete=true. Will retry in",
+  },
+  {
+    name: "Google Fonts font metadata fetch",
+    maximum: 1,
+    text: "Could not fetch from https://fonts.google.com/metadata/fonts. Will retry in",
+  },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
   {
     name: "Nuxt Nitro server unused H3Event import",

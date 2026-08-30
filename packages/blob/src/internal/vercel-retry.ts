@@ -24,7 +24,6 @@ function mainError(errors: unknown[]): unknown {
 
   return selected
 }
-
 export default async function retry<T>(
   operation: (bail: (error?: unknown) => void, attempt: number) => T | Promise<T>,
   options: RetryOptions = {},

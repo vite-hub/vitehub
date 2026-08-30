@@ -60,6 +60,18 @@ describe("Provider Output contribution catalog", () => {
     expect(hasProviderRuntimeModule(catalog, "vercel", { except: "database" })).toBe(false)
   })
 
+  it("isolates runtime contributions by deployment generation", () => {
+    const catalog = createProviderOutputCatalog()
+    const first = catalog.createDeploymentGeneration()
+    const second = catalog.createDeploymentGeneration()
+    contributeProviderRuntime(catalog, { owner: "blob", runtimeModules: { vercel: "first.mjs" } }, first)
+    contributeProviderRuntime(catalog, { owner: "blob", runtimeModules: { vercel: "second.mjs" } }, second)
+
+    expect(getProviderRuntimeModule(catalog, "blob", "vercel", first)).toBe("first.mjs")
+    expect(getProviderRuntimeModule(catalog, "blob", "vercel", second)).toBe("second.mjs")
+    expect(getProviderRuntimeModule(catalog, "blob", "vercel")).toBeUndefined()
+  })
+
   it("composes every declared Cloudflare owner without exposing mutable records", () => {
     const catalog = createProviderOutputCatalog()
     contributeCloudflareProviderOutput(catalog, { owner: "blob", r2Buckets: [{ binding: "BLOB", bucket_name: "assets" }] })

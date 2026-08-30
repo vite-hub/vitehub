@@ -37,6 +37,7 @@
     "./build/mode": "./dist/build/mode.js",
     "./build/paths": "./dist/build/paths.js",
     "./build/esbuild": "./dist/build/esbuild.js",
+    "./build/provider-output-sources": "./dist/build/provider-output-sources.js",
     "./build/client-output": "./dist/build/client-output.js",
     "./build/colocated-agent-files": "./dist/build/colocated-agent-files.js",
     "./build/vercel-config": "./dist/build/vercel-config.js",

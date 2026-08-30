@@ -491,7 +491,7 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: [join(runnerDir, "node_modules/@types"), resolve(runnerDir, "../../node_modules/@types")],
+    typeRoots: packageTypeRoots(packageName, runnerDir),
     types: [...new Set([
       ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
@@ -499,6 +499,14 @@ async function packageModuleDiagnostics(
   }
   const program = ts.createProgram(rootNames, options)
   return declarationDiagnostics(program, packageName)
+}
+
+function packageTypeRoots(packageName: string, runnerDir: string) {
+  return [
+    join(runnerDir, "node_modules", ...packageName.split("/"), "node_modules/@types"),
+    join(runnerDir, "node_modules/@types"),
+    resolve(runnerDir, "../../node_modules/@types"),
+  ]
 }
 
 function declarationDiagnostics(program: ts.Program, packageName?: string) {
@@ -556,6 +564,9 @@ describe("published declaration diagnostics", () => {
       dependencies: { "@types/ws": "^8.18.1", ws: "^8.21.0" },
     })
     expect(dependencies).toEqual(["@types/ws"])
+    expect(packageTypeRoots("@vite-hub/queue", "/consumer/queue")[0]).toBe(
+      "/consumer/queue/node_modules/@vite-hub/queue/node_modules/@types",
+    )
   })
 
   it("keeps other runtime peers while omitting a declaration-only peer", () => {
