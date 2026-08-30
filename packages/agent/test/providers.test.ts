@@ -12914,6 +12914,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter({
       bypassIdLessMessageDedupe: true,
       missingIncomingMessageId: true,
+      persistThreadHistory: true,
     })
     const sharedHistory = new Message({
       attachments: [],
@@ -17951,7 +17952,7 @@ describe("server helpers", () => {
         body: JSON.stringify({
           update_id: updateId,
           message: {
-            chat: { id: 456, type: "private" },
+            chat: { id: 457, type: "private" },
             date: 1_781_092_822,
             from: { first_name: "Maxi", id: 123, username: "maxi" },
             text,
