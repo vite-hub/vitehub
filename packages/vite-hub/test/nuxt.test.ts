@@ -580,13 +580,13 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.nuxt.options.nitro).toMatchObject({
       handlers: [
         { route: "/api/_vitehub/console/sections" },
+        { route: "/api/_vitehub/console/definitions" },
         { route: "/api/_vitehub/console/agents" },
         { route: "/api/_vitehub/console/invocations" },
         { route: "/api/_vitehub/console/invocations/:id" },
         { route: "/api/_vitehub/console/search" },
         { route: "/api/_vitehub/console/kv" },
         { route: "/api/_vitehub/console/usage" },
-        { route: "/api/_vitehub/console/definitions" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
