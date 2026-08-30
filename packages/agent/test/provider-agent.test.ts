@@ -165,6 +165,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("CODEX_HOME", "/var/lib/ambient-codex")
     try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
       expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
