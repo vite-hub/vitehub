@@ -48,6 +48,18 @@ export interface GitHubHostCheckoutOptions {
   timeout?: number
 }
 
+export interface GitHubHostCommandOptions extends GitHubHostCheckoutOptions {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+  repository?: string
+}
+
+export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
+  fallback?: boolean
+  refresh?: boolean
+  repository?: string
+}
+
 export interface GitHubGraphQLRateLimit {
   checkedAt: number
   remaining: number
@@ -55,10 +67,10 @@ export interface GitHubGraphQLRateLimit {
 }
 
 export interface GitHubHost {
-  access(input?: { fallback?: boolean, refresh?: boolean, repository?: string }): Promise<GitHubHostAccess>
+  access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
   budget(): { limited: false } | { limited: true, remaining: number, resetAt: number }
-  command(args: string[], input?: { cwd?: string, env?: NodeJS.ProcessEnv, repository?: string }): Promise<{ stderr: string, stdout: string }>
-  ensureGraphQLBudget(repository: string): Promise<GitHubGraphQLRateLimit>
+  command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
+  ensureGraphQLBudget(repository: string, options?: GitHubHostCheckoutOptions): Promise<GitHubGraphQLRateLimit>
   isRateLimitError(error: unknown): boolean
   withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
@@ -129,17 +141,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
 
-  async function fallbackToken(config: GitHubHostCredentials): Promise<string> {
+  async function fallbackToken(config: GitHubHostCredentials, input: GitHubHostCheckoutOptions): Promise<string> {
     const configured = secret(config.token)?.trim()
     if (configured) return configured
     const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "GH_TOKEN" && key !== "GITHUB_TOKEN"))
-    const result = await exec("gh", ["auth", "token", "--hostname", "github.com"], { env: cleanEnv, maxBuffer })
+    const result = await exec("gh", ["auth", "token", "--hostname", "github.com"], {
+      env: cleanEnv,
+      maxBuffer,
+      signal: input.signal,
+      timeout: input.timeout,
+    })
     const token = result.stdout.trim()
     if (!token) throw new Error("GitHub authentication is not configured.")
     return token
   }
 
-  async function access(input: { fallback?: boolean, refresh?: boolean, repository?: string } = {}): Promise<GitHubHostAccess> {
+  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
     const config = await options.credentials()
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
@@ -153,21 +170,34 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (!appValues.every(Boolean)) throw new Error("GitHub App appId, installationId, and privateKey must be configured together.")
       if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
-        token = await fallbackToken(config)
+        token = await fallbackToken(config, input)
       }
       else {
         const numericAppId = positiveInteger(appId, "GitHub App appId")
         const numericInstallationId = positiveInteger(installationId, "GitHub App installationId")
         const key = `${numericAppId}:${numericInstallationId}:${privateKey}`
         if (input.refresh || !appToken || appTokenKey !== key || appToken.expiresAt <= Date.now() + 60_000) {
-          const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
-            headers: {
-              accept: "application/vnd.github+json",
-              authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
-              "user-agent": options.userAgent || "vitehub",
-            },
-            method: "POST",
-          })
+          const controller = new AbortController()
+          const abort = () => controller.abort(input.signal?.reason)
+          const timeout = input.timeout === undefined ? undefined : setTimeout(() => controller.abort(), input.timeout)
+          if (input.signal?.aborted) abort()
+          else input.signal?.addEventListener("abort", abort, { once: true })
+          let response: Response
+          try {
+            response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
+              headers: {
+                accept: "application/vnd.github+json",
+                authorization: `Bearer ${appJwt(numericAppId, privateKey)}`,
+                "user-agent": options.userAgent || "vitehub",
+              },
+              method: "POST",
+              signal: controller.signal,
+            })
+          }
+          finally {
+            if (timeout !== undefined) clearTimeout(timeout)
+            input.signal?.removeEventListener("abort", abort)
+          }
           if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
           const body: unknown = await response.json()
           const responseToken = isRuntimeRecord(body) ? body.token : undefined
@@ -183,7 +213,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       }
     }
     else {
-      token = await fallbackToken(config)
+      token = await fallbackToken(config, input)
     }
 
     const env: Record<string, string> = {
@@ -210,14 +240,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   async function command(
     args: string[],
-    input: { cwd?: string, env?: NodeJS.ProcessEnv, repository?: string } = {},
+    input: GitHubHostCommandOptions = {},
   ): Promise<{ stderr: string, stdout: string }> {
-    const auth = await access({ repository: input.repository })
+    const auth = await access({ repository: input.repository, signal: input.signal, timeout: input.timeout })
     try {
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env },
         maxBuffer,
+        signal: input.signal,
+        timeout: input.timeout,
       }
       if (input.cwd) execOptions.cwd = input.cwd
       return await exec("gh", args, execOptions)
@@ -232,7 +264,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
-  async function ensureGraphQLBudget(repository: string): Promise<GitHubGraphQLRateLimit> {
+  async function ensureGraphQLBudget(repository: string, options: GitHubHostCheckoutOptions = {}): Promise<GitHubGraphQLRateLimit> {
     const key = owner(repository)
     const now = Date.now()
     const cached = limits.get(key)
@@ -241,7 +273,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const pending = checks.get(key)
     if (pending) return await pending
     const check = (async () => {
-      const result = await command(["api", "rate_limit"], { repository })
+      const result = await command(["api", "rate_limit"], { ...options, repository })
       const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
       limits.set(key, limit)
       if (limit.remaining < reserve && limit.resetAt > now) throw new GitHubRateLimitError(repository, limit)
@@ -272,6 +304,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const auth = await access({
         refresh: true,
         repository: pullRequest.headRepository || pullRequest.repository,
+        signal: options.signal,
+        timeout: options.timeout,
       })
       const env = { ...process.env, ...auth.env }
       const commandOptions = { env, maxBuffer, signal: options.signal, timeout: options.timeout }

@@ -1523,51 +1523,22 @@ describe("Agent Invocations", () => {
     expect((await invocations.getByRunId("late-observation"))?.observations.some(entry => entry.name === "late")).toBe(false)
   })
 
-  it("bounds claim renewal for invocations abandoned before finish", async () => {
+  it("keeps claim ownership for long-running invocations", async () => {
     vi.useFakeTimers()
     try {
       const memory = createMemoryAgentInvocationStore()
       const claim = vi.fn(memory.claim)
       const invocations = defineAgentInvocations({ store: { ...memory, claim } })
-      const journal = await bindAgentInvocations(invocations, runtime("abandoned"))
+      const journal = await bindAgentInvocations(invocations, runtime("long-running"))
       if (!journal) throw new Error("Expected the invocation journal to be configured.")
       await journal.running()
 
       await vi.advanceTimersByTimeAsync(60 * 60_000 + 30_000)
-      const claimsAfterTimeout = claim.mock.calls.length
+      const claimsAfterFirstHour = claim.mock.calls.length
       await vi.advanceTimersByTimeAsync(30_000)
 
-      expect(claim).toHaveBeenCalledTimes(claimsAfterTimeout)
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("does not rearm claim renewal completed after the heartbeat deadline", async () => {
-    vi.useFakeTimers()
-    try {
-      const memory = createMemoryAgentInvocationStore()
-      let releaseClaim: (() => void) | undefined
-      const startedAt = Date.now()
-      const claim = vi.fn(async (...args: Parameters<typeof memory.claim>) => {
-        if (!releaseClaim && Date.now() - startedAt >= 60 * 60_000 - 10_000) {
-          await new Promise<void>((resolve) => { releaseClaim = resolve })
-        }
-        return memory.claim(...args)
-      })
-      const invocations = defineAgentInvocations({ store: { ...memory, claim } })
-      const journal = await bindAgentInvocations(invocations, runtime("async-abandoned"))
-      if (!journal) throw new Error("Expected the invocation journal to be configured.")
-      await journal.running()
-
-      await vi.advanceTimersByTimeAsync(60 * 60_000)
-      releaseClaim?.()
-      await vi.advanceTimersByTimeAsync(0)
-      const claimsAfterDeadline = claim.mock.calls.length
-      await vi.advanceTimersByTimeAsync(30_000)
-
-      expect(claim).toHaveBeenCalledTimes(claimsAfterDeadline)
+      expect(claim.mock.calls.length).toBeGreaterThan(claimsAfterFirstHour)
+      await journal.finish("completed")
     }
     finally {
       vi.useRealTimers()

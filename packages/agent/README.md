@@ -147,7 +147,9 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path }) => {
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
 
-The same entry exports `failInterruptedAgentInvocations()` and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. Recovery follows every store page and acquires each invocation's lease before failing it, so work claimed by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
+`access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential refresh and GitHub CLI work stop on cancellation.
+
+The same entry exports `failInterruptedAgentInvocations()` and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

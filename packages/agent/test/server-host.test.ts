@@ -118,6 +118,25 @@ describe("GitHub host", () => {
     await expect(host.access({ repository: "contributor/fork" })).resolves.toMatchObject({ token: "fallback-token" })
   })
 
+  it("cancels installation-token refresh", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    vi.stubGlobal("fetch", vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+    })))
+    const host = createGitHubHost({
+      credentials: () => ({
+        appId: 123,
+        installationId: 456,
+        owner: "vite-hub",
+        privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      }),
+    })
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(new Error("cancelled")), 20)
+
+    await expect(host.access({ repository: "vite-hub/vitehub", signal: controller.signal })).rejects.toThrow("cancelled")
+  })
+
   it("admits GraphQL work against a shared reserve", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 1_500 })
@@ -147,6 +166,16 @@ describe("GitHub host", () => {
       failure = error
     }
     expect(host.isRateLimitError(failure)).toBe(true)
+  })
+
+  it("cancels generic GitHub commands", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_CLONE_DELAY = "10"
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 20)
+
+    await expect(host.command(["repo", "clone"], { signal: controller.signal })).rejects.toMatchObject({ code: "ABORT_ERR" })
   })
 
   it("verifies the exact pull-request head and removes the temporary checkout", async () => {

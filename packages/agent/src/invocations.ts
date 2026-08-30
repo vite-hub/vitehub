@@ -33,7 +33,6 @@ const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
   "vitehub.payload.visibility",
 ])
 const CLAIM_LEASE_MS = 30_000
-const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
 const TERMINAL_RETRY_INTERVAL_MS = 1_000
 const TERMINAL_RETRY_TIMEOUT_MS = 60_000
@@ -1043,8 +1042,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let runningRetry: Promise<void> | undefined
       let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
-      let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
-      let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
@@ -1055,18 +1052,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
-        if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
         heartbeat = undefined
-        heartbeatTimeout = undefined
       }
       const startHeartbeat = () => {
         if (finished || !ownsRecord || heartbeat !== undefined) return
-        heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
-        if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
         unrefTimer(heartbeat)
-        heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        unrefTimer(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created
