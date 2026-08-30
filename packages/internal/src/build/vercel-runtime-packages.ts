@@ -106,10 +106,11 @@ export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOption
   if (!options.packages.length) return
 
   const copied = new Set<string>()
+  const expanded = new Set<string>()
   for (const runtimePackage of options.packages) {
     const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
     const resolver = createRequire(resolveFrom)
-    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, runtimePackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
   }
 }
 
@@ -119,6 +120,7 @@ async function copyPackageToNodeModules(
   fromDir: string,
   outputNodeModules: string,
   copied: Set<string>,
+  expanded: Set<string>,
   options: NodeRuntimePackage = { name },
 ): Promise<void> {
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
@@ -141,7 +143,6 @@ async function copyPackageToNodeModules(
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
   }
   const packageKey = `${name}\0${resolvedPackageJsonPath}`
-
   if (!copied.has(packageKey)) {
     copied.add(packageKey)
     const targetDir = join(outputNodeModules, ...name.split("/"))
@@ -149,6 +150,10 @@ async function copyPackageToNodeModules(
     const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
     if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
   }
+
+  const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
+  if (expanded.has(expansionKey)) return
+  expanded.add(expansionKey)
 
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
@@ -159,7 +164,7 @@ async function copyPackageToNodeModules(
   }
 
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, expanded, {
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
     })

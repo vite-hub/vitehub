@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -26,8 +26,10 @@ const integrationMocks = vi.hoisted(() => ({
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
-  resolveKVViteConfig: vi.fn((kv?: { driver?: string }, input?: { hosting?: string }) => ({
-    kv: { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
+  resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
+    kv: kv?.stores
+      ? { stores: kv.stores }
+      : { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
   })),
   resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -234,6 +236,84 @@ describe("vitehub", () => {
       .rejects.toThrow('Console currently requires preset: "node" for production')
   })
 
+  it("derives Console KV registration from the resolved Vite KV configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-kv-"))
+    try {
+      for (const [name, kv] of [["omitted", undefined], ["disabled", false]] as const) {
+        const inactiveRoot = join(root, name)
+        const inactive = dependencyPluginByName(
+          vitehub({ console: true, kv, preset: "node" }),
+          "vite-hub/console",
+        )
+        const inactiveConfig: Record<string, unknown> = { root: inactiveRoot }
+        await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
+        await callHook(inactive.configResolved, [inactiveConfig])
+
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveConfig.nitro).not.toMatchObject({
+          handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        })
+      }
+
+      const named = dependencyPluginByName(
+        vitehub({ console: true, kv: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const namedConfig: Record<string, unknown> = { root }
+      await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+      namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
+      await callHook(named.configResolved, [namedConfig])
+
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('installConsoleKV(')
+      expect(generated).toContain('["cache","sessions"]')
+      expect(namedConfig.nitro).toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+
+      const disabledRoot = join(root, "disabled")
+      const disabled = dependencyPluginByName(
+        vitehub({ console: true, kv: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root: disabledRoot }
+      await callHook(disabled.config, [config, { command: "serve", mode: "development" }])
+      config.kv = false
+      await callHook(disabled.configResolved, [config])
+
+      const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(config.nitro).not.toMatchObject({
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a conflicting standalone Console KV handler", async () => {
+    const plugin = dependencyPluginByName(
+      vitehub({ console: true, kv: true, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{
+      nitro: {
+        handlers: [{
+          handler: "/app/server/api/custom-kv.ts",
+          route: "/api/_vitehub/console/kv",
+        }],
+      },
+    }, { command: "serve", mode: "development" }])).rejects.toThrow(
+      "Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /app/server/api/custom-kv.ts.",
+    )
+  })
+
   it("passes discovered Auth access policy to production Console builds", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
@@ -286,6 +366,7 @@ describe("vitehub", () => {
       "@vite-hub/env/vite",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
+      "@vite-hub/source/vite",
       "vite-hub/types",
     ])
 
@@ -321,6 +402,7 @@ describe("vitehub", () => {
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
+      "@vite-hub/source/vite",
       "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")

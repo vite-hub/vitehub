@@ -1,4 +1,5 @@
 import type { AgentInvocations } from "@vite-hub/agent"
+import type { KVStorage } from "@vite-hub/kv"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
@@ -10,6 +11,9 @@ export const consoleInvocationsBindingKey: unique symbol = Symbol.for("vitehub.c
 export const consoleInvocationsBindingRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.bindings")
 export const consoleInvocationsBindingRootRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.binding-roots")
 export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
+export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
+export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
+export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
@@ -24,9 +28,20 @@ type ConsoleInvocationsByRoot = {
   readonly size: number
 }
 
+export interface ConsoleKVInspection {
+  storage: KVStorage
+  stores: readonly string[]
+}
+
+type ConsoleKVByRoot = {
+  get(key: string): ConsoleKVInspection | undefined
+  set(key: string, value: ConsoleKVInspection): unknown
+  readonly size: number
+}
+
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleSectionsByRoot | undefined
+  AgentInvocations | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -51,6 +66,10 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsIdentityRootKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
+  [consoleKVKey]?: ConsoleKVInspection
+  [consoleKVRegistryKey]?: ConsoleKVByRoot
+  [consoleKVRootKey]?: string
+  [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
   [consoleSectionsRootKey]?: string
@@ -107,6 +126,17 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
     // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
     ? registry as ConsoleInvocationsByRoot
     : undefined
+}
+
+function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleKVByRoot member before use.
+  const registry = value as Partial<ConsoleKVByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleKVByRoot member.
+  return registry as ConsoleKVByRoot
 }
 
 function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
@@ -250,7 +280,7 @@ export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
   scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-  identity = projectRoot,
+  identity: string = projectRoot,
   revision?: string,
 ): void {
   scope[consoleInvocationsKey] = invocations
@@ -277,6 +307,32 @@ export function installConsoleInvocationFallback(
     }
     registry[consoleInvocationsKey] = invocations
   }
+}
+
+export function installConsoleKVScope(
+  projectRoot: string,
+  inspection: ConsoleKVInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleKVInspection {
+  scope[consoleKVRootKey] = projectRoot
+  scope[consoleKVKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = kvByRoot(registry[consoleKVRegistryKey]) ?? new Map<string, ConsoleKVInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleKVRegistryKey] = inspections
+    registry[consoleKVKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleKV(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleKVInspection | undefined {
+  const root = scope[consoleKVRootKey]
+  const registered = kvByRoot(processRegistry(scope)?.[consoleKVRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleKVKey]
+  if (registered && registered.size > 1) return scope[consoleKVKey]
+  // SAFETY: installConsoleKVScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleKVKey] as ConsoleKVInspection | undefined) ?? scope[consoleKVKey]
 }
 
 export function installConsoleSectionScope(

@@ -454,8 +454,14 @@ export type {
   AgentToolSet,
   AgentToolStep,
   AgentWaitUntil,
+  AgentProviderCredentialContext,
+  AgentProviderCredentialResolver,
+  AgentProviderCredentialValue,
+  AgentProviderSealedCredential,
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
+  CodexReasoningEffort,
+  CodexReasoningSummary,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -1501,6 +1507,7 @@ function defineBaseAgent<
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
           ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+            credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             env: driver.env,
             execution: driver.execution,
@@ -2006,6 +2013,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
       ? { ...(settings.driver as AgentModelDriver), instructions }
       : {
           capacity: driver.capacity,
+          credentialProfile: driver.credentialProfile,
           credentials: driver.credentials,
           env: driver.env,
           execution: driver.execution,

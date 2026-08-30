@@ -19,6 +19,7 @@ import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
+import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -700,6 +701,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       console: options.console === true ? true : options.console,
+      kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
       resolveAuthConfig: options.auth
         ? (root, serverDirs, auth) => resolveAuthViteConfig(
@@ -708,6 +710,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
+      resolveKVStores: (kv) => {
+        if (kv === false) return false
+        if (kv === undefined && !options.kv) return false
+        const resolved = resolveKVViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
+          (kv ?? configuredKV) as KVModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).kv
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
       invocationRootState,
       sections: consoleSections,
     }))
@@ -822,13 +834,17 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (options.workspace) {
+    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
     plugins.push(hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
-  plugins.push(viteHubTypesPlugin())
+  const sourcePlugin = hubSource({ importBase: "vite-hub/source" })
+  plugins.push(sourcePlugin)
+  plugins.push(viteHubTypesPlugin({ prepareSources: sourcePlugin.api.prepareSources }))
+  // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
 }
 

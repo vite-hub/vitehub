@@ -31,7 +31,7 @@ pnpm add @openai/codex@0.149.1
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
-ViteHub resolves those project dependencies directly. Production self-hosted Node builds on macOS and Linux copy only the build host's native payload, including the Linux libc variant, so build on the same host type used for deployment. Without `@openai/codex`, the Codex Driver keeps using `codex` from the host `PATH`. The Claude Code Driver requires the Agent SDK; when its native package is unavailable at runtime, ViteHub leaves T3's host `claude` command fallback unchanged. Provider credentials remain owned by the host environment.
+ViteHub resolves those project dependencies directly. Production self-hosted Node builds on macOS and Linux copy only the build host's native payload, including the Linux libc variant, so build on the same host type used for deployment. Without `@openai/codex`, the Codex Driver keeps using `codex` from the host `PATH`. The Claude Code Driver requires the Agent SDK; when its native package is unavailable at runtime, ViteHub leaves T3's host `claude` command fallback unchanged. Claude Code credentials and Codex credentials without an explicit `driver.credentials` resolver must be available to the host process.
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
@@ -68,19 +68,24 @@ export default defineAgent({
 
 ## Coding provider drivers
 
-Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes provider-neutral model, environment, instruction, permission, output, and capacity options.
+Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
 ```ts
 // server/agents/codex/agent.ts
 import { defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
+import { loadServerEnv } from "#vitehub/env/server";
 
 export default defineAgent({
   driver: {
+    credentialProfile: "support",
+    credentials: async ({ abortSignal }) => (await loadServerEnv(undefined, { signal: abortSignal })).codexAuthJson,
     kind: "codex",
     instructions: "Review the exact pull request head before changing code.",
     model: "gpt-5.5",
     permissions: "ask",
+    reasoningEffort: "high",
+    reasoningSummary: "detailed",
   },
   workspace: {
     mode: "write",
@@ -90,6 +95,10 @@ export default defineAgent({
   },
 });
 ```
+
+`credentials` accepts Codex `auth.json` as a string, a sealed Server Env value, or an invocation-time resolver. ViteHub never puts it in the provider environment. It writes the value to a `0600` file under a `0700` ViteHub-owned Codex Home and forces file-based Codex credential storage. Provisioned credentials require a POSIX host; ViteHub rejects them on Windows because these file modes cannot guarantee owner-only access there. A named `credentialProfile` keeps that writable Home at `.vitehub/data/codex/<credentialProfile>`, so Codex token refreshes survive process restarts when that directory uses durable storage. ViteHub serializes Codex runtime access to the profile, preserves a refreshed file while the resolver returns the same seed, and replaces it on the next invocation when the source rotates. Without `credentialProfile`, each invocation receives an isolated temporary Home that ViteHub removes after the Codex runtime stops.
+
+The resolver remains the external source of truth, but ViteHub does not write Codex refreshes back to it. A persisted profile is a complete Codex Home, including auth, configuration, session state, and logs, so treat the whole volume as sensitive. Give each Kubernetes replica its own persistent volume; profiles do not coordinate a shared multi-writer volume across processes or pods. Agent inspection reports only that a credential source is configured and never resolves, checks, or prints it.
 
 Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` or `CLAUDE.md`, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active; provider cursors are not durable across process restarts or workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 
@@ -155,7 +164,6 @@ Pass `--json` for the structured inspection contract.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
-- `papercuts()` lets an Agent report small runtime and developer-experience friction to an application-owned sink, with an optional Capability CLI command.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe); `openRouterTranscriptionModel()` provides OpenRouter transcription without consumer-owned HTTP handling.
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`.

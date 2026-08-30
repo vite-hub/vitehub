@@ -29,6 +29,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
+| `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
@@ -67,6 +68,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/source/file`, `vite-hub/source/glob`, and `vite-hub/source/markdown` | Local file implementations, loaded only when selected. |
 | `vite-hub/source/github` | GitHub Source implementation, loaded only when selected. |
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
+| `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
@@ -157,8 +159,23 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
 | `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
+| `@vite-hub/source/vite` | Register Source discovery, generated artifacts, and Nitro route integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |
 | `@vite-hub/workspace/vite` | Register the Workspace Vite Integration. |
+
+Applications composing `@vite-hub/source/vite` directly should extend
+`@vite-hub/source/tsconfig`. The config includes the generated Collection registry
+without requiring a framework-owned TypeScript entry or an application `.vitehub` glob.
+
+TypeScript replaces inherited array options. If an application defines its own `rootDirs`
+or `files`, its `include` must retain the generated Source declarations:
+
+```json
+{
+  "extends": ["@vite-hub/source/tsconfig"],
+  "include": ["src", ".vitehub/types/source/**/*.d.ts"]
+}
+```
 
 ## Generated and internal paths
 
@@ -175,7 +192,8 @@ for libraries, focused integrations, and advanced composition.
 The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
 With Nuxt, that source wrapper is generated under `<buildDir>/vitehub/agent/netlify-function.mjs` (normally `.nuxt/vitehub/agent/netlify-function.mjs`).
 
-The framework distribution does not introduce public `vite-hub/*/vite` or
+The framework distribution exposes `vite-hub/source/vite` for custom Source
+integration. It does not introduce other public `vite-hub/*/vite` or
 provider-specific application aliases. Use root `vitehub()` for framework
 composition and the owner-package paths above for advanced integration control.
 

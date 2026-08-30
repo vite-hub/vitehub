@@ -3,6 +3,7 @@ import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
 import type { AnyCollection, CollectionClientItem, CollectionPage, CollectionQuery } from "./core/collection.ts"
+import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string
 
@@ -67,7 +68,7 @@ function appBaseURL(): string {
 }
 
 function collectionEndpoint(name: CollectionName): string {
-  const path = `/api/${String(name).split("/").map(encodeURIComponent).join("/")}`
+  const path = `/api/${String(name).split("/").map(encodeCollectionRouteSegment).join("/")}`
   const baseURL = appBaseURL()
   return baseURL.startsWith("/") && !baseURL.startsWith("//") && baseURL !== "/"
     ? `${baseURL.replace(/\/+$/, "")}${path}`
