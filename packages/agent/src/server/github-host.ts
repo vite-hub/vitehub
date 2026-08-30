@@ -79,6 +79,7 @@ export interface GitHubGraphQLRateLimit {
 
 export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
   release(): void
+  settle(actualCost: number): void
 }
 
 export interface GitHubHost {
@@ -397,21 +398,28 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           resetAt: available.resetAt,
         })
         limits.set(key, reserved)
-        let released = false
+        let settled = false
+        const settle = (actualCost: number) => {
+          if (!Number.isSafeInteger(actualCost) || actualCost < 0 || actualCost > options.cost) {
+            throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer no greater than its reservation.")
+          }
+          if (settled) return
+          settled = true
+          const outstanding = reservations.get(key)
+          if (outstanding?.resetAt !== reserved.resetAt) return
+          const releasedPoints = Math.min(outstanding.points, options.cost - actualCost)
+          reservations.set(key, { points: outstanding.points - releasedPoints, resetAt: outstanding.resetAt })
+          const current = limits.get(key)
+          if (current?.resetAt === reserved.resetAt) {
+            limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
+          }
+        }
         return {
           ...reserved,
           release() {
-            if (released) return
-            released = true
-            const outstanding = reservations.get(key)
-            if (outstanding?.resetAt !== reserved.resetAt) return
-            const releasedPoints = Math.min(outstanding.points, options.cost)
-            reservations.set(key, { points: outstanding.points - releasedPoints, resetAt: outstanding.resetAt })
-            const current = limits.get(key)
-            if (current?.resetAt === reserved.resetAt) {
-              limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
-            }
+            settle(0)
           },
+          settle,
         }
       }
       if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)

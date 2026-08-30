@@ -279,6 +279,27 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 40 })
   })
 
+  it("settles overestimated GraphQL reservations with their actual cost", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.settle(40)
+    reservation.settle(30)
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 11 }))
+      .resolves.toMatchObject({ remaining: 49 })
+  })
+
+  it("rejects an invalid actual GraphQL cost", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    expect(() => reservation.settle(61)).toThrow(
+      "GitHub GraphQL actual cost must be a non-negative integer no greater than its reservation.",
+    )
+  })
+
   it("refreshes a cached GraphQL budget after its reset", async () => {
     await installFakeGitHubCommands()
     const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
