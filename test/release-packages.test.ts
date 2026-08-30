@@ -635,6 +635,9 @@ describe("release publication", () => {
       `./${artifact.manifest.packages[1].tarball}`,
       `./${artifact.manifest.packages[2].tarball}`,
     ])
+    const auditInstall = registry.calls.find(call => call.args[0] === "install")
+    expect(auditInstall?.args).toContain("--ignore-scripts")
+    expect(auditInstall?.args).not.toContain("--package-lock-only")
     expect(registry.calls.some(call => call.args[0] === "audit" && call.args[1] === "signatures")).toBe(true)
     expect(registry.calls.every(call => call.args.includes("--registry=https://registry.npmjs.org/"))).toBe(true)
   })

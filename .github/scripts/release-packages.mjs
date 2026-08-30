@@ -628,7 +628,7 @@ async function auditPublishedSignatures(packages, runtime) {
   try {
     const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.version]))
     await writeFile(join(directory, "package.json"), `${JSON.stringify({ dependencies, private: true }, null, 2)}\n`)
-    await command(runtime, "npm", ["install", "--package-lock-only", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", `--registry=${npmRegistry}`], { cwd: directory })
+    await command(runtime, "npm", ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", `--registry=${npmRegistry}`], { cwd: directory })
     await command(runtime, "npm", ["audit", "signatures", `--registry=${npmRegistry}`], { cwd: directory })
   }
   finally {
