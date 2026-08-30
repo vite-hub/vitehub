@@ -7,6 +7,7 @@ import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpen
 import { chat, progressSummary, title, schedule, subagents } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
+import { isAsyncIterable } from "../src/internal/stream-result.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
@@ -484,9 +485,15 @@ describe("agent message protocol", () => {
       "agent.invocation.start",
       "agent.invocation.finish",
     ])
+    expect(traceLog.entries().map(event => event.activity)).toEqual([
+      { owner: "agent", phase: "execution" },
+      { owner: "agent", phase: "execution" },
+    ])
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "input.hasPrompt": true,
       "runtime.name": "unknown",
+      "vitehub.activity.owner": "agent",
+      "vitehub.activity.phase": "execution",
     })
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
   })
@@ -858,7 +865,7 @@ describe("agent message protocol", () => {
     await expect(response.text()).rejects.toThrow("upstream failed")
   })
 
-  it("records a failed invocation when failure cleanup also fails", async () => {
+  it("records execution and error hook failures", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
@@ -882,9 +889,212 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.invocation.error",
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "run failed" },
+      },
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "error hook failed" },
+      },
     ])
     expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
       { status: "failed" },
+    ])
+  })
+
+  it("classifies Capability cleanup failures as ViteHub teardown", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-failure",
+      })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(cleanupFailure)
+
+    const cleanupEvents = traceLog.entries().filter(event => event.name === "agent.invocation.error")
+    expect(cleanupEvents).not.toHaveLength(0)
+    expect(cleanupEvents.map(event => event.activity)).toEqual(
+      cleanupEvents.map(() => ({ owner: "vitehub", phase: "teardown" })),
+    )
+  })
+
+  it("classifies finish delivery failures as Agent delivery", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const deliveryFailure = new Error("delivery failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => undefined,
+        id: "finish-delivery-failure",
+        prepare(context) {
+          context.delivery.finishEffect(() => { throw deliveryFailure })
+        },
+      })],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(deliveryFailure)
+
+    const failure = traceLog.entries().find(event => event.name === "agent.invocation.error")
+    expect(failure).toMatchObject({
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "delivery failed" },
+    })
+  })
+
+  it("traces execution and delivery stages when they throw the same value", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    for (const sharedFailure of [new Error("shared failure"), "shared failure"]) {
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "shared-delivery-failure",
+          prepare(context) {
+            context.delivery.finishEffect(() => { throw sharedFailure })
+          },
+        })],
+        driver: { run: async () => { throw sharedFailure } },
+      })
+
+      let runFailure: unknown
+      try {
+        await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        }, {})
+      }
+      catch (failure) {
+        runFailure = failure
+      }
+      expect(runFailure).toBeInstanceOf(AggregateError)
+      if (!(runFailure instanceof AggregateError)) throw runFailure
+      expect(runFailure.errors).toEqual([sharedFailure, sharedFailure])
+
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error").map(event => event.activity)).toEqual([
+        { owner: "agent", phase: "execution" },
+        { owner: "agent", phase: "delivery" },
+      ])
+    }
+  })
+
+  it("traces execution and later Capability cleanup failures once each", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const executionFailure = new Error("run failed")
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-after-execution-failure",
+      })],
+      driver: { run: async () => { throw executionFailure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow()
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "run failed" },
+      },
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": "cleanup failed" },
+      },
+    ])
+  })
+
+  it("traces execution and cleanup stages when they throw the same value", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    for (const sharedFailure of [new Error("shared failure"), "shared failure"]) {
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          close: async () => { throw sharedFailure },
+          id: "shared-cleanup-failure",
+        })],
+        driver: { run: async () => { throw sharedFailure } },
+      })
+
+      let runFailure: unknown
+      try {
+        await runAgent(agent, {
+          memo: vi.fn(),
+          runtime: "unknown",
+          traceLog,
+          waitUntil: vi.fn(),
+        }, {})
+      }
+      catch (failure) {
+        runFailure = failure
+      }
+      expect(runFailure).toBeInstanceOf(AggregateError)
+      if (!(runFailure instanceof AggregateError)) throw runFailure
+      expect(runFailure.errors).toEqual([sharedFailure, sharedFailure])
+
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error").map(event => event.activity)).toEqual([
+        { owner: "agent", phase: "execution" },
+        { owner: "vitehub", phase: "teardown" },
+      ])
+    }
+  })
+
+  it("traces input hook and Capability cleanup failures with separate ownership", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const inputFailure = new Error("input failed")
+    const cleanupFailure = new Error("cleanup failed")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "cleanup-after-input-failure",
+      })],
+      driver: { run: () => "unused" },
+      hooks: { "agent:input": async () => { throw inputFailure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBeInstanceOf(AggregateError)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "agent", phase: "execution" },
+        attributes: { "error.message": "input failed" },
+      },
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": "cleanup failed" },
+      },
     ])
   })
 
@@ -935,9 +1145,103 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.error",
     ])
+    expect(traceLog.entries()[0]!.activity).toEqual({ owner: "vitehub", phase: "setup" })
     expect(traceLog.entries()[0]!.attributes).toMatchObject({
       "agent.invoker.kind": "anonymous",
       "error.message": "setup failed",
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+    })
+  })
+
+  it("classifies pre-start delivery failures as Agent delivery", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const deliveryFailure = new Error("initial delivery failed")
+    const traceLog = createTraceEventLog()
+    const run = vi.fn(() => "unreachable")
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "failed-initial-delivery",
+        prepare(context) {
+          let armed = false
+          const intent = { intent: "started" }
+          Object.defineProperty(intent, "kind", {
+            get() {
+              if (armed) throw deliveryFailure
+              return "reaction"
+            },
+          })
+          // SAFETY: This test fixture intentionally exercises rejection while reading an initial delivery intent.
+          context.delivery.effect(intent as never)
+          queueMicrotask(() => { armed = true })
+        },
+      })],
+      driver: { run },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(deliveryFailure)
+
+    expect(run).not.toHaveBeenCalled()
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "initial delivery failed" },
+    }])
+  })
+
+  it("classifies Capability invocation-start failures as ViteHub setup", async () => {
+    const { capabilityInvocationStartSymbol } = await import("../src/capability-runtime.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const capability = defineCapability({ id: "failed-invocation-start" })
+    Object.defineProperty(capability, capabilityInvocationStartSymbol, {
+      value: () => { throw new Error("Capability invocation start failed") },
+    })
+    const agent = defineAgent({
+      capabilities: [capability],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "setup" },
+      attributes: { "error.message": "Capability invocation start failed" },
+    }])
+  })
+
+  it("attributes input-hook failures to Agent execution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "must not run" },
+      hooks: {
+        "agent:input": () => {
+          throw new Error("input hook failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("input hook failed")
+
+    expect(traceLog.entries()).toHaveLength(1)
+    expect(traceLog.entries()[0]).toMatchObject({
+      activity: { owner: "agent", phase: "execution" },
+      name: "agent.invocation.error",
     })
   })
 
@@ -3498,6 +3802,7 @@ describe("agent message protocol", () => {
       .mockResolvedValue(undefined)
     const execute = vi.fn(() => "Prepared title")
     const waitUntilTasks: Promise<unknown>[] = []
+    const traceLog = createTraceEventLog()
     const agent = defineAgent({
       capabilities: [title({ execute })],
       channels: {
@@ -3528,6 +3833,7 @@ describe("agent message protocol", () => {
       memo: vi.fn(),
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
+      traceLog,
       waitUntil: task => waitUntilTasks.push(task),
     }, "portal.message", {})
 
@@ -3541,6 +3847,10 @@ describe("agent message protocol", () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
     expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
+    expect(traceLog.entries().filter(event => event.name === "agent.channel.delivery.effect" && event.attributes?.["error.message"])).toMatchObject([{
+      activity: { owner: "agent", phase: "delivery" },
+      attributes: { "error.message": "temporary title failure" },
+    }])
   })
 
   it("delivers titles through Slack Assistant message Channels", async () => {
@@ -3952,6 +4262,135 @@ describe("agent message protocol", () => {
       outcome: "success",
       owner: "channel",
     }))
+  })
+
+  it("marks bounded unsupported reply content as truncated", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish": event => event.reply("x".repeat(16 * 1024 + 1)),
+      },
+    })
+
+    await expect(runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, "portal.message", {})).resolves.toBe("ok")
+
+    const delivery = traceLog.entries().find(event => event.name === "agent.channel.delivery.effect")
+    expect(delivery?.attributes).toMatchObject({
+      "channel.effect.content": "x".repeat(16 * 1024),
+      "channel.effect.kind": "reply",
+      "channel.effect.supported": false,
+      "vitehub.observation.truncated": true,
+    })
+  })
+
+  it("records metadata-only unsupported reply content", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "reply",
+        prepare(context) {
+          context.delivery.effect({ kind: "reply", metadata: { body: "Metadata reply." } })
+        },
+      })],
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, "portal.message", {})).resolves.toBe("ok")
+
+    const delivery = traceLog.entries().find(event => event.name === "agent.channel.delivery.effect")
+    expect(delivery?.attributes).toMatchObject({
+      "channel.effect.content": "Metadata reply.",
+      "channel.effect.kind": "reply",
+      "channel.effect.supported": false,
+    })
+  })
+
+  it("records bounded reply content when trace content is enabled", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: async ({ effect }) => {
+            if (!isAsyncIterable(effect.payload)) return
+            for await (const _chunk of effect.payload) {}
+          } },
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish": event => event.reply((async function* () {
+          yield "**Delivered "
+          yield "reply**"
+        })()),
+      },
+    })
+
+    await expect(runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, "portal.message", {})).resolves.toBe("ok")
+
+    const delivery = traceLog.entries().find(event => event.name === "agent.channel.delivery.effect")
+    expect(delivery?.attributes).toMatchObject({
+      "channel.effect.content": "**Delivered reply**",
+      "channel.effect.kind": "reply",
+    })
   })
 
   it("does not fail invocations when delivery effects or hook observers fail", async () => {
@@ -5792,6 +6231,131 @@ describe("agent message protocol", () => {
     }, {})).resolves.toMatchObject({ text: "ok" })
 
     await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({ entries: [] })
+  })
+
+  it("classifies Workspace auto-commit failures as ViteHub teardown", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineWorkspace } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const commitFailure = new Error("commit failed")
+    const traceLog = createTraceEventLog()
+    const workspaceName = `failed-auto-commit-${Math.random().toString(36).slice(2)}`
+    registerWorkspace(workspaceName, defineWorkspace({
+      commit: true,
+      store: { provider: "memory" },
+    }))
+    const agent = defineAgent({
+      driver: { async run({ workspace }) {
+          // SAFETY: This test fixture intentionally constructs the exact writable Workspace contract.
+          const writableWorkspace = workspace as WritableWorkspaceFacade
+          await writableWorkspace.fs.writeFile("notes.md", "uncommitted")
+          vi.spyOn(writableWorkspace, "snapshot").mockRejectedValue(commitFailure)
+          return { text: "ok" }
+        } },
+      workspace: {
+        mode: "write",
+        name: workspaceName,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(commitFailure)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "error.message": "commit failed" },
+    }])
+  })
+
+  it("classifies Capability finish extension failures as ViteHub teardown", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const extensionFailure = new Error("finish extension failed")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [{
+        id: "failed-finish-extension",
+        output(context) {
+          context.finish.provide(() => { throw extensionFailure })
+        },
+      }],
+      hooks: { "agent:finish": vi.fn() },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(extensionFailure)
+
+    expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([{
+      activity: { owner: "vitehub", phase: "teardown" },
+      attributes: { "error.message": "finish extension failed" },
+    }])
+  })
+
+  it("classifies durable finish extension timeouts as ViteHub teardown", async () => {
+    vi.useFakeTimers()
+    try {
+      const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+      const { telegram } = await import("../src/channels.ts")
+      const { agentWorkflowExecutionContextKey } = await import("../src/internal/workflow-execution.ts")
+      const executionFailure = new Error("provider failed")
+      const postMessage = vi.fn(async () => undefined)
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "stalled-finish-extension",
+          prepare(context) {
+            context.finish.provide(() => new Promise(() => undefined))
+          },
+        })],
+        channels: {
+          telegram: telegram({
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+            adapter: () => ({
+              channelIdFromThreadId: () => "telegram:123",
+              postMessage,
+            }) as never,
+          }),
+        },
+        driver: { run: async () => { throw executionFailure } },
+        messages: { errorFallbackText: "Please try again.", timeout: 10 },
+      })
+      const result = runAgent(agent, {
+        [agentWorkflowExecutionContextKey]: true,
+        memo: vi.fn(),
+        run: { channelId: "telegram", origin: "telegram", runId: "durable-finish-timeout", threadId: "telegram:123" },
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      }, {
+        context: { channel: { message: { text: "Hello" } } },
+        prompt: "Hello",
+      }).catch(error => error)
+
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(10)
+      await expect(result).resolves.toBeInstanceOf(AggregateError)
+      expect(traceLog.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+        {
+          activity: { owner: "agent", phase: "execution" },
+          attributes: { "error.message": "provider failed" },
+        },
+        {
+          activity: { owner: "vitehub", phase: "teardown" },
+          attributes: { "error.message": "Durable chat error fallback delivery timed out after 10ms." },
+        },
+      ])
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("does not rerun finish lifecycle when a finish hook fails", async () => {

@@ -81,11 +81,12 @@ export interface ProvisionRequest {
 }
 
 export class ProvisionRequestError extends Error {
-  readonly codes: readonly number[]
+  readonly codes: readonly (number | string)[]
   readonly status: number
 
-  constructor(method: string, path: string, status: number, codes: readonly number[] = []) {
-    super(`Provision request failed: ${method} ${path} (${status}).`)
+  constructor(method: string, path: string, status: number, codes: readonly (number | string)[] = []) {
+    const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
+    super(`Provision request failed: ${method} ${path} (${status}).${suffix}`)
     this.name = "ProvisionRequestError"
     this.codes = codes
     this.status = status
@@ -106,8 +107,13 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
-      const body = await response.json().catch(() => undefined) as { errors?: Array<{ code?: unknown }> } | undefined
-      const codes = body?.errors?.flatMap(error => typeof error.code === "number" ? [error.code] : []) ?? []
+      const body = await response.json().catch(() => undefined) as {
+        error?: { code?: unknown }
+        errors?: Array<{ code?: unknown }>
+      } | undefined
+      const codes = [body?.error?.code, ...body?.errors?.map(error => error.code) ?? []]
+        .filter((code): code is number | string => typeof code === "number"
+          || (typeof code === "string" && /^[\w.-]{1,128}$/.test(code)))
       throw new ProvisionRequestError(options.method ?? "GET", path, response.status, codes)
     }
     const value: unknown = await response.json()

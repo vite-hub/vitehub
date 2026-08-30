@@ -12,7 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob
+pnpm add @vite-hub/blob h3
+pnpm add -D vite
 ```
 
 Add the SDK required by the driver you configure.

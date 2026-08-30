@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
@@ -14,11 +14,12 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
 import type { Telemetry } from "ai"
-import type { TraceEvent } from "@vite-hub/runtime"
+import type { TraceActivityContext, TraceEvent } from "@vite-hub/runtime"
 
 export const agentInvocationJournalTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalTraceLog")
 export const agentInvocationJournalContentTraceLogSymbol: unique symbol = Symbol("vitehub.agent.invocationJournalContentTraceLog")
 const MAX_TRACE_TEXT_EVENT_LENGTH = 64 * 1024
+const MAX_CHANNEL_EFFECT_CONTENT_LENGTH = 16 * 1024
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   context: AgentInvocationContextStore
@@ -29,6 +30,29 @@ export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = A
 }
 
 export const agentInvocationTraceIdContextKey = "agent.invocation.traceId"
+
+function channelEffectContent(effect: AgentChannelDeliveryEffectIntent): { content?: string, truncated: boolean } {
+  if (effect.kind !== "reply") return { truncated: false }
+  if (hasRuntimeType(effect.payload, "string")) {
+    return {
+      content: effect.payload.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+      truncated: effect.payload.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH,
+    }
+  }
+  const content = isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.body, "string")
+    ? effect.payload.body
+    : isRuntimeRecord(effect.payload) && hasRuntimeType(effect.payload.markdown, "string")
+      ? effect.payload.markdown
+      : hasRuntimeType(effect.metadata?.body, "string")
+        ? effect.metadata.body
+        : hasRuntimeType(effect.metadata?.markdown, "string")
+          ? effect.metadata.markdown
+      : undefined
+  return {
+    content: content?.slice(0, MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+    truncated: Boolean(content && content.length > MAX_CHANNEL_EFFECT_CONTENT_LENGTH),
+  }
+}
 
 export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext }): boolean {
   return Boolean(context.runtime.traceLog)
@@ -273,12 +297,20 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
     }
     await emitTraceEvent(context.runtime, {
       ...event,
+      activity: event.activity || agentTraceActivity(event),
       ...(attributes ? { attributes } : {}),
       trace: event.trace || context.runtime.trace,
     })
   }
   catch {
     // Trace sinks must not change Agent Invocation behavior.
+  }
+}
+
+function agentTraceActivity(event: TraceEvent): TraceActivityContext {
+  return {
+    owner: "agent",
+    phase: event.name.startsWith("agent.channel.delivery.") ? "delivery" : "execution",
   }
 }
 
@@ -306,9 +338,11 @@ export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRun
 export async function traceAgentInvocationError<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   error: unknown,
+  activity?: TraceActivityContext,
 ): Promise<void> {
   const details = agentErrorDetails(error)
   await traceAgentEvent(context, {
+    ...(activity ? { activity } : {}),
     attributes: invocationAttributes(context, {
       "error.message": details.message,
       "error.name": details.name,
@@ -323,10 +357,13 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
   effect: AgentChannelDeliveryEffectIntent,
   attributes: Record<string, unknown> = {},
 ): Promise<void> {
+  const content = channelEffectContent(effect)
   await traceAgentEvent(context, {
     attributes: invocationAttributes(context, {
+      "channel.effect.content": content.content,
       "channel.effect.intent": effect.intent,
       "channel.effect.kind": effect.kind,
+      ...(content.truncated ? { "vitehub.observation.truncated": true } : {}),
       ...attributes,
     }),
     name: "agent.channel.delivery.effect",

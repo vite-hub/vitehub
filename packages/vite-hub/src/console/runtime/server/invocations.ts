@@ -19,6 +19,7 @@ import type { AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"
 
 const consoleMetadataContent = [
+  "channel.effect.content",
   "input.messages",
   "input.prompt",
   "message.content",
