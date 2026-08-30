@@ -466,6 +466,51 @@ describe("KV Vite output", () => {
     expect(wrangler.kv_namespaces).toEqual([{ binding: "MANUAL", id: "manual-namespace" }])
     expect(existsSync(join(cloudflareOutputRoot, kvBindingsFile))).toBe(false)
   })
+
+  it("retains a manually configured Nitro namespace during stale cleanup", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [{ binding: "KV", id: "manual-namespace" }],
+    }, null, 2)}\n`, "utf8")
+    await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["KV"], null, 2)}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "fs-lite" },
+      logLevel: "silent",
+      // SAFETY: Vite preserves provider-owned Nitro configuration as an open custom field.
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            kv_namespaces: [{ binding: "KV", id: "manual-namespace" }],
+          },
+        },
+      },
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+    expect(wrangler.kv_namespaces).toEqual([{ binding: "KV", id: "manual-namespace" }])
+    expect(existsSync(join(cloudflareOutputRoot, kvBindingsFile))).toBe(false)
+  })
 })
 
 describe("KV source type visibility", () => {

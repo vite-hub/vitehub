@@ -146,6 +146,11 @@ interface NitroCloudflareKVTarget {
   }
 }
 
+function getNitroCloudflareKVBindings(target: unknown): string[] {
+  if (!isPlainObject(target)) return []
+  return (target as NitroCloudflareKVTarget).cloudflare?.wrangler?.kv_namespaces?.map(namespace => namespace.binding) ?? []
+}
+
 function reconcileNitroCloudflareKV(
   target: NitroCloudflareKVTarget,
   kv: KVViteRuntimeConfig["kv"],
@@ -274,7 +279,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         const clientOutDir = resolved.build.outDir
         const wranglerConfig = nitroOwned ? undefined : createCloudflareKVWranglerConfig(getConfig().kv)
         const nextBindings = wranglerConfig?.kv_namespaces?.map(binding => binding.binding) ?? []
-        const nitroBindings = nitroOwned ? [...ownedNitroNamespaces].map(namespace => namespace.binding) : []
+        const nitroBindings = nitroOwned
+          ? [...new Set([
+              ...getNitroCloudflareKVBindings(nitroOptions),
+              ...getNitroCloudflareKVBindings(resolved.nitro),
+            ])]
+          : []
         const wranglerConfigOwnership = {
           arrays: {
             kv_namespaces: {
