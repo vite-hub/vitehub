@@ -4277,7 +4277,7 @@ async function chatTriggerMessages(
     messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [...messages, current]
   }
   messages = messages.slice(-limit)
-  const triggerBoundary = messages.length - (triggerLimit || 0)
+  const triggerBoundary = messages.length - (triggerLimit ?? 1)
   return {
     materializeAttachments: async () => await Promise.all(messages.map(async (item, index) => {
       const source = historySource.get(item)
