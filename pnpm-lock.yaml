@@ -2029,6 +2029,9 @@ importers:
       google-auth-library:
         specifier: catalog:storage
         version: 10.6.2
+      shiki:
+        specifier: ^4.3.0
+        version: 4.3.1
       uploadthing:
         specifier: catalog:storage
         version: 7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)
@@ -7581,7 +7584,7 @@ packages:
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41':
-    resolution: {integrity: sha512-E5MNW2kOq2suxXDHjyJcRToZX0z9xuNB2Av3lEGjm+up/L2VeH8t9j9SdnlkxAL2TifCdquT2CSeQusocw0Q+A==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@72bf93e63efec0b95fef3880265d68ab6569ac41}
     version: 0.0.35
     peerDependencies:
       effect: 4.0.0-beta.103
