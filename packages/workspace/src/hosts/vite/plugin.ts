@@ -63,6 +63,7 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
 interface BabelNode {
   arguments?: BabelNode[]
   callee?: BabelNode
+  computed?: boolean
   elements?: Array<BabelNode | null>
   expression?: BabelNode
   init?: BabelNode
@@ -401,6 +402,7 @@ async function sourceModuleMayUseCloudflareArtifacts(
   if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
   for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
+    if (!importedName) return true
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
@@ -415,8 +417,8 @@ function sourceImportsFeedingWorkspaceStore(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   exportedName: string,
-): Array<{ importedName: string, specifier: string }> {
-  const imports: Array<{ importedName: string, specifier: string }> = []
+): Array<{ importedName?: string, specifier: string }> {
+  const imports: Array<{ importedName?: string, specifier: string }> = []
   loader.transform({
     filename: loaded.file,
     jsx: extname(loaded.file).endsWith("x"),
@@ -494,15 +496,19 @@ function sourceImportsFeedingWorkspaceStore(
               // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
               const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
               for (const property of properties ?? []) {
-                const localName = (property.value as BabelNode | undefined)?.name
+                const value = property.value as BabelNode | undefined
+                const local = value?.type === "AssignmentPattern" ? value.left : value
+                const localName = local?.name
                 if (property.type !== "ObjectProperty" || typeof localName !== "string") continue
                 const reachesRequestedExport = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
                   ? babelPathReachesExportedStore(reference)
                   : babelPathOrBindingIsExported(reference, exportedName))
                 if (!reachesRequestedExport) continue
-                const importedName = property.key?.name ?? property.key?.value
+                const importedName = property.computed
+                  ? babelStringValue(property.key as BabelNode | undefined, path)
+                  : property.key?.name ?? property.key?.value
                 // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
-                if (typeof importedName === "string") imports.push({ importedName, specifier })
+                imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
               }
               return
             }
@@ -638,7 +644,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleDeclaresCloudflareArtifacts(definition.path, loader)) continue
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, resolveModule)) continue
       throw error
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
