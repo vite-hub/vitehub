@@ -122,7 +122,7 @@ const treeOptions = computed(() => ({
 
 watch(
   [() => props.invocation.id, () => props.workspaceBase],
-  ([invocationId, workspaceBase], [previousInvocationId, previousWorkspaceBase]) => {
+  () => {
     workspaceRequest?.abort();
     fileRequest?.abort();
     workspace.value = undefined;
@@ -131,13 +131,6 @@ watch(
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
-    if (
-      previousInvocationId !== undefined &&
-      (invocationId !== previousInvocationId || workspaceBase !== previousWorkspaceBase)
-    ) {
-      selectedPath.value = undefined;
-      openPaths.value = [];
-    }
     void loadWorkspace();
   },
   { immediate: true },

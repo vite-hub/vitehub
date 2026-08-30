@@ -322,6 +322,9 @@ describe("framework package contract", () => {
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
     ).toContain("<h1>Health</h1>");
+    expect(
+      readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
+    ).not.toContain("Babysitter");
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consolePage).toContain("<UDashboardNavbar");
     expect(consolePage).toContain('class="lg:hidden"');

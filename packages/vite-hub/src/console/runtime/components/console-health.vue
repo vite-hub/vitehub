@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
         <div
           v-if="loading && !health"
           class="health-skeleton"
-          aria-label="Checking Babysitter health"
+          aria-label="Checking host health"
         >
           <section><i /><small /><span v-for="index in 3" :key="index" /></section>
           <section><small /><span /></section>
@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
               <h2>Diagnostics</h2>
               <span>Live service configuration and readiness</span>
             </header>
-            <div class="health-breakdown__table" role="table" aria-label="Babysitter diagnostics">
+            <div class="health-breakdown__table" role="table" aria-label="Host diagnostics">
               <div class="health-breakdown__head" role="row">
                 <span role="columnheader">Component</span><span role="columnheader">Readiness</span
                 ><span role="columnheader">Value</span><span role="columnheader">Detail</span>

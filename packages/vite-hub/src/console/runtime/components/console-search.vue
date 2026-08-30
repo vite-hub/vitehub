@@ -41,7 +41,7 @@ const props = defineProps<{
   searchBase: string;
   sectionsBase: string;
 }>();
-const emit = defineEmits<{ selectSession: [] }>();
+const emit = defineEmits<{ selectPage: []; selectSession: [] }>();
 const route = useRoute();
 const router = useRouter();
 const open = ref(false);
@@ -191,6 +191,7 @@ async function loadNavigation(discoverAgents = false): Promise<void> {
 
 async function selectPage(routeName: string): Promise<void> {
   open.value = false;
+  emit("selectPage");
   await router.push({ name: resolveConsoleRouteName(route.name, routeName) });
 }
 

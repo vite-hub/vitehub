@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
+import { isDeniedApproval, traceEventId } from "./console-session-trace-model";
 
 type Observation = AgentInvocationView["observations"][number];
 type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
@@ -279,14 +280,7 @@ function invocationSpan(invocation: AgentInvocationView, observations: Observati
 }
 
 function eventId(observation: Observation) {
-  return (
-    stringAttribute(observation, "step.id") ||
-    stringAttribute(observation, "tool.id") ||
-    stringAttribute(observation, "gen_ai.tool.call.id") ||
-    stringAttribute(observation, "model.call.id") ||
-    stringAttribute(observation, "agent.invocation.id") ||
-    `${observation.name}:${observation.sequence}`
-  );
+  return traceEventId(observation);
 }
 
 function activityId(observation: Observation) {
@@ -339,6 +333,7 @@ function spanStatus(
   invocation: AgentInvocationView,
   operation: string,
 ): SpanStatus {
+  if (isDeniedApproval(operation, attributes)) return "failed";
   if (finish?.name.endsWith(".error")) return "failed";
   if (finish?.name.endsWith(".failed")) return "failed";
   if (

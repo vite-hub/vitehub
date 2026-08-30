@@ -60,6 +60,7 @@ const inspectorActiveSurface = ref("view:details");
 const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["details"]);
 const inspectorOpenPaths = ref<string[]>([]);
 const inspectorSelectedPath = ref<string>();
+const inspectorWorkspaceIdentity = ref<string>();
 const activePage = ref<"health" | "sessions">("sessions");
 const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
@@ -470,6 +471,14 @@ watch(
 
 watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
+  const identity = selectedInvocationId.value
+    ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
+    : undefined;
+  if (identity !== inspectorWorkspaceIdentity.value) {
+    inspectorWorkspaceIdentity.value = identity;
+    inspectorSelectedPath.value = undefined;
+    inspectorOpenPaths.value = [];
+  }
 });
 
 watch(
@@ -706,6 +715,7 @@ onBeforeUnmount(() => {
       :search-base="searchBase"
       :sections-base="sectionsBase"
       @select-session="showSessions"
+      @select-page="showSessions"
     />
 
     <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="sessionsOpen = true" />
