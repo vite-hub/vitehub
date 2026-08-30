@@ -93,7 +93,7 @@ function collectCreateRequireAliases(source: string): Set<string> {
       if (imported) factories.add(imported[1] ?? "createRequire")
     }
   }
-  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
     factories.add(`${match[1]}.createRequire`)
   }
   for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {

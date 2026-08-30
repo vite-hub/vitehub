@@ -148,13 +148,17 @@ loadDefault("default-runtime")
 `)).toEqual(["bare-runtime", "default-runtime", "namespace-runtime"])
   })
 
-  it("finds createRequire aliases from combined default and named module imports", () => {
+  it("finds createRequire aliases from combined module imports", () => {
     expect(collectDenoRuntimePackageNames(`
 import moduleApi, { createRequire as makeRequire } from "node:module"
+import moduleDefault, * as moduleNamespace from "module"
 const load = makeRequire(import.meta.url)
+const loadFromNamespace = moduleNamespace.createRequire(import.meta.url)
 load("combined-module-runtime")
+loadFromNamespace("combined-namespace-runtime")
 void moduleApi
-`)).toContain("combined-module-runtime")
+void moduleDefault
+`)).toEqual(["combined-module-runtime", "combined-namespace-runtime"])
   })
 
   it("finds createRequire aliases from dynamic module imports", () => {
