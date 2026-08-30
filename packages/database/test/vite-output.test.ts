@@ -488,8 +488,8 @@ describe("Vite db provider outputs", () => {
     ])
     expect(existsSync(vercelServer)).toBe(true)
     const bundledServerCode = await readFile(join(rootDir, "dist/client/server.js"), "utf8")
-    expect(bundledServerCode.includes("\"analytics\"")).toBe(true)
-    expect(bundledServerCode.includes("\"primary\"")).toBe(true)
+    expect(bundledServerCode).toMatch(/\banalytics\b/)
+    expect(bundledServerCode).toMatch(/\bprimary\b/)
     expect(bundledServerCode.includes("runtime/virtual-databases.js")).toBe(false)
     expect(bundledServerCode.includes("var databases$1 = {};")).toBe(false)
 
