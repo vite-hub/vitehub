@@ -1262,6 +1262,35 @@ try { require("optional-native") } catch {}
     await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
   })
 
+  it("accepts compatible protocol peer ranges", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-protocol-peers-"))
+    await writeJson(join(root, "package.json"), {})
+    for (const [name, peerRange] of [["peer-consumer-a", "workspace:^"], ["peer-consumer-b", "catalog:database"]]) {
+      const consumerDir = join(root, "node_modules", name)
+      await writeJson(join(consumerDir, "package.json"), { name, peerDependencies: { "shared-peer": peerRange }, version: "1" })
+      await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version: "1.2.0" })
+    }
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.2.0" })
+  })
+
+  it("does not replace an explicitly imported root package with a peer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-explicit-peer-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "shared-peer", { version: "1.0.0" })
+    const consumerDir = join(root, "node_modules/peer-consumer")
+    await writeJson(join(consumerDir, "package.json"), { name: "peer-consumer", peerDependencies: { "shared-peer": "^2" }, version: "1" })
+    await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version: "2.0.0" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), 'import "shared-peer"\nimport "peer-consumer"\n')
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
+  })
+
   it("does not copy nested development node_modules from runtime packages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-nested-node-modules-"))
     const packageDir = join(root, "node_modules/plain")

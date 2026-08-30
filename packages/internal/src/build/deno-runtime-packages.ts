@@ -4,7 +4,7 @@ import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import type { Plugin } from "esbuild"
-import { satisfies } from "semver"
+import { satisfies, validRange } from "semver"
 
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 
@@ -611,8 +611,20 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
     peerDependencies: stringRecord("peerDependencies"),
     // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
     peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown version field.
     version: typeof record.version === "string" ? record.version : undefined,
   }
+}
+
+function normalizePeerRange(range: string, resolvedVersion: string | undefined): string | undefined {
+  if (validRange(range)) return range
+  if (!resolvedVersion) return
+  if (range === "workspace:*") return "*"
+  if (range === "workspace:^") return `^${resolvedVersion}`
+  if (range === "workspace:~") return `~${resolvedVersion}`
+  const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
+  if (workspaceRange && validRange(workspaceRange)) return workspaceRange
+  return resolvedVersion
 }
 
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
@@ -623,6 +635,17 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const rootPackagePaths = new Map<string, { hoistedPeer: boolean, path: string, peerRanges: string[], version?: string }>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
+  for (const runtimePackage of packages) {
+    if (!runtimePackage.packageJsonPath) continue
+    const packageJsonPath = await realpath(runtimePackage.packageJsonPath)
+    const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+    rootPackagePaths.set(runtimePackage.name, {
+      hoistedPeer: false,
+      path: packageJsonPath,
+      peerRanges: [],
+      version: packageJson.version,
+    })
+  }
   for (const runtimePackage of packages) {
     const targetDir = join(options.outputNodeModules, ...runtimePackage.name.split("/"))
     let selectedPackage = runtimePackage
@@ -659,12 +682,13 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (outputNodeModules === rootOutputNodeModules) {
     const existingPath = rootPackagePaths.get(name)
-    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [options.peerRange] : [])]
+    const normalizedPeerRange = options.peerRange ? normalizePeerRange(options.peerRange, packageJson.version) : undefined
+    const peerRanges = [...(existingPath?.peerRanges || []), ...(normalizedPeerRange ? [normalizedPeerRange] : [])]
     if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
       if (existingPath.version && peerRanges.every(range => satisfies(existingPath.version!, range))) {
         resolvedPackageJsonPath = existingPath.path
         packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
-      } else if (!packageJson.version || !peerRanges.every(range => satisfies(packageJson.version!, range))) {
+      } else if (!existingPath.hoistedPeer || !packageJson.version || !peerRanges.every(range => satisfies(packageJson.version!, range))) {
         throw new Error(`Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.`)
       }
     }
