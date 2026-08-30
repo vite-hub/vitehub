@@ -31,6 +31,8 @@ describe("bundleEsmEntry", () => {
     await Promise.all([
       mkdir(broadDir),
       mkdir(nestedDir),
+    ])
+    await Promise.all([
       writeFile(entry, 'export { value } from "@//job.mjs"\n', "utf8"),
       writeFile(resolve(broadDir, "job.mjs"), "export const value = 'broad'\n", "utf8"),
       writeFile(resolve(nestedDir, "job.mjs"), "export const value = 'nested'\n", "utf8"),
