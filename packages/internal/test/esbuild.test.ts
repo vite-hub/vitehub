@@ -101,6 +101,37 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("canonicalizes absolute alias keys before matching copied dependencies", async () => {
+    const rootDir = await createTempDir()
+    const physicalDir = resolve(rootDir, "packages/kv/dist")
+    const linkedDir = resolve(rootDir, "node_modules/@vite-hub/kv")
+    const entry = resolve(rootDir, "entry.mjs")
+    const original = resolve(physicalDir, "vite.mjs")
+    const linkedOriginal = resolve(linkedDir, "dist/vite.mjs")
+    const replacement = resolve(rootDir, "guard.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(physicalDir, { recursive: true }),
+      mkdir(dirname(linkedDir), { recursive: true }),
+    ])
+    await Promise.all([
+      symlink(resolve(rootDir, "packages/kv"), linkedDir, "dir"),
+      writeFile(original, "export const value = 'config-only'\n", "utf8"),
+      writeFile(replacement, "export const value = 'runtime-guard'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { [linkedOriginal]: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("runtime-guard")
+    expect(await readFile(outfile, "utf8")).not.toContain("config-only")
+  })
+
   it("preserves declaration order for overlapping prefix aliases", async () => {
     const rootDir = await createTempDir()
     const broadDir = resolve(rootDir, "broad")

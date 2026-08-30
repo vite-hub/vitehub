@@ -36,23 +36,27 @@ function normalizePathSeparators(path: string): string {
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
-  const resolvedEntries = entries.map(([specifier, replacement]) => {
+  const resolvedEntries = Promise.all(entries.map(async ([specifier, replacement]) => {
     const prefix = specifier.endsWith("/")
+    const resolvedSpecifier = isAbsolute(specifier) ? normalizePathSeparators(resolve(specifier)) : specifier
+    const canonicalSpecifier = isAbsolute(resolvedSpecifier)
+      ? normalizePathSeparators(await realpath(resolvedSpecifier).catch(() => resolvedSpecifier))
+      : resolvedSpecifier
     return {
+      canonicalSpecifier: `${canonicalSpecifier}${prefix && !canonicalSpecifier.endsWith("/") ? "/" : ""}`,
       prefix,
       replacement: isAbsolute(replacement)
         ? `${normalizePathSeparators(resolve(replacement))}${/[\\/]$/.test(replacement) ? "/" : ""}`
         : replacement,
-      specifier: isAbsolute(specifier)
-        ? `${normalizePathSeparators(resolve(specifier))}${prefix ? "/" : ""}`
-        : specifier,
+      specifier: `${resolvedSpecifier}${prefix && !resolvedSpecifier.endsWith("/") ? "/" : ""}`,
     }
-  })
+  }))
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
+        const aliases = await resolvedEntries
         const specifier = args.resolveDir && /^\.\.?[\\/]/.test(args.path)
           ? resolve(args.resolveDir, args.path)
           : args.path
@@ -60,12 +64,15 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
         const canonicalSpecifier = isAbsolute(normalizedSpecifier)
           ? normalizePathSeparators(await realpath(normalizedSpecifier).catch(() => normalizedSpecifier))
           : normalizedSpecifier
-        const match = resolvedEntries.find(({ prefix, specifier }) => prefix
-          ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(specifier)
-          : normalizedSpecifier === specifier || canonicalSpecifier === specifier)
-        const matchedSpecifier = match && canonicalSpecifier.startsWith(match.specifier) ? canonicalSpecifier : normalizedSpecifier
+        const match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix, specifier }) => prefix
+          ? normalizedSpecifier.startsWith(specifier) || canonicalSpecifier.startsWith(canonicalAlias)
+          : normalizedSpecifier === specifier || canonicalSpecifier === canonicalAlias)
+        const matchedAlias = match && canonicalSpecifier.startsWith(match.canonicalSpecifier)
+          ? match.canonicalSpecifier
+          : match?.specifier
+        const matchedSpecifier = matchedAlias === match?.canonicalSpecifier ? canonicalSpecifier : normalizedSpecifier
         const target = match?.prefix
-          ? `${match.replacement}${matchedSpecifier.slice(match.specifier.length)}`
+          ? `${match.replacement}${matchedSpecifier.slice(matchedAlias!.length)}`
           : match?.replacement
         if (!target) return
         return build.resolve(target, {
