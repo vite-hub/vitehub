@@ -66,11 +66,13 @@ interface BabelNode {
   elements?: Array<BabelNode | null>
   expression?: BabelNode
   init?: BabelNode
+  imported?: BabelNode
   id?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
   name?: string
   object?: BabelNode
   property?: BabelNode
+  source?: BabelNode
   specifiers?: BabelNode[]
   local?: BabelNode
   exported?: BabelNode
@@ -117,6 +119,23 @@ function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<Babel
     if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
       const binding = current.scope.getBinding(current.node.id.name)
       if (binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference, seen))) return true
+    }
+  }
+  return false
+}
+
+function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current) === "store"
+      && babelPathReachesDefaultExport(current)
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
     }
   }
   return false
@@ -191,13 +210,14 @@ function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, s
 async function sourceModuleDeclaresCloudflareArtifacts(
   file: string,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName = "default",
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
   if (!loaded) return false
   let declaresCloudflareArtifacts = false
   loader.transform({
     filename: loaded.file,
-    jsx: /x$/.test(extname(loaded.file)),
+    jsx: extname(loaded.file).endsWith("x"),
     source: loaded.source,
     ts: /\.[cm]?tsx?$/.test(loaded.file),
     babel: {
@@ -205,9 +225,22 @@ async function sourceModuleDeclaresCloudflareArtifacts(
         visitor: {
           ObjectProperty(path: BabelObjectPropertyPath) {
             const value = path.node.value as BabelNode | undefined
+            const belongsToRequestedExport = exportedName === "default"
+              ? babelPropertyBelongsToExportedStore(path)
+              : (() => {
+                  for (let current = path.parentPath; current; current = current.parentPath) {
+                    if (
+                      current.node.type === "VariableDeclarator"
+                      && current.node.id?.type === "Identifier"
+                      && current.node.id.name === exportedName
+                      && babelPathOrBindingIsExported(current, exportedName)
+                    ) return true
+                  }
+                  return false
+                })()
             if (
               babelPropertyName(path) === "provider"
-              && babelPropertyBelongsToExportedStore(path)
+              && belongsToRequestedExport
               && babelStringValue(value, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
@@ -241,52 +274,64 @@ async function sourceModuleMayUseCloudflareArtifacts(
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   resolveModule?: SourceModuleResolver,
   visited = new Set<string>(),
+  exportedName = "default",
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
   if (!loaded || visited.has(loaded.file)) return false
   visited.add(loaded.file)
-  if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader)) return true
+  if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
-  const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
-  for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
-    const imports = match[1]?.trim()
-    if (!imports) continue
-    if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").map(entry => entry.trim()).filter(Boolean).every(entry => /^type\b/.test(entry))) continue
-    const defaultImport = imports.split(",", 1)[0]?.trim()
-    if (
-      defaultImport
-      && /^[A-Za-z_$][\w$]*$/.test(defaultImport)
-      && !sourceIdentifierFeedsWorkspaceStore(loaded.source, defaultImport)
-    ) continue
-    const specifier = match[2]!
+  for (const { importedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
     if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited)) return true
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, importedName)) return true
   }
   return false
 }
 
-function sourceIdentifierFeedsWorkspaceStore(source: string, identifier: string): boolean {
-  const candidates = new Set([identifier])
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const candidate of candidates) {
-      const aliasPattern = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${candidate}\\b`, "g")
-      for (const match of source.matchAll(aliasPattern)) {
-        if (candidates.has(match[1]!)) continue
-        candidates.add(match[1]!)
-        changed = true
-      }
-    }
-  }
-  return [...candidates].some(candidate => (
-    new RegExp(`\\bstore\\s*:\\s*${candidate}\\b`).test(source)
-    || (candidate === "store" && /\bstore\s*(?=[,}])/.test(source))
-  ))
+function sourceImportsFeedingWorkspaceStore(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName: string,
+): Array<{ importedName: string, specifier: string }> {
+  const imports: Array<{ importedName: string, specifier: string }> = []
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ImportDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            if (typeof specifier !== "string") return
+            for (const imported of path.node.specifiers ?? []) {
+              if (imported.local?.type !== "Identifier" || !imported.local.name) continue
+              const binding = path.scope.getBinding(imported.local.name)
+              const reachesRequestedExport = exportedName === "default"
+                ? binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
+                : binding?.referencePaths?.some(reference => {
+                    for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
+                      if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
+                    }
+                    return false
+                  })
+              if (!reachesRequestedExport) continue
+              imports.push({
+                importedName: imported.type === "ImportDefaultSpecifier" ? "default" : String(imported.imported?.name ?? imported.imported?.value),
+                specifier,
+              })
+            }
+          },
+        },
+      })],
+    },
+  })
+  return imports
 }
 
 function vercelFunctionRuntimePackages() {

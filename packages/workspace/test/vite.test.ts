@@ -1602,6 +1602,74 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("follows aliased named exports into the Workspace store", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "workspace-store.ts"), `export const artifactOptions = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import { artifactOptions } from "./workspace-store"`,
+      `export default { store: artifactOptions }`,
+      ``,
+    ].join("\n"))
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([
+      { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
+    ])
+  })
+
+  it("does not follow named imports unrelated to the Workspace store", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "deployment.ts"), `export const deployment = { provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "#generated-workspace-store"`,
+      `import { deployment } from "./deployment"`,
+      `console.log(deployment)`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ store: { provider: "memory" } })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+
+    await expect(closeBundle.handler()).resolves.toBeUndefined()
+  })
+
+  it("does not follow store aliases from an unrelated lexical scope", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "deployment.ts"), `export default { provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import generatedStore from "#generated-workspace-store"`,
+      `import deployment from "./deployment"`,
+      `function inspect() {`,
+      `  const store = deployment`,
+      `  return store`,
+      `}`,
+      `console.log(inspect)`,
+      `const store = generatedStore`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ store: { provider: "memory" } })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+
+    await expect(closeBundle.handler()).resolves.toBeUndefined()
+  })
+
   it("does not inspect unrelated default exports or non-script imports for Cloudflare Artifacts", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "deployment.ts"), `export default { provider: "cloudflare-artifacts" }\n`)
