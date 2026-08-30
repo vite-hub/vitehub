@@ -1613,6 +1613,20 @@ describe("hubWorkspace", () => {
       },
       name: "helper-returned options",
     },
+    {
+      definition: `import { workspaceStore } from "./workspace-store.mjs"\nexport default { store: workspaceStore() }\n`,
+      files: {
+        "workspace-store.mjs": `export const workspaceStore = () => ({ binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" })\n`,
+      },
+      name: "arrow factory-returned options",
+    },
+    {
+      definition: `import { workspaceStore } from "./workspace-store.mjs"\nexport default { store: workspaceStore() }\n`,
+      files: {
+        "workspace-store.mjs": `export const workspaceStore = function () { return { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`,
+      },
+      name: "function expression-returned options",
+    },
   ])("emits definition-level Cloudflare Artifacts bindings from $name when assets are disabled", async ({ definition, files }) => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), definition)

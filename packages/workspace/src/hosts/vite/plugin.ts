@@ -122,7 +122,13 @@ function babelPropertyBelongsToExportedStore(path: BabelObjectPropertyPath): boo
     if (current.node.type === "FunctionDeclaration") {
       return babelPathOrBindingIsExported(current, current.node.id?.name)
     }
-    if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") return false
+    if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") {
+      const declarator = current.parentPath
+      return declarator?.node.type === "VariableDeclarator"
+        && declarator.node.init === current.node
+        && declarator.node.id?.type === "Identifier"
+        && babelPathOrBindingIsExported(declarator, declarator.node.id.name)
+    }
   }
   return false
 }
