@@ -19,9 +19,9 @@ const diagnosticSchema = v.object({
   status: v.picklist(["neutral", "ok", "warning"]),
   value: v.string(),
 });
-const finiteNumberSchema = v.pipe(
+const workloadCountSchema = v.pipe(
   v.number(),
-  v.check((value) => Number.isFinite(value)),
+  v.check((value) => Number.isSafeInteger(value) && value >= 0),
 );
 const healthSchema = v.object({
   checkedAt: v.pipe(v.string(), v.check((value) => Number.isFinite(Date.parse(value)))),
@@ -29,11 +29,11 @@ const healthSchema = v.object({
   status: v.picklist(["degraded", "healthy"]),
   summary: v.string(),
   workload: v.object({
-    active: finiteNumberSchema,
-    completed: finiteNumberSchema,
-    failed: finiteNumberSchema,
-    snapshots: finiteNumberSchema,
-    total: finiteNumberSchema,
+    active: workloadCountSchema,
+    completed: workloadCountSchema,
+    failed: workloadCountSchema,
+    snapshots: workloadCountSchema,
+    total: workloadCountSchema,
   }),
 });
 

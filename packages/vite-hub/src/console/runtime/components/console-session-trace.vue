@@ -76,6 +76,7 @@ const selectedSpan = computed(
 const selectedAttributes = computed(() =>
   selectedSpan.value
     ? {
+        ...selectedSpan.value.attributes,
         "span.id": selectedSpan.value.id,
         "trace.id": props.invocation.traceId,
         "span.operation": selectedSpan.value.operation,
@@ -90,7 +91,6 @@ const selectedAttributes = computed(() =>
         ).toISOString(),
         "span.duration_ms": selectedSpan.value.durationMs,
         "span.events": selectedSpan.value.eventNames,
-        ...selectedSpan.value.attributes,
       }
     : {},
 );

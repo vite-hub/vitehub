@@ -18,4 +18,11 @@ describe("Console Health model", () => {
   it("rejects malformed diagnostics during capability discovery", () => {
     expect(isConsoleHealth({ ...health, diagnostics: [{ label: "Storage" }] })).toBe(false);
   });
+
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects the invalid workload count %s",
+    (active) => {
+      expect(isConsoleHealth({ ...health, workload: { ...health.workload, active } })).toBe(false);
+    },
+  );
 });
