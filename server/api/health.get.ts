@@ -8,6 +8,7 @@ import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
 import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
+import { summarizeInvocationWorkload } from '../invocation-health.ts'
 import { invocations } from '../invocations.ts'
 import { useSessionSnapshotStore } from '../session-snapshots.ts'
 
@@ -29,13 +30,8 @@ export default defineEventHandler(async () => {
     invocations.list({ limit: 100 }).catch(() => ({ invocations: [] })),
   ])
   const snapshots = useSessionSnapshotStore().stats()
-  const counts = { active: 0, completed: 0, failed: 0, total: recent.invocations.length }
-  for (const invocation of recent.invocations) {
-    if (invocation.status === 'pending' || invocation.status === 'running') counts.active += 1
-    else if (invocation.status === 'completed') counts.completed += 1
-    else if (invocation.status === 'failed') counts.failed += 1
-  }
-  const healthy = github.status === 'ok' && codex.status === 'ok'
+  const counts = summarizeInvocationWorkload(recent.invocations, Date.now() - process.uptime() * 1_000)
+  const healthy = github.status === 'ok' && codex.status === 'ok' && counts.stale === 0
   const diagnostics: Diagnostic[] = [
     github,
     {
@@ -58,6 +54,12 @@ export default defineEventHandler(async () => {
       detail: `${capacity?.pending ?? 0} queued · hard max ${ownerLimit}${capacity?.reason ? ` · ${capacity.reason}` : ''}`,
     },
     { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 30s repair scan' },
+    {
+      label: 'Invocation state',
+      status: counts.stale ? 'warning' : 'ok',
+      value: counts.stale ? `${counts.stale} stale` : 'Reconciled',
+      detail: counts.stale ? 'Active records predate this service process' : 'No active record predates this service process',
+    },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
     { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
   ]

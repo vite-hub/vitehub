@@ -44,6 +44,7 @@ flowchart TD
 - `git` and a GitHub repository you want Babysitter to watch. Babysitter launches the owner in an exact-head checkout without installing the watched project's dependencies; adapt the [agent prompt](server/agents/babysitter/prompt.template.md) if the owner needs package-manager-specific setup.
 - [`gh`](https://cli.github.com/) CLI. For production, configure a GitHub App with Contents, Issues, and Pull requests read/write access plus Actions, Checks, Commit statuses, and Metadata read access. Install it on every repository Babysitter watches. Local development can fall back to `GITHUB_TOKEN` or an authenticated `gh` CLI.
 - An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
+- `bubblewrap` on Linux. Codex can fall back to its bundled copy, but installing the host package removes the fallback warning and makes the sandbox prerequisite explicit.
 
 ## Start Babysitter
 
@@ -93,6 +94,10 @@ Linux cgroup and `/proc` fields are optional. Babysitter still runs on hosts tha
 Before discovery, Babysitter checks the authenticated GitHub GraphQL budget and preserves a 1,500-point reserve. When the installation falls below that reserve, new GitHub work stays queued until the reported reset time instead of starting owners that are guaranteed to fail.
 
 `GET /api/health` reports the hard ceiling, current effective concurrency, active and queued invocations, the latest admission reason, whether capacity sampling has degraded to its fallback, and whether GitHub budget pressure is deferring discovery.
+
+The health response also reports stale active invocation records. Any pending or running record older than the current service process degrades health because startup recovery should have marked it failed.
+
+Before deploying a systemd release, build and test the exact commit, then run the service's pre-start verification against the unit and drop-in paths systemd will load. Keep one canonical release override so a stale drop-in cannot shadow the intended build.
 
 On a systemd host, follow the events with:
 
