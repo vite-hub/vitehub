@@ -6630,7 +6630,7 @@ function createInlineAgentInvocationController<
       let settledResponse: Response | undefined
       let materializedStreamResult: AgentRunResult | undefined
       if (isAsyncIterable(started)) {
-        for await (const _chunk of started) {}
+        materializedStreamResult = toAgentRunResult(await materializeAgentStructuredOutput(started))
       }
       else if (started instanceof Response && started.body && !started.bodyUsed) {
         settledResponse = started.clone()
@@ -6655,10 +6655,15 @@ function createInlineAgentInvocationController<
           const completed = isRuntimeRecord(outcome.output) && !(outcome.output instanceof Response)
             ? outcome.output
             : undefined
-          const completedPublicResult = completed ? { ...completed } : {}
+          const completedPublicResult: Record<string, unknown> = completed ? { ...completed } : {}
           for (const property of ["fullStream", "stream", "textStream", "toUIMessageStream"])
             Reflect.deleteProperty(completedPublicResult, property)
-          return { ...completedPublicResult, ...materializedStreamResult }
+          const completedRaw = completedPublicResult.raw
+          return {
+            ...completedPublicResult,
+            ...materializedStreamResult,
+            ...(completedRaw !== undefined && !isAsyncIterable(completedRaw) ? { raw: completedRaw } : {}),
+          }
         }
         // SAFETY: the completed lifecycle output uses the controller's declared public result union.
         return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult

@@ -103,7 +103,10 @@ describe("Agent Invocation controllers", () => {
 
     const controller = await startAgentInvocation(agent, runtime(), {})
 
-    await expect(controller.result).resolves.toMatchObject({ text: "first second" })
+    const result = await controller.result
+    expect(result).toMatchObject({ text: "first second" })
+    expect(Reflect.get(result as object, Symbol.asyncIterator)).toBeUndefined()
+    expect(() => structuredClone(result)).not.toThrow()
     await expect(controller.inspect()).resolves.toMatchObject({
       invocation: { status: "completed" },
       outcome: "available",
