@@ -36,12 +36,12 @@ export const buildWarningBudget = Object.freeze([
   {
     name: "Google Fonts icon metadata fetch",
     maximum: 1,
-    text: "Could not fetch from https://fonts.google.com/metadata/icons?key=material_symbols&incomplete=true",
+    text: "Could not fetch from https://fonts.google.com/metadata/icons?key=material_symbols&incomplete=true. Will retry in",
   },
   {
     name: "Google Fonts font metadata fetch",
     maximum: 1,
-    text: "Could not fetch from https://fonts.google.com/metadata/fonts",
+    text: "Could not fetch from https://fonts.google.com/metadata/fonts. Will retry in",
   },
   { name: "Nitro Cloudflare assets override", maximum: 1, text: "Wrangler config assetsset" },
   {
