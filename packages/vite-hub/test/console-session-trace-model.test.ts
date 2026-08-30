@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isDeniedApproval,
+  isStandaloneFailureObservation,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
@@ -49,5 +50,12 @@ describe("Console session trace model", () => {
     expect(isTerminalTaskObservation("agent.task.failed")).toBe(true);
     expect(isTerminalTaskObservation("agent.task.cancelled")).toBe(true);
     expect(isTerminalTaskObservation("agent.task.completed")).toBe(false);
+  });
+
+  it("recognizes unpaired failed lifecycle observations", () => {
+    expect(isStandaloneFailureObservation("agent.model.failed")).toBe(true);
+    expect(isStandaloneFailureObservation("agent.custom-step.failed")).toBe(true);
+    expect(isStandaloneFailureObservation("agent.stream.error")).toBe(true);
+    expect(isStandaloneFailureObservation("agent.model.completed")).toBe(false);
   });
 });

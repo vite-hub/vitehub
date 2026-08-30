@@ -43,3 +43,7 @@ export function isDeniedApproval(
 export function isTerminalTaskObservation(name: string): boolean {
   return name === "agent.task.failed" || name === "agent.task.cancelled";
 }
+
+export function isStandaloneFailureObservation(name: string): boolean {
+  return name.endsWith(".error") || name.endsWith(".failed") || isTerminalTaskObservation(name);
+}

@@ -3,6 +3,7 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
+  isStandaloneFailureObservation,
   isTerminalTaskObservation,
   traceDurationMs,
   traceEventId,
@@ -117,8 +118,7 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
   );
 
   for (const observation of observations) {
-    if (!observation.name.endsWith(".error") && !isTerminalTaskObservation(observation.name))
-      continue;
+    if (!isStandaloneFailureObservation(observation.name)) continue;
     const id = eventId(observation);
     if (representedSequences.has(observation.sequence)) continue;
     const at = timestamp(observation.timestamp);
