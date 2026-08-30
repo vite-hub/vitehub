@@ -110,6 +110,46 @@ describe("Agent Invocation controllers", () => {
     })
   })
 
+  it("settles nested inline streams before resolving the public result", async () => {
+    const agent = defineAgent({
+      driver: {
+        async run() {
+          return {
+            fullStream: (async function* () {
+              yield { text: "nested", type: "text-delta" }
+            })(),
+          }
+        },
+      },
+      runtime: false,
+    })
+
+    const controller = await startAgentInvocation(agent, runtime(), {})
+
+    await expect(controller.result).resolves.toMatchObject({ text: "nested" })
+    await expect(controller.inspect()).resolves.toMatchObject({
+      invocation: { status: "completed" },
+      outcome: "available",
+    })
+  })
+
+  it("returns a readable Response after settling the public result", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: () => new Response("settled response", { headers: { "x-result": "preserved" }, status: 202 }),
+      },
+      runtime: false,
+    })
+
+    const controller = await startAgentInvocation(agent, runtime(), {})
+    const result = await controller.result
+
+    expect(result).toBeInstanceOf(Response)
+    expect((result as Response).status).toBe(202)
+    expect((result as Response).headers.get("x-result")).toBe("preserved")
+    await expect((result as Response).text()).resolves.toBe("settled response")
+  })
+
   it("propagates controller and parent cancellation without claiming synchronous termination", async () => {
     const agent = defineAgent({
       driver: {

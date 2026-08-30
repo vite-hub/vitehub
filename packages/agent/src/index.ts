@@ -6627,14 +6627,26 @@ function createInlineAgentInvocationController<
     }) as TOutput | Response | AgentRunResult,
     async result({ finished, startResult }) {
       const started = await startResult
+      let settledResponse: Response | undefined
       if (isAsyncIterable(started)) {
         for await (const _chunk of started) {}
       }
       else if (started instanceof Response && started.body && !started.bodyUsed) {
+        settledResponse = started.clone()
         await started.arrayBuffer()
       }
+      else if (started !== null && typeof started === "object" && hasTraceableStreamResult(started)) {
+        for (const property of ["stream", "fullStream", "textStream"] as const) {
+          const stream = Reflect.get(started, property)
+          if (!isAsyncIterable(stream)) continue
+          for await (const _chunk of stream) {}
+          break
+        }
+      }
       const outcome = await finished
-      if (outcome.status === "completed") return outcome.output as TOutput | Response | AgentRunResult
+      if (outcome.status === "completed") {
+        return settledResponse ?? outcome.output as TOutput | Response | AgentRunResult
+      }
       throw outcome.error
     },
     support: id => agentInvocationInputSupport(id),
