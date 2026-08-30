@@ -148,6 +148,15 @@ loadDefault("default-runtime")
 `)).toEqual(["bare-runtime", "default-runtime", "namespace-runtime"])
   })
 
+  it("finds createRequire aliases from combined default and named module imports", () => {
+    expect(collectDenoRuntimePackageNames(`
+import moduleApi, { createRequire as makeRequire } from "node:module"
+const load = makeRequire(import.meta.url)
+load("combined-module-runtime")
+void moduleApi
+`)).toContain("combined-module-runtime")
+  })
+
   it("finds createRequire aliases from dynamic module imports", () => {
     expect(collectDenoRuntimePackageNames(`
 const { createRequire: makeRequire } = await import("node:module")
@@ -484,7 +493,7 @@ import "real"
     })).rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
   })
 
-  it("rejects conflicting package installations in one generated server file", async () => {
+  it("does not stage package installations whose code is already bundled", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-server-inline-conflict-"))
     const first = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
     const second = join(root, "node_modules/.pnpm/shared-runtime@2/node_modules/shared-runtime")
@@ -497,8 +506,8 @@ import "real"
       `//#region ${relative(root, second).replaceAll("\\", "/")}/index.js`,
     ].join("\n"))
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
-      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    expect(existsSync(join(root, ".output/node_modules/shared-runtime"))).toBe(false)
   })
 
   it("rejects computed local application imports that cannot survive relocation", async () => {

@@ -87,7 +87,7 @@ const bindingIdentifier = `${identifierStart}${identifierContinue}*`
 
 function collectCreateRequireAliases(source: string): Set<string> {
   const factories = new Set<string>()
-  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
     for (const specifier of match[1]!.split(",")) {
       const imported = /^\s*createRequire(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier)
       if (imported) factories.add(imported[1] ?? "createRequire")
@@ -937,13 +937,9 @@ async function readRuntimePackages(
   for (const [index, source] of sources.entries()) {
     const file = files[index]!
     for (const { name, path: packagePath } of collectBundledPackages(source)) {
-      const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
       const candidates = isAbsolute(packagePath)
         ? [resolve(packagePath, "package.json")]
-        : [
-            resolve(rootDir, packagePath, "package.json"),
-            resolve(dirname(file), packagePath, "package.json"),
-          ]
+        : [resolve(rootDir, packagePath, "package.json"), resolve(dirname(file), packagePath, "package.json")]
       let packageJsonPath: string | undefined
       for (const candidate of candidates) {
         try {
@@ -955,16 +951,14 @@ async function readRuntimePackages(
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
         }
       }
-      packageJsonPath ??= bundledPaths.size === 1 ? bundledPaths.values().next().value : undefined
-      packageJsonPath ??= resolvedPackageJsonPaths.get(name)
-      packageJsonPath ??= await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
-      if (packageJsonPath) {
-        packageJsonPath = await realpath(packageJsonPath)
-        bundledPaths.add(packageJsonPath)
-        bundledPackageJsonPaths.set(name, bundledPaths)
-        if (bundledPaths.size > 1) {
-          throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
-        }
+      if (!packageJsonPath) continue
+      const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
+      const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+      bundledPaths.add(packageJsonPath)
+      bundledPackageJsonPaths.set(name, bundledPaths)
+      if (bundledPaths.size > 1) {
+        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
       }
       const existing = packages.get(name)
       packages.set(name, {
@@ -975,7 +969,7 @@ async function readRuntimePackages(
         name,
         onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
         optional: existing?.optional ?? true,
-        packageJsonPath: packageJsonPath ?? existing?.packageJsonPath,
+        packageJsonPath,
       })
     }
   }
