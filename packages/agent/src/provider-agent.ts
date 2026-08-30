@@ -195,6 +195,7 @@ interface CodexCredentialHome {
 }
 
 const codexCredentialProfileLocks = new Map<string, Promise<void>>()
+const codexCredentialProfilesByInvocation = new WeakMap<object, Set<string>>()
 const unavailableCodexCredentialProfiles = new Map<string, unknown>()
 const codexCredentialUnknownProcessIdentity = "unavailable"
 const codexCredentialProcessIdentity = processStartIdentity(process.pid)
@@ -538,9 +539,15 @@ async function prepareCodexCredentialHome<
   if (process.platform === "win32") {
     throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
   }
-  // Auxiliary Drivers run inside their parent invocation. They must not wait for
-  // a named Home that the parent owns until cleanup.
-  const profile = isAuxiliaryAgentAdapterContext(context) ? undefined : options.credentialProfile?.trim()
+  const requestedProfile = options.credentialProfile?.trim()
+  const requestedProfileKey = requestedProfile ? `${process.cwd()}:${requestedProfile}` : undefined
+  // Auxiliary Drivers run inside their parent invocation. Isolate only a Home
+  // that this invocation already owns; unrelated named profiles remain durable.
+  const profile = isAuxiliaryAgentAdapterContext(context)
+    && requestedProfileKey
+    && codexCredentialProfilesByInvocation.get(context.context)?.has(requestedProfileKey)
+    ? undefined
+    : requestedProfile
   const resolveCredentials = async () => {
     context.input.abortSignal?.throwIfAborted()
     // SAFETY: providerMetadataContext establishes the credential resolver contract; this adds its optional abort signal.
@@ -567,10 +574,15 @@ async function prepareCodexCredentialHome<
       throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
     }
     const homePath = await openCodexProfileHome(profile, credentials)
+    const invocationProfiles = codexCredentialProfilesByInvocation.get(context.context) || new Set<string>()
+    invocationProfiles.add(key)
+    codexCredentialProfilesByInvocation.set(context.context, invocationProfiles)
     return {
       homePath,
       async release(reason) {
         if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
+        invocationProfiles.delete(key)
+        if (!invocationProfiles.size) codexCredentialProfilesByInvocation.delete(context.context)
         release()
       },
     }
@@ -1424,7 +1436,9 @@ async function* runProvider<
   const preservesProviderSession = options.provider !== "codex"
     || options.credentials === undefined
     || (Boolean(options.credentialProfile?.trim()) && !isAuxiliaryAgentAdapterContext(context))
-  const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
+  const releaseSessionLock = sessionKey && !isAuxiliaryAgentAdapterContext(context)
+    ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal)
+    : undefined
   let root: string
   const providerEnvironmentOverrides = options.env
   try {

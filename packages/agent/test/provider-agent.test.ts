@@ -742,12 +742,14 @@ cli_auth_credentials_store = "keyring"
         await primaryBlocked
       },
     })
-    runtime("thread-profile-summary", [event("turn.completed", "thread-profile-summary", { state: "completed" }, { turnId: "turn-1" })])
+    runtime("thread-profile-parent", [event("turn.completed", "thread-profile-parent", { state: "completed" }, { turnId: "turn-1" })])
 
     // SAFETY: The test contexts supply the complete provider invocation contract.
-    const primaryInvocation = primary.generate(context("thread-profile-parent") as never)
+    const primaryContext = context("thread-profile-parent")
+    const primaryInvocation = primary.generate(primaryContext as never)
     await primaryRunning
-    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context("thread-profile-summary"))
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context("thread-profile-parent"))
+    auxiliaryContext.context = primaryContext.context
     // SAFETY: The test context supplies the complete provider invocation contract.
     const auxiliaryInvocation = auxiliary.generate(auxiliaryContext as never)
     await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
@@ -759,6 +761,44 @@ cli_auth_credentials_store = "keyring"
     const settings = calls.map(call => call[0].settings as { homePath: string })
     expect(new Set(settings.map(value => value.homePath)).size).toBe(2)
     await rm(settings[0].homePath, { force: true, recursive: true })
+  })
+
+  it("preserves an auxiliary Codex Driver's non-conflicting named credential profile", async () => {
+    const primaryProfile = `provider-primary-${crypto.randomUUID()}`
+    const auxiliaryProfile = `provider-auxiliary-${crypto.randomUUID()}`
+    const credentials = () => JSON.stringify({ tokens: { access_token: "shared" } })
+    const primary = createProviderAgentAdapter({ credentialProfile: primaryProfile, credentials, provider: "codex" })
+    const auxiliary = createProviderAgentAdapter({ credentialProfile: auxiliaryProfile, credentials, provider: "codex" })
+    let releasePrimary!: () => void
+    const primaryBlocked = new Promise<void>(resolve => releasePrimary = resolve)
+    let primaryStarted!: () => void
+    const primaryRunning = new Promise<void>(resolve => primaryStarted = resolve)
+    const threadId = "thread-profile-non-conflicting-auxiliary"
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        primaryStarted()
+        await primaryBlocked
+      },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: The test contexts supply the complete provider invocation contract.
+    const primaryContext = context(threadId)
+    const primaryInvocation = primary.generate(primaryContext as never)
+    await primaryRunning
+    const auxiliaryContext = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    auxiliaryContext.context = primaryContext.context
+    // SAFETY: The test context supplies the complete provider invocation contract.
+    const auxiliaryInvocation = auxiliary.generate(auxiliaryContext as never)
+    await vi.waitFor(() => expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls + 2))
+    releasePrimary()
+    await Promise.all([primaryInvocation, auxiliaryInvocation])
+
+    const settings = createProviderRuntime.mock.calls.at(-1)?.[0].settings as { homePath: string }
+    expect(settings.homePath).toBe(`${process.cwd()}/.vitehub/data/codex/${auxiliaryProfile}`)
+    await rm(`${process.cwd()}/.vitehub/data/codex/${primaryProfile}`, { force: true, recursive: true })
+    await rm(settings.homePath, { force: true, recursive: true })
   })
 
   it("does not retain a named profile lock while credentials are resolving", async () => {
