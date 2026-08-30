@@ -1830,6 +1830,20 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it("removes Workspace Console metadata when Nuxt Vite config disables Workspace", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    nuxt.options.vite.workspace = false
+
+    await viteHubNuxtModule({ console: true, preset: "node", workspace: true }, nuxt)
+    const nitroConfig = nitroOptions(nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [])`)
+    expect(generated).not.toContain("installConsoleDefinitions")
+  })
+
   it("finalizes deployment output after later ViteHub post hooks", async () => {
     const lateCloudflarePlugin = {
       name: "vite-hub/custom-cloudflare",
