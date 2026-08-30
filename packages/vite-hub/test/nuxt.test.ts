@@ -137,7 +137,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server",
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions },
+      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; workflow?: boolean },
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -658,6 +658,24 @@ describe("ViteHub Nuxt integration", () => {
 
     await expect(conflicting.runNitroConfigHook(nitroOptions(conflicting.nuxt))).rejects.toThrow(
       "[vitehub] Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /tmp/application-kv-handler.ts.",
+    )
+  })
+
+  it("uses the effective Vite Workflow configuration for the Nuxt Console", async () => {
+    const development = createNuxt(true)
+    development.nuxt.options.vite.workflow = false
+
+    await viteHubNuxtModule({ console: true, preset: "node", workflow: true }, development.nuxt)
+    const pages: Array<{ file: string; name: string; path: string }> = []
+    development.runPagesHook(pages)
+    const nitroConfig = development.nuxt.options.nitro as {
+      handlers?: Array<{ route: string }>
+    }
+
+    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+    expect(nitroConfig.handlers?.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
     )
   })
 

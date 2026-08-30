@@ -353,6 +353,25 @@ function reconcileConsoleKVHandler(
   if (index === -1) handlers.push({ handler, route })
 }
 
+function reconcileConsoleDefinitionsHandler(
+  nitro: { handlers?: Array<{ handler: string, route: string }> },
+  enabled: boolean,
+): void {
+  const route = "/api/_vitehub/console/definitions"
+  const handler = join(consoleRuntimeRoot, "server/definitions.get.js")
+  const handlers = (nitro.handlers ??= [])
+  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
+  if (!enabled) {
+    if (index !== -1) handlers.splice(index, 1)
+    return
+  }
+  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
+  if (conflictingHandler) {
+    throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+  }
+  if (index === -1) handlers.push({ handler, route })
+}
+
 async function installConsole(
   nuxt: NuxtLike,
   projectRoot: string,
@@ -799,7 +818,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
-  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV })
+  const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
+  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, workflow: effectiveWorkflow })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -1058,7 +1078,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
-      const resolvedSections = resolveConsoleSectionIds({ ...options, kv: resolvedKV })
+      const resolvedSections = resolveConsoleSectionIds({
+        ...options,
+        kv: resolvedKV,
+        workflow: viteConfig.workflow ?? options.workflow,
+      })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
       consoleKVStores.splice(
         0,
@@ -1067,6 +1091,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
+      reconcileConsoleDefinitionsHandler(config, consoleSections.includes("workflows"))
       const consoleCatalog = discoverConsoleBuildCatalog({
         discoveryRoot: viteRoot,
         projectRoot,

@@ -558,6 +558,36 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("disables Workflow inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-workflow-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        sections: ["workflows"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        workflow?: boolean
+      } = { root, workflow: true }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.workflow = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects production console builds without durable local storage", async () => {
     const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
