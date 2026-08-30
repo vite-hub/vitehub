@@ -34,7 +34,7 @@ function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined): Plugin | undefined {
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -77,8 +77,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined):
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
             let resolvedAliasPath: string
-            if (args.resolveDir && alias.prefix && /^\.\.?[\\/]/.test(alias.specifier)) {
-              resolvedAliasPath = normalizePathSeparators(resolve(args.resolveDir, alias.specifier))
+            if (alias.prefix && /^\.\.?[\\/]/.test(alias.specifier)) {
+              resolvedAliasPath = normalizePathSeparators(resolve(aliasResolveDir, alias.specifier))
             }
             else {
               const resolvedAlias = await build.resolve(alias.specifier, {
@@ -360,7 +360,7 @@ export async function bundleEsmEntry(
   const platform = options.platform || "neutral"
   const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
   const plugins: Plugin[] = []
-  const resolvedAliasPlugin = createResolvedAliasPlugin(options.alias)
+  const resolvedAliasPlugin = createResolvedAliasPlugin(options.alias, options.workingDir ?? options.rootDir ?? process.cwd())
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime))
 
