@@ -2431,20 +2431,19 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         [Symbol.toStringTag]: "Promise",
       })
       const lazyStream = (property: "fullStream" | "stream" | "textStream"): ReadableStream<unknown> => {
-        let reader: ReadableStreamDefaultReader<unknown> | undefined
+        let reader: Promise<ReadableStreamDefaultReader<unknown>> | undefined
         let cancelled = false
-        const getReader = async () => {
-          if (reader) return reader
+        const createReader = async () => {
           const result = await start()
           const stream = result[property] ?? result.stream ?? result.fullStream ?? result.textStream
             ?? (isAsyncIterable(result) ? result : undefined)
           if (!stream) throw new TypeError("[vitehub] AI SDK stream result did not expose an iterable stream.")
-          reader = stream instanceof ReadableStream
+          return stream instanceof ReadableStream
             ? stream.getReader()
             // SAFETY: StreamTextResult exposes these properties as ReadableStream or AsyncIterable values.
             : ReadableStream.from(stream as AsyncIterable<unknown>).getReader()
-          return reader
         }
+        const getReader = () => reader ??= createReader()
         const read = async () => {
           const interruptedRead = () => {
             if (streamCancellation.signal.aborted && !invocationAbortSignal?.aborted) return { done: true as const, value: undefined }
