@@ -2170,6 +2170,15 @@ export interface StartAgentInvocationOptions {
   runId?: string
 }
 
+function portableChildInvocationInvoker(invoker: AgentInvoker): AgentInvoker {
+  try {
+    return cloneWorkflowJsonValue(invoker) as AgentInvoker
+  }
+  catch (cause) {
+    throw new TypeError("[vitehub] startAgentInvocation({ invoker }) must contain only JSON-compatible values.", { cause })
+  }
+}
+
 type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -6735,7 +6744,7 @@ export async function startAgentInvocation<
   options: StartAgentInvocationOptions = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS, TOutput | Response | AgentRunResult>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
-  if (options.invoker) input = withResolvedAgentInvokerInput(input, options.invoker)
+  if (options.invoker) input = withResolvedAgentInvokerInput(input, portableChildInvocationInvoker(options.invoker))
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
     invocationContext,

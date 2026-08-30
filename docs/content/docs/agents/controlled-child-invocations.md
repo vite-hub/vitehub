@@ -26,7 +26,7 @@ if (current.outcome === 'available') {
 
 Every start gets a fresh stable id. `inspect()` returns an available snapshot or an explicit unavailable outcome. Available lifecycle states are `pending`, `running`, `completed`, `failed`, and `cancelled`.
 
-When a Capability tool delegates work, pass its trusted `invoker` through the start options. The child then uses the same resolved identity and access scope as the parent. Do not accept this value from model tool input.
+When a Capability tool delegates work, pass its trusted `invoker` through the start options. The child then uses the same resolved identity and access scope as the parent. The invoker, including `meta`, must contain only JSON-compatible values so it can cross a Workflow boundary without losing authorization facts. Do not accept this value from model tool input.
 
 ```ts
 async function delegate(capabilityContext: AgentCapabilityContext) {

@@ -109,6 +109,16 @@ describe("Agent Invocation controllers", () => {
     await expect(controller.result).resolves.toEqual(invoker)
   })
 
+  it("rejects nonportable trusted child invokers before dispatch", async () => {
+    const run = vi.fn(() => "done")
+    const agent = defineAgent({ driver: { run }, runtime: workflow("controlled-child-portability") })
+
+    await expect(startAgentInvocation(agent, runtime({ runtime: "vercel" }), {}, {
+      invoker: { id: "user-1", meta: { loadScope: () => "support" } },
+    })).rejects.toThrow("startAgentInvocation({ invoker }) must contain only JSON-compatible values")
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("settles inline streams before resolving the public result", async () => {
     const agent = defineAgent({
       driver: {
@@ -453,15 +463,21 @@ describe("Agent Invocation controllers", () => {
     const waitUntilTasks: Array<Promise<unknown>> = []
     const parent = new AbortController()
     const removeEventListener = vi.spyOn(parent.signal, "removeEventListener")
+    const invoker = { id: "user-1", kind: "user", meta: { scope: "support" } }
     const agent = defineAgent({
-      driver: { run: ({ run }) => run?.runId },
+      driver: { run: ({ invoker, run }) => ({ invoker, runId: run?.runId }) },
+      invoker: {
+        resolve: () => {
+          throw new Error("must not resolve an already trusted invoker")
+        },
+      },
       runtime: workflow("controlled-child"),
     })
     const controller = await startAgentInvocation(agent, runtime({
       run: { origin: "parent", runId: "parent-run", threadId: "thread-1" },
       runtime: "vercel",
       waitUntil: promise => waitUntilTasks.push(Promise.resolve(promise)),
-    }), { abortSignal: parent.signal })
+    }), { abortSignal: parent.signal }, { invoker })
 
     expect(controller.id).not.toBe("parent-run")
     await expect(controller.inspect()).resolves.toMatchObject({ outcome: "available" })
@@ -470,11 +486,11 @@ describe("Agent Invocation controllers", () => {
       outcome: "unsupported",
     })
     await Promise.all(waitUntilTasks)
-    await expect(controller.result).resolves.toBe(controller.id)
+    await expect(controller.result).resolves.toEqual({ invoker, runId: controller.id })
     await vi.waitFor(() => expect(removeEventListener).toHaveBeenCalledOnce())
     parent.abort("too late")
     await expect(controller.inspect()).resolves.toEqual({
-      invocation: { id: controller.id, output: controller.id, status: "completed" },
+      invocation: { id: controller.id, output: { invoker, runId: controller.id }, status: "completed" },
       outcome: "available",
     })
   })
