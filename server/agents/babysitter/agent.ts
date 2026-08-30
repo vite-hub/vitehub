@@ -1,4 +1,3 @@
-import githubCapability from '@github-tools/eve-extension'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
 import * as agentChannels from 'vite-hub/agent/channels'
@@ -27,22 +26,11 @@ export const ownerCapacity = createProcessAgentCapacity({
   queue: { maxPending: 100 },
   rampUp: 1,
 })
-const createCapabilities = (token: string) => [diagnostics({ resources: nodeRuntimeResources() }), title({
+const createCapabilities = () => [diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
     return context.pullRequestTitle
   },
-}), githubCapability({
-  exclude: [
-    'addPullRequestComment',
-    'createPullRequestReview',
-    'deletePullRequestComment',
-    'requestReviewers',
-    'updatePullRequest',
-    'updatePullRequestComment',
-  ],
-  preset: 'code-review',
-  token,
 }), ...(consoleClient
   ? [otlp({
       content: { inputs: true, instructions: true, outputs: true },
@@ -51,7 +39,7 @@ const createCapabilities = (token: string) => [diagnostics({ resources: nodeRunt
       resource: { 'service.namespace': 'vitehub' },
     })]
   : [])] as const
-const capabilities = createCapabilities(capabilityAccess.token)
+const capabilities = createCapabilities()
 const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
   capacity: ownerCapacity,
   env: {
@@ -77,7 +65,7 @@ export function createBabysitterAgent(checkout: string, access: GitHubAccess) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
   return defineAgent({
     ...settings,
-    capabilities: createCapabilities(access.token),
+    capabilities: createCapabilities(),
     driver: createDriver(access, checkout),
     workspace: {
       commit: true,

@@ -16,18 +16,12 @@ importers:
 
   .:
     dependencies:
-      '@github-tools/eve-extension':
-        specifier: 0.3.0
-        version: 0.3.0(95a8c859a67e5e12eaa1335fe2be338b)
       '@vite-hub/runtime':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8(patch_hash=112f7fca2812572b70b3fa6307dc87e79bb84a091333a9649fad0f9a3c5f78cd)
       ai:
         specifier: 7.0.38
         version: 7.0.38(zod@4.4.3)
-      eve:
-        specifier: ^0.31.3
-        version: 0.31.3(@azure/identity@4.13.1)(@azure/storage-blob@12.33.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.9)(@opentelemetry/api@1.9.1)(@vercel/blob@2.6.1)(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(ai@7.0.38(zod@4.4.3))(aws4fetch@1.0.20)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260702.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(kysely@0.29.3)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
       h3:
         specifier: ^2.0.1-rc.25
         version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
@@ -1150,38 +1144,6 @@ packages:
   '@floating-ui/vue@1.1.11':
     resolution: {integrity: sha512-HzHKCNVxnGS35r9fCHBc3+uCnjw9IWIlCPL683cGgM9Kgj2BiAl8x1mS7vtvP6F9S/e/q4O6MApwSHj8hNLGfw==}
 
-  '@github-tools/eve-extension@0.3.0':
-    resolution: {integrity: sha512-TuXydmuCWALFHNdPkI2asQEmgDhTgar2IS75xv8fiur4bODpi3tBhNLy3c5V7alzc2dOB17iazf0RhmDqsgHkw==}
-    engines: {node: 24.x}
-    peerDependencies:
-      '@vercel/connect': '>=0.3.2'
-      eve: '*'
-    peerDependenciesMeta:
-      '@vercel/connect':
-        optional: true
-
-  '@github-tools/sdk@1.10.0':
-    resolution: {integrity: sha512-Ov1ckt+KgWC3PiD0ivRUfKHy7YF2bv/fSc07DBru/36JUrmHBDTb2uvqxEgysvvnrHC724NqrDTnsnwe2ovLTA==}
-    peerDependencies:
-      '@ai-sdk/workflow': ^1.0.16
-      '@vercel/connect': '>=0.3.2'
-      '@workflow/ai': ^4.1.2
-      ai: ^6.0.97 || ^7.0.0
-      eve: '>=0.19.0'
-      workflow: ^4.5.0
-      zod: ^4.3.6
-    peerDependenciesMeta:
-      '@ai-sdk/workflow':
-        optional: true
-      '@vercel/connect':
-        optional: true
-      '@workflow/ai':
-        optional: true
-      eve:
-        optional: true
-      workflow:
-        optional: true
-
   '@google-cloud/paginator@5.0.2':
     resolution: {integrity: sha512-DJS3s0OVH4zFDB1PzjxAsHqJT6sKVbRwwML0ZBP9PbU7Yebtu/7SWMRzvO2J3nUi9pRNITCfu4LJeooM2w4pjg==}
     engines: {node: '>=14.0.0'}
@@ -1676,125 +1638,6 @@ packages:
   '@oclif/plugin-help@6.2.37':
     resolution: {integrity: sha512-5N/X/FzlJaYfpaHwDC0YHzOzKDWa41s9t+4FpCDu4f9OMReds4JeNBaaWk9rlIzdKjh2M6AC5Q18ORfECRkHGA==}
     engines: {node: '>=18.0.0'}
-
-  '@octokit/app@16.1.4':
-    resolution: {integrity: sha512-g70WONQyGoBgqIJtv4O0MUEfOF1iJpTfFt3qAW7HaiwiJ6k607xg/gBezCa4tuq6BpO6qXn7qvq8v9tjWtgGQg==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-app@8.3.0':
-    resolution: {integrity: sha512-/UaKmJCsOc5XBZwhnFiGNdLH/FkDF8lYtBn1QlKxtX7IpgaRB/XOXjixFtERAknyUZHxp3oDuoiG0En4VptJSg==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-oauth-app@9.0.4':
-    resolution: {integrity: sha512-Pe3du5LrC6dlv10b0RbarBlJtIT1Urq8BFoQklK8WmBw8YKnGgrANn7cQmHiA1v8AVihgi7YutV8MncP57I4og==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-oauth-device@8.0.4':
-    resolution: {integrity: sha512-M/+34rmkxMvUnnTo/uqNeVRCXJoJ+5N34eNTbL1KMtIyJpedCTsu/iFL1cWdL+w5hQMlYt6xzXoyux2gn0OVnw==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-oauth-user@6.0.3':
-    resolution: {integrity: sha512-t4OKUhrI5britmpRiSzPAz1TJPyUN/Hw1HEE3Hz/uElxcmnf/YCRSKtFRNc5gy4yJFTlXgk34H1lvxiotQJQvQ==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-token@6.0.0':
-    resolution: {integrity: sha512-P4YJBPdPSpWTQ1NU4XYdvHvXJJDxM6YwpS0FZHRgP7YFkdVxsWcpWGy/NVqlAA7PcPCnMacXlRm1y2PFZRWL/w==}
-    engines: {node: '>= 20'}
-
-  '@octokit/auth-unauthenticated@7.0.4':
-    resolution: {integrity: sha512-j4zgVdP8C8C53PNsj4LLI+WFtoykaQARwwrIBILTdxwZ2Ljaa9YUxb1yQ7/seGVnmWPdC3OBefX3LLbh28gKtw==}
-    engines: {node: '>= 20'}
-
-  '@octokit/core@7.0.7':
-    resolution: {integrity: sha512-DcB0M3KFgr9ECI328lhBMVsyFT2DnmNucSBTqEN3exyNKUzkkpUSCHmTRcunF41Eou2TIQKW4seewri8ON9bSA==}
-    engines: {node: '>= 20'}
-
-  '@octokit/endpoint@11.0.4':
-    resolution: {integrity: sha512-f1cOWoHPmxryJFknxbtDdjODWfV8A9tc8Aae6ermXPNgHFZ/x91AtHIz4gicEjL8hkJiip+u21QHJORfBv/qiA==}
-    engines: {node: '>= 20'}
-
-  '@octokit/graphql@9.0.4':
-    resolution: {integrity: sha512-5s15CCiY8XXQ+FG+b1YQcl6Z2FA++nwAz/tg2VUrTmnMncP+2nnGUEYANImdnxsA2Fnq+Mbl7hDjUTw7cFAwcg==}
-    engines: {node: '>= 20'}
-
-  '@octokit/oauth-app@8.0.4':
-    resolution: {integrity: sha512-Ji5JpRwAJcbOJkO4ij0tW6+GrQ8efpICnAca3o5xI8/HUNjqJu3hhG4cCZdXAHMKaOaQTFX0Yl+cpu61Rsx94A==}
-    engines: {node: '>= 20'}
-
-  '@octokit/oauth-authorization-url@8.0.0':
-    resolution: {integrity: sha512-7QoLPRh/ssEA/HuHBHdVdSgF8xNLz/Bc5m9fZkArJE5bb6NmVkDm3anKxXPmN1zh6b5WKZPRr3697xKT/yM3qQ==}
-    engines: {node: '>= 20'}
-
-  '@octokit/oauth-methods@6.0.4':
-    resolution: {integrity: sha512-96RsnxS7Hk/BQhUA1Qo2pmcYP6LWQRWMdo7bVbNE7ZCkFLhSUYBXVUj9tVnvhl4jzbwHYt/dcIG+ioY427b2sg==}
-    engines: {node: '>= 20'}
-
-  '@octokit/openapi-types@27.0.0':
-    resolution: {integrity: sha512-whrdktVs1h6gtR+09+QsNk2+FO+49j6ga1c55YZudfEG+oKJVvJLQi3zkOm5JjiUXAagWK2tI2kTGKJ2Ys7MGA==}
-
-  '@octokit/openapi-types@28.0.0':
-    resolution: {integrity: sha512-0rFyLuyHvIj6uuZWuDslxkowFYdPXoNIkeAv4b27dzm2Tf4vGWXnPsMcxs7d65kLdMERgP3wc1AEPlqMz8e1cQ==}
-
-  '@octokit/openapi-webhooks-types@12.1.0':
-    resolution: {integrity: sha512-WiuzhOsiOvb7W3Pvmhf8d2C6qaLHXrWiLBP4nJ/4kydu+wpagV5Fkz9RfQwV2afYzv3PB+3xYgp4mAdNGjDprA==}
-
-  '@octokit/plugin-paginate-graphql@6.0.0':
-    resolution: {integrity: sha512-crfpnIoFiBtRkvPqOyLOsw12XsveYuY2ieP6uYDosoUegBJpSVxGwut9sxUgFFcll3VTOTqpUf8yGd8x1OmAkQ==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': '>=6'
-
-  '@octokit/plugin-paginate-rest@14.0.0':
-    resolution: {integrity: sha512-fNVRE7ufJiAA3XUrha2omTA39M6IXIc6GIZLvlbsm8QOQCYvpq/LkMNGyFlB1d8hTDzsAXa3OKtybdMAYsV/fw==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': '>=6'
-
-  '@octokit/plugin-paginate-rest@15.0.0':
-    resolution: {integrity: sha512-lw9A9YL5s4VPj+VEx8uMxaxQm2YTgrPDkrLEuZuu18R8TK3oPcXF4K6t52nx6xn1RcogZC9i188sAr/4XYJaQQ==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': '>=6'
-
-  '@octokit/plugin-rest-endpoint-methods@17.0.0':
-    resolution: {integrity: sha512-B5yCyIlOJFPqUUeiD0cnBJwWJO8lkJs5d8+ze9QDP6SvfiXSz1BF+91+0MeI1d2yxgOhU/O+CvtiZ9jSkHhFAw==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': '>=6'
-
-  '@octokit/plugin-retry@8.1.1':
-    resolution: {integrity: sha512-VCVvZ/R1+u3WuiBWpNavZ0mY4aaJNAsENrpBP9aLSR2QyOpQgd7DhM5j4AW7z4MQpnJYgwBPf0XqPQoNBRdQwg==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': '>=7'
-
-  '@octokit/plugin-throttling@11.0.5':
-    resolution: {integrity: sha512-LIdrkrUv+DWbKeg/49rGuFJ3SU0d3hUS+B4MhNZLepBoNUFXms8Ic9edJjrlx+zycqJHjrMRudVpVb/bAXM2Lw==}
-    engines: {node: '>= 20'}
-    peerDependencies:
-      '@octokit/core': ^7.0.0
-
-  '@octokit/request-error@7.1.1':
-    resolution: {integrity: sha512-+eaY7G2VVpSf2pc5Gn1+mph837V/d/TYTJAgWL9Tb0ogGYcpN3IlAVFgjL+Vv93F/sevrxkvsYCedtpLdcFLzA==}
-    engines: {node: '>= 20'}
-
-  '@octokit/request@10.0.13':
-    resolution: {integrity: sha512-v2269YxL9Yf+x3d+gRI63FP0vFQEiWgLyBzxe/Y+0yFDg2B/Tzf5dhh9VNfccVAQnfcfwQWyk/y6Bn7rUXXs7A==}
-    engines: {node: '>= 20'}
-
-  '@octokit/types@16.0.0':
-    resolution: {integrity: sha512-sKq+9r1Mm4efXW1FCk7hFSeJo4QKreL/tTbR0rz/qx/r1Oa2VV83LTA/H/MuCOX7uCIJmQVRKBcbmWoySjAnSg==}
-
-  '@octokit/types@17.0.0':
-    resolution: {integrity: sha512-ByP1v7YL5SMveFPP7+sj0/ZuWCOOg/Chs4NafOMpq6WNIM/hdGY0S7C0TCGDBWu1aGmOxmUIhMx3cO+IdwYZ1Q==}
-
-  '@octokit/webhooks-methods@6.0.0':
-    resolution: {integrity: sha512-MFlzzoDJVw/GcbfzVC1RLR36QqkTLUf79vLVO3D+xn7r0QgxnFoLZgtrzxiQErAjFUOdH6fas2KeQJ1yr/qaXQ==}
-    engines: {node: '>= 20'}
-
-  '@octokit/webhooks@14.2.0':
-    resolution: {integrity: sha512-da6KbdNCV5sr1/txD896V+6W0iamFWrvVl8cHkBSPT+YlvmT3DwXa4jxZnQc+gnuTEqSWbBeoSZYTayXH9wXcw==}
-    engines: {node: '>= 20'}
 
   '@opentelemetry/api-logs@0.217.0':
     resolution: {integrity: sha512-Cdq0jW2lknrNfrAm92MyEAvpe2cRsKjdnQLHUL6xRA4IVUnsWx6P65E7NcUO0Y+L4w1Aee5iV8FvjSwd+lrs9A==}
@@ -2643,9 +2486,6 @@ packages:
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
 
-  '@types/aws-lambda@8.10.162':
-    resolution: {integrity: sha512-Fn658grtLOci1oxi1391vvDWJRKNGWRSqfxRkmN/Iy3c0tQH1USMKEXcPYHLvope+ZgTFocx9FRQJx1muBL6qw==}
-
   '@types/caseless@0.12.5':
     resolution: {integrity: sha512-hWtVTC2q7hc7xZ/RLbxapMvDMgUnDvKvMOpKal4DrMyfGBUfB1oKaZlIRr6mJL+If3bAP6sV/QneGzF6tJjZDg==}
 
@@ -2848,7 +2688,7 @@ packages:
     resolution: {integrity: sha512-rWhYfIyW0Va0gFxtz434LhVirV+eQs+AK0QQWtsOPw2oTvOSA4iogQqemRqvRPPbqI8nfZOz6kbCsytVa20gdw==}
 
   '@vite-hub/agent@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-4WC66CsJ2OwC00ZdOObdNKVE3iq/SFnMvLDDxfbeWyI135w81uKdIM2Amv1s3qjZITiiqWyP7xuwBnM2n8Zpow==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -2888,7 +2728,7 @@ packages:
         optional: true
 
   '@vite-hub/auth@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-G1K6O10zmqY4rPFtcQ6RLFML1wxpcHysMSsUX4oe36U+/fIRsBD/kAzKAz/q6PzEwnp4x2HELo+PWlG6NC2agw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2904,7 +2744,7 @@ packages:
         optional: true
 
   '@vite-hub/blob@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-MPbjeQkTectLXyXQ0S5dsrtgJKQMtRqzwE8kAE7oDoUswIuxrL/5qlXAJlksInsh/oSM197prYm4JAxF17a/Gg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/blob@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2956,7 +2796,7 @@ packages:
         optional: true
 
   '@vite-hub/box@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-lL3GbnDutWTJwAQYB2MantiMd4wfdEz1BoGEnd0htZxxVtVpHE6srH9n49UbuZXcrD9ydFUT/jUs36fUyqVRzA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -2978,7 +2818,7 @@ packages:
         optional: true
 
   '@vite-hub/browser@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-IfCxFvu3wOUmCW3q8eWlkJHtq98hgHvImKCX200bk/xiGMDAMI5GQHLYeLqCo4+Va09Q+x5ZPB3yL8gKgEsm0g==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/browser@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -2994,7 +2834,7 @@ packages:
         optional: true
 
   '@vite-hub/channels@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/channels@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/channels@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-AxJF2uPIQCZzk+BtDwmnyL23Mk2nKoldh7oEn1CBjV/FpzRt628+fop5Wt9BsQImZC1Qr41dk3xoRUZJM3ZHGg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/channels@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3004,7 +2844,7 @@ packages:
         optional: true
 
   '@vite-hub/cli@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-Gv/t45iKcRkPOsNktxOvFiFw8zhXkup5HvwY6cfRNWIraIdGuA0AaMETjHYJE4i/+A638xS8xyk+Now0F8u+Pg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/cli@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     hasBin: true
@@ -3016,7 +2856,7 @@ packages:
         optional: true
 
   '@vite-hub/database@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-jecBH4X+oDcxWzULiq37ao4ceqxl9r5Jdeohx6Razd0jy/5H9vSqP25OhMAMO5fBVxfkwHvjuN/c18oTe7fzFw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3028,7 +2868,7 @@ packages:
         optional: true
 
   '@vite-hub/email@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-eKT+4ICW7UXvNI+QYDcZNoucOaqa2eysbrQdqZAxYO4s8xKQYNQctz8vcSkhm0Syxgwjc2r8L1Ua++QVipADpQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3038,7 +2878,7 @@ packages:
         optional: true
 
   '@vite-hub/env@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-nscvGNZnH3OqNwMgIl40amfAvYpOMtkaPkbitVMxo+RvtunTEeWim/37TwWZ9/YjuAV6z2s1G5Ok+mE5B1L+1Q==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3048,7 +2888,7 @@ packages:
         optional: true
 
   '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-L9HVNdOFpaW8oO/847rqKWjfIhHgQ+g2D5YXC18Kvu8+8y13vdHtOapwhBirsIGRTx8ImBKF+tlXvxOq4DUoPQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3061,7 +2901,7 @@ packages:
         optional: true
 
   '@vite-hub/markdown-template@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-+XoBP0vdAqNMv4FeXdgM+/Jn43P0Z5WOdmLjhAqYqoIjYhhOW3DmfZpoPGgsphtJJIT8Z8Tkimu/Hm+5ldgVGg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3071,7 +2911,7 @@ packages:
         optional: true
 
   '@vite-hub/queue@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-gkSEv3ViTp8iXfHN8VhW2eiO8tHA3MyemZt8gH+l4vznb0dMGKzzOfg/MIf6ezBeemB/adVFOG/8dilV0wX0gQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/queue@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3081,7 +2921,7 @@ packages:
         optional: true
 
   '@vite-hub/rate-limit@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-WF9OuCEiq5nXPc0AqiiJ+Y4WgiB5Uj4GH6xq2m1Ps2OJvoQA1A3VxNCiVGBgEvBqsTVqug9Fmh0bB3fswmT/8g==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/rate-limit@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3091,7 +2931,7 @@ packages:
         optional: true
 
   '@vite-hub/realtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/realtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/realtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-fIYxFsSFbjXlQxOoP2pYmsDd/FG8P9drCyqHFN7APCAlA9jTMJ8WlNULJ0nSmpC474+jHo50kK80ePoi3HNZww==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/realtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -3104,12 +2944,12 @@ packages:
         optional: true
 
   '@vite-hub/runtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-gm2bjokNUd6jiugta6tB6WHxMgC/RqxjDM1IYvoORbWZdz4zI9FbI1P+4bOvqYk77VYqlWoJ6TDp8rBdT7rzQw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/sandbox@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-J4nR6+V40gBgdPf33JvJuVONw0i1S6FigXRYmTQDiOx1IXE1zikkDLrmHDye+tL3z2pTMMQb6jwlUiaLCkkzpg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3125,7 +2965,7 @@ packages:
         optional: true
 
   '@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-SeppMBjbqr0BI199ZiCt4X+YHcmBPhD5MnstVcu6iZHQvh52Wgj8LBT6NdaKzBzUGxivdC4mE6zc/je+NFx4sQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -3138,12 +2978,12 @@ packages:
         optional: true
 
   '@vite-hub/shell@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-Hxau/tId6p7vbtLZeSlQXV3rvzEPKJK6S6ZqfF59uFSbBBrRY6sqqWdYvVZCvXnSSUTOfZ0gsWHbQywSpaWjtg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/shell@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
 
   '@vite-hub/source@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-6PHA5eFFz4QkGlTKX/C/8z3D6xrzpFsB7yTEDRk7AM8PtRU6lPIk7jzIpHVyFlva1+UHNWemhOHJ1bN9oLMoXA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/source@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3159,7 +2999,7 @@ packages:
         optional: true
 
   '@vite-hub/ui@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-HRF1eulICtBNLHOt0aNfjgfXOz3NT/VrvfSqUqPu3CDe6LUzDz/zeDmOKIVShLnjDPW4nZy+lKdFh2QFl1ucaQ==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.15.0'}
     peerDependencies:
@@ -3174,7 +3014,7 @@ packages:
         optional: true
 
   '@vite-hub/workflow@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-tb24UcQFixgoNUU98TzEVrEfjg1g2l49wNqdY8Yqj9AmNybhDmEU+WmZL+b9PxcVuE6oDdFuyVHYzcw6U68asA==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3196,7 +3036,7 @@ packages:
         optional: true
 
   '@vite-hub/workspace@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@5269a98bcb46c4866d4671a0f6879c38dfc93be8':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
+    resolution: {integrity: sha512-eL+Se8K0EAPmC9pUTajBa2/jTk91JoqrHVxJijMw49CnGAx0rVyrSVXeuzGPbrqJP/pkBvM4rVLmfScMD5Xamg==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@5269a98bcb46c4866d4671a0f6879c38dfc93be8}
     version: 0.0.1
     engines: {node: '>=24.0.0'}
     peerDependencies:
@@ -3674,9 +3514,6 @@ packages:
     resolution: {integrity: sha512-bopVNp6ugyA150DDuZfPFdt1KZ5a94ZDiwX4hMgZDzF+GttD80lEy8kj98kbyhLXnPvhtIo93mdnLIjpCAeeOw==}
     engines: {node: '>=10.0.0'}
 
-  before-after-hook@4.0.0:
-    resolution: {integrity: sha512-q6tR3RPqIB1pMiTRMFcZwuG5T8vwp+vUvEG0vuI6B+Rikh5BfPp2fQ82c925FOs+b0lcFQ8CFrL+KbilfZFhOQ==}
-
   better-auth@1.6.23:
     resolution: {integrity: sha512-4vOaRd9UiKGKm9R+ej0jjU1es3MiJIiNc9Qq3VCnYqOZ4/nb5272QqTxWYoDxyUXl5x6A2x2we5KZKQO9teTQQ==}
     peerDependencies:
@@ -3767,9 +3604,6 @@ packages:
   body-parser@2.3.0:
     resolution: {integrity: sha512-2cGmJupaNgg+QUwVLAucDuWuoMZ6EX9iHDRswZ5lsNYEmwPaRknMPCLZz07yTzVq/83p4o/wzbDZbBrTvGGTIw==}
     engines: {node: '>=18'}
-
-  bottleneck@2.19.5:
-    resolution: {integrity: sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw==}
 
   bowser@2.14.1:
     resolution: {integrity: sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg==}
@@ -5246,9 +5080,6 @@ packages:
   json-schema@0.4.0:
     resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
 
-  json-with-bigint@3.5.11:
-    resolution: {integrity: sha512-WvkM9Hfb9kqzCcbsvpwfWDvdfGZDhYuCoaCwHRe5q3LtULKkbrI/L6JYcN8owflgA3di5dP2yVAV2NVCXkgtkA==}
-
   json5@2.2.3:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
@@ -5934,10 +5765,6 @@ packages:
 
   ocache@0.1.5:
     resolution: {integrity: sha512-kNNnkkVQup/QDvmTz8Q84wc2ntiyoVHDxa6eHWKt5qdGAmFRBIxy83rxgCYEjW0x06UJ9E3P6VgM2yY4rOBH4w==}
-
-  octokit@5.0.5:
-    resolution: {integrity: sha512-4+/OFSqOjoyULo7eN7EA97DE0Xydj/PW5aIckxqQIoFjFwqXKuFCvXUJObyJfBF9Khu4RL/jlDRI9FPaMGfPnw==}
-    engines: {node: '>= 20'}
 
   ofetch@1.5.1:
     resolution: {integrity: sha512-2W4oUZlVaqAPAil6FUg/difl6YhqhUR7x2eZY4bQCko22UXg3hptq9KLQdqFClV+Wu85UX7hNtdGTngi/1BxcA==}
@@ -6779,10 +6606,6 @@ packages:
     resolution: {integrity: sha512-db0E3UJjcFhpDhAF4tLo03oli3pwl3dbnzXOUIlRKrp+ldk/VUxzpWYZENsw2SZiuBjHAk7DfB0VU7NKdpb6sw==}
     engines: {node: '>= 0.4'}
 
-  toad-cache@3.7.4:
-    resolution: {integrity: sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg==}
-    engines: {node: '>=20'}
-
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
@@ -6965,12 +6788,6 @@ packages:
 
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
-
-  universal-github-app-jwt@2.2.2:
-    resolution: {integrity: sha512-dcmbeSrOdTnsjGjUfAlqNDJrhxXizjAz94ija9Qw8YkZ1uu0d+GoZzyH+Jb9tIIqvGsadUfwg+22k5aDqqwzbw==}
-
-  universal-user-agent@7.0.3:
-    resolution: {integrity: sha512-TmnEAEAsBJVZM/AADELsK76llnwcf9vMKuPz8JflO1frO8Lchitr0fNaN9d+Ap0BjKtqWqd/J17qeDnXh8CL2A==}
 
   universalify@2.0.1:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
@@ -8539,29 +8356,6 @@ snapshots:
       - vue
     optional: true
 
-  '@github-tools/eve-extension@0.3.0(95a8c859a67e5e12eaa1335fe2be338b)':
-    dependencies:
-      '@github-tools/sdk': 1.10.0(a0063e9707fae49cb166d1cfc37a55bd)
-      eve: 0.31.3(@azure/identity@4.13.1)(@azure/storage-blob@12.33.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.9)(@opentelemetry/api@1.9.1)(@vercel/blob@2.6.1)(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(ai@7.0.38(zod@4.4.3))(aws4fetch@1.0.20)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260702.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(kysely@0.29.3)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-      zod: 4.4.3
-    optionalDependencies:
-      '@vercel/connect': 0.6.1(89508d4ba76f00e929c19fd34768b4cd)
-    transitivePeerDependencies:
-      - '@ai-sdk/workflow'
-      - '@workflow/ai'
-      - ai
-      - workflow
-
-  '@github-tools/sdk@1.10.0(a0063e9707fae49cb166d1cfc37a55bd)':
-    dependencies:
-      ai: 7.0.38(zod@4.4.3)
-      octokit: 5.0.5
-      zod: 4.4.3
-    optionalDependencies:
-      '@vercel/connect': 0.6.1(89508d4ba76f00e929c19fd34768b4cd)
-      eve: 0.31.3(@azure/identity@4.13.1)(@azure/storage-blob@12.33.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.9)(@opentelemetry/api@1.9.1)(@vercel/blob@2.6.1)(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(ai@7.0.38(zod@4.4.3))(aws4fetch@1.0.20)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260702.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(kysely@0.29.3)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.3))(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-      workflow: 5.0.0-beta.35(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(react@19.2.8)(typescript@6.0.3)(ws@8.21.0)
-
   '@google-cloud/paginator@5.0.2':
     dependencies:
       arrify: 2.0.1
@@ -9287,165 +9081,6 @@ snapshots:
   '@oclif/plugin-help@6.2.37':
     dependencies:
       '@oclif/core': 4.11.4
-
-  '@octokit/app@16.1.4':
-    dependencies:
-      '@octokit/auth-app': 8.3.0
-      '@octokit/auth-unauthenticated': 7.0.4
-      '@octokit/core': 7.0.7
-      '@octokit/oauth-app': 8.0.4
-      '@octokit/plugin-paginate-rest': 15.0.0(@octokit/core@7.0.7)
-      '@octokit/types': 17.0.0
-      '@octokit/webhooks': 14.2.0
-
-  '@octokit/auth-app@8.3.0':
-    dependencies:
-      '@octokit/auth-oauth-app': 9.0.4
-      '@octokit/auth-oauth-user': 6.0.3
-      '@octokit/request': 10.0.13
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-      toad-cache: 3.7.4
-      universal-github-app-jwt: 2.2.2
-      universal-user-agent: 7.0.3
-
-  '@octokit/auth-oauth-app@9.0.4':
-    dependencies:
-      '@octokit/auth-oauth-device': 8.0.4
-      '@octokit/auth-oauth-user': 6.0.3
-      '@octokit/request': 10.0.13
-      '@octokit/types': 17.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/auth-oauth-device@8.0.4':
-    dependencies:
-      '@octokit/oauth-methods': 6.0.4
-      '@octokit/request': 10.0.13
-      '@octokit/types': 17.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/auth-oauth-user@6.0.3':
-    dependencies:
-      '@octokit/auth-oauth-device': 8.0.4
-      '@octokit/oauth-methods': 6.0.4
-      '@octokit/request': 10.0.13
-      '@octokit/types': 17.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/auth-token@6.0.0': {}
-
-  '@octokit/auth-unauthenticated@7.0.4':
-    dependencies:
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-
-  '@octokit/core@7.0.7':
-    dependencies:
-      '@octokit/auth-token': 6.0.0
-      '@octokit/graphql': 9.0.4
-      '@octokit/request': 10.0.13
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-      before-after-hook: 4.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/endpoint@11.0.4':
-    dependencies:
-      '@octokit/types': 17.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/graphql@9.0.4':
-    dependencies:
-      '@octokit/request': 10.0.13
-      '@octokit/types': 17.0.0
-      universal-user-agent: 7.0.3
-
-  '@octokit/oauth-app@8.0.4':
-    dependencies:
-      '@octokit/auth-oauth-app': 9.0.4
-      '@octokit/auth-oauth-user': 6.0.3
-      '@octokit/auth-unauthenticated': 7.0.4
-      '@octokit/core': 7.0.7
-      '@octokit/oauth-authorization-url': 8.0.0
-      '@octokit/oauth-methods': 6.0.4
-      '@types/aws-lambda': 8.10.162
-      universal-user-agent: 7.0.3
-
-  '@octokit/oauth-authorization-url@8.0.0': {}
-
-  '@octokit/oauth-methods@6.0.4':
-    dependencies:
-      '@octokit/oauth-authorization-url': 8.0.0
-      '@octokit/request': 10.0.13
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-
-  '@octokit/openapi-types@27.0.0': {}
-
-  '@octokit/openapi-types@28.0.0': {}
-
-  '@octokit/openapi-webhooks-types@12.1.0': {}
-
-  '@octokit/plugin-paginate-graphql@6.0.0(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-
-  '@octokit/plugin-paginate-rest@14.0.0(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-      '@octokit/types': 16.0.0
-
-  '@octokit/plugin-paginate-rest@15.0.0(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-      '@octokit/types': 17.0.0
-
-  '@octokit/plugin-rest-endpoint-methods@17.0.0(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-      '@octokit/types': 16.0.0
-
-  '@octokit/plugin-retry@8.1.1(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-      bottleneck: 2.19.5
-
-  '@octokit/plugin-throttling@11.0.5(@octokit/core@7.0.7)':
-    dependencies:
-      '@octokit/core': 7.0.7
-      '@octokit/types': 17.0.0
-      bottleneck: 2.19.5
-
-  '@octokit/request-error@7.1.1':
-    dependencies:
-      '@octokit/types': 17.0.0
-
-  '@octokit/request@10.0.13':
-    dependencies:
-      '@octokit/endpoint': 11.0.4
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 17.0.0
-      content-type: 2.0.0
-      json-with-bigint: 3.5.11
-      universal-user-agent: 7.0.3
-
-  '@octokit/types@16.0.0':
-    dependencies:
-      '@octokit/openapi-types': 27.0.0
-
-  '@octokit/types@17.0.0':
-    dependencies:
-      '@octokit/openapi-types': 28.0.0
-
-  '@octokit/webhooks-methods@6.0.0': {}
-
-  '@octokit/webhooks@14.2.0':
-    dependencies:
-      '@octokit/openapi-webhooks-types': 12.1.0
-      '@octokit/request-error': 7.1.1
-      '@octokit/webhooks-methods': 6.0.0
 
   '@opentelemetry/api-logs@0.217.0':
     dependencies:
@@ -10190,8 +9825,6 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
-
-  '@types/aws-lambda@8.10.162': {}
 
   '@types/caseless@0.12.5': {}
 
@@ -11587,8 +11220,6 @@ snapshots:
 
   basic-ftp@5.3.1: {}
 
-  before-after-hook@4.0.0: {}
-
   better-auth@1.6.23(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260702.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(kysely@0.29.3)(sql.js@1.14.1))(react@19.2.8)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@25.9.5)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)))(vue@3.5.40(typescript@6.0.3)):
     dependencies:
       '@better-auth/core': 1.6.23(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
@@ -11664,8 +11295,6 @@ snapshots:
       type-is: 2.1.0
     transitivePeerDependencies:
       - supports-color
-
-  bottleneck@2.19.5: {}
 
   bowser@2.14.1: {}
 
@@ -12445,6 +12074,7 @@ snapshots:
       - wrangler
       - xml2js
       - zephyr-agent
+    optional: true
 
   event-target-shim@5.0.1: {}
 
@@ -12990,6 +12620,7 @@ snapshots:
       srvx: 0.11.22
     optionalDependencies:
       crossws: 0.4.10(srvx@0.11.22)
+    optional: true
 
   h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)):
     dependencies:
@@ -13285,8 +12916,6 @@ snapshots:
   json-schema-typed@8.0.2: {}
 
   json-schema@0.4.0: {}
-
-  json-with-bigint@3.5.11: {}
 
   json5@2.2.3: {}
 
@@ -14081,6 +13710,7 @@ snapshots:
       - sqlite3
       - uploadthing
       - wrangler
+    optional: true
 
   node-abi@3.94.0:
     dependencies:
@@ -14160,20 +13790,6 @@ snapshots:
   ocache@0.1.5:
     dependencies:
       ohash: 2.0.11
-
-  octokit@5.0.5:
-    dependencies:
-      '@octokit/app': 16.1.4
-      '@octokit/core': 7.0.7
-      '@octokit/oauth-app': 8.0.4
-      '@octokit/plugin-paginate-graphql': 6.0.0(@octokit/core@7.0.7)
-      '@octokit/plugin-paginate-rest': 14.0.0(@octokit/core@7.0.7)
-      '@octokit/plugin-rest-endpoint-methods': 17.0.0(@octokit/core@7.0.7)
-      '@octokit/plugin-retry': 8.1.1(@octokit/core@7.0.7)
-      '@octokit/plugin-throttling': 11.0.5(@octokit/core@7.0.7)
-      '@octokit/request-error': 7.1.1
-      '@octokit/types': 16.0.0
-      '@octokit/webhooks': 14.2.0
 
   ofetch@1.5.1:
     dependencies:
@@ -14742,7 +14358,8 @@ snapshots:
 
   rou3@0.7.12: {}
 
-  rou3@0.8.1: {}
+  rou3@0.8.1:
+    optional: true
 
   rou3@0.9.1: {}
 
@@ -15191,8 +14808,6 @@ snapshots:
       safe-buffer: 5.2.1
       typed-array-buffer: 1.0.3
 
-  toad-cache@3.7.4: {}
-
   toidentifier@1.0.1: {}
 
   token-types@6.1.2:
@@ -15296,7 +14911,8 @@ snapshots:
 
   undici@8.10.0: {}
 
-  undici@8.9.0: {}
+  undici@8.9.0:
+    optional: true
 
   unenv@2.0.0-rc.24:
     dependencies:
@@ -15391,10 +15007,6 @@ snapshots:
       '@types/unist': 3.0.3
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
-
-  universal-github-app-jwt@2.2.2: {}
-
-  universal-user-agent@7.0.3: {}
 
   universalify@2.0.1: {}
 
