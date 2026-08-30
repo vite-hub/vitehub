@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -181,6 +182,16 @@ async function importPackagesWithoutRootFallback(
       const packageDirName = packageNameParts.at(-1)
       if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
       await symlink(packageRoot, join(linkDir, packageDirName), "dir")
+      const packageRequire = createRequire(join(packageRoot, "package.json"))
+      for (const dependency of declaredTypeDependencies) {
+        const dependencyParts = dependency.split("/")
+        const dependencyDirName = dependencyParts.at(-1)
+        if (!dependencyDirName) throw new Error(`Invalid dependency name: ${dependency}`)
+        const dependencyLinkDir = join(runnerDir, "node_modules", ...dependencyParts.slice(0, -1))
+        const dependencyRoot = dirname(packageRequire.resolve(`${dependency}/package.json`))
+        await mkdir(dependencyLinkDir, { recursive: true })
+        await symlink(dependencyRoot, join(dependencyLinkDir, dependencyDirName), "dir")
+      }
       const importableContracts = publicPackageExportContracts
         .filter(contract => contract.packageName === info.packageName
           && isJavaScriptModule(contract.target)
