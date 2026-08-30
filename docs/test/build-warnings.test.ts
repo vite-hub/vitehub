@@ -32,6 +32,29 @@ describe("docs build warning budget", () => {
     ).not.toThrow();
   });
 
+  it("accepts the two external Google Fonts metadata fetch warnings", () => {
+    const iconMetadataWarning =
+      "[warn] Could not fetch from `https://fonts.google.com/metadata/icons?key=material_symbols&incomplete=true`. Will retry in `1000ms`. `3` retries left.";
+    const fontMetadataWarning =
+      "[warn] Could not fetch from `https://fonts.google.com/metadata/fonts`. Will retry in `1000ms`. `3` retries left.";
+    expect(() =>
+      assertBuildWarningBudget([iconMetadataWarning, fontMetadataWarning].join("\n")),
+    ).not.toThrow();
+
+    expect(() =>
+      assertBuildWarningBudget([iconMetadataWarning, iconMetadataWarning].join("\n")),
+    ).toThrow("warning budget exceeded for Google Fonts icon metadata fetch: 2/1");
+  });
+
+  it("rejects other Google Fonts metadata endpoints", () => {
+    for (const warning of [
+      "[warn] Could not fetch from `https://fonts.google.com/metadata/fonts/Roboto`. Will retry in `1000ms`. `3` retries left.",
+      "[warn] Could not fetch from `https://fonts.google.com/metadata/fonts?unexpected=true`. Will retry in `1000ms`. `3` retries left.",
+    ]) {
+      expect(() => assertBuildWarningBudget(warning)).toThrow("unbudgeted warning");
+    }
+  });
+
   it("rejects non-timeout loading warnings for allowed icons", () => {
     expect(() =>
       assertBuildWarningBudget(

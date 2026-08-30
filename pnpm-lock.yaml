@@ -78,6 +78,18 @@ catalogs:
     '@t3tools/provider-runtime':
       specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
       version: 0.0.33
+    remark-gfm:
+      specifier: ^4.0.1
+      version: 4.0.1
+    remark-mdc:
+      specifier: ^3.11.1
+      version: 3.11.1
+    remark-parse:
+      specifier: ^11.0.0
+      version: 11.0.0
+    unified:
+      specifier: ^11.0.5
+      version: 11.0.5
     vite-doctor:
       specifier: https://pkg.pr.new/vite-doctor@db34a0d
       version: 0.0.6
@@ -603,6 +615,27 @@ importers:
       '@iconify-json/vscode-icons':
         specifier: catalog:ui
         version: 1.2.67
+      github-slugger:
+        specifier: ^2.0.0
+        version: 2.0.0
+      html-entities:
+        specifier: ^2.6.0
+        version: 2.6.0
+      remark-gfm:
+        specifier: 'catalog:'
+        version: 4.0.1
+      remark-mdc:
+        specifier: 'catalog:'
+        version: 3.11.1
+      remark-parse:
+        specifier: 'catalog:'
+        version: 11.0.0
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      unified:
+        specifier: 'catalog:'
+        version: 11.0.5
       valibot:
         specifier: catalog:runtime
         version: 1.4.2(typescript@6.0.3)

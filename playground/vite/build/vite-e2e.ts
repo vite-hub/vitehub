@@ -1327,7 +1327,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   const wranglerConfig: CloudflareWranglerConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
-    compatibility_flags: ["nodejs_compat"],
+    compatibility_flags: ["global_fetch_strictly_public", "nodejs_compat"],
     ...(d1Databases ? { d1_databases: d1Databases } : {}),
     main: "index.js",
     name: workerName,

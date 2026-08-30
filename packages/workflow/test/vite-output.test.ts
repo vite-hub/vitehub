@@ -107,6 +107,23 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
 })
 
+it("publishes staged generated Workflow entries during Provider Output finalization", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, artifactDir)
+
+  await generateWorkflowProviderOutputs({
+    artifacts,
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "node-server",
+    rootDir,
+    workflow: false,
+  }, async options => await options.afterWrite?.())
+
+  await expect(readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8"))
+    .resolves.toBe(await readFile(join(artifactDir, "registry.mjs"), "utf8"))
+})
+
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-cloudflare-email-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")
@@ -839,11 +856,14 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
     expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
-    expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
+    expect(registry).toContain("/.vitehub/workflow-generations/")
+    expect(registry).toContain("/server/agents/nuxt/workspace")
+    expect(registry).not.toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
     expect(registry).toContain("Use shared policy")
     expect(registry).toContain("Use flat Agent instructions.")
-    expect(registry).toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
+    expect(registry).toContain("/server/agents/workspace")
+    expect(registry).not.toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
     expect(registry).not.toContain("@./shared.md")
     expect(registry).toContain("@./inline-example.md")
     expect(registry).toContain("@./fenced-example.md")

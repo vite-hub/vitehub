@@ -25,6 +25,8 @@ describe("Console routes", () => {
       .toBe("vitehub-console-agent___da")
     expect(resolveConsoleRouteName("vitehub-console-agent___en___default", "vitehub-console-invocation"))
       .toBe("vitehub-console-invocation___en___default")
+    expect(resolveConsoleRouteName("vitehub-console-usage___en", "vitehub-console-agent"))
+      .toBe("vitehub-console-agent___en")
     expect(resolveConsoleRouteName("vitehub-console-agent", "vitehub-console-invocation"))
       .toBe("vitehub-console-invocation")
     expect(resolveConsoleRouteName(Symbol("vitehub-console-agent"), "vitehub-console-invocation"))

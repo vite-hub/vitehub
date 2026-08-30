@@ -324,6 +324,8 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain('label: "All primitives"')
     expect(consoleSearch).toContain('label: "Pages"')
     expect(consoleSearch).toContain('label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"')
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage-summary.vue`)).toBe(true)
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(true)
     const consoleClient = readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.js`, "utf8")
     expect(consoleClient).toContain("ViteHub")
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation")
@@ -358,7 +360,8 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.")
       }
-      expect(handlers).toHaveLength(7)
+      expect(handlers).toHaveLength(8)
+      expect(handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/usage" }))
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler")
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.")

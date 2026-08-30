@@ -231,6 +231,7 @@ export function createBoxSession(
           ports: {
             values: runtime.ports ?? [0],
             async expose(port: number, options?: { protocol?: "http" | "https" | "ws" }) {
+              operationSignal();
               assertPort(port);
               return new URL(await runtime.getPortUrl!({ port, protocol: options?.protocol }));
             },
