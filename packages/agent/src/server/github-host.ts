@@ -360,6 +360,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (cached && now - cached.checkedAt < cacheMs) return admit(cached)
       const pending = checks.get(key)
       if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
+      const limitBeforeCheck = limits.get(key)
       const check = (async () => {
         const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
         try {
@@ -370,8 +371,15 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-          limits.set(key, limit)
-          return limit
+          const current = limits.get(key)
+          const reconciled = current !== limitBeforeCheck
+            && current !== undefined
+            && current.resetAt > Date.now()
+            && current.remaining <= limit.remaining
+            ? current
+            : limit
+          limits.set(key, reconciled)
+          return reconciled
         }
         catch (error) {
           if (rateLimitMessage(error)) {
@@ -394,7 +402,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   function budget(): { limited: false } | { limited: true, remaining: number, resetAt: number } {
-    const limited = [...limits.values()].filter(limit => limit.remaining < reserve && limit.resetAt > Date.now())
+    const limited = [...limits.values()].filter(limit => limit.remaining <= reserve && limit.resetAt > Date.now())
     return limited.length
       ? {
           limited: true,

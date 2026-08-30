@@ -233,6 +233,15 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
+  it("reports an exact-reserve GraphQL budget as limited", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 90 }))
+      .resolves.toMatchObject({ remaining: 10 })
+    expect(host.budget()).toEqual({ limited: true, remaining: 10, resetAt: 2_000_000_000_000 })
+  })
+
   it("reserves shared GraphQL budget atomically", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"
@@ -277,6 +286,44 @@ describe("GitHub host", () => {
 
     expect(fetcher).toHaveBeenCalledTimes(2)
     expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toBeNull()
+  })
+
+  it("preserves a secondary limit recorded during an installation budget check", async () => {
+    await installFakeGitHubCommands()
+    process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+      token: `installation-token-${fetcher.mock.calls.length}`,
+    }), { status: 201 }))
+    vi.stubGlobal("fetch", fetcher)
+    const host = createGitHubHost({
+      credentials: () => ({
+        appId: 123,
+        installationId: 456,
+        owner: "vite-hub",
+        privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      }),
+    })
+
+    const admission = host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
+    await vi.waitFor(async () => {
+      expect(await readFile(commandLog, "utf8")).toContain("gh api rate_limit")
+    })
+    await host.access({ refresh: true, repository: "vite-hub/vitehub" })
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    await expect(host.command(["api", "graphql"], { repository: "vite-hub/vitehub" }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    await expect(admission).rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect((await readFile(commandLog, "utf8")).match(/gh api rate_limit/g)).toHaveLength(1)
   })
 
   it("keeps shared GraphQL budget waiters independently cancellable", async () => {
