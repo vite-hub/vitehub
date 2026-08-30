@@ -34,6 +34,7 @@ function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts
 }
 
 const stringRecord = record(string(), string())
+const workspaceCatalogsSchema = object({ catalogs: record(string(), stringRecord) })
 const packageManifestSchema = object({
   dependencies: optional(stringRecord),
   devDependencies: optional(stringRecord),
@@ -92,18 +93,13 @@ async function requiredPeerSpecs() {
 }
 
 async function catalogDependencySpecs(catalogName: string, names: readonly string[]) {
-  const workspace: unknown = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
-  const catalogs = workspace && typeof workspace === "object" && "catalogs" in workspace
-    ? workspace.catalogs
-    : undefined
-  const catalog = catalogs && typeof catalogs === "object" && catalogName in catalogs
-    ? catalogs[catalogName as keyof typeof catalogs]
-    : undefined
-  if (!catalog || typeof catalog !== "object") throw new Error(`Missing ${catalogName} dependency catalog`)
+  const workspace = parse(workspaceCatalogsSchema, parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+  const catalog = workspace.catalogs[catalogName]
+  if (!catalog) throw new Error(`Missing ${catalogName} dependency catalog`)
 
   return Object.fromEntries(names.map((name) => {
-    const spec = name in catalog ? catalog[name as keyof typeof catalog] : undefined
-    if (typeof spec !== "string") throw new Error(`Missing ${name} in ${catalogName} dependency catalog`)
+    const spec = catalog[name]
+    if (!spec) throw new Error(`Missing ${name} in ${catalogName} dependency catalog`)
     return [name, spec]
   }))
 }
