@@ -483,6 +483,10 @@ async function packageModuleDiagnostics(
   if (hostTypesPath) {
     paths["cloudflare:workers"] = [hostTypesPath]
   }
+  const typeDependencies = await packageTypeDependenciesFrom(runnerDir, packageName, declaredTypes)
+  for (const [specifier, declarationPath] of typeDependencies.paths) {
+    paths[specifier] = [declarationPath]
+  }
   const options: ts.CompilerOptions = {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
@@ -491,7 +495,7 @@ async function packageModuleDiagnostics(
     skipLibCheck: false,
     strict: true,
     target: ts.ScriptTarget.ESNext,
-    typeRoots: await packageTypeRoots(runnerDir, packageName, declaredTypes),
+    typeRoots: typeDependencies.roots,
     types: [...new Set([
       ...(usesNodeDeclarationTypes(contract) ? ["node"] : []),
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
@@ -502,13 +506,35 @@ async function packageModuleDiagnostics(
 }
 
 async function packageTypeRoots(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
+  return (await packageTypeDependenciesFrom(runnerDir, packageName, declaredTypes)).roots
+}
+
+async function packageTypeDependenciesFrom(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
   const packageManifestPath = await realpath(join(runnerDir, "node_modules", ...packageName.split("/"), "package.json"))
   const requireFromPackage = createRequire(packageManifestPath)
-  return [...new Set([
-    join(runnerDir, "node_modules/@types"),
-    resolve(runnerDir, "../../node_modules/@types"),
-    ...declaredTypes.map(dependency => dirname(dirname(requireFromPackage.resolve(`${dependency}/package.json`)))),
-  ])]
+  const declarations = await Promise.all(declaredTypes.map(async (dependency) => {
+    const dependencyManifestPath = requireFromPackage.resolve(`${dependency}/package.json`)
+    const dependencyManifest = await readManifest(dependencyManifestPath)
+    if (!dependencyManifest.types) throw new Error(`${dependency} must declare its types entry`)
+    return {
+      dependency,
+      declarationPath: resolve(dirname(dependencyManifestPath), dependencyManifest.types),
+      root: dirname(dirname(dependencyManifestPath)),
+    }
+  }))
+  return {
+    paths: declarations.map(({ dependency, declarationPath }) => [typePackageSpecifier(dependency), declarationPath] as const),
+    roots: [...new Set([
+      join(runnerDir, "node_modules/@types"),
+      resolve(runnerDir, "../../node_modules/@types"),
+      ...declarations.map(declaration => declaration.root),
+    ])],
+  }
+}
+
+function typePackageSpecifier(dependency: string) {
+  const name = dependency.replace(/^@types\//, "")
+  return name.includes("__") ? `@${name.replace("__", "/")}` : name
 }
 
 function declarationDiagnostics(program: ts.Program, packageName?: string) {
@@ -593,6 +619,7 @@ describe("published declaration diagnostics", () => {
       expect(contract).toBeDefined()
       const diagnostics = await packageModuleDiagnostics("@vite-hub/queue", root, contract!, 0, false, dependencies)
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
+      expect(diagnostics.filter(diagnostic => diagnostic.code === 7016)).toEqual([])
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2304).map(diagnostic => diagnostic.file?.fileName)).toContain(
         join(typesDir, "index.d.ts"),
       )
