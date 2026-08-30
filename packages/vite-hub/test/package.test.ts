@@ -306,12 +306,13 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain("ConsoleSessionInspector");
     expect(consolePage).toContain("ConsoleHealth");
-    expect(
-      readFileSync(
-        `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
-        "utf8",
-      ),
-    ).toContain("Workspace unavailable");
+    const sessionInspector = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
+      "utf8",
+    );
+    expect(sessionInspector).toContain("Workspace unavailable");
+    expect(sessionInspector).toContain("invocationUsage.totalTokens");
+    expect(sessionInspector).toContain('workspace.pullRequest !== undefined');
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",

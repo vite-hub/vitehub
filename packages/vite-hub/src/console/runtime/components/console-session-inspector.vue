@@ -8,7 +8,7 @@ import ConsoleSessionTrace from "./console-session-trace.vue";
 type InspectorTab = "details" | "trace" | "workspace";
 type WorkspaceDescriptor = {
   paths: string[];
-  pullRequest: number;
+  pullRequest?: number;
   repository: string;
   revision: string;
 };
@@ -80,6 +80,7 @@ const workspaceLabel = computed(() =>
     ? `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Materialized Workspace",
 );
+const invocationUsage = computed(() => record(props.invocation)?.usage);
 const breadcrumbs = computed(() => selectedPath.value?.split("/") ?? []);
 type InspectorSurfaceItem = TabsItem & {
   icon: string;
@@ -368,21 +369,27 @@ class RequestError extends Error {
 
 function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
   const descriptor = record(value);
-  const paths = descriptor?.paths;
+  const rawPaths = descriptor?.paths;
+  const paths = Array.isArray(rawPaths) ? rawPaths.map(stringValue) : undefined;
   const pullRequest = numericValue(descriptor?.pullRequest);
   const repository = stringValue(descriptor?.repository);
   const revision = stringValue(descriptor?.revision);
   if (
-    !Array.isArray(paths) ||
-    !paths.every((path) => stringValue(path) !== undefined) ||
-    pullRequest === undefined ||
-    !Number.isInteger(pullRequest) ||
+    !paths ||
+    paths.some((path) => path === undefined) ||
+    (pullRequest !== undefined && !Number.isInteger(pullRequest)) ||
     !repository ||
     !revision
   )
     throw new Error("The host returned an invalid Workspace descriptor.");
-  // SAFETY: Every path entry was validated as a string above.
-  return { paths: paths as string[], pullRequest, repository, revision };
+  const validatedPaths = paths.filter((path): path is string => path !== undefined);
+  const result: WorkspaceDescriptor = {
+    paths: validatedPaths,
+    repository,
+    revision,
+  };
+  if (pullRequest !== undefined) result.pullRequest = pullRequest;
+  return result;
 }
 
 function parseWorkspaceFile(value: unknown): WorkspaceFile {
@@ -410,6 +417,15 @@ function stringValue(value: unknown): string | undefined {
 function numericValue(value: unknown): number | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so numbers are validated at the host boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function formatTokens(value: unknown): string {
+  const resolved = numericValue(value);
+  if (resolved === undefined) return "Unavailable";
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: 1,
+    notation: resolved >= 10_000 ? "compact" : "standard",
+  }).format(resolved);
 }
 
 function message(error: unknown) {
@@ -526,8 +542,62 @@ function message(error: unknown) {
       class="session-inspector__details"
       @select-activity="emit('focusActivity', $event)"
     >
-      <template v-if="!invocation.configuration?.instructions?.length" #metadata>
-        <section class="session-inspector__instruction-fallback">
+      <template
+        v-if="invocationUsage || !invocation.configuration?.instructions?.length"
+        #metadata
+      >
+        <section v-if="invocationUsage">
+          <h4>Usage</h4>
+          <dl class="grid grid-cols-2 gap-3">
+            <div>
+              <dt class="text-xs text-muted">Processed tokens</dt>
+              <dd class="mt-1 text-sm font-semibold tabular-nums">
+                {{ formatTokens(invocationUsage.totalTokens) }}
+              </dd>
+            </div>
+            <div v-if="record(invocationUsage.cost)">
+              <dt class="text-xs text-muted">Cost</dt>
+              <dd class="mt-1 text-sm font-semibold tabular-nums">
+                {{ stringValue(record(invocationUsage.cost)?.display) || "Unavailable" }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-muted">Input</dt>
+              <dd class="mt-1 text-xs tabular-nums text-toned">
+                {{ formatTokens(invocationUsage.inputTokens) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-muted">Output</dt>
+              <dd class="mt-1 text-xs tabular-nums text-toned">
+                {{ formatTokens(invocationUsage.outputTokens) }}
+              </dd>
+            </div>
+            <div v-if="numericValue(invocationUsage.cachedInputTokens) !== undefined">
+              <dt class="text-xs text-muted">Cached input</dt>
+              <dd class="mt-1 text-xs tabular-nums text-toned">
+                {{ formatTokens(invocationUsage.cachedInputTokens) }}
+              </dd>
+            </div>
+            <div v-if="numericValue(invocationUsage.reasoningTokens) !== undefined">
+              <dt class="text-xs text-muted">Reasoning</dt>
+              <dd class="mt-1 text-xs tabular-nums text-toned">
+                {{ formatTokens(invocationUsage.reasoningTokens) }}
+              </dd>
+            </div>
+          </dl>
+          <p
+            v-if="record(invocationUsage.cost)"
+            class="mt-3 text-[11px] leading-4 text-dimmed"
+          >
+            {{ record(invocationUsage.cost)?.estimated === true ? "Estimated" : "Reported" }}
+            by {{ stringValue(record(invocationUsage.cost)?.source) || "the provider" }}
+          </p>
+        </section>
+        <section
+          v-if="!invocation.configuration?.instructions?.length"
+          class="session-inspector__instruction-fallback"
+        >
           <h4>System instructions</h4>
           <p>Resolved instructions were not recorded for this invocation.</p>
           <button v-if="workspace" type="button" @click="openWorkspaceInstructions">
@@ -596,7 +666,11 @@ function message(error: unknown) {
               <UIcon name="i-lucide-folder-git-2" />
               <span class="session-inspector__eyebrow">Immutable snapshot</span>
               <strong>{{ workspaceLabel }}</strong>
-              <small>{{ workspace.paths.length }} files · PR #{{ workspace.pullRequest }}</small>
+              <small>
+                {{ workspace.paths.length }} files<span v-if="workspace.pullRequest !== undefined">
+                  · PR #{{ workspace.pullRequest }}</span
+                >
+              </small>
             </div>
             <div v-if="fileLoading" class="session-inspector__state">
               <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
