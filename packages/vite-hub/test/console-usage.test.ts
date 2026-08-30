@@ -115,6 +115,38 @@ describe("Console usage projection", () => {
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }))
   })
 
+  it("preserves empty opaque cursors while scanning usage pages", async () => {
+    const first = invocationRecord({ totalTokens: 10 })
+    const second = {
+      ...invocationRecord({ totalTokens: 20 }),
+      cursor: "second-usage",
+      id: "second-usage",
+      traceId: "second-usage-trace",
+    }
+    const records = new Map([[first.id, first], [second.id, second]])
+    const list = vi.fn(async (options?: { cursor?: string }) => ({
+      ...(options?.cursor === undefined ? { cursor: "" } : {}),
+      invocations: [options?.cursor === undefined ? first : second]
+        .map(({ observations: _observations, ...summary }) => summary),
+    }))
+    const invocations = {
+      get: vi.fn(async (id: string) => records.get(id)),
+      getByRunId: vi.fn(),
+      list,
+    }
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h",
+    })).resolves.toMatchObject({
+      available: true,
+      partial: false,
+      totals: { invocations: 2, totalTokens: 30 },
+    })
+    expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({ cursor: "" }))
+  })
+
   it("marks missing usage evidence incomplete for model totals", async () => {
     const recorded = invocationRecordFromUsageRecord({
       model: "recorded-model",

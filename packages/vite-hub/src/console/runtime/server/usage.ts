@@ -376,7 +376,7 @@ export async function createUsageSummary(
   do {
     const page = await invocations.list({
       ...(options.agentName ? { agentName: options.agentName } : {}),
-      ...(cursor ? { cursor } : {}),
+      ...(cursor === undefined ? {} : { cursor }),
       limit: Math.min(100, maximumUsageRecords - scanned),
       status: "completed",
     })
@@ -430,11 +430,11 @@ export async function createUsageSummary(
       }
     }
     cursor = page.cursor
-    if (scanned >= maximumUsageRecords && cursor) {
+    if (scanned >= maximumUsageRecords && cursor !== undefined) {
       partial = true
       scanTruncated = true
     }
-  } while (cursor && scanned < maximumUsageRecords)
+  } while (cursor !== undefined && scanned < maximumUsageRecords)
 
   const publicTotal = publicTotals(totals, !scanTruncated)
 
