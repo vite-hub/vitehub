@@ -4,6 +4,7 @@ import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import type { Plugin } from "esbuild"
+import { satisfies } from "semver"
 
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 
@@ -556,6 +557,7 @@ interface RuntimePackage {
   onlyIfOptionalDependencies?: boolean
   optional?: boolean
   packageJsonPath?: string
+  peerRange?: string
   ownsTarget?: boolean
 }
 
@@ -568,6 +570,7 @@ interface RuntimePackageJson {
   os?: string[]
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  version?: string
 }
 
 function parseRuntimePackageJson(source: string): RuntimePackageJson {
@@ -608,6 +611,7 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
     peerDependencies: stringRecord("peerDependencies"),
     // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
     peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
+    version: typeof record.version === "string" ? record.version : undefined,
   }
 }
 
@@ -616,7 +620,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const staged = new Set<string>()
   const stagedTargets = new Set<string>()
   const ownedTargets = new Set<string>()
-  const rootPackagePaths = new Map<string, { hoistedPeer: boolean, path: string }>()
+  const rootPackagePaths = new Map<string, { hoistedPeer: boolean, path: string, peerRanges: string[], version?: string }>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
@@ -634,7 +638,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, rootOutputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, rootPackagePaths: Map<string, { hoistedPeer: boolean, path: string }>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, rootOutputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, rootPackagePaths: Map<string, { hoistedPeer: boolean, path: string, peerRanges: string[], version?: string }>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
@@ -651,16 +655,27 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     if (options.optional) return
     throw new Error("Could not resolve package.json for " + name + ".")
   }
-  const resolvedPackageJsonPath = await realpath(packageJsonPath)
+  let resolvedPackageJsonPath = await realpath(packageJsonPath)
+  let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (outputNodeModules === rootOutputNodeModules) {
     const existingPath = rootPackagePaths.get(name)
+    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [options.peerRange] : [])]
     if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
-      throw new Error(`Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.`)
+      if (existingPath.version && peerRanges.every(range => satisfies(existingPath.version!, range))) {
+        resolvedPackageJsonPath = existingPath.path
+        packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
+      } else if (!packageJson.version || !peerRanges.every(range => satisfies(packageJson.version!, range))) {
+        throw new Error(`Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.`)
+      }
     }
-    rootPackagePaths.set(name, existingPath || { hoistedPeer: Boolean(options.hoistedPeer), path: resolvedPackageJsonPath })
+    rootPackagePaths.set(name, {
+      hoistedPeer: Boolean(existingPath?.hoistedPeer || options.hoistedPeer),
+      path: resolvedPackageJsonPath,
+      peerRanges,
+      version: packageJson.version,
+    })
   }
   const packageDir = dirname(resolvedPackageJsonPath)
-  const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
@@ -715,6 +730,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
         includePeerDependencies: true,
         name: dependencyName,
         optional: false,
+        peerRange: packageJson.peerDependencies![dependencyName],
       })
     }
   }
