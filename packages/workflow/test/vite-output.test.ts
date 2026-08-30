@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { buildSync } from "esbuild"
+import { build, buildSync } from "esbuild"
 import { afterAll, describe, expect, it } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
@@ -172,7 +172,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
       build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
     },
   }
-  expect(() => buildSync({
+  await expect(build({
     alias: {
       "vite-hub/_internal/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
       "vite-hub/_internal/workflow/runtime/cloudflare-vite": cloudflareViteStub,
@@ -183,10 +183,10 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     platform: "neutral",
     plugins: [fileUrlPlugin],
     write: false,
-  })).not.toThrow()
+  })).resolves.toBeDefined()
 
   const ownerArtifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, rootDir, join(rootDir, ".vitehub", "workflow-owner-output"))
-  expect(() => buildSync({
+  await expect(build({
     alias: {
       "@vite-hub/workflow/runtime/cloudflare-runner": cloudflareRunnerStub,
       "@vite-hub/workflow/runtime/cloudflare-vite": cloudflareViteStub,
@@ -197,7 +197,7 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
     platform: "neutral",
     plugins: [fileUrlPlugin],
     write: false,
-  })).not.toThrow()
+  })).resolves.toBeDefined()
 })
 
 it("removes partial staged Workflow publication when preparation fails", async () => {
