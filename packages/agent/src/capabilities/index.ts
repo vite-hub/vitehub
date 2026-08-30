@@ -56,12 +56,6 @@ export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
-  repositoryHost,
-} from "./repository-host.ts"
-export {
-  repositoryHostContext,
-} from "./repository-host-context.ts"
-export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -288,39 +282,6 @@ export type {
   PapercutSource,
   PapercutsOptions,
 } from "./papercuts.ts"
-export type {
-  RepositoryHostClient,
-  RepositoryHostOptions,
-  RepositoryHostProvider,
-  RepositoryHostReadOperation,
-  RepositoryHostReadRequest,
-  RepositoryHostTarget,
-  RepositoryHostTargetKind,
-  RepositoryHostToolPolicy,
-  RepositoryHostWriteOperation,
-  RepositoryHostWriteRequest,
-} from "./repository-host.ts"
-export type {
-  AsyncRecord,
-  JsonObject,
-  JsonPrimitive,
-  JsonValue,
-  PullRequestContextComment,
-  PullRequestContextFile,
-  PullRequestContextMetadata,
-  PullRequestContextRef,
-  PullRequestContextUser,
-  PullRequestContextValue,
-  RepositoryHostContextCapabilityFactory,
-  RepositoryHostContextInput,
-  RepositoryHostContextOptions,
-  RepositoryHostContextResolver,
-  RepositoryHostContextTarget,
-  RepositoryHostContextTargetResolver,
-  RepositoryHostContextTargetValue,
-  RepositoryHostContextValue,
-  RepositoryHostIssueContext,
-} from "./repository-host-context.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,

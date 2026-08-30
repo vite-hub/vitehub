@@ -1,6 +1,5 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { readPullRequestContext } from "./capabilities/repository-host-context.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -50,7 +49,6 @@ import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-deliver
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
-import type { PullRequestContextValue } from "./capabilities/repository-host-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
@@ -298,6 +296,17 @@ export interface GitHubPullRequestReadInvocation {
   }
 }
 
+export type GitHubPullRequestContext = GitHubPullRequestRunContext["pullRequest"] & {
+  actor?: string
+  baseRef?: string
+  deliveryId?: string
+  headRef?: string
+  provider: "github"
+  repository: string
+  run: GitHubPullRequestRunContext["run"]
+  trigger: GitHubPullRequestRunContext["trigger"]
+}
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
     github: GitHubPullRequestCommand
@@ -318,10 +327,21 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
 }
 
 export const pullRequest = {
-  read(invocation: GitHubPullRequestReadInvocation): PullRequestContextValue {
-    const context = readPullRequestContext(invocation)
+  read(invocation: GitHubPullRequestReadInvocation): GitHubPullRequestContext {
+    const context = githubPullRequestRunContextFromUnknown(invocation.context.get("pullRequest"))
     if (!context) throw new Error("[vitehub] pullRequest.read() requires pull request invocation context.")
-    return context
+    const value = context.pullRequest
+    return {
+      ...(context.trigger.actor.login ? { actor: context.trigger.actor.login } : {}),
+      ...value,
+      ...(value.base?.ref ? { baseRef: value.base.ref } : {}),
+      ...(context.trigger.deliveryId ? { deliveryId: context.trigger.deliveryId } : {}),
+      ...(value.source.ref || value.head?.ref ? { headRef: value.source.ref || value.head?.ref } : {}),
+      provider: "github",
+      repository: context.repository.fullName,
+      run: context.run,
+      trigger: context.trigger,
+    }
   },
 }
 
@@ -2014,7 +2034,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
-function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): PullRequestContextValue {
+function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): GitHubPullRequestContext {
   const value = pullRequest.read(input)
   if (!value.source?.repo) throw new Error("[vitehub] GitHub pull request workspace requires a repository source.")
   if (!value.source.ref) throw new Error("[vitehub] GitHub pull request workspace requires a source ref.")
@@ -2022,7 +2042,7 @@ function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): 
   return value
 }
 
-function githubPullRequestInstallationId(value: PullRequestContextValue): number | undefined {
+function githubPullRequestInstallationId(value: GitHubPullRequestContext): number | undefined {
   const installationId = value.trigger?.installationId
   if (hasRuntimeType(installationId, "number")) return installationId
   if (!hasRuntimeType(installationId, "string") || !installationId) return

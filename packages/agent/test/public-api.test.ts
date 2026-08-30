@@ -47,6 +47,7 @@ it("keeps Effect out of published Agent declarations", async () => {
   expect(containsForbiddenPublicReference(output)).toBe(false)
   expect(output).not.toContain("class AgentOutputValidationError")
   expect(output).not.toContain("class TranscriptionError")
+  expect(output).not.toMatch(/\brepositoryHost(?:Context)?\b/)
 })
 
 it("does not publish Agent-specific error constructors", async () => {
@@ -54,6 +55,8 @@ it("does not publish Agent-specific error constructors", async () => {
   const capabilities = await import("../dist/capabilities.js")
   expect(agent).not.toHaveProperty("AgentOutputValidationError")
   expect(capabilities).not.toHaveProperty("TranscriptionError")
+  expect(capabilities).not.toHaveProperty("repositoryHost")
+  expect(capabilities).not.toHaveProperty("repositoryHostContext")
 })
 
 it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {

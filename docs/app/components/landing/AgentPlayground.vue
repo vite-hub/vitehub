@@ -58,11 +58,11 @@ const projects: ExampleProject[] = [
       {
         path: "server/agents/review/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent } from "@vite-hub/agent"
+        content: `import githubTools from "@github-tools/eve-extension"
+import { defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 import {
   browser,
-  repositoryHost,
   skills,
 } from "@vite-hub/agent/capabilities"
 
@@ -77,7 +77,7 @@ export default defineAgent({
   },
   capabilities: [
     browser(),
-    repositoryHost({ mode: "read" }),
+    githubTools({ preset: "code-review" }),
     skills({ path: "./skills" }),
   ],
 })`,
@@ -340,8 +340,6 @@ const capabilityOptions = [
   { code: "email({ from, recipients })", icon: "i-lucide-mail", key: "email", label: "Email" },
   { code: "sandbox({ commands })", icon: "i-lucide-box", key: "sandbox", label: "Sandbox" },
   { code: "schedule({ mode: 'write', allowSelfTarget: true })", icon: "i-lucide-calendar-clock", key: "schedule", label: "Schedules" },
-  { code: "repositoryHost({ mode: 'read' })", icon: "i-lucide-git-pull-request", key: "repository", label: "Repository host" },
-  { code: "repositoryHostContext()", icon: "i-lucide-git-pull-request-arrow", key: "repository-context", label: "Repository host context" },
   { code: "mcp({ servers: { nuxt } })", icon: "i-lucide-plug-zap", key: "mcp", label: "MCP servers" },
   { code: "webSearch({ mode: 'tool', provider: 'exa' })", icon: "i-lucide-search", key: "web-search", label: "Web search" },
   { code: "fetch({ tools })", icon: "i-lucide-globe", key: "fetch", label: "Fetch tools" },
