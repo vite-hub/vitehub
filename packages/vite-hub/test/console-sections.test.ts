@@ -18,13 +18,14 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
-  it("derives only explicitly configured primitive sections", () => {
+  it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
     expect(resolveConsoleSectionIds({ agent: true, kv: true, workflow: true })).toEqual([
       "agents",
       "usage",
       "kv",
       "workflows",
     ])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "workflows"])
     expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
   })

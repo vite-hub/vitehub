@@ -219,6 +219,31 @@ describe("vitehub", () => {
     )
   })
 
+  it("includes implicitly enabled Workflow in the Agent Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-workflow-"))
+    try {
+      const plugin = dependencyPluginByName(
+        vitehub({ agent: true, console: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+
+      expect(config.nitro).toMatchObject({
+        handlers: expect.arrayContaining([
+          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+        ]),
+      })
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
+        `installConsoleSections(${JSON.stringify(root)}, ["agents","usage","workflows"])`,
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("does not install console plugins when explicitly disabled", () => {
     expect(pluginNames(vitehub({ console: false, preset: "node" }))).not.toEqual(expect.arrayContaining([
       "vite-hub/console",

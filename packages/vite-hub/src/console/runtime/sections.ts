@@ -46,10 +46,11 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
 }
 
 export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+  const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   return [
     ...(options.agent ? ["agents" as const, "usage" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
-    ...(options.workflow ? ["workflows" as const] : []),
+    ...(workflowEnabled ? ["workflows" as const] : []),
   ]
 }
 
