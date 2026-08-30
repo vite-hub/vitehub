@@ -31,6 +31,7 @@ afterEach(async () => {
 })
 
 async function installFakeGitHubCommands(): Promise<void> {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 123 }), { status: 200 })))
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-host-test-"))
   temporaryDirectories.add(root)
   await Promise.all([
@@ -122,6 +123,7 @@ describe("GitHub host", () => {
   })
 
   it("uses the fallback token outside the App owner", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 123 }), { status: 200 })))
     const host = createGitHubHost({
       credentials: () => ({
         appId: 123,
@@ -225,6 +227,17 @@ describe("GitHub host", () => {
     expect(commands.match(/gh api rate_limit/g)).toHaveLength(1)
   })
 
+  it("shares fallback GraphQL budgets across token rotation for one user", async () => {
+    await installFakeGitHubCommands()
+    let token = "first-token"
+    const host = createGitHubHost({ credentials: () => ({ token }), reserve: 10 })
+
+    await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    token = "rotated-token"
+    await expect(host.ensureGraphQLBudget("contributor/fork", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
   it("reserves cached GraphQL budget before admitting more work", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
@@ -253,6 +266,17 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "40"
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 20 }))
       .resolves.toMatchObject({ remaining: 20 })
+  })
+
+  it("releases abandoned GraphQL reservations", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.release()
+    reservation.release()
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 }))
+      .resolves.toMatchObject({ remaining: 40 })
   })
 
   it("refreshes a cached GraphQL budget after its reset", async () => {

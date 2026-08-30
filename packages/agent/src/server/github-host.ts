@@ -77,11 +77,15 @@ export interface GitHubGraphQLRateLimit {
   resetAt: number
 }
 
+export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
+  release(): void
+}
+
 export interface GitHubHost {
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
   budget(): { limited: false } | { limited: true, remaining: number, resetAt: number }
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
-  ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLRateLimit>
+  ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLReservation>
   isRateLimitError(error: unknown): boolean
   withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
@@ -122,10 +126,6 @@ function appJwt(appId: number, privateKey: string): string {
 
 function owner(repository: string): string {
   return repository.split("/", 1)[0]!.toLowerCase()
-}
-
-function fallbackRateLimitKey(token: string): string {
-  return createHash("sha256").update(token).digest("base64url")
 }
 
 function rateLimitMessage(error: unknown): boolean {
@@ -206,6 +206,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const observations = new Map<string, GitHubGraphQLRateLimit>()
   const reservations = new Map<string, { points: number, resetAt: number }>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
+  const fallbackIdentities = new Map<string, string>()
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
 
@@ -236,6 +237,29 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return token
   }
 
+  async function fallbackRateLimitKey(token: string, input: GitHubHostCheckoutOptions): Promise<string> {
+    const tokenKey = createHash("sha256").update(token).digest("base64url")
+    const cached = fallbackIdentities.get(tokenKey)
+    if (cached) return cached
+    const response = await fetch("https://api.github.com/user", {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "user-agent": options.userAgent || "vitehub",
+      },
+      signal: input.signal,
+    })
+    if (!response.ok) throw new Error(`GitHub user request failed with ${response.status}.`)
+    const body: unknown = await response.json()
+    const id = isRuntimeRecord(body) ? body.id : undefined
+    if (!hasRuntimeType(id, "number") || !Number.isSafeInteger(id) || id <= 0) {
+      throw new TypeError("GitHub did not return a valid authenticated user ID.")
+    }
+    const key = `user:${id}`
+    fallbackIdentities.set(tokenKey, key)
+    return key
+  }
+
   async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess & { rateLimitKey: string }> {
     const config = await credentials({ signal: input.signal })
     const appId = String(config.appId || "").trim()
@@ -252,7 +276,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = await fallbackToken(config, input)
-        rateLimitKey = fallbackRateLimitKey(token)
+        rateLimitKey = await fallbackRateLimitKey(token, input)
       }
       else {
         const numericAppId = positiveInteger(appId, "GitHub App appId")
@@ -285,7 +309,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
     else {
       token = await fallbackToken(config, input)
-      rateLimitKey = fallbackRateLimitKey(token)
+      rateLimitKey = await fallbackRateLimitKey(token, input)
     }
 
     const env: Record<string, string> = {
@@ -351,7 +375,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
-  async function ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLRateLimit> {
+  async function ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLReservation> {
     if (!Number.isSafeInteger(options.cost) || options.cost <= 0) throw new TypeError("GitHub GraphQL cost must be a positive integer.")
     const operation = controlledOperation(options)
     try {
@@ -360,7 +384,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const key = auth.rateLimitKey
       const now = Date.now()
       const cached = limits.get(key)
-      const admit = (limit: GitHubGraphQLRateLimit): GitHubGraphQLRateLimit => {
+      const admit = (limit: GitHubGraphQLRateLimit): GitHubGraphQLReservation => {
         const current = limits.get(key)
         const available = current?.checkedAt === limit.checkedAt && current.remaining <= limit.remaining ? current : limit
         if (available.resetAt > Date.now() && available.remaining - options.cost < reserve) {
@@ -373,7 +397,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           resetAt: available.resetAt,
         })
         limits.set(key, reserved)
-        return reserved
+        let released = false
+        return {
+          ...reserved,
+          release() {
+            if (released) return
+            released = true
+            const outstanding = reservations.get(key)
+            if (outstanding?.resetAt !== reserved.resetAt) return
+            const releasedPoints = Math.min(outstanding.points, options.cost)
+            reservations.set(key, { points: outstanding.points - releasedPoints, resetAt: outstanding.resetAt })
+            const current = limits.get(key)
+            if (current?.resetAt === reserved.resetAt) {
+              limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
+            }
+          },
+        }
       }
       if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)
       const pending = checks.get(key)
