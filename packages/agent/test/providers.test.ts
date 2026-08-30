@@ -14996,6 +14996,14 @@ describe("server helpers", () => {
         await runAgentInline(...args)
         return "completed"
       }
+      const handoffLock = `${binding!.steer!.lock.threadId}:handoff`
+      const originalAcquireLock = state.acquireLock.bind(state)
+      const handoffAcquisitions: Array<ReturnType<typeof originalAcquireLock>> = []
+      vi.spyOn(state, "acquireLock").mockImplementation((threadId, ttlMs) => {
+        const acquisition = originalAcquireLock(threadId, ttlMs)
+        if (threadId === handoffLock) handoffAcquisitions.push(acquisition)
+        return acquisition
+      })
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const firstExecution = runAgentWorkflowDefinition(agent as never, workflow, inline as never).then(
         (value) => ({ value }),
@@ -15025,21 +15033,15 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
+      await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(1))
+      await expect(handoffAcquisitions[0]).resolves.not.toBeNull()
       await new Promise((resolve) => setTimeout(resolve, binding!.steer!.ttlMs * 2))
-      const handoffLock = `${binding!.steer!.lock.threadId}:handoff`
-      const originalAcquireLock = state.acquireLock.bind(state)
-      let handoffAcquisition: ReturnType<typeof originalAcquireLock> | undefined
-      vi.spyOn(state, "acquireLock").mockImplementation((threadId, ttlMs) => {
-        const acquisition = originalAcquireLock(threadId, ttlMs)
-        if (threadId === handoffLock) handoffAcquisition = acquisition
-        return acquisition
-      })
       const overlappingDelivery = handler(chatWebhookRequest(91_145), "telegram", {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(() => expect(handoffAcquisition).toBeDefined())
-      await expect(handoffAcquisition).resolves.toBeNull()
+      await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(2))
+      await expect(handoffAcquisitions[1]).resolves.toBeNull()
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
