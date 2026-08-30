@@ -379,6 +379,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     resume: () => void
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
+  const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   const generatedHandlersListeners = new Map<GeneratedSourceHandlersListener, {
     handlesHostRestart?: boolean
     projectRoot?: string
@@ -455,40 +456,51 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const projectRoot = resolveViteHubProjectRoot(viteConfig.root || process.cwd())
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
-      const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
-      const previousConfiguredState = configuredStateByRoot.get(projectRoot)
-      previousLifecycle?.pause()
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      try {
-        const handlers = await prepareSources({ projectRoot, serverDirs })
-        const handlerKey = await generatedHandlerKey(handlers)
-        const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
-        configuredStateByRoot.set(projectRoot, {
-          handlerKey,
-          nitroContribution: nitro,
-          serverDirs: serverDirs?.slice(),
-        })
-        const contribution: SourcePluginConfig = {
-          define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
-          ...(nitro ? { nitro } : {}),
-        }
-        previousLifecycle?.close()
-        return contribution
-      }
-      catch (error) {
+      const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
+      const runTransition = async () => {
+        const previousLifecycle = hostRefreshLifecycleByRoot.get(projectRoot)
+        const previousConfiguredState = configuredStateByRoot.get(projectRoot)
+        previousLifecycle?.pause()
         try {
-          if (previousLifecycle) {
-            await prepareSources({
-              projectRoot,
-              serverDirs: previousConfiguredState?.serverDirs,
-            })
+          const handlers = await prepareSources({ projectRoot, serverDirs })
+          const handlerKey = await generatedHandlerKey(handlers)
+          const nitro = generatedSourceNitroContribution(viteConfig.nitro, handlers)
+          configuredStateByRoot.set(projectRoot, {
+            handlerKey,
+            nitroContribution: nitro,
+            serverDirs: serverDirs?.slice(),
+          })
+          const contribution: SourcePluginConfig = {
+            define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
+            ...(nitro ? { nitro } : {}),
           }
+          previousLifecycle?.close()
+          return contribution
         }
-        finally {
-          previousLifecycle?.resume()
+        catch (error) {
+          try {
+            if (previousConfiguredState) {
+              await prepareSources({
+                projectRoot,
+                serverDirs: previousConfiguredState.serverDirs,
+              })
+            }
+          }
+          finally {
+            previousLifecycle?.resume()
+          }
+          throw error
         }
-        throw error
       }
+      const transition = previousTransition.then(runTransition, runTransition)
+      configurationTransitionByRoot.set(projectRoot, transition)
+      void transition.finally(() => {
+        if (configurationTransitionByRoot.get(projectRoot) === transition) {
+          configurationTransitionByRoot.delete(projectRoot)
+        }
+      }).catch(() => {})
+      return transition
     },
     async configResolved(config) {
       const projectRoot = resolveViteHubProjectRoot(config.root)
@@ -584,9 +596,17 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             return
           }
           const handlers = await prepareSources({ projectRoot: root, serverDirs: lifecycleServerDirs })
-          if (serverClosed || serverPaused) return
+          if (serverClosed) return
+          if (serverPaused) {
+            pausedHostRefreshRetryFile = file
+            return
+          }
           const handlerKey = await generatedHandlerKey(handlers)
-          if (serverClosed || serverPaused) return
+          if (serverClosed) return
+          if (serverPaused) {
+            pausedHostRefreshRetryFile = file
+            return
+          }
           if (handlerKey === activeHandlerKey) return
           const listeners = [...generatedHandlersListeners].filter(([, listenerOptions]) =>
             listenerOptions.projectRoot === root,

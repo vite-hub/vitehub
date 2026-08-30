@@ -1455,6 +1455,101 @@ describe("framework generated types", () => {
     expect(oldRestart).toHaveBeenCalledOnce()
   })
 
+  it("restores the latest successful overlapping Source configuration", async () => {
+    const { root } = await createNestedProject()
+    const original = join(root, "server/collections/original.ts")
+    const meals = join(root, "api/collections/meals.ts")
+    const drinks = join(root, "backend/collections/drinks.ts")
+    const generatedMeals = join(root, ".vitehub/source/routes/meals.mjs")
+    const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
+    await mkdir(dirname(original), { recursive: true })
+    await mkdir(dirname(meals), { recursive: true })
+    await mkdir(dirname(drinks), { recursive: true })
+    await writeFile(original, collectionModule("original"))
+    await writeFile(meals, collectionModule("meals"))
+    await writeFile(drinks, collectionModule("drinks"))
+    const plugin = sourcePlugin()
+    await config(plugin)({ root })
+    configureServer(plugin)({
+      config: { logger: { error: vi.fn() } },
+      restart: vi.fn(async () => {}),
+      watcher: { add: vi.fn(), on: vi.fn() },
+    })
+
+    let releaseFirstConfiguration: (() => void) | undefined
+    generatedHandlerReadGate.path = generatedMeals
+    generatedHandlerReadGate.blockAtRead = 1
+    generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+      releaseFirstConfiguration = resolve
+    })
+    const firstConfigurationStarted = new Promise<void>((resolve) => {
+      generatedHandlerReadGate.started = resolve
+    })
+    const firstConfiguration = config(plugin)({ root, [VITEHUB_SERVER_DIRS]: ["api"] })
+    await firstConfigurationStarted
+    const failedConfiguration = config(plugin)({
+      nitro: { handlers: [{ handler: "backend/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+      root,
+      [VITEHUB_SERVER_DIRS]: ["backend"],
+    })
+    releaseFirstConfiguration?.()
+
+    await expect(firstConfiguration).resolves.toBeDefined()
+    await expect(failedConfiguration).rejects.toThrow(
+      'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+    )
+    expect(await readFile(generatedMeals, "utf8")).toContain("api/collections/meals.ts")
+    await expect(readFile(generatedDrinks, "utf8")).rejects.toThrow()
+  })
+
+  it("retries a Source refresh paused after preparation", async () => {
+    vi.useFakeTimers()
+    try {
+      const { root } = await createNestedProject()
+      const drinks = join(root, "server/collections/drinks.ts")
+      const generatedDrinks = join(root, ".vitehub/source/routes/drinks.mjs")
+      await mkdir(dirname(drinks), { recursive: true })
+      const plugin = sourcePlugin()
+      await config(plugin)({ root })
+      const listeners = new Map<string, (file: string) => Promise<void> | void>()
+      const restartOwner = vi.fn(async () => {})
+      plugin.api.onGeneratedHandlersChanged(restartOwner, { handlesHostRestart: true })
+      configureServer(plugin)({
+        config: { logger: { error: vi.fn() } },
+        restart: vi.fn(async () => {}),
+        watcher: { add: vi.fn(), on: (event, callback) => listeners.set(event, callback) },
+      })
+
+      await writeFile(drinks, collectionModule("drinks"))
+      let releaseRefresh: (() => void) | undefined
+      generatedHandlerReadGate.path = generatedDrinks
+      generatedHandlerReadGate.blockAtRead = 1
+      generatedHandlerReadGate.wait = new Promise<void>((resolve) => {
+        releaseRefresh = resolve
+      })
+      const refreshPrepared = new Promise<void>((resolve) => {
+        generatedHandlerReadGate.started = resolve
+      })
+      const refresh = listeners.get("add")?.(drinks)
+      await refreshPrepared
+      const replacement = config(plugin)({
+        nitro: { handlers: [{ handler: "server/api/drinks.ts", method: "get", route: "/api/drinks" }] },
+        root,
+      })
+      releaseRefresh?.()
+
+      await refresh
+      await expect(replacement).rejects.toThrow(
+        'Generated Collection route "/api/drinks" conflicts with an existing GET handler',
+      )
+      await vi.runAllTimersAsync()
+      await vi.waitFor(() => expect(restartOwner).toHaveBeenCalledOnce())
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("reschedules a topology retry when a watcher event arrives during failed replacement config", async () => {
     vi.useFakeTimers()
     try {
