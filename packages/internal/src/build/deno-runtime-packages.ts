@@ -81,6 +81,10 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const bindingIdentifier = `${identifierStart}${identifierContinue}*`
+
 function collectCreateRequireAliases(source: string): Set<string> {
   const factories = new Set<string>()
   for (const match of source.matchAll(/(?:^|[;\n])\s*import\s*\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
@@ -98,6 +102,15 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  const dynamicModuleImport = String.raw`await\s+import\s*\(\s*["'](?:node:)?module["']\s*\)`
+  const dynamicDestructure = new RegExp(String.raw`\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*(${bindingIdentifier}))?[^}]*\}\s*=\s*${dynamicModuleImport}`, "gu")
+  for (const match of source.matchAll(dynamicDestructure)) {
+    factories.add(match[1] ?? "createRequire")
+  }
+  const dynamicNamespace = new RegExp(String.raw`\b(?:const|let|var)\s+(${bindingIdentifier})\s*=\s*${dynamicModuleImport}`, "gu")
+  for (const match of source.matchAll(dynamicNamespace)) {
+    factories.add(`${match[1]}.createRequire`)
+  }
   if (factories.size === 0) return new Set()
 
   const aliases = new Set<string>()
@@ -107,9 +120,6 @@ function collectCreateRequireAliases(source: string): Set<string> {
   return aliases
 }
 
-const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
-const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
-const bindingIdentifier = `${identifierStart}${identifierContinue}*`
 const staticFromPattern = new RegExp(
   String.raw`(?:^|(?<=;))\s*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
   "gmu",

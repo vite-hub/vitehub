@@ -147,6 +147,17 @@ loadDefault("default-runtime")
 `)).toEqual(["bare-runtime", "default-runtime", "namespace-runtime"])
   })
 
+  it("finds createRequire aliases from dynamic module imports", () => {
+    expect(collectDenoRuntimePackageNames(`
+const { createRequire: makeRequire } = await import("node:module")
+const moduleApi = await import("module")
+const load = makeRequire(import.meta.url)
+const loadFromApi = moduleApi.createRequire(import.meta.url)
+load("dynamic-destructured-runtime")
+loadFromApi("dynamic-namespace-runtime")
+`)).toEqual(["dynamic-destructured-runtime", "dynamic-namespace-runtime"])
+  })
+
   it("ignores import- and require-shaped member calls", () => {
     expect(collectDenoRuntimePackageNames(`
 loader.import("member-data", { with: { type: "json" } })
