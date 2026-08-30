@@ -78,7 +78,7 @@ index b7e3da127412bc7bbac6307f157689cd24d8317f..02acfe8c43bfab7f317d91a66ae64f79
    url?: string;
  }
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index e5b0a3f74a191d96e0f329064d61a53d4d1ca883..5f8f132e69154d7320f560309967a3871e3fcc71 100644
+index e5b0a3f74a191d96e0f329064d61a53d4d1ca883..7ce139083f6b324fd4724f7a3ef9add9b60bc0a5 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
 @@ -45,6 +45,14 @@ function searchValue(search) {
@@ -105,32 +105,62 @@ index e5b0a3f74a191d96e0f329064d61a53d4d1ca883..5f8f132e69154d7320f560309967a387
  	let initialized;
  	let writes = Promise.resolve();
  	const write = (operation) => {
-@@ -110,6 +120,24 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -66,6 +76,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+         id TEXT NOT NULL UNIQUE,
+         status TEXT NOT NULL,
+         search TEXT,
++        updated_at TEXT,
+         record TEXT NOT NULL
+       )`);
+ 			if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "search")) try {
+@@ -73,6 +84,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			} catch (error) {
+ 				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "search")) throw error;
+ 			}
++			if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "updated_at")) try {
++				await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT`);
++			} catch (error) {
++				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "updated_at")) throw error;
++			}
+ 			let backfillSequence = 0;
+ 			while (true) {
+ 				const missingSearch = await client.execute({
+@@ -91,6 +107,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				if (searchBackfill.length) await client.batch(searchBackfill, "write");
+ 			}
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_updated_at ON ${table} (updated_at)`);
+ 			await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
+         id TEXT PRIMARY KEY,
+         claim_id TEXT NOT NULL,
+@@ -110,6 +127,18 @@ function createLibsqlAgentInvocationStore(options = {}) {
  		})).rows[0];
  		return row ? deserialize(row.record, row.sequence) : void 0;
  	};
 +	const prune = async () => {
-+		const filters = [];
-+		const args = [];
-+		if (maxAgeMs !== false) {
-+			filters.push("json_extract(record, '$.updatedAt') < ?");
-+			args.push(new Date(Date.now() - maxAgeMs).toISOString());
-+		}
-+		if (maxRecords !== false) {
-+			filters.push(`sequence NOT IN (SELECT sequence FROM ${table} ORDER BY sequence DESC LIMIT ?)`);
-+			args.push(maxRecords);
-+		}
-+		if (!filters.length) return;
-+		await client.execute({
-+			args,
-+			sql: `DELETE FROM ${table} WHERE ${filters.join(" OR ")}`
++		if (maxAgeMs !== false) await client.execute({
++			args: [new Date(Date.now() - maxAgeMs).toISOString()],
++			sql: `DELETE FROM ${table} WHERE updated_at IS NOT NULL AND updated_at < ?`
 +		});
++		if (maxRecords !== false) await client.execute({
++			args: [maxRecords],
++			sql: `DELETE FROM ${table} WHERE sequence <= COALESCE((SELECT sequence FROM ${table} ORDER BY sequence DESC LIMIT 1 OFFSET ?), 0)`
++		});
++		if (maxAgeMs === false && maxRecords === false) return;
 +		await client.execute(`DELETE FROM ${table}_claims WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`);
 +	};
  	return {
  		async claim(id, claimId, leaseMs, force) {
  			return write(async () => {
-@@ -144,6 +172,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -138,12 +167,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 						input.id,
+ 						input.status,
+ 						searchableRecord(input),
++						input.updatedAt,
+ 						serialize(input)
+ 					],
+-					sql: `INSERT OR IGNORE INTO ${table} (id, status, search, record) VALUES (?, ?, ?, ?)`
++					sql: `INSERT OR IGNORE INTO ${table} (id, status, search, updated_at, record) VALUES (?, ?, ?, ?, ?)`
  				});
  				const record = await read(input.id);
  				if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was not persisted.`);
@@ -138,6 +168,19 @@ index e5b0a3f74a191d96e0f329064d61a53d4d1ca883..5f8f132e69154d7320f560309967a387
  				return {
  					created: result.rowsAffected > 0,
  					record
+@@ -220,10 +251,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 						args: [
+ 							updated.status,
+ 							searchableRecord(stored),
++							updated.updatedAt,
+ 							serialize(stored),
+ 							id
+ 						],
+-						sql: `UPDATE ${table} SET status = ?, search = ?, record = ? WHERE id = ?`
++						sql: `UPDATE ${table} SET status = ?, search = ?, updated_at = ?, record = ? WHERE id = ?`
+ 					});
+ 					await transaction.commit();
+ 					return updated;
 diff --git a/dist/runtime/process.d.ts b/dist/runtime/process.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..ca86ef4dbee0e31162244c1c8dab79486eaa0a3d
@@ -179,7 +222,7 @@ index 0000000000000000000000000000000000000000..ca86ef4dbee0e31162244c1c8dab7948
 +export declare function createProcessAgentCapacity(options: ProcessAgentCapacityOptions): AgentDriverCapacityOptions;
 diff --git a/dist/runtime/process.js b/dist/runtime/process.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..c7c39051e8fad426b73026892b9942ddc8c70786
+index 0000000000000000000000000000000000000000..f45355f4f5962bb28bbbd8c576650f8c677b511d
 --- /dev/null
 +++ b/dist/runtime/process.js
 @@ -0,0 +1,123 @@

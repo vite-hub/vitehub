@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -35,4 +35,12 @@ test('bounds the SQLite invocation journal by count and age', async (context) =>
   assert.deepEqual((await store.list({ limit: 10 })).invocations.map(record => record.id), ['third', 'second'])
   assert.equal(await store.get('expired'), undefined)
   assert.equal(await store.get('first'), undefined)
+})
+
+test('prunes indexed invocation metadata without scanning transcript JSON', async () => {
+  const source = await readFile(new URL(import.meta.resolve('@vite-hub/agent/invocations/sqlite')), 'utf8')
+
+  assert.match(source, /updated_at IS NOT NULL AND updated_at < \?/)
+  assert.match(source, /sequence <= COALESCE/)
+  assert.doesNotMatch(source, /json_extract\(record/)
 })
