@@ -5,31 +5,31 @@ export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 export const consoleSectionDetails = {
   agents: {
     description: "Inspect Agent sessions and invocation details.",
-    icon: "i-lucide-bot",
+    icon: "i-ph-robot-light",
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
   usage: {
     description: "Review token use and cost evidence over time.",
-    icon: "i-lucide-chart-no-axes-combined",
+    icon: "i-ph-chart-bar-light",
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
   kv: {
     description: "Inspect configured KV stores without changing data.",
-    icon: "i-lucide-key-round",
+    icon: "i-ph-key-light",
     label: "KV",
     routeName: "vitehub-console-kv",
   },
   workflows: {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
-    icon: "i-lucide-git-branch",
+    icon: "i-ph-git-branch-light",
     label: "Workflows",
     routeName: "vitehub-console-workflows",
   },
   queues: {
     description: "Inspect discovered Queue Definitions and their source metadata.",
-    icon: "i-lucide-inbox",
+    icon: "i-ph-tray-light",
     label: "Queues",
     routeName: "vitehub-console-queues",
   },

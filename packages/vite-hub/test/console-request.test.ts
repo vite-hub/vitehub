@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { appendUniqueConsoleKeys, requestConsole } from "../src/console/runtime/client/request.ts"
-import { createConsoleSectionLoader } from "../src/console/runtime/client/sections.ts"
+import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -55,5 +55,19 @@ describe("Console requests", () => {
     await expect(loadSections()).resolves.toEqual(["kv"])
     await expect(loadSections()).resolves.toEqual(["kv"])
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("loads the project name and enabled sections as one navigation response", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ projectName: " console-host ", sections: ["kv", "unknown"] }),
+      ok: true,
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleNavigation("/api/_vitehub/console/navigation-test")).resolves.toEqual({
+      projectName: "console-host",
+      sections: ["kv"],
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

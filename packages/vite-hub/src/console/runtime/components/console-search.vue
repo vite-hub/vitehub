@@ -8,9 +8,10 @@ import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
 import type { ConsoleSectionId } from "../sections"
 import { requestConsole } from "../client/request"
+import { loadConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
-import { consoleSectionDetails, isConsoleSectionId } from "../sections"
+import { consoleSectionDetails } from "../sections"
 
 interface ConsoleSearchFilter {
   search?: string
@@ -23,6 +24,18 @@ interface ConsoleSearchItem {
   id: string
   status: AgentInvocationListItem["status"]
   updatedAt: string
+}
+
+interface ConsoleDefinitionSearchItem {
+  file: string
+  name: string
+  section: "queues" | "workflows"
+  source: string
+}
+
+interface ConsoleKVSearchItem {
+  key: string
+  store: string
 }
 
 declare global {
@@ -44,7 +57,10 @@ const searchTerm = ref("")
 const debouncedSearchTerm = ref("")
 const sections = ref<ConsoleSectionId[]>([])
 const discoveredAgentNames = ref<string[]>([])
+const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
+const kvItems = ref<ConsoleKVSearchItem[]>([])
 const navigationLoading = ref(true)
+const contentLoaded = ref(false)
 const navigationError = ref<unknown>()
 const sessionSearchEnabled = ref(false)
 let navigationRequest: AbortController | undefined
@@ -69,17 +85,33 @@ const sessionItems = computed<CommandPaletteItem[]>(() =>
     : sessionSearch.items.value.map(item => ({
         description: itemDescription(item),
         disabled: !item.agentName,
-        icon: "i-lucide-message-square-text",
+        icon: "i-ph-chat-text-light",
         label: item.excerpt || (item.agentName ? `${item.agentName} session` : "Agent Invocation"),
         onSelect: () => selectSession(item),
       })),
+)
+const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
+  definitionItems.value.map(item => ({
+    description: `${consoleSectionDetails[item.section].label.slice(0, -1)} · ${item.file}`,
+    icon: consoleSectionDetails[item.section].icon,
+    label: item.name,
+    onSelect: () => selectDefinition(item),
+  })),
+)
+const kvSearchItems = computed<CommandPaletteItem[]>(() =>
+  kvItems.value.map(item => ({
+    description: item.store,
+    icon: consoleSectionDetails.kv.icon,
+    label: item.key || "(empty key)",
+    onSelect: () => selectKVKey(item),
+  })),
 )
 const groups = computed<CommandPaletteGroup[]>(() => [
   {
     id: "pages",
     items: [
       {
-        icon: "i-lucide-layout-grid",
+        icon: "i-ph-squares-four-light",
         label: "All primitives",
         onSelect: () => selectPage("vitehub-console"),
       },
@@ -95,12 +127,18 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "agents",
         items: availableAgentNames.value.map(name => ({
-          icon: "i-lucide-bot",
+          icon: "i-ph-robot-light",
           label: name,
           onSelect: () => selectAgent(name),
         })),
         label: "Agents",
       }]
+    : []),
+  ...(definitionSearchItems.value.length
+    ? [{ id: "definitions", items: definitionSearchItems.value, label: "Definitions" }]
+    : []),
+  ...(kvSearchItems.value.length
+    ? [{ id: "kv", items: kvSearchItems.value, label: "KV keys" }]
     : []),
   ...(agentsEnabled.value
     ? [{
@@ -140,20 +178,70 @@ function itemDescription(item: ConsoleSearchItem): string {
     .join(" · ")
 }
 
-async function loadNavigation(discoverAgents = false): Promise<void> {
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    ? value.filter((item): item is string => typeof item === "string")
+    : []
+}
+
+async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
+  if (contentLoaded.value) return
+  const definitionSections = installed.filter((section): section is "queues" | "workflows" =>
+    section === "queues" || section === "workflows",
+  )
+  const catalogs = await Promise.all(definitionSections.map(async (section) => ({
+    section,
+    value: record(await requestConsole("/api/_vitehub/console/definitions", {
+      query: { section },
+      signal,
+    })),
+  })))
+  definitionItems.value = catalogs.flatMap(({ section, value }) =>
+    Array.isArray(value?.definitions)
+      ? value.definitions.flatMap((entry) => {
+          const definition = record(entry)
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+          return typeof definition?.name === "string"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+            && typeof definition.file === "string"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+            && typeof definition.source === "string"
+            ? [{ file: definition.file, name: definition.name, section, source: definition.source }]
+            : []
+        })
+      : [],
+  )
+
+  if (installed.includes("kv")) {
+    const first = record(await requestConsole("/api/_vitehub/console/kv", { signal }))
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    const firstStore = typeof first?.store === "string" ? first.store : "default"
+    const stores = strings(first?.stores)
+    const pages = [
+      { store: firstStore, value: first },
+      ...await Promise.all(stores.filter(store => store !== firstStore).map(async store => ({
+        store,
+        value: record(await requestConsole("/api/_vitehub/console/kv", { query: { store }, signal })),
+      }))),
+    ]
+    kvItems.value = pages.flatMap(({ store, value }) => strings(value?.keys).map(key => ({ key, store })))
+  }
+  contentLoaded.value = true
+}
+
+async function loadNavigation(discoverContent = false): Promise<void> {
   navigationRequest?.abort()
   const controller = new AbortController()
   navigationRequest = controller
   navigationLoading.value = true
   try {
-    const sectionsValue = record(await requestConsole(props.sectionsBase, { signal: controller.signal }))
-    const installed = Array.isArray(sectionsValue?.sections)
-      ? sectionsValue.sections.filter(isConsoleSectionId)
-      : []
+    const installed = (await loadConsoleNavigation(props.sectionsBase))?.sections ?? []
+    controller.signal.throwIfAborted()
     if (navigationRequest !== controller) return
     sections.value = [...new Set(installed)]
 
-    if (discoverAgents && props.agentNames === undefined && installed.includes("agents")) {
+    if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
       const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
       const names = Array.isArray(agentsValue?.agents)
@@ -162,6 +250,7 @@ async function loadNavigation(discoverAgents = false): Promise<void> {
       if (navigationRequest !== controller) return
       discoveredAgentNames.value = [...new Set(names)]
     }
+    if (discoverContent) await loadContent(installed, controller.signal)
     navigationError.value = undefined
   }
   catch (error) {
@@ -186,6 +275,22 @@ async function selectAgent(name: string): Promise<void> {
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
+  })
+}
+
+async function selectDefinition(item: ConsoleDefinitionSearchItem): Promise<void> {
+  open.value = false
+  await router.push({
+    name: resolveConsoleRouteName(route.name, consoleSectionDetails[item.section].routeName),
+    query: { definition: item.name },
+  })
+}
+
+async function selectKVKey(item: ConsoleKVSearchItem): Promise<void> {
+  open.value = false
+  await router.push({
+    name: resolveConsoleRouteName(route.name, consoleSectionDetails.kv.routeName),
+    query: { key: item.key, store: item.store },
   })
 }
 
@@ -227,20 +332,22 @@ onBeforeUnmount(() => {
     v-model:search-term="searchTerm"
     :groups="groups"
     :loading="loading"
-    placeholder="Search pages, Agents, and sessions…"
+    description="Search pages, Agents, definitions, KV keys, and sessions."
+    placeholder="Search the Console…"
     preserve-group-order
+    title="Search console"
   >
     <template #empty="{ searchTerm: value }">
       <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
         <UIcon
-          :name="paletteError ? 'i-lucide-cloud-off' : 'i-lucide-search-x'"
+          :name="paletteError ? 'i-ph-cloud-slash-light' : 'i-ph-magnifying-glass-minus-light'"
           class="size-6 text-dimmed"
         />
         <p class="text-sm font-medium text-highlighted">
           {{ paletteError ? "Could not load Console search" : "No matches" }}
         </p>
         <p class="text-xs text-muted">
-          {{ paletteError ? errorMessage(paletteError) : value.trim() ? "Try a page, Agent, or phrase from a session." : "No Console results are available yet." }}
+          {{ paletteError ? errorMessage(paletteError) : value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
     </template>

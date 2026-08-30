@@ -211,6 +211,7 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@iconify-json/ph": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",

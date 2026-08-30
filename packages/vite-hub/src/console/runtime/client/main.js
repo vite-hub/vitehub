@@ -67,6 +67,7 @@ const router = createRouter({
         apiBase: "/api/_vitehub/console/invocations",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {

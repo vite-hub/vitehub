@@ -49,9 +49,9 @@ onMounted(loadSections);
           class="max-w-md"
           color="error"
           variant="subtle"
-          icon="i-lucide-cloud-off"
+          icon="i-ph-cloud-slash-light"
           title="Could not load the ViteHub Console"
-          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections }]"
+          :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections }]"
         />
       </div>
       <div v-else class="flex h-dvh min-h-[32rem] items-center justify-center text-sm text-muted">
