@@ -37,6 +37,8 @@ const router = useRouter();
 const props = defineProps<{
   agentsBase: string;
   apiBase: string;
+  definitionsBase: string;
+  kvBase: string;
   searchBase: string;
   sectionsBase: string;
   usageBase: string;
@@ -558,6 +560,8 @@ onBeforeUnmount(() => {
     <ConsoleSearch
       :agent-names="agentNames"
       :agents-base="agentsBase"
+      :definitions-base="definitionsBase"
+      :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />

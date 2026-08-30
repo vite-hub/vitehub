@@ -24,3 +24,35 @@ export async function requestConsole(
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
   return [...new Set([...existing, ...page])]
 }
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value instanceof Object && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined
+}
+
+export async function loadConsoleKVPages(
+  base: string,
+  store: string,
+  signal: AbortSignal,
+  initial?: Record<string, unknown>,
+): Promise<Record<string, unknown>[]> {
+  const pages: Record<string, unknown>[] = []
+  const cursors = new Set<string>()
+  let page = initial
+  let hasMore = true
+  while (hasMore) {
+    page ??= record(await requestConsole(base, { query: { store }, signal }))
+    if (!page) break
+    pages.push(page)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    const cursor = typeof page.cursor === "string" ? page.cursor : undefined
+    if (cursor === undefined || cursors.has(cursor)) {
+      hasMore = false
+      continue
+    }
+    cursors.add(cursor)
+    page = record(await requestConsole(base, { query: { cursor, store }, signal }))
+  }
+  return pages
+}

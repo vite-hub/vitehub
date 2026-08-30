@@ -7,7 +7,7 @@ import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
 import type { ConsoleSectionId } from "../sections"
-import { requestConsole } from "../client/request"
+import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
@@ -47,6 +47,8 @@ declare global {
 const props = defineProps<{
   agentNames?: string[]
   agentsBase: string
+  definitionsBase: string
+  kvBase: string
   searchBase: string
   sectionsBase: string
 }>()
@@ -192,7 +194,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   )
   const catalogs = await Promise.all(definitionSections.map(async (section) => ({
     section,
-    value: record(await requestConsole("/api/_vitehub/console/definitions", {
+    value: record(await requestConsole(props.definitionsBase, {
       query: { section },
       signal,
     })),
@@ -214,17 +216,18 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   )
 
   if (installed.includes("kv")) {
-    const first = record(await requestConsole("/api/_vitehub/console/kv", { signal }))
+    const first = record(await requestConsole(props.kvBase, { signal }))
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const firstStore = typeof first?.store === "string" ? first.store : "default"
     const stores = strings(first?.stores)
-    const pages = [
-      { store: firstStore, value: first },
-      ...await Promise.all(stores.filter(store => store !== firstStore).map(async store => ({
-        store,
-        value: record(await requestConsole("/api/_vitehub/console/kv", { query: { store }, signal })),
-      }))),
-    ]
+    const remainingStores = stores.filter(store => store !== firstStore)
+    const pages = (await Promise.all([
+      loadConsoleKVPages(props.kvBase, firstStore, signal, first),
+      ...remainingStores.map(store => loadConsoleKVPages(props.kvBase, store, signal)),
+    ])).flatMap((values, index) => {
+      const store = index === 0 ? firstStore : remainingStores[index - 1]!
+      return values.map(value => ({ store, value }))
+    })
     kvItems.value = pages.flatMap(({ store, value }) => strings(value?.keys).map(key => ({ key, store })))
   }
   contentLoaded.value = true

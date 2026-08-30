@@ -40,6 +40,7 @@ onMounted(loadSections);
       <ConsoleKv
         v-if="available"
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
+        :definitions-base="`${appBaseURL}/api/_vitehub/console/definitions`"
         :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="sectionsBase"

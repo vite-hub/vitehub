@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { appendUniqueConsoleKeys, requestConsole } from "../src/console/runtime/client/request.ts"
+import { appendUniqueConsoleKeys, loadConsoleKVPages, requestConsole } from "../src/console/runtime/client/request.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 
 afterEach(() => {
@@ -39,6 +39,21 @@ describe("Console requests", () => {
       method: "POST",
       signal: undefined,
     })
+  })
+
+  it("loads every KV page using the configured base and stops repeated cursors", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["second"] }), ok: true })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages("/host/api/_vitehub/console/kv", "cache", new AbortController().signal))
+      .resolves.toEqual([
+        { cursor: "next", keys: ["first"] },
+        { cursor: "next", keys: ["second"] },
+      ])
+    expect(fetch).toHaveBeenNthCalledWith(1, "/host/api/_vitehub/console/kv?store=cache", expect.any(Object))
+    expect(fetch).toHaveBeenNthCalledWith(2, "/host/api/_vitehub/console/kv?cursor=next&store=cache", expect.any(Object))
   })
 
   it("retries section discovery after a failed request and caches a successful response", async () => {

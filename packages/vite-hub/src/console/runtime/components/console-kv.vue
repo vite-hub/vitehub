@@ -38,6 +38,7 @@ interface KVRow {
 
 const props = defineProps<{
   agentsBase: string;
+  definitionsBase: string;
   kvBase: string;
   searchBase: string;
   sectionsBase: string;
@@ -332,6 +333,8 @@ onBeforeUnmount(() => {
 
     <ConsoleSearch
       :agents-base="agentsBase"
+      :definitions-base="definitionsBase"
+      :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />

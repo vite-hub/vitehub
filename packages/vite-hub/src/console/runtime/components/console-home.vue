@@ -18,6 +18,8 @@ import ConsoleSearch from "./console-search.vue";
 
 const props = defineProps<{
   agentsBase: string;
+  definitionsBase: string;
+  kvBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
@@ -181,6 +183,8 @@ onBeforeUnmount(() => request?.abort());
 
     <ConsoleSearch
       :agents-base="agentsBase"
+      :definitions-base="definitionsBase"
+      :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
