@@ -6,7 +6,7 @@ navigation.group: Advanced execution
 icon: i-lucide-workflow
 ---
 
-Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API while keeping child selection in application code, but the returned controller exposes control and inspection rather than an awaitable final result. Use [`runAgent()`](/docs/agents/invocations) when the tool must return the child result.
+Use `startAgentInvocation()` when trusted host or parent code must control child Agent work after starting it. A model-facing delegation tool can call the same trusted API while keeping child selection in application code, but the returned controller exposes control and inspection rather than an awaitable final result. [`runAgent()`](/docs/agents/invocations) follows the configured runtime: inline runtimes return the Agent output, while Workflow runtimes return a Workflow Run for durable inspection and control.
 
 ## Start and inspect a child
 
@@ -55,4 +55,4 @@ if (child.support.respond) {
 
 Inline provider runtimes accept approval decisions and `data-agent-input` answers while the matching provider request is pending. Text steering, follow-up turns, and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
 
-Keep child Agent selection outside model input. The model can choose a named application tool, while trusted code supplies the Agent Definition and ViteHub assigns the child id. Use `startAgentInvocation()` for tools that need child control, or `runAgent()` for tools that need the completed result.
+Keep child Agent selection outside model input. The model can choose a named application tool, while trusted code supplies the Agent Definition and ViteHub assigns the child id. Use `startAgentInvocation()` for tools that need child control. When using `runAgent()`, handle its runtime-specific return contract rather than assuming every runtime returns a completed result.
