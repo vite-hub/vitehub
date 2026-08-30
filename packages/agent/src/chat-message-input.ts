@@ -47,6 +47,7 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
 const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
 
 export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
+  // SAFETY: Agent Invokers are object records, and this branch rejects every non-object runtime value.
   if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
 }
 
@@ -55,7 +56,7 @@ export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
 }
 
 export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
-  return typeof invoker === "object" && invoker !== null ? derivedChatInvokers.get(invoker) : undefined
+  return invoker !== null && Object(invoker) === invoker ? derivedChatInvokers.get(Object(invoker)) : undefined
 }
 
 function uiMessageText(message: UIMessageLike): string {
@@ -353,8 +354,9 @@ function normalizedMaxMessages(value: unknown): number | undefined {
 }
 
 function normalizedMaxAgeMs(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(0, value)
+  const numericValue = Object.prototype.toString.call(value) === "[object Number]" ? Number(value) : undefined
+  return numericValue !== undefined && Number.isFinite(numericValue) && numericValue >= 0
+    ? numericValue
     : undefined
 }
 

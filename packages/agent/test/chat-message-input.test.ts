@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
-import type { AgentChatMessageTriggerInput } from "../src/types.ts"
 
 describe("chat message trigger input", () => {
   it("keeps a fresh approval boundary stable for a new manual Chat Session", () => {
@@ -185,14 +184,15 @@ describe("chat message trigger input", () => {
     expect(result.input.messages?.at(-1)?.role).toBe("user")
   })
 
-  it("fails closed when a runtime trigger history age bound is malformed", () => {
-    const result = createChatMessageTriggerInput({}, {
+  it.each([null, -1])("fails closed when the runtime trigger history age bound is %s", (maxAgeMs) => {
+    const triggerInput = JSON.parse(JSON.stringify({
       messages: [
         { parts: [{ text: "one", type: "text" }], role: "user" },
         { parts: [{ text: "two", type: "text" }], role: "assistant" },
       ],
-      triggerHistory: { maxAgeMs: null, maxMessages: 20, source: "thread" } as unknown as AgentChatMessageTriggerInput["triggerHistory"],
-    })
+      triggerHistory: { maxAgeMs, maxMessages: 20, source: "thread" },
+    }))
+    const result = createChatMessageTriggerInput({}, triggerInput)
 
     expect(result.input.messages?.map(message => message.parts
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
