@@ -1563,6 +1563,9 @@ importers:
       '@tiptap/pm':
         specifier: catalog:realtime
         version: 3.29.2
+      '@types/json-schema':
+        specifier: catalog:ai
+        version: 7.0.15
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3

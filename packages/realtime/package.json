@@ -59,6 +59,7 @@
     "yjs": "catalog:realtime"
   },
   "devDependencies": {
+    "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@tiptap/pm": "catalog:realtime",
     "@vite-hub/internal": "workspace:*",
@@ -71,6 +72,7 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@types/json-schema": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },

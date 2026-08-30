@@ -88,6 +88,10 @@ describe("public package export contracts", () => {
         expect(manifest.peerDependenciesMeta?.[dependency]?.optional, `${packageName} should require ${dependency}`).not.toBe(true)
       }
     }
+
+    const realtimeManifest = readPackageManifest("realtime")
+    expect(realtimeManifest.peerDependencies?.["@types/json-schema"], "realtime should expose @types/json-schema").toEqual(expect.any(String))
+    expect(realtimeManifest.peerDependenciesMeta?.["@types/json-schema"]?.optional, "realtime should require @types/json-schema").not.toBe(true)
   })
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
