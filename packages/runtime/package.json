@@ -23,7 +23,12 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/drain.js"
+  ],
+  "bin": {
+    "vitehub-drain": "./dist/drain.js"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
