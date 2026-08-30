@@ -1,6 +1,7 @@
 import { capabilityWorkspaceSources, defineCapability } from "../capability-runtime.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { withResolvedAgentInvokerInput } from "../invoker.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 
 import type {
   AgentCapabilityContext,
@@ -13,7 +14,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { Message } from "../messages.ts"
-import type { WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
 
 export interface SubagentToolInput<
@@ -71,7 +72,7 @@ function inputSchema(description: string): JSONSchema7 {
 function normalizeAgents<TRuntimeConfig extends AgentRuntimeConfig>(
   options: SubagentsOptions<TRuntimeConfig>,
 ) {
-  if (!options?.agents || typeof options.agents !== "object" || Array.isArray(options.agents) || !Object.keys(options.agents).length) {
+  if (!options?.agents || !hasRuntimeType(options.agents, "object") || Array.isArray(options.agents) || !Object.keys(options.agents).length) {
     throw new TypeError("[vitehub] subagents({ agents }) requires at least one subagent.")
   }
   const toolNames = new Set<string>()
@@ -86,20 +87,22 @@ function normalizeAgents<TRuntimeConfig extends AgentRuntimeConfig>(
   })
 }
 
+function workspaceAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] | undefined {
+  if (!isRuntimeRecord(agent)) return undefined
+  // SAFETY: capabilityWorkspaceSources validates every discovered capability before reading it.
+  if (Array.isArray(agent.capabilities)) return agent.capabilities as AgentCapabilityDefinition[]
+  const options = agent.__vitehubWorkspaceAgentOptions
+  if (!isRuntimeRecord(options) || !Array.isArray(options.capabilities)) return undefined
+  // SAFETY: capabilityWorkspaceSources validates every discovered capability before reading it.
+  return options.capabilities as AgentCapabilityDefinition[]
+}
+
 function subagentWorkspaceSources(
   agents: ReturnType<typeof normalizeAgents>,
 ): WorkspaceDefinition["sources"] | undefined {
   const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
   for (const { definition, name } of agents) {
-    const workspaceAgent = definition.agent as Partial<{
-      __vitehubWorkspaceAgentOptions: { capabilities?: unknown }
-      capabilities: unknown
-    }>
-    const capabilities = Array.isArray(workspaceAgent.capabilities)
-      ? workspaceAgent.capabilities
-      : Array.isArray(workspaceAgent.__vitehubWorkspaceAgentOptions?.capabilities)
-        ? workspaceAgent.__vitehubWorkspaceAgentOptions.capabilities
-        : undefined
+    const capabilities = workspaceAgentCapabilities(definition.agent)
     const contributed = capabilityWorkspaceSources(
       capabilities,
     )
@@ -122,11 +125,14 @@ function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
     description: definition.description,
     async execute(input: unknown) {
       const { startAgentInvocation } = await import("../index.ts")
+      // SAFETY: Capability execution supplies either its public context or the same context nested under runtimeContext.
       const runtimeContext = (parentContext.runtimeContext || parentContext) as AgentRuntimeContext<TRuntimeConfig>
+      // SAFETY: The tool input schema validates AgentRunInput fields before execute is called.
+      const runInput = input as AgentRunInput
       const controller = await startAgentInvocation(
         definition.agent,
         runtimeContext,
-        withResolvedAgentInvokerInput(input as AgentRunInput, parentContext.invoker),
+        withResolvedAgentInvokerInput(runInput, parentContext.invoker),
       )
       return await awaitAgentInvocationResult(controller)
     },
@@ -137,24 +143,26 @@ function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
 
 export function subagents<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
   const TAgents extends Record<string, SubagentDefinition<TRuntimeConfig>> = Record<string, SubagentDefinition<TRuntimeConfig>>,
 >(
   options: SubagentsOptions<TRuntimeConfig, TAgents>,
-): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+): AgentCapabilityDefinition<TRuntimeConfig> {
   const id = options.id || "subagents"
   const agents = normalizeAgents(options)
   const workspaceSources = subagentWorkspaceSources(agents)
 
-  return defineCapability({
-    id,
-    ...(workspaceSources ? { workspaceSources } : {}),
-    tools(context) {
-      const tools: AgentToolSet = {}
-      for (const { definition, toolName } of agents) {
-        tools[toolName] = createTool(definition, toolName, context)
-      }
-      return tools
-    },
-  })
+  const tools = (context: AgentCapabilityContext<TRuntimeConfig>) => {
+    const resolved: AgentToolSet = {}
+    for (const { definition, toolName } of agents) {
+      resolved[toolName] = createTool(definition, toolName, context)
+    }
+    return resolved
+  }
+
+  return workspaceSources
+    ? defineCapability({ id, tools, workspaceSources })
+    : defineCapability({
+      id,
+      tools,
+    })
 }
