@@ -66,10 +66,12 @@ function parseDefinitions(value: unknown): ConsoleDefinitionSummary[] {
   }
   return source.definitions.flatMap((entry) => {
     const definition = record(entry);
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate definition identity and source metadata at this boundary.
     const valid =
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
       typeof definition?.name === "string" &&
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
       typeof definition.file === "string" &&
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate each definition field at this boundary.
       typeof definition.source === "string";
     return valid
       ? [
@@ -141,6 +143,7 @@ function selectDefinition(name: string): void {
 
 onMounted(() => {
   rememberConsoleSection(props.section);
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
   if (typeof route.query.definition === "string") selectedName.value = route.query.definition;
   void loadDefinitions();
 });
@@ -149,6 +152,7 @@ watch(
   () => route.query.definition,
   (name) => {
     if (
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
       typeof name === "string" &&
       definitions.value.some((definition) => definition.name === name)
     ) {

@@ -30,6 +30,7 @@ import {
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
+  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
@@ -1075,6 +1076,13 @@ describe("Agent invocation console", () => {
       projectName: "first-app",
       sections: ["agents"],
     })
+  })
+
+  it("resolves the project name from the process registry across isolated realms", () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "shared-app")
+
+    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", () => {

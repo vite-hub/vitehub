@@ -7,7 +7,7 @@ import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
 import type { ConsoleSectionId } from "../sections"
-import { loadConsoleKVPages, requestConsole } from "../client/request"
+import { requestConsole } from "../client/request"
 import { loadConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
@@ -62,7 +62,6 @@ const discoveredAgentNames = ref<string[]>([])
 const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
 const kvItems = ref<ConsoleKVSearchItem[]>([])
 const navigationLoading = ref(true)
-const contentLoaded = ref(false)
 const navigationError = ref<unknown>()
 const sessionSearchEnabled = ref(false)
 let navigationRequest: AbortController | undefined
@@ -188,7 +187,6 @@ function strings(value: unknown): string[] {
 }
 
 async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
-  if (contentLoaded.value) return
   const definitionSections = installed.filter((section): section is "queues" | "workflows" =>
     section === "queues" || section === "workflows",
   )
@@ -216,21 +214,21 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   )
 
   if (installed.includes("kv")) {
-    const first = record(await requestConsole(props.kvBase, { signal }))
+    const query = { limit: 50, prefix: debouncedSearchTerm.value }
+    const first = record(await requestConsole(props.kvBase, { query, signal }))
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const firstStore = typeof first?.store === "string" ? first.store : "default"
     const stores = strings(first?.stores)
     const remainingStores = stores.filter(store => store !== firstStore)
-    const pages = (await Promise.all([
-      loadConsoleKVPages(props.kvBase, firstStore, signal, first),
-      ...remainingStores.map(store => loadConsoleKVPages(props.kvBase, store, signal)),
-    ])).flatMap((values, index) => {
+    const pages = await Promise.all([
+      Promise.resolve(first),
+      ...remainingStores.map(store => requestConsole(props.kvBase, { query: { ...query, store }, signal }).then(record)),
+    ])
+    kvItems.value = pages.flatMap((value, index) => {
       const store = index === 0 ? firstStore : remainingStores[index - 1]!
-      return values.map(value => ({ store, value }))
+      return strings(value?.keys).map(key => ({ key, store }))
     })
-    kvItems.value = pages.flatMap(({ store, value }) => strings(value?.keys).map(key => ({ key, store })))
   }
-  contentLoaded.value = true
 }
 
 async function loadNavigation(discoverContent = false): Promise<void> {
@@ -311,6 +309,10 @@ watch(searchTerm, (value) => {
   searchTimer = setTimeout(() => {
     debouncedSearchTerm.value = value.trim()
   }, 150)
+})
+
+watch(debouncedSearchTerm, () => {
+  if (open.value) void loadNavigation(true)
 })
 
 watch(open, async (value) => {

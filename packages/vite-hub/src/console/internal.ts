@@ -72,6 +72,7 @@ type ConsoleSectionsByRoot = {
   get(key: string): ConsoleSectionRegistration | undefined
   set(key: string, value: ConsoleSectionRegistration): unknown
   readonly size: number
+  values(): IterableIterator<ConsoleSectionRegistration>
 }
 
 export type ConsoleInvocationScope = {
@@ -446,7 +447,7 @@ export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaul
   const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
   if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
   if (registered && registered.size > 1) return scope[consoleProjectNameKey]
-  return scope[consoleProjectNameKey]
+  return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
 }
 
 export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

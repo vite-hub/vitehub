@@ -98,12 +98,15 @@ function storeName(value: string | null): keyof typeof kvStores | undefined {
 
 function formattedKVValue(key: string, name: keyof typeof kvStores, value: unknown): Record<string, unknown> {
   if (!kvStores[name].has(key)) return { found: false, key, store: name }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2)
   return {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground reports whether arbitrary fixture values are text or JSON.
     format: typeof value === "string" ? "text" : "json",
     found: true,
     key,
     store: name,
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground reports the runtime type of arbitrary fixture values.
     type: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
     value: text,
   }
@@ -206,8 +209,11 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
 
   if (path === "/api/_vitehub/console/kv") {
     if (request.method === "POST") {
+      // SAFETY: The playground handler validates both fields immediately after decoding this local JSON request.
       const input = await body(request) as { key?: unknown, store?: unknown }
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground validates the untrusted request store before lookup.
       const name = storeName(typeof input.store === "string" ? input.store : null)
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground validates the untrusted request key before lookup.
       if (!name || typeof input.key !== "string") {
         json(response, { error: "KV store or key not found" }, 404)
         return true
