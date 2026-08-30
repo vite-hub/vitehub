@@ -3,6 +3,7 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
   isDeniedApproval,
+  isLifecycleStartObservation,
   isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
   standaloneSuccessfulToolSequences,
@@ -203,7 +204,10 @@ function traceStarts(observations: Observation[]): Observation[] {
   const openTools = new Map<string, number>();
   for (const observation of observations) {
     const id = eventId(observation);
-    if (observation.name === "agent.tool.start") {
+    if (
+      observation.name.startsWith("agent.tool.") &&
+      isLifecycleStartObservation(observation.name)
+    ) {
       const openIndex = openTools.get(id);
       if (openIndex === undefined) {
         openTools.set(id, starts.push(observation) - 1);
@@ -222,8 +226,7 @@ function traceStarts(observations: Observation[]): Observation[] {
     )
       openTools.delete(id);
     if (
-      observation.name.endsWith(".start") ||
-      observation.name === "agent.task.started" ||
+      isLifecycleStartObservation(observation.name) ||
       observation.name === "agent.approval.request"
     )
       starts.push(observation);

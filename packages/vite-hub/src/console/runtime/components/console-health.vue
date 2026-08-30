@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import * as v from "valibot";
 
 type Diagnostic = {
   detail?: string;
@@ -14,6 +15,30 @@ type Health = {
   summary: string;
   workload: { active: number; completed: number; failed: number; snapshots: number; total: number };
 };
+
+const diagnosticSchema = v.object({
+  detail: v.optional(v.string()),
+  label: v.string(),
+  status: v.picklist(["neutral", "ok", "warning"]),
+  value: v.string(),
+});
+const finiteNumberSchema = v.pipe(v.number(), v.check(Number.isFinite));
+const healthSchema = v.object({
+  checkedAt: v.pipe(
+    v.string(),
+    v.check((value) => Number.isFinite(Date.parse(value))),
+  ),
+  diagnostics: v.array(diagnosticSchema),
+  status: v.picklist(["degraded", "healthy"]),
+  summary: v.string(),
+  workload: v.object({
+    active: finiteNumberSchema,
+    completed: finiteNumberSchema,
+    failed: finiteNumberSchema,
+    snapshots: finiteNumberSchema,
+    total: finiteNumberSchema,
+  }),
+});
 
 const props = defineProps<{ endpoint: string }>();
 
@@ -96,29 +121,8 @@ async function load() {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value instanceof Object && !Array.isArray(value);
-}
-
 function isHealth(value: unknown): value is Health {
-  if (!isRecord(value) || !isRecord(value.workload)) return false;
-  return (
-    (value.status === "healthy" || value.status === "degraded") &&
-    typeof value.checkedAt === "string" &&
-    Number.isFinite(Date.parse(value.checkedAt)) &&
-    typeof value.summary === "string" &&
-    Array.isArray(value.diagnostics) &&
-    value.diagnostics.every(
-      (item) =>
-        isRecord(item) &&
-        typeof item.label === "string" &&
-        typeof item.value === "string" &&
-        ["neutral", "ok", "warning"].includes(String(item.status)),
-    ) &&
-    ["active", "completed", "failed", "snapshots", "total"].every(
-      (key) => typeof value.workload[key] === "number",
-    )
-  );
+  return v.safeParse(healthSchema, value).success;
 }
 
 onMounted(() => {
@@ -149,11 +153,7 @@ onBeforeUnmount(() => {
 
     <div class="health-page__scroll">
       <div class="health-page__content">
-        <div
-          v-if="loading && !health"
-          class="health-skeleton"
-          aria-label="Checking host health"
-        >
+        <div v-if="loading && !health" class="health-skeleton" aria-label="Checking host health">
           <section><i /><small /><span v-for="index in 3" :key="index" /></section>
           <section><small /><span /></section>
         </div>

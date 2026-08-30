@@ -1,3 +1,5 @@
+import * as v from "valibot";
+
 export type TraceObservationIdentity = {
   attributes?: Record<string, unknown>;
   name: string;
@@ -13,6 +15,15 @@ const lifecycleTerminalSuffixes = [
   "cancel",
   "cancelled",
 ] as const;
+const finiteNumberSchema = v.pipe(
+  v.number(),
+  v.check((value) => Number.isFinite(value)),
+);
+const stringSchema = v.string();
+
+export function isLifecycleStartObservation(name: string): boolean {
+  return name.endsWith(".start") || name.endsWith(".started");
+}
 
 export function traceEventId(observation: TraceObservationIdentity): string {
   const attributes = observation.attributes ?? {};
@@ -25,8 +36,8 @@ export function traceEventId(observation: TraceObservationIdentity): string {
     "agent.run.id",
     "agent.invocation.id",
   ]) {
-    const value = attributes[key];
-    if (typeof value === "string" && value) return value;
+    const result = v.safeParse(stringSchema, attributes[key]);
+    if (result.success && result.output) return result.output;
   }
   return `${observation.name}:${observation.sequence}`;
 }
@@ -40,7 +51,8 @@ export function traceDurationMs(
     operation === "execute_tool"
       ? attributes["tool.durationMs"]
       : attributes["invocation.durationMs"];
-  return typeof recorded === "number" && Number.isFinite(recorded) ? recorded : fallback;
+  const result = v.safeParse(finiteNumberSchema, recorded);
+  return result.success ? result.output : fallback;
 }
 
 export function traceSpanEndMs(startMs: number, endMs: number, durationMs: number): number {
@@ -68,7 +80,7 @@ export function isStandaloneSuccessfulToolObservation(name: string): boolean {
 }
 
 export function isTerminalToolObservation(name: string): boolean {
-  return name.startsWith("agent.tool.") && name !== "agent.tool.start";
+  return name.startsWith("agent.tool.") && !isLifecycleStartObservation(name);
 }
 
 export function isLifecycleTerminalObservation(name: string): boolean {
@@ -77,7 +89,7 @@ export function isLifecycleTerminalObservation(name: string): boolean {
 
 export function lifecycleTerminalNames(startName: string): string[] {
   return lifecycleTerminalSuffixes.map((suffix) =>
-    startName.replace(/\.start$/, `.${suffix}`),
+    startName.replace(/\.(?:start|started)$/, `.${suffix}`),
   );
 }
 
@@ -90,7 +102,10 @@ export function standaloneSuccessfulToolSequences(
 
   for (const observation of observations) {
     const identity = traceEventId(observation);
-    if (observation.name === "agent.tool.start") {
+    if (
+      observation.name.startsWith("agent.tool.") &&
+      isLifecycleStartObservation(observation.name)
+    ) {
       representedIdentities.delete(identity);
       continue;
     }

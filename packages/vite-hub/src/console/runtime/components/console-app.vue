@@ -674,7 +674,7 @@ onBeforeUnmount(() => {
       <template #footer="{ collapsed, collapse }">
         <div class="flex min-w-0 items-center gap-1" :class="collapsed ? 'justify-center' : ''">
           <UTooltip
-            v-if="healthAvailable"
+            v-if="healthAvailable || activePage === 'health'"
             :text="activePage === 'health' ? 'Back to sessions' : 'Health'"
           >
             <UButton

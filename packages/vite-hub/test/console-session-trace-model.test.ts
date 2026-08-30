@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isDeniedApproval,
+  isLifecycleStartObservation,
   isLifecycleTerminalObservation,
   isStandaloneFailureObservation,
   isStandaloneSuccessfulToolObservation,
@@ -90,17 +91,11 @@ describe("Console session trace model", () => {
   });
 
   it("recognizes every paired lifecycle terminal suffix", () => {
-    for (const suffix of [
-      "finish",
-      "completed",
-      "error",
-      "failed",
-      "abort",
-      "cancel",
-      "cancelled",
-    ])
+    for (const suffix of ["finish", "completed", "error", "failed", "abort", "cancel", "cancelled"])
       expect(isLifecycleTerminalObservation(`agent.tool.${suffix}`)).toBe(true);
     expect(isLifecycleTerminalObservation("agent.tool.start")).toBe(false);
+    expect(isLifecycleStartObservation("agent.step.started")).toBe(true);
+    expect(isTerminalToolObservation("agent.tool.started")).toBe(false);
     expect(lifecycleTerminalNames("agent.tool.start")).toEqual([
       "agent.tool.finish",
       "agent.tool.completed",
@@ -109,6 +104,15 @@ describe("Console session trace model", () => {
       "agent.tool.abort",
       "agent.tool.cancel",
       "agent.tool.cancelled",
+    ]);
+    expect(lifecycleTerminalNames("agent.step.started")).toEqual([
+      "agent.step.finish",
+      "agent.step.completed",
+      "agent.step.error",
+      "agent.step.failed",
+      "agent.step.abort",
+      "agent.step.cancel",
+      "agent.step.cancelled",
     ]);
   });
 

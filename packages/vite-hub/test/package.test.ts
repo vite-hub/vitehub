@@ -319,12 +319,18 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",
     );
+    const sessionTraceModel = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-trace-model.ts`,
+      "utf8",
+    );
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-session-trace-model.ts`),
     ).toBe(true);
     expect(sessionTrace).toContain("session-trace__waterfall");
     expect(sessionTrace).toContain('start.name === "agent.approval.request"');
-    expect(sessionTrace).toContain('"completed", "error", "failed"');
+    expect(sessionTraceModel).toContain('"completed",');
+    expect(sessionTraceModel).toContain('"error",');
+    expect(sessionTraceModel).toContain('"failed",');
     expect(sessionTrace).toContain("traceSpanEndMs(");
     expect(sessionTrace).toContain("isTerminalToolObservation");
     expect(
