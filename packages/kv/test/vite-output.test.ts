@@ -498,7 +498,10 @@ describe("KV Vite output", () => {
       nitro: {
         cloudflare: {
           wrangler: {
-            kv_namespaces: [{ binding: "KV", experimental_remote: true, id: "manual-namespace", preview_id: "preview-namespace" }],
+            kv_namespaces: [
+              { binding: "KV", experimental_remote: true, id: "manual-namespace", preview_id: "preview-namespace", staging_id: undefined },
+              { binding: "INVALID", experimental_remote: "yes", id: 42, preview_id: 42 },
+            ],
           },
         },
       },

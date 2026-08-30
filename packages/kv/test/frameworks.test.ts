@@ -385,7 +385,10 @@ describe("hubKv", () => {
         nitro: {
           cloudflare: {
             wrangler: {
-              kv_namespaces: [{ binding: "KV", experimental_remote: true, id: "nitro-id", preview_id: "preview-id" }],
+              kv_namespaces: [
+                { binding: "KV", experimental_remote: true, id: "nitro-id", preview_id: "preview-id", staging_id: undefined },
+                { binding: "INVALID", id: 42, preview_id: 42 },
+              ],
             },
           },
         },

@@ -26,6 +26,8 @@ export {
   useProviderOutputCatalog,
 } from "./provider-output-catalog.ts"
 export type { ProviderDeploymentOutputGeneration } from "./provider-output-catalog.ts"
+export { isProviderJsonRecord } from "./provider-output-config.ts"
+export type { ProviderJsonRecord } from "./provider-output-config.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>

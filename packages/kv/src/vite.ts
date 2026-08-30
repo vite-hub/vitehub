@@ -8,10 +8,10 @@ import {
   contributeProviderDeploymentOutput,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
+  isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { isProviderJsonRecord } from "@vite-hub/internal/build/provider-output-config"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -19,7 +19,7 @@ import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
-import type { ProviderJsonRecord } from "@vite-hub/internal/build/provider-output-config"
+import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
@@ -157,11 +157,27 @@ function getNitroCloudflareKVNamespaces(target: unknown): ProviderJsonRecord[] {
   const namespaces: unknown = Reflect.get(wrangler, "kv_namespaces")
   if (!Array.isArray(namespaces)) return []
   return namespaces.flatMap((namespace) => {
-    if (!isProviderJsonRecord(namespace)) return []
-    const binding: unknown = Reflect.get(namespace, "binding")
+    let normalized: unknown
+    try {
+      normalized = JSON.parse(JSON.stringify(namespace))
+    }
+    catch {
+      return []
+    }
+    if (!isProviderJsonRecord(normalized)) return []
+    const binding: unknown = Reflect.get(normalized, "binding")
+    const id: unknown = Reflect.get(normalized, "id")
+    const previewId: unknown = Reflect.get(normalized, "preview_id")
+    const experimentalRemote: unknown = Reflect.get(normalized, "experimental_remote")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro extension data crosses an untyped Vite boundary and binding must be a string.
     if (typeof binding !== "string") return []
-    return [namespace]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional namespace IDs must remain strings after serialization.
+    if (id !== undefined && typeof id !== "string") return []
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional preview ID must remain a string after serialization.
+    if (previewId !== undefined && typeof previewId !== "string") return []
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional remote flag must remain a boolean after serialization.
+    if (experimentalRemote !== undefined && typeof experimentalRemote !== "boolean") return []
+    return [normalized]
   })
 }
 
