@@ -549,6 +549,7 @@ export function collectDenoRuntimePackageNames(source: string): string[] {
 
 interface RuntimePackage {
   hoistOptionalDependencies?: boolean
+  hoistedPeer?: boolean
   includeOptionalDependencies?: boolean
   includePeerDependencies?: boolean
   name: string
@@ -615,6 +616,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const staged = new Set<string>()
   const stagedTargets = new Set<string>()
   const ownedTargets = new Set<string>()
+  const rootPackagePaths = new Map<string, { hoistedPeer: boolean, path: string }>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
@@ -628,11 +630,11 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
       )
       if (stagedPackageJsonPath) selectedPackage = { ...runtimePackage, packageJsonPath: stagedPackageJsonPath }
     }
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, stagedTargets, ownedTargets, selectedPackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, options.outputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, selectedPackage)
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, rootOutputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, rootPackagePaths: Map<string, { hoistedPeer: boolean, path: string }>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
@@ -650,6 +652,13 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     throw new Error("Could not resolve package.json for " + name + ".")
   }
   const resolvedPackageJsonPath = await realpath(packageJsonPath)
+  if (outputNodeModules === rootOutputNodeModules) {
+    const existingPath = rootPackagePaths.get(name)
+    if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
+      throw new Error(`Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.`)
+    }
+    rootPackagePaths.set(name, existingPath || { hoistedPeer: Boolean(options.hoistedPeer), path: resolvedPackageJsonPath })
+  }
   const packageDir = dirname(resolvedPackageJsonPath)
   const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
@@ -684,16 +693,11 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
       if (supportsDenoRuntime(dependencyPackageJson)) dependencyNames.add(dependencyName)
     }
   }
-  if (options.includePeerDependencies) {
-    for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
-      if (!packageJson.peerDependenciesMeta?.[dependencyName]?.optional) dependencyNames.add(dependencyName)
-    }
-  }
   for (const dependencyName of dependencyNames) {
     const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
       ? outputNodeModules
       : join(targetDir, "node_modules")
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, stagedTargets, ownedTargets, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, rootOutputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, {
       hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
@@ -701,6 +705,18 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
       ownsTarget: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       optional: Boolean(packageJson.optionalDependencies?.[dependencyName]),
     })
+  }
+  if (options.includePeerDependencies) {
+    for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
+      if (packageJson.peerDependenciesMeta?.[dependencyName]?.optional) continue
+      await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, rootOutputNodeModules, rootOutputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, {
+        hoistedPeer: true,
+        includeOptionalDependencies: options.includeOptionalDependencies,
+        includePeerDependencies: true,
+        name: dependencyName,
+        optional: false,
+      })
+    }
   }
   copied.delete(packageKey)
 }
