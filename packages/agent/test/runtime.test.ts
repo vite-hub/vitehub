@@ -11,6 +11,7 @@ import { isAsyncIterable } from "../src/internal/stream-result.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
+import type { AgentActivityUpdate } from "../src/types.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const loadAiSdk = vi.hoisted(() => vi.fn())
@@ -5768,13 +5769,13 @@ describe("agent message protocol", () => {
   it("projects invocation status, harness plans, approvals, and final text through the active Channel", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const updates: Array<Record<string, unknown>> = []
+    const updates: AgentActivityUpdate[] = []
     const agent = defineAgent({
       channels: {
         work: defineChannel("work", {
           activity: {
             update: ({ activity }) => {
-              updates.push(structuredClone(activity) as unknown as Record<string, unknown>)
+              updates.push(structuredClone(activity))
             },
           },
           messages: false,
@@ -5783,7 +5784,7 @@ describe("agent message protocol", () => {
       driver: { run: () => (async function* () {
           yield { data: { plan: [{ status: "inProgress", step: "Read files" }, { status: "pending", step: "Run tests" }] }, type: "data-agent-plan" }
           yield { id: "approval-1", name: "deploy", type: "approval-request" }
-          yield { approved: true, id: "approval-1", type: "approval-decision" }
+          yield { approved: false, id: "approval-1", type: "approval-decision" }
           yield { phase: "final", role: "assistant", text: "Finished the review.", type: "text-delta" }
           yield { type: "finish" }
         })() },

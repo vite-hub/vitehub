@@ -1137,11 +1137,12 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
     if (limit > 0 && items.length >= limit) break
     nextUrl = githubApiNextPageUrl(response.headers.get("link")) || githubApiPageUrl(url, ++page)
   }
-  return limit > 0 ? items.slice(0, limit) : []
+  return limit > 0 ? items.slice(0, limit) : items
 }
 
 const githubActivityMarker = "<!-- vitehub-agent-activity:"
 const githubActivityHistoryLimit = 10
+const githubActivityUpdates = new Map<string, Promise<void>>()
 
 interface GitHubActivityTarget {
   installationId?: number
@@ -1257,29 +1258,40 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
       const headers = githubApiHeaders(token, options.userAgent)
       const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
-      const commentsUrl = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}/comments?sort=created&direction=desc`
-      const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 100)
-      const existing = comments.find(comment => isRecord(comment)
-        && maybeNumber(comment.id)
-        && hasRuntimeType(comment.body, "string")
-        && comment.body.includes(githubActivityMarker))
-      const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-      const current = { links: context.activity.links, runId: context.activity.runId }
-      const state: GitHubActivityCommentState = previous.current?.runId === current.runId
-        ? { current, history: previous.history }
-        : {
-            current,
-            history: [previous.current, ...previous.history]
-              .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
-              .slice(0, githubActivityHistoryLimit),
-          }
-      const body = renderGithubActivity(context.activity, state)
-      const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined
-      await githubApi(fetcher, commentId ? `${apiBaseUrl}/repos/${target.repository}/issues/comments/${commentId}` : commentsUrl, {
-        body: JSON.stringify({ body }),
-        headers,
-        method: commentId ? "PATCH" : "POST",
+      const activityKey = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
+      const previousUpdate = githubActivityUpdates.get(activityKey) || Promise.resolve()
+      const update = previousUpdate.catch(() => {}).then(async () => {
+        const commentsUrl = `${activityKey}/comments?sort=created&direction=desc`
+        const comments = await githubApiJsonPages(fetcher, commentsUrl, headers, 0)
+        const existing = comments.find(comment => isRecord(comment)
+          && maybeNumber(comment.id)
+          && hasRuntimeType(comment.body, "string")
+          && comment.body.includes(githubActivityMarker))
+        const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
+        const current = { links: context.activity.links, runId: context.activity.runId }
+        const state: GitHubActivityCommentState = previous.current?.runId === current.runId
+          ? { current, history: previous.history }
+          : {
+              current,
+              history: [previous.current, ...previous.history]
+                .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
+                .slice(0, githubActivityHistoryLimit),
+            }
+        const body = renderGithubActivity(context.activity, state)
+        const commentId = isRecord(existing) ? maybeNumber(existing.id) : undefined
+        await githubApi(fetcher, commentId ? `${apiBaseUrl}/repos/${target.repository}/issues/comments/${commentId}` : commentsUrl, {
+          body: JSON.stringify({ body }),
+          headers,
+          method: commentId ? "PATCH" : "POST",
+        })
       })
+      githubActivityUpdates.set(activityKey, update)
+      try {
+        await update
+      }
+      finally {
+        if (githubActivityUpdates.get(activityKey) === update) githubActivityUpdates.delete(activityKey)
+      }
     },
   }
 }

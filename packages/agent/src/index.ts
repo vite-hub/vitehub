@@ -1125,7 +1125,7 @@ function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
 
 type ActiveAgentActivity = {
   event(event: StreamEvent): Promise<void>
-  update(status: AgentActivityStatus, error?: unknown): Promise<void>
+  update(status: AgentActivityStatus, error?: unknown, summary?: string): Promise<void>
 }
 
 function agentActivityTasks(value: unknown): AgentActivityTask[] | undefined {
@@ -1151,17 +1151,27 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   const run = context.run
   const channel = run?.channelId ? definition?.channels?.[run.channelId] : undefined
   if (!run?.activity || !channel?.activity) return
-  let state = {
+  const initialStatus: AgentActivityStatus = "queued"
+  const initialTasks: AgentActivityTask[] = []
+  let state: {
+    agentName?: string
+    links: AgentActivityUpdate["links"]
+    runId?: string
+    status: AgentActivityStatus
+    summary: string
+    tasks: AgentActivityTask[]
+  } = {
     agentName: definition?.name || context.agentIdentity?.name,
     links: [...run.activity.links || []],
     runId: run.runId,
-    status: "queued" as AgentActivityStatus,
+    status: initialStatus,
     summary: "",
-    tasks: [] as AgentActivityTask[],
+    tasks: initialTasks,
   }
   let delivery = Promise.resolve()
   let lastSnapshot: string | undefined
-  const publish = async (status: AgentActivityStatus, error?: unknown) => {
+  const publish = async (status: AgentActivityStatus, error?: unknown, summary?: string) => {
+    if (!state.summary && summary) state.summary = summary.slice(-12_000)
     state = { ...state, status }
     const snapshot = {
       ...state,
@@ -1204,7 +1214,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         return
       }
       if (event.type === "approval-request") await publish("waiting")
-      else if (event.type === "approval-decision" && event.approved) await publish("running")
+      else if (event.type === "approval-decision") await publish("running")
     },
     update: publish,
   }
@@ -4493,7 +4503,7 @@ function traceUiMessageStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-  const tracer = createAgentStreamEventTracer(toTraceContext(context))
+  const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   let finished = false
   let released = false
   const release = () => {
@@ -4506,8 +4516,8 @@ function traceUiMessageStream<
       try {
         const result = await reader.read()
         if (result.done) {
-          if (!finished) await tracer.write({ type: "finish" })
-          await tracer.flush()
+          if (!finished) await tracer?.write({ type: "finish" })
+          await tracer?.flush()
           release()
           controller.close()
           return
@@ -4515,12 +4525,13 @@ function traceUiMessageStream<
         const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
         if (event) {
           if (event.type === "finish") finished = true
-          await tracer.write(event)
+          await tracer?.write(event)
+          await context.activity?.event(event)
         }
         controller.enqueue(result.value)
       }
       catch (error) {
-        await tracer.flush()
+        await tracer?.flush()
         release()
         controller.error(error)
       }
@@ -4530,7 +4541,7 @@ function traceUiMessageStream<
         await reader.cancel(reason)
       }
       finally {
-        await tracer.flush()
+        await tracer?.flush()
         release()
       }
     },
@@ -4556,7 +4567,7 @@ function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
-  if (context.runtimeContext.traceLog) {
+  if (context.runtimeContext.traceLog || context.activity) {
     if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
@@ -5144,7 +5155,7 @@ async function finishAgentInvocation<
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
     const status = failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed"
-    await context.activity?.update(status, error)
+    await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
       throwingCloseError = true
@@ -6499,6 +6510,7 @@ async function executeAgentInvocation<
     }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
     : undefined
   if (invocationJournal) context = invocationJournal.context
+  // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   const activity = createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined

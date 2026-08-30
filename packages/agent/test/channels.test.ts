@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 
 function githubIssueCommentPayload(body = "/review please") {
   return {
@@ -38,7 +38,7 @@ describe("agent channels", () => {
     let stored: { body: string, id: number } | undefined
     const methods: string[] = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
       const method = init?.method || "GET"
       methods.push(method)
       if (method === "GET") {
@@ -47,7 +47,9 @@ describe("agent channels", () => {
           : [{ body: stored.body, id: stored.id }]
         return new Response(JSON.stringify(comments), { headers: { "content-type": "application/json" } })
       }
-      const body = JSON.parse(String(init?.body)) as { body: string }
+      const parsedBody: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(parsedBody) || !hasRuntimeType(parsedBody.body, "string")) throw new Error("Invalid comment body.")
+      const body = parsedBody
       stored = { body: body.body, id: 7 }
       return new Response(JSON.stringify(stored), { headers: { "content-type": "application/json" }, status: method === "POST" ? 201 : 200 })
     })
