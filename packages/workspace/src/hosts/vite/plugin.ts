@@ -290,6 +290,53 @@ function babelPathIsExported(path: BabelNodePath): boolean {
   return false
 }
 
+function babelPathReachesNamedExport(
+  path: BabelNodePath,
+  exportedName: string,
+  seen = new Set<BabelNodePath>(),
+): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current as BabelObjectPropertyPath) === exportedName
+      && current.parentPath
+      && babelPathIsDirectDefaultExport(current.parentPath)
+    ) return true
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && (
+        (current.node.left.object?.type === "Identifier" && current.node.left.object.name === "exports")
+        || (
+          current.node.left.object?.type === "MemberExpression"
+          && current.node.left.object.object?.type === "Identifier"
+          && current.node.left.object.object.name === "module"
+          && current.node.left.object.property?.type === "Identifier"
+          && current.node.left.object.property.name === "exports"
+        )
+      )
+      && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const name = current.node.id.name
+      if (
+        (name === exportedName && babelPathOrBindingIsExported(current, exportedName))
+        || babelBindingIsExportedAs(current, name, exportedName)
+      ) return true
+      const binding = current.scope.getBinding(name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesNamedExport(reference, exportedName, seen))) return true
+    }
+    if (
+      current.node.type === "FunctionDeclaration"
+      && current.node.id?.name === exportedName
+      && babelPathOrBindingIsExported(current, exportedName)
+    ) return true
+  }
+  return false
+}
+
 function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, seen = new Set<BabelBindingPath>()): unknown {
   if (node?.type === "StringLiteral") return node.value
   if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
@@ -335,54 +382,7 @@ async function sourceModuleDeclaresCloudflareArtifacts(
             const value = path.node.value as BabelNode | undefined
             const belongsToRequestedExport = exportedName === "default"
               ? babelPropertyBelongsToExportedStore(path)
-              : (() => {
-                  for (let current = path.parentPath; current; current = current.parentPath) {
-                    if (
-                      current.node.type === "ObjectProperty"
-                      && babelPropertyName(current as BabelObjectPropertyPath) === exportedName
-                      && babelPathIsDirectDefaultExport(current)
-                    ) return true
-                    if (
-                      current.node.type === "AssignmentExpression"
-                      && current.node.left?.type === "MemberExpression"
-                      && (
-                        (current.node.left.object?.type === "Identifier" && current.node.left.object.name === "exports")
-                        || (
-                          current.node.left.object?.type === "MemberExpression"
-                          && current.node.left.object.object?.type === "Identifier"
-                          && current.node.left.object.object.name === "module"
-                          && current.node.left.object.property?.type === "Identifier"
-                          && current.node.left.object.property.name === "exports"
-                        )
-                      )
-                      && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
-                    ) return true
-                    if (
-                      current.node.type === "AssignmentExpression"
-                      && current.node.left?.type === "MemberExpression"
-                      && current.node.left.object?.type === "Identifier"
-                      && current.node.left.object.name === "module"
-                      && current.node.left.property?.type === "Identifier"
-                      && current.node.left.property.name === "exports"
-                      && babelPropertyName(path) === exportedName
-                    ) return true
-                    if (
-                      current.node.type === "VariableDeclarator"
-                      && current.node.id?.type === "Identifier"
-                      && current.node.id.name
-                      && (
-                        (current.node.id.name === exportedName && babelPathOrBindingIsExported(current, exportedName))
-                        || babelBindingIsExportedAs(current, current.node.id.name, exportedName)
-                      )
-                    ) return true
-                    if (
-                      current.node.type === "FunctionDeclaration"
-                      && current.node.id?.name === exportedName
-                      && babelPathOrBindingIsExported(current, exportedName)
-                    ) return true
-                  }
-                  return false
-                })()
+              : babelPathReachesNamedExport(path, exportedName)
             if (
               babelPropertyName(path) === "provider"
               && belongsToRequestedExport
