@@ -1735,6 +1735,26 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("discovers Cloudflare Artifacts definitions created after buildEnd", async () => {
+    const root = await createViteRoot()
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
+    await writeFile(join(root, "src/late.workspace.ts"), [
+      `export default {`,
+      `  store: { binding: "LATE_WORKSPACE_FILES", namespace: "late", provider: "cloudflare-artifacts" },`,
+      `}`,
+      ``,
+    ].join("\n"))
+    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toContainEqual({ binding: "LATE_WORKSPACE_FILES", namespace: "late" })
+  })
+
   it.each([
     {
       name: "a default-exported store object",

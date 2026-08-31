@@ -1839,11 +1839,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
         viteRoot: viteRoot || resolve(resolved.root),
       }
-      const definitions = discoverDefinitions(roots, serverDirs)
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workspace",
         rootDir: roots.projectRoot,
         write: async ({ readCloudflareState, signal, write }) => {
+          const definitions = discoverDefinitions(roots, serverDirs)
           await copyVercelFunctionRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
@@ -1870,14 +1870,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        const roots = {
-          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
-          viteRoot: viteRoot || resolve(resolved.root),
-        }
-        const definitions = discoverDefinitions(roots, serverDirs)
-        await Promise.all(definitions.map(async (definition) => {
-          definition.source = await readFile(definition.path, "utf8")
-        }))
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
