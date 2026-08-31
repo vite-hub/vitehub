@@ -58,6 +58,32 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("keeps every owner pending until a deferred contribution is ready", async () => {
+    const catalog = createProviderOutputCatalog()
+    const generations = createProviderDeploymentOutputGenerationState()
+    const context = { environment: {} }
+    const rootDir = await createTempProject()
+    const writes: string[] = []
+    generations.capture(context, catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "browser",
+      rootDir,
+      write: async () => { writes.push("browser") },
+    }, generations.get(context))
+    generations.defer(context, catalog, {
+      owner: "workspace",
+      rootDir,
+      write: async () => { writes.push("workspace") },
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(writes).toEqual([])
+
+    generations.ready(context)
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(writes).toEqual(["browser", "workspace"])
+  })
+
   it("shares one build generation across plain Vite plugin contexts", async () => {
     const catalog = createProviderOutputCatalog()
     const first = createProviderDeploymentOutputGenerationState()
@@ -253,7 +279,7 @@ describe("Provider Output finalizer", () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []
     const rootDir = await createTempProject()
-    const contribute = (owner: "agent" | "blob" | "browser" | "database" | "kv", value = owner) => {
+    const contribute = (owner: "agent" | "blob" | "browser" | "database" | "kv" | "workspace", value = owner) => {
       contributeProviderDeploymentOutput(catalog, {
         owner,
         rootDir,
@@ -270,9 +296,10 @@ describe("Provider Output finalizer", () => {
     contribute("browser")
     contribute("kv", "stale-kv")
     contribute("kv", "current-kv")
+    contribute("workspace")
     await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(writes).toEqual(["agent", "database", "current", "browser", "current-kv"])
+    expect(writes).toEqual(["agent", "database", "current", "browser", "current-kv", "workspace"])
   })
 
   it("clears settled contributions between repeat builds", async () => {
@@ -1138,6 +1165,28 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("clears deferred work when finalization is aborted", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const controller = new AbortController()
+    const write = vi.fn(async () => undefined)
+    const discard = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workspace",
+      rootDir,
+      ready: () => false,
+      write,
+      discard,
+    })
+    controller.abort(new Error("build aborted"))
+
+    await expect(finalizeProviderDeploymentOutputs(catalog, { signal: controller.signal })).rejects.toThrow("build aborted")
+    expect(write).not.toHaveBeenCalled()
+    expect(discard).toHaveBeenCalledOnce()
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("aborts and settles active finalization when reset", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
@@ -1607,6 +1656,34 @@ describe("Provider Output finalizer", () => {
       kv_namespaces: [{ binding: "MANUAL", id: "manual" }],
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
     })
+  })
+
+  it("reads Wrangler config and persisted ownership inside finalization", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const ownershipFile = ".vitehub-workspace-artifacts-bindings.json"
+    await mkdir(outputRoot, { recursive: true })
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"artifacts":[{"binding":"APP","namespace":"app"}]}\n'),
+      writeFile(join(outputRoot, ownershipFile), '["PREVIOUS"]\n'),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workspace",
+      rootDir,
+      write: async ({ readCloudflareState }) => {
+        const state = await readCloudflareState({
+          wranglerConfigOwnership: {
+            arrays: { artifacts: { key: "binding", values: ["CURRENT"] } },
+          },
+          wranglerConfigOwnershipFiles: { artifacts: ownershipFile },
+        })
+        expect(state.wranglerConfig).toEqual({ artifacts: [{ binding: "APP", namespace: "app" }] })
+        expect(state.wranglerConfigOwnership?.arrays?.artifacts?.values).toEqual(["PREVIOUS", "CURRENT"])
+      },
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
   })
 
   it("does not let a disabled owner remove Cloudflare output written by a peer", async () => {
