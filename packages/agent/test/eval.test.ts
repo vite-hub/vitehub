@@ -26,6 +26,7 @@ const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ f
 const providerStarts = vi.hoisted(() => [] as Record<string, unknown>[])
 
 vi.mock("@t3tools/provider-runtime", () => ({
+  createSqliteProviderRuntimeSessionStore: vi.fn(),
   createProviderRuntime: vi.fn(async () => {
     let releaseTurn!: () => void
     const turnStarted = new Promise<void>(resolve => releaseTurn = resolve)

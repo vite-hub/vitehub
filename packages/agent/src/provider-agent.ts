@@ -162,6 +162,7 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 }
 
 const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
+const invalidatedProviderSessions = new WeakMap<ProviderRuntimeSessionStore, Set<ThreadId>>()
 
 function providerSessionStore(
   path: string,
@@ -192,13 +193,31 @@ function partitionProviderSessionStore(
 ): PartitionedProviderSessionStore {
   // SAFETY: The provider runtime treats thread IDs as opaque non-empty storage keys.
   const persistedThreadId = sessionKey as ThreadId
+  let invalidatedSessions = invalidatedProviderSessions.get(store)
+  if (!invalidatedSessions) {
+    invalidatedSessions = new Set()
+    invalidatedProviderSessions.set(store, invalidatedSessions)
+  }
+  const invalidate = async () => {
+    invalidatedSessions.add(persistedThreadId)
+    await store.delete(persistedThreadId)
+    invalidatedSessions.delete(persistedThreadId)
+  }
+  const load = async () => {
+    if (!invalidatedSessions.has(persistedThreadId)) return store.get(persistedThreadId)
+    await invalidate()
+    return undefined
+  }
   return {
-    commit: resumeCursor => store.set(persistedThreadId, resumeCursor),
-    invalidate: () => store.delete(persistedThreadId),
-    load: () => store.get(persistedThreadId),
+    async commit(resumeCursor) {
+      await store.set(persistedThreadId, resumeCursor)
+      invalidatedSessions.delete(persistedThreadId)
+    },
+    invalidate,
+    load,
     runtime: {
       async delete() {},
-      get: () => store.get(persistedThreadId),
+      get: load,
       async set() {},
     },
   }
