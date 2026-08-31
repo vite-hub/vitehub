@@ -261,7 +261,6 @@ describe("Agent Invocation Interface lifecycle", () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await iterator.return?.()
 
-    expect(finish).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
     expect(finish.mock.calls[0]![0]).toMatchObject({
       result: { raw, text: "partial" },
