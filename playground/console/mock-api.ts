@@ -10,6 +10,7 @@ import {
 import { consoleSearchExcerpt } from "../../packages/vite-hub/src/console/runtime/server/search.ts"
 
 import type { Plugin } from "vite"
+import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 
@@ -20,7 +21,7 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["agents", "usage", "kv", "workflows", "queues"] as const
+const sections = ["agents", "usage", "database", "kv", "workflows", "queues"] as const
 const definitions = {
   queues: [
     {
@@ -172,6 +173,11 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       now: "2026-08-30T18:00:00.000Z",
       window,
     }))
+    return true
+  }
+
+  if (path === "/api/_vitehub/console/database") {
+    json(response, databaseFixture)
     return true
   }
 

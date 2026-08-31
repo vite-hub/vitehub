@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "blob", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
+export const consoleSectionIds = ["agents", "usage", "blob", "database", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -20,6 +20,12 @@ export const consoleSectionDetails = {
     icon: "i-lucide-file-box",
     label: "Blob",
     routeName: "vitehub-console-blob",
+  },
+  database: {
+    description: "Inspect database tables, rows, columns, and relationships.",
+    icon: "i-ph-database-light",
+    label: "Database",
+    routeName: "vitehub-console-database",
   },
   databases: {
     description: "Inspect discovered Database Definitions and static schema metadata.",

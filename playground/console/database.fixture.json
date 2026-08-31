@@ -1,0 +1,416 @@
+{
+  "schema": "auth",
+  "tables": [
+    {
+      "name": "user",
+      "position": { "x": 420, "y": 36 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "name", "type": "text" },
+        { "name": "email", "type": "text", "unique": true },
+        { "name": "emailVerified", "type": "boolean" },
+        { "name": "image", "type": "text", "nullable": true },
+        { "name": "createdAt", "type": "timestamp" },
+        { "name": "updatedAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "usr_01J9A4N2M5",
+          "name": "Maya Chen",
+          "email": "maya@example.com",
+          "emailVerified": true,
+          "image": null,
+          "createdAt": "2026-08-12 09:14:22",
+          "updatedAt": "2026-08-29 17:42:08"
+        },
+        {
+          "id": "usr_01J9B7Q8K1",
+          "name": "Jon Bell",
+          "email": "jon@example.com",
+          "emailVerified": true,
+          "image": "https://images.example.com/jon.png",
+          "createdAt": "2026-08-14 11:08:43",
+          "updatedAt": "2026-08-30 08:18:14"
+        },
+        {
+          "id": "usr_01J9C3P6R4",
+          "name": "Ari Flores",
+          "email": "ari@example.com",
+          "emailVerified": false,
+          "image": null,
+          "createdAt": "2026-08-18 15:33:01",
+          "updatedAt": "2026-08-18 15:33:01"
+        },
+        {
+          "id": "usr_01J9D8T4V7",
+          "name": "Noah Williams",
+          "email": "noah@example.com",
+          "emailVerified": true,
+          "image": null,
+          "createdAt": "2026-08-20 18:04:11",
+          "updatedAt": "2026-08-28 10:55:32"
+        },
+        {
+          "id": "usr_01J9E1H9S2",
+          "name": "Sofia Rossi",
+          "email": "sofia@example.com",
+          "emailVerified": true,
+          "image": "https://images.example.com/sofia.png",
+          "createdAt": "2026-08-22 07:51:49",
+          "updatedAt": "2026-08-30 21:09:17"
+        },
+        {
+          "id": "usr_01J9F6L3X8",
+          "name": "Theo Martin",
+          "email": "theo@example.com",
+          "emailVerified": false,
+          "image": null,
+          "createdAt": "2026-08-25 13:22:36",
+          "updatedAt": "2026-08-25 13:22:36"
+        },
+        {
+          "id": "usr_01J9G2W7C5",
+          "name": "Lina Patel",
+          "email": "lina@example.com",
+          "emailVerified": true,
+          "image": null,
+          "createdAt": "2026-08-27 16:45:05",
+          "updatedAt": "2026-08-31 06:12:40"
+        },
+        {
+          "id": "usr_01J9H5B1N3",
+          "name": "Owen Brooks",
+          "email": "owen@example.com",
+          "emailVerified": true,
+          "image": null,
+          "createdAt": "2026-08-29 20:11:53",
+          "updatedAt": "2026-08-29 20:11:53"
+        }
+      ]
+    },
+    {
+      "name": "session",
+      "position": { "x": 24, "y": 40 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "userId", "type": "text", "foreignKey": { "table": "user", "column": "id" } },
+        { "name": "token", "type": "text", "unique": true },
+        { "name": "expiresAt", "type": "timestamp" },
+        { "name": "ipAddress", "type": "text", "nullable": true },
+        { "name": "userAgent", "type": "text", "nullable": true },
+        {
+          "name": "activeOrganizationId",
+          "type": "text",
+          "nullable": true,
+          "foreignKey": { "table": "organization", "column": "id" }
+        },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "ses_01KA1",
+          "userId": "usr_01J9A4N2M5",
+          "token": "sess_live_••••a8f2",
+          "expiresAt": "2026-09-07 17:42:08",
+          "ipAddress": "203.0.113.18",
+          "userAgent": "Chrome / macOS",
+          "activeOrganizationId": "org_01ACME",
+          "createdAt": "2026-08-31 17:42:08"
+        },
+        {
+          "id": "ses_01KA2",
+          "userId": "usr_01J9B7Q8K1",
+          "token": "sess_live_••••b1c4",
+          "expiresAt": "2026-09-06 08:18:14",
+          "ipAddress": "198.51.100.42",
+          "userAgent": "Safari / iOS",
+          "activeOrganizationId": "org_01NOVA",
+          "createdAt": "2026-08-30 08:18:14"
+        },
+        {
+          "id": "ses_01KA3",
+          "userId": "usr_01J9D8T4V7",
+          "token": "sess_live_••••d9e0",
+          "expiresAt": "2026-09-04 10:55:32",
+          "ipAddress": "192.0.2.65",
+          "userAgent": "Firefox / Linux",
+          "activeOrganizationId": "org_01ACME",
+          "createdAt": "2026-08-28 10:55:32"
+        },
+        {
+          "id": "ses_01KA4",
+          "userId": "usr_01J9E1H9S2",
+          "token": "sess_live_••••e7a1",
+          "expiresAt": "2026-09-06 21:09:17",
+          "ipAddress": "203.0.113.91",
+          "userAgent": "Chrome / Windows",
+          "activeOrganizationId": "org_01NOVA",
+          "createdAt": "2026-08-30 21:09:17"
+        },
+        {
+          "id": "ses_01KA5",
+          "userId": "usr_01J9G2W7C5",
+          "token": "sess_live_••••f3b8",
+          "expiresAt": "2026-09-07 06:12:40",
+          "ipAddress": "198.51.100.11",
+          "userAgent": "Safari / macOS",
+          "activeOrganizationId": "org_01ACME",
+          "createdAt": "2026-08-31 06:12:40"
+        }
+      ]
+    },
+    {
+      "name": "account",
+      "position": { "x": 24, "y": 370 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "userId", "type": "text", "foreignKey": { "table": "user", "column": "id" } },
+        { "name": "accountId", "type": "text" },
+        { "name": "providerId", "type": "text" },
+        { "name": "issuer", "type": "text" },
+        { "name": "createdAt", "type": "timestamp" },
+        { "name": "updatedAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "acc_01A",
+          "userId": "usr_01J9A4N2M5",
+          "accountId": "maya@example.com",
+          "providerId": "credential",
+          "issuer": "local:credential",
+          "createdAt": "2026-08-12 09:14:22",
+          "updatedAt": "2026-08-29 17:42:08"
+        },
+        {
+          "id": "acc_01B",
+          "userId": "usr_01J9B7Q8K1",
+          "accountId": "10428177",
+          "providerId": "github",
+          "issuer": "https://github.com",
+          "createdAt": "2026-08-14 11:08:43",
+          "updatedAt": "2026-08-14 11:08:43"
+        },
+        {
+          "id": "acc_01C",
+          "userId": "usr_01J9D8T4V7",
+          "accountId": "noah@example.com",
+          "providerId": "credential",
+          "issuer": "local:credential",
+          "createdAt": "2026-08-20 18:04:11",
+          "updatedAt": "2026-08-28 10:55:32"
+        },
+        {
+          "id": "acc_01D",
+          "userId": "usr_01J9E1H9S2",
+          "accountId": "10994231",
+          "providerId": "github",
+          "issuer": "https://github.com",
+          "createdAt": "2026-08-22 07:51:49",
+          "updatedAt": "2026-08-22 07:51:49"
+        },
+        {
+          "id": "acc_01E",
+          "userId": "usr_01J9G2W7C5",
+          "accountId": "lina@example.com",
+          "providerId": "credential",
+          "issuer": "local:credential",
+          "createdAt": "2026-08-27 16:45:05",
+          "updatedAt": "2026-08-31 06:12:40"
+        }
+      ]
+    },
+    {
+      "name": "organization",
+      "position": { "x": 820, "y": 40 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "name", "type": "text" },
+        { "name": "slug", "type": "text", "unique": true },
+        { "name": "logo", "type": "text", "nullable": true },
+        { "name": "metadata", "type": "json", "nullable": true },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "org_01ACME",
+          "name": "Acme Labs",
+          "slug": "acme-labs",
+          "logo": null,
+          "metadata": { "plan": "pro" },
+          "createdAt": "2026-07-02 10:05:14"
+        },
+        {
+          "id": "org_01NOVA",
+          "name": "Nova Studio",
+          "slug": "nova-studio",
+          "logo": "https://images.example.com/nova.svg",
+          "metadata": { "plan": "starter" },
+          "createdAt": "2026-07-18 14:42:31"
+        },
+        {
+          "id": "org_01FIELD",
+          "name": "Field Notes",
+          "slug": "field-notes",
+          "logo": null,
+          "metadata": { "plan": "free" },
+          "createdAt": "2026-08-09 08:22:19"
+        }
+      ]
+    },
+    {
+      "name": "member",
+      "position": { "x": 820, "y": 334 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "userId", "type": "text", "foreignKey": { "table": "user", "column": "id" } },
+        {
+          "name": "organizationId",
+          "type": "text",
+          "foreignKey": { "table": "organization", "column": "id" }
+        },
+        { "name": "role", "type": "text" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "mem_01",
+          "userId": "usr_01J9A4N2M5",
+          "organizationId": "org_01ACME",
+          "role": "owner",
+          "createdAt": "2026-07-02 10:05:14"
+        },
+        {
+          "id": "mem_02",
+          "userId": "usr_01J9D8T4V7",
+          "organizationId": "org_01ACME",
+          "role": "admin",
+          "createdAt": "2026-07-08 09:37:46"
+        },
+        {
+          "id": "mem_03",
+          "userId": "usr_01J9G2W7C5",
+          "organizationId": "org_01ACME",
+          "role": "member",
+          "createdAt": "2026-08-27 16:51:12"
+        },
+        {
+          "id": "mem_04",
+          "userId": "usr_01J9B7Q8K1",
+          "organizationId": "org_01NOVA",
+          "role": "owner",
+          "createdAt": "2026-07-18 14:42:31"
+        },
+        {
+          "id": "mem_05",
+          "userId": "usr_01J9E1H9S2",
+          "organizationId": "org_01NOVA",
+          "role": "member",
+          "createdAt": "2026-08-22 08:03:18"
+        }
+      ]
+    },
+    {
+      "name": "invitation",
+      "position": { "x": 420, "y": 420 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "email", "type": "text" },
+        { "name": "inviterId", "type": "text", "foreignKey": { "table": "user", "column": "id" } },
+        {
+          "name": "organizationId",
+          "type": "text",
+          "foreignKey": { "table": "organization", "column": "id" }
+        },
+        { "name": "role", "type": "text", "nullable": true },
+        { "name": "status", "type": "text" },
+        { "name": "expiresAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "inv_01",
+          "email": "sam@example.com",
+          "inviterId": "usr_01J9A4N2M5",
+          "organizationId": "org_01ACME",
+          "role": "member",
+          "status": "pending",
+          "expiresAt": "2026-09-05 12:00:00"
+        },
+        {
+          "id": "inv_02",
+          "email": "dev@example.com",
+          "inviterId": "usr_01J9B7Q8K1",
+          "organizationId": "org_01NOVA",
+          "role": "admin",
+          "status": "accepted",
+          "expiresAt": "2026-08-30 12:00:00"
+        },
+        {
+          "id": "inv_03",
+          "email": "ivy@example.com",
+          "inviterId": "usr_01J9A4N2M5",
+          "organizationId": "org_01ACME",
+          "role": "member",
+          "status": "pending",
+          "expiresAt": "2026-09-06 09:30:00"
+        }
+      ]
+    },
+    {
+      "name": "verification",
+      "position": { "x": 820, "y": 610 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "identifier", "type": "text" },
+        { "name": "value", "type": "text" },
+        { "name": "expiresAt", "type": "timestamp" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "rows": [
+        {
+          "id": "ver_01",
+          "identifier": "ari@example.com",
+          "value": "email-verification:••••3f2a",
+          "expiresAt": "2026-08-31 15:33:01",
+          "createdAt": "2026-08-31 15:18:01"
+        },
+        {
+          "id": "ver_02",
+          "identifier": "theo@example.com",
+          "value": "password-reset:••••9c1d",
+          "expiresAt": "2026-08-31 14:22:36",
+          "createdAt": "2026-08-31 14:07:36"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": { "table": "session", "column": "userId" },
+      "to": { "table": "user", "column": "id" }
+    },
+    {
+      "from": { "table": "session", "column": "activeOrganizationId" },
+      "to": { "table": "organization", "column": "id" }
+    },
+    {
+      "from": { "table": "account", "column": "userId" },
+      "to": { "table": "user", "column": "id" }
+    },
+    {
+      "from": { "table": "member", "column": "userId" },
+      "to": { "table": "user", "column": "id" }
+    },
+    {
+      "from": { "table": "member", "column": "organizationId" },
+      "to": { "table": "organization", "column": "id" }
+    },
+    {
+      "from": { "table": "invitation", "column": "inviterId" },
+      "to": { "table": "user", "column": "id" }
+    },
+    {
+      "from": { "table": "invitation", "column": "organizationId" },
+      "to": { "table": "organization", "column": "id" }
+    }
+  ]
+}

@@ -7,10 +7,12 @@ import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 import ConsoleApp from "../components/console-app.vue";
-import ConsoleHome from "../components/console-home.vue";
 import ConsoleBlob from "../components/console-blob.vue";
-import ConsoleKv from "../components/console-kv.vue";
+import ConsoleDatabase from "../components/console-database.vue";
 import ConsoleDefinitions from "../components/console-definitions.vue";
+import ConsoleHome from "../components/console-home.vue";
+import ConsoleKv from "../components/console-kv.vue";
+import { consoleDatabaseSchemaPath, consoleDatabaseTablePath } from "../console-route";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
@@ -94,6 +96,36 @@ const router = createRouter({
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDatabase,
+      name: "vitehub-console-database-schema",
+      path: consoleDatabaseSchemaPath,
+      meta: { consoleSection: "database", title: "Schema · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        view: "schema",
+      },
+    },
+    {
+      component: ConsoleDatabase,
+      name: "vitehub-console-database",
+      path: consoleDatabaseTablePath,
+      meta: { consoleSection: "database", title: "Database · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        view: "data",
       },
     },
     {
