@@ -12,6 +12,7 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
   if (typeof currentRouteName !== "string") return targetRouteName
 
   const consoleRouteName = [
+    "vitehub-console-database-schema",
     "vitehub-console-invocation",
     "vitehub-console-rate-limits",
     "vitehub-console-workspaces",
@@ -19,6 +20,7 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
     "vitehub-console-sandboxes",
     "vitehub-console-schedules",
     "vitehub-console-databases",
+    "vitehub-console-database",
     "vitehub-console-queues",
     "vitehub-console-agents",
     "vitehub-console-agent",
