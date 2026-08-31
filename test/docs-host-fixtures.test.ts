@@ -81,7 +81,7 @@ async function expectDenoLauncherToStart(appRoot: string) {
     "--unstable-cron",
     "--allow-env",
     "--allow-read=.output",
-    `--allow-net=0.0.0.0:${port}`,
+    `--allow-net=127.0.0.1:${port}`,
     ".output/main.ts",
   ], {
     cwd: appRoot,
