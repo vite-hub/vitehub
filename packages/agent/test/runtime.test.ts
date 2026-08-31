@@ -11462,7 +11462,7 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(agentError.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
-  it("keeps canceled Response bodies out of the success lifecycle", async () => {
+  it("finalizes canceled Response bodies as cancelled", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
@@ -11479,7 +11479,8 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await response.body?.cancel()
-    expect(finish).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "cancelled" }])
   })
 
   it("runs Agent Error Hooks when Response wrapping fails", async () => {

@@ -6443,11 +6443,15 @@ async function executeAgentInvocationWithCapacityLease<
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = await streamed.finishResult(rendered, !outcome.failed && outcome.completed === true)
+          const finishUsageRecord = streamed.finishUsage()
           if (!outcome.failed && !outcome.completed) {
+            const usage = finishUsageRecord
+              ? await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+              : undefined
             await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
               result: finishResult,
               status: "cancelled",
-              usage: streamed.finishUsage(),
+              usage,
               usageResolved: true,
             }, streamFailureMessage, outputExtensions)
           }
@@ -6458,7 +6462,13 @@ async function executeAgentInvocationWithCapacityLease<
               lifecycle,
               finishResult,
               finishOutcome.status === "success"
-                ? { ...finishOutcome, usage: streamed.finishUsage(), usageResolved: true }
+                ? {
+                    ...finishOutcome,
+                    usage: finishUsageRecord
+                      ? await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                      : undefined,
+                    usageResolved: true,
+                  }
                 : finishOutcome,
               streamFailureMessage,
               outputExtensions,
