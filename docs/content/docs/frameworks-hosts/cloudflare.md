@@ -112,9 +112,8 @@ Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare
 
 ```ts [vite.config.ts]
 import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
 
-export default defineConfig({
+export default {
   plugins: [
     hubWorkspace({
       store: {
@@ -124,7 +123,7 @@ export default defineConfig({
       },
     }),
   ],
-})
+}
 ```
 
 Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Workspace preserves unrelated app-owned Artifacts bindings. Cloudflare hosting still defaults to the ephemeral `memory` Store because Artifacts requires explicit beta access.

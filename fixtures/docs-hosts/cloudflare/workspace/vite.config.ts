@@ -1,7 +1,6 @@
 import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
 
-export default defineConfig({
+export default {
   plugins: [
     hubWorkspace({
       store: {
@@ -11,4 +10,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}
