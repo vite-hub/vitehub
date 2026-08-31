@@ -415,7 +415,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let auth: Awaited<ReturnType<typeof scopedAccess>> | undefined
     try {
       auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
-      touchBudgetState(auth.rateLimitKey, Date.now())
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env, GH_HOST: "github.com" },
@@ -429,6 +428,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (auth && rateLimitMessage(error)
         && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
         const limit = { checkedAt: Date.now(), remaining: 0, resetAt: Date.now() + GITHUB_RATE_LIMIT_FALLBACK_MS }
+        touchBudgetState(auth.rateLimitKey, limit.checkedAt)
         limitVersions.set(auth.rateLimitKey, (limitVersions.get(auth.rateLimitKey) ?? 0) + 1)
         limits.set(auth.rateLimitKey, limit)
         throw new GitHubRateLimitError(input.repository ?? "this credential", limit, error)
@@ -451,8 +451,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       touchBudgetState(key, now)
       const cached = limits.get(key)
       const admit = (limit: GitHubGraphQLRateLimit): GitHubGraphQLReservation => {
-        const current = limits.get(key)
-        const available = current?.checkedAt === limit.checkedAt && current.remaining <= limit.remaining ? current : limit
+        const available = limits.get(key) ?? limit
         if (available.resetAt > Date.now() && available.remaining - options.cost < reserve) {
           throw new GitHubRateLimitError(repository, available)
         }
