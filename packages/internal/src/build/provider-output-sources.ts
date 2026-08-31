@@ -151,7 +151,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   return paths
 }
 
-async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
+async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
   try {
@@ -177,8 +177,9 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
     return importedSources
   }
   catch {
-    // Requested entries remain available even when Vite-specific resolution cannot be traced here.
-    return new Set(entries)
+    // A provider bundler may support imports that bare esbuild cannot resolve. Without a complete
+    // graph, pruning nested repositories could remove otherwise valid transitive inputs.
+    return undefined
   }
 }
 
@@ -210,7 +211,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => path !== root && pathContains(root, path))
-    const requestedSymlinkDirectories = requested.filter(path => lstatSync(path).isSymbolicLink() && statSync(path).isDirectory())
+    const requestedSymlinks = requested.filter(path => lstatSync(path).isSymbolicLink())
     const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
@@ -258,6 +259,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (resolvedSource !== root
             && existsSync(resolve(resolvedSource, ".git"))
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            && importedSources !== undefined
             && ![...importedSources].some(path => pathContains(resolvedSource, path))
             && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
             && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
@@ -296,10 +298,10 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           return true
         },
       })
-      for (const source of requestedSymlinkDirectories) {
+      for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
         await rm(retainedSource, { force: true, recursive: true })
-        await cp(realpathSync(source), retainedSource, { recursive: true })
+        await cp(realpathSync(source), retainedSource, { recursive: statSync(source).isDirectory() })
       }
       await mkdir(dirname(retainedRoot), { recursive: true })
       try {

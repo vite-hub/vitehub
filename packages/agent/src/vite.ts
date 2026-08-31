@@ -2819,14 +2819,17 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           : undefined
         const contributionArtifactDir = artifactDir
         const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
+        const definitionSourcePaths = (await Promise.all(definitions.map(async (definition) => {
+          const instructionDependencies = new Set<string>()
+          await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
+          const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
+          return [definition.handler, ...instructionDependencies, ...(skillsRoot ? [skillsRoot] : [])]
+        }))).flat()
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
               paths: [
-                ...definitions.flatMap((definition) => {
-                  const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
-                  return skillsRoot ? [definition.handler, skillsRoot] : [definition.handler]
-                }),
+                ...definitionSourcePaths,
                 ...Object.keys(providerImportAliases),
                 ...Object.values(providerImportAliases),
               ],

@@ -737,14 +737,15 @@ function resolveAgentWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
-function resolveInstructionFile(file: string, seen: Set<string>): string {
+function resolveInstructionFile(file: string, seen: Set<string>, dependencies?: Set<string>): string {
   if (seen.has(file)) throw new Error(`[vitehub] Circular instruction import: ${file}.`)
   seen.add(file)
+  dependencies?.add(file)
   try {
     const replaceImports = (content: string) => content.replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
       const trailing = rawSpecifier.match(/[.,;:!?)]*$/)?.[0] || ""
       const specifier = rawSpecifier.slice(0, rawSpecifier.length - trailing.length)
-      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen)}${trailing}`
+      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen, dependencies)}${trailing}`
     })
     let fence: string | undefined
     return readFileSync(file, "utf8").split(/(?<=\n)/).map((line) => {
@@ -763,10 +764,10 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
   }
 }
 
-function readAgentInstructions(file: string): string | undefined {
+function readAgentInstructions(file: string, dependencies?: Set<string>): string | undefined {
   const instructions = join(dirname(file), "instructions.md")
   return existsSync(instructions) && statSync(instructions).isFile()
-    ? resolveInstructionFile(instructions, new Set())
+    ? resolveInstructionFile(instructions, new Set(), dependencies)
     : undefined
 }
 
@@ -1128,10 +1129,16 @@ export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, s
   return discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
     .flatMap((definition) => {
       const executableSources = definition.steps?.length ? definition.steps : [definition.handler]
-      const skillsRoot = definition.source === "agent-workflow"
-        ? resolveColocatedAgentFilesRoot(definition.handler, "skills")
-        : undefined
-      return skillsRoot ? [...executableSources, skillsRoot] : executableSources
+      if (definition.source !== "agent-workflow") return executableSources
+      const instructionDependencies = new Set<string>()
+      readAgentInstructions(definition.handler, instructionDependencies)
+      const workspaceRoot = join(dirname(definition.handler), "workspace")
+      return [
+        ...executableSources,
+        ...instructionDependencies,
+        resolveColocatedAgentFilesRoot(definition.handler, "skills"),
+        existsSync(workspaceRoot) && statSync(workspaceRoot).isDirectory() ? workspaceRoot : undefined,
+      ].filter((path): path is string => Boolean(path))
     })
 }
 

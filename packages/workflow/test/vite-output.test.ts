@@ -116,15 +116,28 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   const step = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
   const agentHandler = join(rootDir, "server", "agents", "review", "agent.ts")
   const skillsRoot = join(dirname(agentHandler), "skills")
-  await Promise.all([mkdir(workflowDirectory, { recursive: true }), mkdir(join(skillsRoot, "review"), { recursive: true })])
+  const workspaceRoot = join(dirname(agentHandler), "workspace")
+  const instructionRoot = join(dirname(agentHandler), "policies")
+  const instructions = join(dirname(agentHandler), "instructions.md")
+  const policy = join(instructionRoot, "tone.md")
+  await Promise.all([
+    mkdir(workflowDirectory, { recursive: true }),
+    mkdir(join(skillsRoot, "review"), { recursive: true }),
+    mkdir(workspaceRoot, { recursive: true }),
+    mkdir(instructionRoot, { recursive: true }),
+  ])
   await writeFile(handler, "export default async function welcome() {}\n")
   await writeFile(step, "export default async function cleanup() {}\n")
   await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
   await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
   await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
+  await writeFile(join(workspaceRoot, ".git"), "gitdir: /tmp/review-workspace.git\n")
+  await writeFile(instructions, "@./policies/tone.md\n")
+  await writeFile(policy, "Be concise.\n")
+  await writeFile(join(instructionRoot, ".git"), "gitdir: /tmp/review-policies.git\n")
 
   const sources = discoverWorkflowProviderSourcePaths(rootDir)
-  expect(sources.sort()).toEqual([agentHandler, skillsRoot, step, handler].sort())
+  expect(sources.sort()).toEqual([agentHandler, instructions, policy, skillsRoot, workspaceRoot, step, handler].sort())
   expect(sources).not.toContain(workflowDirectory)
 })
 

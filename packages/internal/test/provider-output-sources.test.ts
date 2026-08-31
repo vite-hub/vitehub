@@ -636,6 +636,49 @@ it("snapshots requested symlinked directories inside the retained generation", a
   await expect(readFile(join(retained.resolve(skills), "review", "SKILL.md"), "utf8")).resolves.toBe("# Captured\n")
 })
 
+it("snapshots requested symlinked files inside the retained generation", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-file-source-"))
+  const fileSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-file-target-"))
+  tempDirs.push(rootDir, fileSource)
+  const target = join(fileSource, "agent.ts")
+  const handler = join(rootDir, "server", "agents", "review.ts")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), writeFile(target, 'export const value = "captured"\n')])
+  await symlink(target, handler)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(target, 'export const value = "changed"\n')
+
+  expect((await lstat(retained.resolve(handler))).isSymbolicLink()).toBe(false)
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+})
+
+it("preserves nested repositories when Vite-only imports prevent a complete trace", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const importedRepository = join(rootDir, "imported-worktree")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(importedRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'import prompt from "./prompt.md?raw"\nexport { value } from "../imported-worktree/value.mjs"\nexport { prompt }\n'),
+    writeFile(join(dirname(handler), "prompt.md"), "Retained prompt\n"),
+    writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
+    writeFile(join(importedRepository, "value.mjs"), 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
+})
+
 it("skips unrelated nested repositories while retaining requested and imported ones", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-repositories-"))
   tempDirs.push(rootDir)
