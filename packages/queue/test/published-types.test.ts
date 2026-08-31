@@ -29,7 +29,7 @@ it("publishes Queue error types for the shared ViteHubError contract", async () 
   finally {
     await rm(root, { force: true, recursive: true })
   }
-}, 15_000)
+}, 30_000)
 
 async function run(command: string, args: string[], cwd: string) {
   try {

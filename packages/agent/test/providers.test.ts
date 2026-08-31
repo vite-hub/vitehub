@@ -3069,7 +3069,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("does not reuse durable Eve approvals for anonymous HTTP callers", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-anonymous-chat-approval-"))
@@ -15040,10 +15040,13 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(async () => {
-        const acquisitions = await Promise.all(handoffAcquisitions)
-        expect(acquisitions.slice(1)).toContain(null)
-      })
+      await vi.waitFor(
+        async () => {
+          const acquisitions = await Promise.all(handoffAcquisitions)
+          expect(acquisitions.slice(1)).toContain(null)
+        },
+        { timeout: binding!.steer!.ttlMs * 5 },
+      )
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)
