@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client"
 
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 
 import type {
@@ -242,8 +243,39 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL DEFAULT 0,
+        claim_token TEXT NOT NULL DEFAULT '',
         expires_at INTEGER NOT NULL
       )`)
+      const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+      if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
+        }
+        await client.execute(`UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
+      }
+      if (!claimColumns.rows.some(row => row.name === "claim_token")) {
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
+        }
+      }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+        AFTER UPDATE OF expires_at ON ${table}_claims
+        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
+        BEGIN
+          UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
+          WHERE id = NEW.id;
+        END`)
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -295,15 +327,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     await client.batch(statements, "write")
   }
   return {
-    async claim(id, claimId, leaseMs, force) {
+    async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
+        const claimToken = globalThis.crypto.randomUUID()
         const result = await client.execute({
-          args: [id, claimId, leaseMs, id, force ? 1 : 0],
-          sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
-            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
-            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
-            WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
+          args: [id, claimId, claimToken, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
+          sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
+            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
+            WHERE ? = 1 OR (? IS NOT NULL AND ${table}_claims.claim_token = ?) OR ${table}_claims.claim_id = excluded.claim_id
               OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
         })
         return result.rowsAffected > 0
@@ -337,6 +370,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
       })
+    },
+    async getClaimToken(id) {
+      await initialize()
+      const result = await client.execute({
+        args: [id],
+        sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
+      })
+      const claimToken = result.rows[0]?.claim_token
+      return hasRuntimeType(claimToken, "string") ? claimToken : undefined
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {

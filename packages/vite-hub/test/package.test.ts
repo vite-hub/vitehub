@@ -74,6 +74,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/mcp/stdio",
   "@vite-hub/agent/messages",
   "@vite-hub/agent/output",
+  "@vite-hub/agent/server/github",
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
