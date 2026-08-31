@@ -78,8 +78,10 @@ async function installedVersion(path: string) {
 }
 
 async function requiredPeerSpecs() {
+  const browserCatalog = await catalogDependencySpecs("browser", ["@cloudflare/playwright"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...browserCatalog,
     ...workflowCatalog,
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
@@ -663,6 +665,21 @@ describe("published declaration diagnostics", () => {
       workflow: "5.0.0-beta.35",
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("provides install specs for Browser's optional declaration peers", async () => {
+    const peerSpecs = await requiredPeerSpecs()
+    const fixtureSpecs = mixedPeerFixtureSpecs(
+      "@vite-hub/browser",
+      "playwright-core",
+      [],
+      ["@cloudflare/playwright", "playwright-core", "vite"],
+      {},
+      peerSpecs,
+    )
+
+    expect(fixtureSpecs).toMatchObject({ "@cloudflare/playwright": "^1.3.5" })
+    expect(fixtureSpecs).not.toHaveProperty("playwright-core")
   })
 
   it("keeps browser-only Vue declarations free of Node globals", () => {
