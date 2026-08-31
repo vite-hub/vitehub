@@ -198,7 +198,7 @@ export type GitHubIssueCommentPayload = {
 }
 
 export interface GitHubPullRequestCommand {
-  action: "created"
+  action: "created" | "opened" | "ready_for_review" | "reopened" | "synchronize" | (string & {})
   actor: {
     association?: string
     id?: number
@@ -805,7 +805,7 @@ function githubPullRequestReconcileFromInput(
   }
   return {
     command: {
-      action: "created",
+      action,
       actor: {
         ...(maybeNumber(actor?.id) ? { id: maybeNumber(actor?.id) } : {}),
         login,

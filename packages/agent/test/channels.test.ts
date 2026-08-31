@@ -1286,11 +1286,11 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub reconciliation invocation.")
     expect(result.input).toMatchObject({
       context: {
-        github: { args: "reopened", command: "/reconcile", event: "pull_request" },
+        github: { action: "reopened", args: "reopened", command: "/reconcile", event: "pull_request" },
         pullRequest: {
           pullRequest: { body: "Please improve the app.", number: 42, title: "Improve app" },
           run: { origin: "github-pull-request" },
-          trigger: { event: "pull_request" },
+          trigger: { action: "reopened", event: "pull_request" },
         },
       },
       prompt: "Keep this pull request healthy.",
