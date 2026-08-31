@@ -502,7 +502,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             if (activeReservations.size === 0) reservations.delete(key)
           }
           const outstanding = [...(activeReservations ?? [])]
-            .filter(reservation => reservation.resetAt === limit.resetAt && reservation.submittedAtVersion === undefined)
+            .filter(reservation => reservation.resetAt === limit.resetAt
+              && (reservation.submittedAtVersion === undefined || reservation.rolledOver))
             .reduce((points, reservation) => points + reservation.points, 0)
           const current = limits.get(key)
           const reconciled = current !== undefined
