@@ -808,7 +808,7 @@ describe("GitHub host", () => {
       "gh repo clone https://github.com/vite-hub/vitehub.git",
     )
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
-      "gh pr checkout 123 --repo vite-hub/vitehub|||github.com",
+      "gh pr checkout 123 --repo vite-hub/vitehub|!gh auth git-credential|token|github.com",
     )
     await expect(readFile(commandLog, "utf8")).resolves.not.toContain("--detach")
     await expect(readFile(commandLog, "utf8")).resolves.toContain("!gh auth git-credential|token")
