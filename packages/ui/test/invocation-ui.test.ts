@@ -2546,8 +2546,9 @@ describe("Agent Invocation UI", () => {
   it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {
-        agent: { name: "babysitter" },
+        agent: { name: "babysitter", version: "2" },
         capabilities: [{ id: "github" }],
+        channels: [{ id: "reviews", kind: "github" }],
         driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "openai" } },
         instructions: ["Follow repository instructions."],
         runtime: { name: "node" },
@@ -2566,6 +2567,8 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("gpt-5.6-sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("openai");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
+    expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
+    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
   });

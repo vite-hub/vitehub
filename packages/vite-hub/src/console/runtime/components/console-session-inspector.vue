@@ -30,7 +30,6 @@ const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["de
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const workspace = ref<WorkspaceDescriptor>();
-const workspaceSupported = ref<boolean>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
@@ -62,10 +61,7 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(workspaceSupported.value === true ||
-  (workspaceSupported.value === undefined && openViews.value.includes("workspace"))
-    ? (["workspace"] as const)
-    : []),
+  ...(props.workspaceBase ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
@@ -135,12 +131,11 @@ watch(
     workspaceRequest?.abort();
     fileRequest?.abort();
     workspace.value = undefined;
-    workspaceSupported.value = undefined;
     workspaceError.value = undefined;
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
-    void loadWorkspace();
+    if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
 );
@@ -309,28 +304,15 @@ async function loadWorkspace() {
         controller.signal,
       ),
     );
-    workspaceSupported.value = true;
     if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
-      workspaceSupported.value = !(error instanceof RequestError && error.status === 404);
-      workspaceError.value = workspaceSupported.value ? message(error) : undefined;
-      if (!workspaceSupported.value) clearWorkspaceState();
+      workspaceError.value = message(error);
     }
   } finally {
     if (!controller.signal.aborted && workspaceRequest === controller)
       workspaceLoading.value = false;
   }
-}
-
-function clearWorkspaceState() {
-  fileRequest?.abort();
-  workspace.value = undefined;
-  selectedPath.value = undefined;
-  openPaths.value = [];
-  file.value = undefined;
-  fileError.value = undefined;
-  fileLoading.value = false;
 }
 
 async function loadFile(path: string) {

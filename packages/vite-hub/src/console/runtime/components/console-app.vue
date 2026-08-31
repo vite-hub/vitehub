@@ -30,6 +30,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleHealth from "./console-health.vue";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSessionLoading from "./console-session-loading.vue";
 import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -71,10 +72,12 @@ const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
+const refreshing = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
+let refreshCount = 0;
 let initialListPending = !selectedAgentName.value;
 const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
 
@@ -93,6 +96,9 @@ const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
 const selectedDetailStatus = ref<AgentInvocationListItem["status"]>();
+const initialSessionLoading = computed(() =>
+  !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
+);
 const detailPollInterval = computed(() => {
   if (!pageVisible.value || !selectedInvocationId.value) return false;
   const status = selectedSummary.value?.status ?? selectedDetailStatus.value;
@@ -112,7 +118,12 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
-    provider: stringValue(invocation.annotations?.["agent.model.provider"]),
+    provider:
+      stringValue(invocation.annotations?.["agent.model.provider"]) ||
+      (invocation.id === selectedInvocationId.value
+        ? invocationView.value?.configuration?.driver?.model?.provider ||
+          invocationView.value?.configuration?.driver?.provider
+        : undefined),
     startedAt: invocation.startedAt,
     status: invocation.status,
     title: agentInvocationTitle(invocation),
@@ -366,16 +377,23 @@ async function loadAgents(): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
-  const agents = loadAgents();
-  const invocations = initialListPending && !selectedAgentName.value
-    ? agents.then(() => undefined)
-    : list.refresh();
-  await Promise.all([
-    detectHostCapabilities(),
-    agents,
-    invocations,
-    selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
-  ]);
+  refreshCount++;
+  refreshing.value = true;
+  try {
+    const agents = loadAgents();
+    const invocations = initialListPending && !selectedAgentName.value
+      ? agents.then(() => undefined)
+      : list.refresh();
+    await Promise.all([
+      detectHostCapabilities(),
+      agents,
+      invocations,
+      selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
+    ]);
+  } finally {
+    refreshCount--;
+    refreshing.value = refreshCount > 0;
+  }
 }
 
 function inspectSession(target: "agent" | "workspace"): void {
@@ -611,6 +629,11 @@ onBeforeUnmount(() => {
             icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
             :description="errorMessage(list.error.value || list.loadMoreError.value)"
+            :actions="
+              list.error.value
+                ? [{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: list.refresh }]
+                : undefined
+            "
           />
           <UButton
             v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
@@ -624,8 +647,12 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-if="!collapsed && list.isLoading.value && !invocationItems.length"
+          v-if="
+            !collapsed && (agentsLoading || list.isLoading.value) && !invocationItems.length
+          "
           class="grid gap-2 px-3"
+          aria-label="Loading sessions"
+          role="status"
         >
           <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
         </div>
@@ -663,6 +690,7 @@ onBeforeUnmount(() => {
           @end-reached="list.loadMore()"
           @select="selectInvocation($event)"
         >
+          <template #loading />
           <template #footer>
             <div v-if="list.cursor.value" class="flex justify-center px-2 py-3">
               <UButton
@@ -787,7 +815,7 @@ onBeforeUnmount(() => {
                   :external-url="selectedExternalUrl"
                   :has-display="Boolean(selectedDisplay)"
                   :has-selection="Boolean(selectedInvocationId)"
-                  :loading="list.isLoading.value || detail.isLoading.value"
+                  :loading="refreshing"
                   :project="selectedProject"
                   :title="selectedTitle"
                   @open-sessions="sessionsOpen = true"
@@ -842,15 +870,19 @@ onBeforeUnmount(() => {
               :external-url="selectedExternalUrl"
               :has-display="Boolean(selectedDisplay)"
               :has-selection="Boolean(selectedInvocationId)"
-              :loading="list.isLoading.value || detail.isLoading.value"
+              :loading="refreshing"
               :project="selectedProject"
               :title="selectedTitle"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
               @toggle-details="detailsOpen = !detailsOpen"
             />
+            <ConsoleSessionLoading
+              v-if="initialSessionLoading"
+              class="min-h-0 flex-1"
+            />
             <div
-              v-if="!selectedInvocationId"
+              v-else-if="!selectedInvocationId"
               class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted"
             >
               Select an Agent Invocation to inspect its work.
@@ -865,15 +897,10 @@ onBeforeUnmount(() => {
                 { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
               ]"
             />
-            <div
+            <ConsoleSessionLoading
               v-else-if="detail.isLoading.value && !invocationView"
-              class="flex min-h-0 flex-1 items-center justify-center"
-            >
-              <UIcon
-                name="i-ph-circle-notch-light"
-                class="size-4 animate-spin text-muted opacity-70"
-              />
-            </div>
+              class="min-h-0 flex-1"
+            />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
               <UAlert
                 v-if="errorMessage(detail.error.value)"

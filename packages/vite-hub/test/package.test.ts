@@ -316,6 +316,10 @@ describe("framework package contract", () => {
     );
     expect(consoleSessionCss).toMatch(/\.session-inspector\s*\{[\s\S]*?height: 100%;/);
     expect(consolePage).toContain("limit: 10");
+    expect(consolePage).toContain("const initialSessionLoading = computed");
+    expect(consolePage).toContain('v-if="initialSessionLoading"');
+    expect(consolePage).toContain(':loading="refreshing"');
+    expect(consolePage).toContain("<template #loading />");
     expect(consolePage).toContain('status === "completed" || status === "failed" || status === "cancelled"');
     expect(consolePage).toContain('label="Load older sessions"');
     expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
@@ -330,12 +334,19 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-navbar.vue`,
       "utf8",
     );
+    const consoleSessionLoading = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-loading.vue`,
+      "utf8",
+    );
+    expect(consoleSessionLoading).toContain('aria-label="Loading session"');
     expect(consoleSessionNavbar).toContain('v-if="hasSelection" text="Session details"');
     const sessionInspector = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
       "utf8",
     );
     expect(sessionInspector).toContain("Workspace unavailable");
+    expect(sessionInspector).toContain('...(props.workspaceBase ? (["workspace"] as const) : [])');
+    expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("invocationUsage.totalTokens");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
@@ -414,6 +425,8 @@ describe("framework package contract", () => {
     expect(consoleRoute).toContain('import { useHead, useRuntimeConfig } from "#imports"');
     expect(consoleRoute).toContain("<ClientOnly>");
     expect(consoleRoute).toContain("<ConsoleProvider>");
+    expect(consoleRoute).toContain('aria-label="Loading ViteHub Console"');
+    expect(consoleRoute).toContain("lg:grid-rows-[auto_auto_1fr]");
     const consoleIndexRoute = readFileSync(
       `${packageRoot}/dist/console/runtime/pages/index.vue`,
       "utf8",

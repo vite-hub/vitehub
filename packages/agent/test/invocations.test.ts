@@ -554,6 +554,29 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("lists Agent names through every page for stores without an optimized index", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const timestamp = new Date().toISOString()
+    for (let index = 0; index < 101; index++) {
+      const agentName = index % 3 === 0 ? " beta " : index % 3 === 1 ? "alpha" : undefined
+      await memory.create({
+        ...(agentName ? { agentName } : {}),
+        createdAt: timestamp,
+        id: `fallback-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `fallback-${index}-trace`,
+        updatedAt: timestamp,
+      })
+    }
+    const { listAgentNames: _listAgentNames, ...fallback } = memory
+    const list = vi.fn(fallback.list)
+
+    await expect(defineAgentInvocations({ store: { ...fallback, list } }).listAgentNames())
+      .resolves.toEqual(["alpha", "beta"])
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -1137,6 +1160,41 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
+  it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("nested-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: {
+        "vitehub.agent.configuration": {
+          capabilities: [{ id: "otlp", metadata: { signals: ["traces"] } }],
+          driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" } },
+          runtime: { name: "ViteHub" },
+        },
+      },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const record = await invocations.getByRunId("nested-configuration")
+    const configured = record?.observations.findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      capabilities: [{ id: "otlp", metadata: { signals: ["traces"] } }],
+    })
+    expect(record?.annotations).toMatchObject({
+      "agent.model.id": "gpt-5.6-sol",
+      "agent.model.provider": "codex",
+    })
+    await expect(invocations.list()).resolves.toMatchObject({
+      invocations: [{ annotations: {
+        "agent.model.id": "gpt-5.6-sol",
+        "agent.model.provider": "codex",
+      } }],
+    })
+  })
+
   it("marks bounded ordinary observations as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-ordinary-observation"))
@@ -1515,6 +1573,7 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
+      channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
         model: new MockLanguageModelV3({
@@ -1544,6 +1603,9 @@ describe("Agent Invocations", () => {
       },
     })
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      channels: [{ id: "reviews", kind: "github" }],
+    })
   })
 
   it("persists resolved instructions when invocation content is enabled", async () => {

@@ -21,6 +21,7 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const MAX_AGENT_CONFIGURATION_DEPTH = 8
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
@@ -197,6 +198,10 @@ function annotationKey(key: string): boolean {
   return key.length <= MAX_ANNOTATION_KEY_LENGTH && /^[A-Za-z][A-Za-z0-9_.-]*$/.test(key)
 }
 
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
+}
+
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
   if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
@@ -208,6 +213,29 @@ function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<st
     else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
+}
+
+function configurationAnnotations(
+  observation: TraceEventLogEntry,
+): Record<string, AgentInvocationAnnotationValue> | undefined {
+  if (observation.name !== "vitehub.agent.configured") return
+  const configuration = observation.attributes?.["vitehub.agent.configuration"]
+  if (!isStringRecord(configuration)) return
+  const driver = configuration.driver
+  if (!isStringRecord(driver)) return
+  const modelRecord = isStringRecord(driver.model) ? driver.model : undefined
+  const provider = hasRuntimeType(modelRecord?.provider, "string")
+    ? modelRecord.provider
+    : hasRuntimeType(driver.provider, "string")
+      ? driver.provider
+      : undefined
+  const modelId = hasRuntimeType(modelRecord?.id, "string")
+    ? modelRecord.id
+    : undefined
+  const annotations: AgentRunMetadata["annotations"] = {}
+  if (modelId) annotations["agent.model.id"] = modelId
+  if (provider) annotations["agent.model.provider"] = provider
+  return normalizeAnnotations(annotations)
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -257,6 +285,7 @@ function normalizedTimestamp(value: Date | string): string {
 
 interface ObservationBudget {
   items: number
+  maxDepth?: number
   stringLength: number
   truncated: boolean
 }
@@ -408,7 +437,7 @@ function boundedObservationValue(
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
   }
-  if (depth >= MAX_OBSERVATION_DEPTH) {
+  if (depth >= (budget.maxDepth ?? MAX_OBSERVATION_DEPTH)) {
     budget.truncated = true
     return "[truncated]"
   }
@@ -544,6 +573,23 @@ function boundedObservationPayload(
   if (payload?.visibility === "private") return { visibility: "private" }
 }
 
+function boundedObservationAttributeValue(
+  key: string,
+  value: unknown,
+  budget: ObservationBudget,
+  maxStringLength: number,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): unknown {
+  const maxDepth = budget.maxDepth
+  if (key === "vitehub.agent.configuration") budget.maxDepth = MAX_AGENT_CONFIGURATION_DEPTH
+  try {
+    return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
+  }
+  finally {
+    budget.maxDepth = maxDepth
+  }
+}
+
 function boundedObservation(
   observation: TraceEventLogEntry,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
@@ -583,7 +629,13 @@ function boundedObservation(
           .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
           if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH, builtIns)]]
+          return value === undefined ? [] : [[boundedString(key), boundedObservationAttributeValue(
+            key,
+            value,
+            budget,
+            isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH,
+            builtIns,
+          )]]
         })),
         ...canonicalAttributes,
       }
@@ -764,6 +816,9 @@ export function applyAgentInvocationStoreUpdate(
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
+  const configuredAnnotations = input.observation
+    ? configurationAnnotations(input.observation)
+    : undefined
   const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
@@ -792,6 +847,9 @@ export function applyAgentInvocationStoreUpdate(
     : record.observations
   return {
     ...record,
+    ...(configuredAnnotations
+      ? { annotations: normalizeAnnotations({ ...record.annotations, ...configuredAnnotations }) }
+      : {}),
     ...(input.error ? { error: input.error } : {}),
     observations,
     ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)

@@ -47,6 +47,10 @@ export interface AgentInvocationConfiguration {
     id: string;
     metadata?: Readonly<Record<string, AgentInspectionValue>>;
   }[];
+  channels?: readonly {
+    id: string;
+    kind: string;
+  }[];
   driver?: {
     kind?: string;
     model?: {

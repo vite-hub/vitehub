@@ -906,6 +906,14 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
     configuration.workspace?.sources?.length
       ? inspectorCollection("Sources", configuration.workspace.sources)
       : null,
+    configuration.channels?.length
+      ? inspectorCollection(
+          "Channels",
+          configuration.channels.map((channel) =>
+            channel.id === channel.kind ? channel.id : `${channel.id} · ${channel.kind}`,
+          ),
+        )
+      : null,
     configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
@@ -1343,6 +1351,9 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
                     h("span", "Agent"),
                     h("code", agentName),
+                    configuration?.agent?.version
+                      ? h("small", `v${configuration.agent.version}`)
+                      : null,
                   ])
                 : null,
               props.invocation.error
