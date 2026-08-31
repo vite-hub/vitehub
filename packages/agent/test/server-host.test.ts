@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createMemoryAgentInvocationStore,
   failInterruptedAgentInvocations,
+  readAgentInvocationWorkload,
   summarizeAgentInvocationWorkload,
 } from "../src/server.ts"
 import { createGitHubHost, parseGraphQLRateLimit } from "../src/server/github.ts"
@@ -1168,4 +1169,46 @@ describe("Agent Invocation host recovery", () => {
       total: 5,
     })
   })
+
+  it("reads recent and all active Agent Invocations through the public list interface", async () => {
+    const activeCursors: (string | undefined)[] = []
+    const list = vi.fn(async (options = {}) => {
+      if (!("status" in options)) {
+        return {
+          invocations: [
+            invocationSummary("current", "pending", "2026-08-30T10:01:00.000Z"),
+            invocationSummary("complete", "completed", "2026-08-30T09:50:00.000Z"),
+            invocationSummary("failed", "failed", "2026-08-30T09:40:00.000Z"),
+            invocationSummary("cancelled", "cancelled", "2026-08-30T09:30:00.000Z"),
+          ],
+        }
+      }
+
+      activeCursors.push(options.cursor)
+      if (!options.cursor) {
+        return {
+          cursor: "opaque-next-page",
+          invocations: [
+            invocationSummary("current", "pending", "2026-08-30T10:01:00.000Z"),
+            invocationSummary("stale", "running", "2026-08-30T09:00:00.000Z"),
+          ],
+        }
+      }
+
+      return { invocations: [invocationSummary("older-active", "running", "2026-08-30T10:02:00.000Z")] }
+    })
+
+    await expect(readAgentInvocationWorkload({ list }, Date.parse("2026-08-30T10:00:00.000Z"))).resolves.toEqual({
+      active: 2,
+      completed: 1,
+      failed: 1,
+      stale: 1,
+      total: 6,
+    })
+    expect(activeCursors).toEqual([undefined, "opaque-next-page"])
+  })
 })
+
+function invocationSummary(id: string, status: "cancelled" | "completed" | "failed" | "pending" | "running", createdAt: string) {
+  return { createdAt, cursor: id, id, status, traceId: id, updatedAt: createdAt }
+}
