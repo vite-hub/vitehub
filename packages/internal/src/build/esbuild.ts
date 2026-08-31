@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { dirname, extname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -186,9 +186,22 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   const parsedPackageJson: unknown = JSON.parse(await readFile(resolve(resolutionScope, "package.json"), "utf8"))
                   if (!isPlainObject(parsedPackageJson)) return
                   const packageJson = parsedPackageJson
-                  for (const candidate of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
-                    if (alias.prefix ? !candidate.startsWith(alias.specifier) : candidate !== alias.specifier) continue
-                    const resolvedCandidate = await build.resolve(candidate, {
+                  const physicalExtension = extname(packageRelativePath)
+                  const legacyCandidates = packageJson.exports === undefined
+                    ? [
+                        {
+                          publicSpecifier: physicalExtension ? `${packageName}/${packageRelativePath.slice(0, -physicalExtension.length)}` : "",
+                          resolvableSpecifier: `${packageName}/${packageRelativePath}`,
+                        },
+                      ].filter(candidate => candidate.publicSpecifier)
+                    : []
+                  for (const candidate of [
+                    ...collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)
+                      .map(publicSpecifier => ({ publicSpecifier, resolvableSpecifier: publicSpecifier })),
+                    ...legacyCandidates,
+                  ]) {
+                    if (alias.prefix ? !candidate.publicSpecifier.startsWith(alias.specifier) : candidate.publicSpecifier !== alias.specifier) continue
+                    const resolvedCandidate = await build.resolve(candidate.resolvableSpecifier, {
                       importer: args.importer,
                       kind: args.kind,
                       namespace: args.namespace,
@@ -199,7 +212,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
-                    return { canonical: candidate, normalized: candidate, publicSpecifier: candidate }
+                    return { canonical: candidate.publicSpecifier, normalized: candidate.publicSpecifier, publicSpecifier: candidate.publicSpecifier }
                   }
                   const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
                   resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))
