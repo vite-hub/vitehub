@@ -129,7 +129,10 @@ watch(
   [() => props.invocation.id, () => props.workspaceBase],
   () => {
     workspaceRequest?.abort();
+    workspaceRequest = undefined;
+    workspaceLoading.value = false;
     fileRequest?.abort();
+    fileRequest = undefined;
     workspace.value = undefined;
     workspaceError.value = undefined;
     file.value = undefined;
@@ -310,8 +313,10 @@ async function loadWorkspace() {
       workspaceError.value = message(error);
     }
   } finally {
-    if (!controller.signal.aborted && workspaceRequest === controller)
+    if (workspaceRequest === controller) {
+      workspaceRequest = undefined;
       workspaceLoading.value = false;
+    }
   }
 }
 
@@ -337,7 +342,10 @@ async function loadFile(path: string) {
   } catch (error) {
     if (!controller.signal.aborted && fileRequest === controller) fileError.value = message(error);
   } finally {
-    if (!controller.signal.aborted && fileRequest === controller) fileLoading.value = false;
+    if (fileRequest === controller) {
+      fileRequest = undefined;
+      fileLoading.value = false;
+    }
   }
 }
 
