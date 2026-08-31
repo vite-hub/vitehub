@@ -904,6 +904,7 @@ async function loadFactoredCloudflareArtifactStore(
   if (!loaded) return
   const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
   const importedValues = new Map<string, unknown>()
+  let importedArtifactStore: WorkspaceDefinitionInput["store"] | undefined
   for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
     if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
@@ -919,15 +920,14 @@ async function loadFactoredCloudflareArtifactStore(
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
-        if (!operations.length) return store as WorkspaceDefinitionInput["store"]
-        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
-        if (!localName) return store as WorkspaceDefinitionInput["store"]
-        return reconstructCloudflareArtifactStore(operations, importedValues)
+        importedArtifactStore = store as WorkspaceDefinitionInput["store"]
       }
     }
     catch {}
   }
-  return reconstructCloudflareArtifactStore(operations, importedValues)
+  return operations.length
+    ? reconstructCloudflareArtifactStore(operations, importedValues)
+    : importedArtifactStore
 }
 
 function vercelFunctionRuntimePackages() {

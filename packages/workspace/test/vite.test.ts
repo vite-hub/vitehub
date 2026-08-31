@@ -2385,11 +2385,16 @@ describe("hubWorkspace", () => {
       `export const provider = "cloudflare-artifacts" as const`,
       ``,
     ].join("\n"))
+    await writeFile(join(root, "src", "workspace-binding.ts"), [
+      `export const binding = "DEFINITION_FILES"`,
+      ``,
+    ].join("\n"))
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import { provider } from "./workspace-provider"`,
+      `import { binding } from "./workspace-binding"`,
       `import "#generated-agent"`,
       `export default {`,
-      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider },`,
+      `  store: { binding, namespace: "definition-workspaces", provider },`,
       `}`,
       ``,
     ].join("\n"))
