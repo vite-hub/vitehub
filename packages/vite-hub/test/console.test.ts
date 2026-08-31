@@ -23,12 +23,14 @@ import {
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
+  consoleProjectNameKey,
   consoleSectionsKey,
   consoleSectionsRootKey,
   consoleSectionsRegistryKey,
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
+  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
@@ -42,7 +44,7 @@ import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandler from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandler from "../src/console/runtime/server/sections.get.ts"
-import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import usageHandler from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
@@ -128,12 +130,14 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   delete scope[consoleSectionsKey]
+  delete scope[consoleProjectNameKey]
   delete scope[consoleSectionsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
   Reflect.deleteProperty(process, consoleSectionsKey)
+  Reflect.deleteProperty(process, consoleProjectNameKey)
   Reflect.deleteProperty(process, consoleSectionsRootKey)
   Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
@@ -443,7 +447,7 @@ describe("Agent invocation console", () => {
   it("registers the standalone console UI and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
-      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-host" })}\n`)
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
@@ -480,6 +484,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","kv"])`)
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
@@ -1057,12 +1062,27 @@ describe("Agent invocation console", () => {
 
   it("serves enabled Console sections in stable order for the active project", () => {
     installConsoleSections("/first", ["agents"])
+    installConsoleProjectName("/first", "first-app")
     installConsoleSections("/second", ["kv"])
+    installConsoleProjectName("/second", "second-app")
 
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["kv"] })
+    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+      projectName: "second-app",
+      sections: ["kv"],
+    })
 
     scope[consoleSectionsRootKey] = "/first"
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["agents"] })
+    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+      projectName: "first-app",
+      sections: ["agents"],
+    })
+  })
+
+  it("resolves the project name from the process registry across isolated realms", () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "shared-app")
+
+    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", () => {

@@ -98,7 +98,7 @@ export const AgentChatPrompt = defineComponent({
                 h(UButton, {
                   "aria-label": "Add attachment",
                   color: "neutral",
-                  icon: "i-lucide-paperclip",
+                  icon: "i-ph-paperclip-light",
                   onClick: () => input.value?.click(),
                   type: "button",
                   variant: "ghost",

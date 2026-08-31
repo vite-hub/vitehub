@@ -25,8 +25,9 @@ import {
 } from "../console-route";
 import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBackButton from "./console-back-button.vue";
+import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleHealth from "./console-health.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
@@ -39,6 +40,8 @@ const router = useRouter();
 const props = defineProps<{
   agentsBase: string;
   apiBase: string;
+  definitionsBase: string;
+  kvBase: string;
   hostBase: string;
   searchBase: string;
   sectionsBase: string;
@@ -111,10 +114,10 @@ const selectedAgentLabel = computed(
 );
 const agentMenuItems = computed<DropdownMenuItem[]>(() =>
   agentNames.value.map((name) => ({
-    icon: "i-lucide-bot",
+    icon: "i-ph-robot-light",
     label: name,
     onSelect: () => selectAgent(name),
-    trailingIcon: selectedAgentName.value === name ? "i-lucide-check" : undefined,
+    trailingIcon: selectedAgentName.value === name ? "i-ph-check-light" : undefined,
   })),
 );
 const routeInvocation = computed(() => {
@@ -320,7 +323,6 @@ async function toggleUsage(): Promise<void> {
   }
   await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
 }
-
 async function loadAgents(): Promise<void> {
   agentsRequest?.abort();
   const controller = new AbortController();
@@ -363,11 +365,11 @@ function retryPagination(): void {
 }
 
 function statusIcon(status: AgentInvocationListItem["status"]): string {
-  if (status === "running") return "i-lucide-loader-circle";
-  if (status === "completed") return "i-lucide-check";
-  if (status === "failed") return "i-lucide-x";
-  if (status === "cancelled") return "i-lucide-ban";
-  return "i-lucide-clock-3";
+  if (status === "running") return "i-ph-circle-notch-light";
+  if (status === "completed") return "i-ph-check-light";
+  if (status === "failed") return "i-ph-x-light";
+  if (status === "cancelled") return "i-ph-prohibit-light";
+  return "i-ph-clock-light";
 }
 
 function updateDesktop(event?: MediaQueryListEvent): void {
@@ -504,64 +506,55 @@ onBeforeUnmount(() => {
       id="agent-sessions"
       v-model:open="sessionsOpen"
       v-model:collapsed="sessionsCollapsed"
-      :default-size="16"
+      :default-size="20"
       :collapsed-size="4"
-      :min-size="13"
-      :max-size="22"
+      :min-size="16"
+      :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
       :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
       collapsible
       resizable
     >
       <template #header="{ collapsed }">
-        <UDropdownMenu
-          :items="agentMenuItems"
-          :disabled="!hasMultipleAgents"
-          :content="{ align: 'start', collisionPadding: 12 }"
-          :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
-        >
-          <button
-            type="button"
-            class="flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none data-[state=open]:bg-elevated focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
-            :class="hasMultipleAgents ? 'hover:bg-elevated/70' : ''"
-            :disabled="!hasMultipleAgents"
-            :aria-label="
-              hasMultipleAgents
-                ? `Switch Agent. ${selectedAgentLabel} selected.`
-                : selectedAgentLabel
-            "
-          >
-            <ConsoleMark />
-            <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none"
-              ><small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted"
-                >ViteHub</small
-              ><strong class="mt-1 truncate text-sm font-semibold text-highlighted">{{
-                selectedAgentLabel
-              }}</strong></span
-            >
-            <UIcon
-              v-if="!collapsed"
-              name="i-lucide-chevrons-up-down"
-              class="size-3.5 shrink-0 text-dimmed"
-              :class="hasMultipleAgents ? 'opacity-100' : 'opacity-0'"
-              aria-hidden="true"
-            />
-          </button>
-        </UDropdownMenu>
+        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
       </template>
 
       <template #default="{ collapsed }">
-        <div class="px-2 pt-2">
-          <ConsoleBackButton :collapsed="collapsed" />
+        <div class="px-2 pb-2 pt-1">
+          <UDropdownMenu
+            :items="agentMenuItems"
+            :disabled="!hasMultipleAgents"
+            :content="{ align: 'start', collisionPadding: 12 }"
+            :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
+          >
+            <UButton
+              block
+              class="justify-start"
+              color="neutral"
+              icon="i-ph-robot-light"
+              :label="collapsed ? undefined : selectedAgentLabel"
+              :trailing-icon="
+                !collapsed && hasMultipleAgents ? 'i-ph-caret-up-down-light' : undefined
+              "
+              variant="ghost"
+              :aria-label="
+                hasMultipleAgents
+                  ? `Switch Agent. ${selectedAgentLabel} selected.`
+                  : selectedAgentLabel
+              "
+            />
+          </UDropdownMenu>
         </div>
         <div v-if="!collapsed && errorMessage(agentsError)" class="px-3 pb-3">
           <UAlert
             color="error"
             variant="subtle"
-            icon="i-lucide-cloud-off"
+            icon="i-ph-cloud-slash-light"
             title="Could not load agents"
             :description="errorMessage(agentsError)"
-            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents }]"
+            :actions="[
+              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadAgents },
+            ]"
           />
         </div>
         <div class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
@@ -569,20 +562,8 @@ onBeforeUnmount(() => {
             :collapsed="collapsed"
             block
             class="min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
-            label="Search sessions"
+            label="Search console"
           />
-          <UTooltip text="Refresh sessions">
-            <UButton
-              v-if="!collapsed"
-              icon="i-lucide-refresh-cw"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :loading="list.isLoading.value || detail.isLoading.value"
-              aria-label="Refresh sessions"
-              @click="refresh"
-            />
-          </UTooltip>
         </div>
         <div
           v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
@@ -591,7 +572,7 @@ onBeforeUnmount(() => {
           <UAlert
             color="error"
             variant="subtle"
-            icon="i-lucide-cloud-off"
+            icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
             :description="errorMessage(list.error.value || list.loadMoreError.value)"
           />
@@ -649,7 +630,7 @@ onBeforeUnmount(() => {
           <template #empty
             ><UEmpty
               class="px-4"
-              icon="i-lucide-message-square-dashed"
+              icon="i-ph-chat-dots-light"
               title="No sessions yet"
               description="The first Agent Invocation will appear here."
           /></template>
@@ -658,6 +639,12 @@ onBeforeUnmount(() => {
 
       <template #footer="{ collapsed, collapse }">
         <div class="flex min-w-0 items-center gap-1" :class="collapsed ? 'justify-center' : ''">
+          <ConsolePrimitiveSwitcher
+            :active="isUsageRoute ? 'usage' : 'agents'"
+            :collapsed="collapsed"
+            :exclude="['usage']"
+            :sections-base="sectionsBase"
+          />
           <UTooltip
             v-if="healthAvailable || activePage === 'health'"
             :text="activePage === 'health' ? 'Back to sessions' : 'Health'"
@@ -686,8 +673,8 @@ onBeforeUnmount(() => {
           </UTooltip>
           <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
             <UButton
-              class="max-lg:hidden"
-              :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+              class="ml-auto max-lg:hidden"
+              icon="i-ph-sidebar-simple-light"
               color="neutral"
               variant="ghost"
               size="xs"
@@ -702,6 +689,8 @@ onBeforeUnmount(() => {
     <ConsoleSearch
       :agent-names="agentNames"
       :agents-base="agentsBase"
+      :definitions-base="definitionsBase"
+      :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
       @select-session="showSessions"
@@ -727,7 +716,7 @@ onBeforeUnmount(() => {
         >
           <template #title>
             <div v-if="selectedDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-              <UIcon name="i-lucide-folder" class="size-4 shrink-0 text-muted" />
+              <UIcon name="i-ph-folder-light" class="size-4 shrink-0 text-muted opacity-70" />
               <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{
                 selectedProject
               }}</span>
@@ -743,7 +732,7 @@ onBeforeUnmount(() => {
               <UButton
                 data-slot="mobile-session-navigation"
                 class="lg:hidden"
-                icon="i-lucide-panel-left"
+                icon="i-ph-sidebar-simple-light"
                 color="neutral"
                 variant="ghost"
                 size="sm"
@@ -755,7 +744,7 @@ onBeforeUnmount(() => {
               <UButton
                 :to="selectedExternalUrl"
                 target="_blank"
-                icon="i-lucide-external-link"
+                icon="i-ph-arrow-square-out-light"
                 color="neutral"
                 variant="ghost"
                 size="sm"
@@ -764,7 +753,7 @@ onBeforeUnmount(() => {
             </UTooltip>
             <UTooltip text="Refresh session">
               <UButton
-                icon="i-lucide-refresh-cw"
+                icon="i-ph-arrows-clockwise-light"
                 color="neutral"
                 variant="ghost"
                 size="sm"
@@ -775,7 +764,7 @@ onBeforeUnmount(() => {
             </UTooltip>
             <UTooltip v-if="invocationView" text="Session details">
               <UButton
-                icon="i-lucide-panel-right"
+                icon="i-ph-sidebar-simple-light"
                 color="neutral"
                 :variant="detailsOpen ? 'soft' : 'ghost'"
                 size="sm"
@@ -799,16 +788,21 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="errorMessage(detail.error.value) && !invocationView"
             class="h-full"
-            icon="i-lucide-cloud-off"
+            icon="i-ph-cloud-slash-light"
             title="Could not load this session"
             :description="errorMessage(detail.error.value)"
-            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
+            :actions="[
+              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+            ]"
           />
           <div
             v-else-if="detail.isLoading.value && !invocationView"
             class="flex h-full items-center justify-center"
           >
-            <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+            <UIcon
+              name="i-ph-circle-notch-light"
+              class="size-4 animate-spin text-muted opacity-70"
+            />
           </div>
           <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
             <UAlert
@@ -816,10 +810,12 @@ onBeforeUnmount(() => {
               class="m-3 shrink-0"
               color="error"
               variant="subtle"
-              icon="i-lucide-cloud-off"
+              icon="i-ph-cloud-slash-light"
               title="Could not refresh this session"
               :description="errorMessage(detail.error.value)"
-              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
+              :actions="[
+                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+              ]"
             />
             <ConsoleSessionInspector
               v-if="isDesktop && detailsOpen && detailsMaximized"

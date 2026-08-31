@@ -3,14 +3,15 @@ import { useCollection } from "vite-hub/source/client";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui";
-import type { Collection } from "@vite-hub/source";
-import type { AgentInvocationListItem } from "@vite-hub/ui";
-import type { ConsoleSectionId } from "../sections";
-import { requestConsole } from "../client/request";
-import { relativeDuration } from "../client/time";
-import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { consoleSectionDetails, isConsoleSectionId } from "../sections";
+import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
+import type { Collection } from "@vite-hub/source"
+import type { AgentInvocationListItem } from "@vite-hub/ui"
+import type { ConsoleSectionId } from "../sections"
+import { loadConsoleKVPages, requestConsole } from "../client/request"
+import { loadConsoleNavigation } from "../client/sections"
+import { relativeDuration } from "../client/time"
+import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
+import { consoleSectionDetails } from "../sections"
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -25,6 +26,18 @@ interface ConsoleSearchItem {
   updatedAt: string;
 }
 
+interface ConsoleDefinitionSearchItem {
+  file: string
+  name: string
+  section: "queues" | "workflows"
+  source: string
+}
+
+interface ConsoleKVSearchItem {
+  key: string
+  store: string
+}
+
 declare global {
   interface ViteHubCollectionMap {
     "vitehub-console-search": Collection<
@@ -36,24 +49,30 @@ declare global {
 }
 
 const props = defineProps<{
-  agentNames?: string[];
-  agentsBase: string;
-  searchBase: string;
-  sectionsBase: string;
-}>();
-const emit = defineEmits<{ selectPage: []; selectSession: [] }>();
-const route = useRoute();
-const router = useRouter();
-const open = ref(false);
-const searchTerm = ref("");
-const debouncedSearchTerm = ref("");
-const sections = ref<ConsoleSectionId[]>([]);
-const discoveredAgentNames = ref<string[]>([]);
-const navigationLoading = ref(true);
-const navigationError = ref<unknown>();
-const sessionSearchEnabled = ref(false);
-let navigationRequest: AbortController | undefined;
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  agentNames?: string[]
+  agentsBase: string
+  definitionsBase: string
+  kvBase: string
+  searchBase: string
+  sectionsBase: string
+}>()
+const route = useRoute()
+const router = useRouter()
+const open = ref(false)
+const searchTerm = ref("")
+const debouncedSearchTerm = ref("")
+const sections = ref<ConsoleSectionId[]>([])
+const discoveredAgentNames = ref<string[]>([])
+const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
+const kvItems = ref<ConsoleKVSearchItem[]>([])
+const kvSearchTruncated = ref(false)
+const navigationLoading = ref(true)
+const navigationError = ref<unknown>()
+const sessionSearchEnabled = ref(false)
+let navigationRequest: AbortController | undefined
+let sessionRequest: AbortController | undefined
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
 
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value);
@@ -66,7 +85,19 @@ const sessionSearch = useCollection("vitehub-console-search", {
   filter: searchFilter,
   immediate: false,
   limit: 12,
-  request: (_endpoint, options) => requestConsole(props.searchBase, options),
+  request: async (_endpoint, options) => {
+    const controller = new AbortController()
+    sessionRequest = controller
+    const abort = () => controller.abort()
+    options.signal?.addEventListener("abort", abort, { once: true })
+    try {
+      return await requestConsole(props.searchBase, { ...options, signal: controller.signal })
+    }
+    finally {
+      options.signal?.removeEventListener("abort", abort)
+      if (sessionRequest === controller) sessionRequest = undefined
+    }
+  },
 });
 const sessionItems = computed<CommandPaletteItem[]>(() =>
   sessionSearch.pending.value
@@ -74,17 +105,47 @@ const sessionItems = computed<CommandPaletteItem[]>(() =>
     : sessionSearch.items.value.map((item) => ({
         description: itemDescription(item),
         disabled: !item.agentName,
-        icon: "i-lucide-message-square-text",
+        icon: "i-ph-chat-text-light",
         label: item.excerpt || (item.agentName ? `${item.agentName} session` : "Agent Invocation"),
         onSelect: () => selectSession(item),
       })),
-);
+)
+const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
+  definitionItems.value.map(item => ({
+    description: `${consoleSectionDetails[item.section].label.slice(0, -1)} · ${item.file}`,
+    icon: consoleSectionDetails[item.section].icon,
+    label: item.name,
+    onSelect: () => selectDefinition(item),
+  })),
+)
+const kvSearchItems = computed<CommandPaletteItem[]>(() =>
+  kvItems.value.map(item => ({
+    description: item.store,
+    icon: consoleSectionDetails.kv.icon,
+    label: item.key || "(empty key)",
+    onSelect: () => selectKVKey(item),
+  })),
+)
+const paletteError = computed(() => navigationError.value || sessionSearch.error.value)
 const groups = computed<CommandPaletteGroup[]>(() => [
+  ...(paletteError.value
+    ? [{
+        id: "error",
+        items: [{
+          description: errorMessage(paletteError.value),
+          disabled: true,
+          icon: "i-ph-cloud-slash-light",
+          label: "Could not load Console search",
+        }],
+        ignoreFilter: true,
+        label: "Search status",
+      }]
+    : []),
   {
     id: "pages",
     items: [
       {
-        icon: "i-lucide-layout-grid",
+        icon: "i-ph-squares-four-light",
         label: "All primitives",
         onSelect: () => selectPage("vitehub-console"),
       },
@@ -97,17 +158,33 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     label: "Pages",
   },
   ...(agentsEnabled.value && availableAgentNames.value.length
-    ? [
-        {
-          id: "agents",
-          items: availableAgentNames.value.map((name) => ({
-            icon: "i-lucide-bot",
-            label: name,
-            onSelect: () => selectAgent(name),
-          })),
-          label: "Agents",
-        },
-      ]
+    ? [{
+        id: "agents",
+        items: availableAgentNames.value.map(name => ({
+          icon: "i-ph-robot-light",
+          label: name,
+          onSelect: () => selectAgent(name),
+        })),
+        label: "Agents",
+      }]
+    : []),
+  ...(definitionSearchItems.value.length
+    ? [{ id: "definitions", items: definitionSearchItems.value, label: "Definitions" }]
+    : []),
+  ...(kvSearchItems.value.length
+    ? [{
+        id: "kv",
+        items: kvSearchItems.value,
+        label: "KV keys",
+      }]
+    : []),
+  ...(kvSearchTruncated.value
+    ? [{
+        id: "kv-status",
+        ignoreFilter: true,
+        items: [{ disabled: true, icon: "i-ph-warning-light", label: "More matching keys may exist" }],
+        label: "KV status",
+      }]
     : []),
   ...(agentsEnabled.value
     ? [
@@ -119,11 +196,10 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         },
       ]
     : []),
-]);
-const loading = computed(
-  () => navigationLoading.value || (agentsEnabled.value && sessionSearch.pending.value),
-);
-const paletteError = computed(() => navigationError.value || sessionSearch.error.value);
+])
+const loading = computed(() =>
+  navigationLoading.value || (agentsEnabled.value && sessionSearch.pending.value),
+)
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -149,25 +225,84 @@ function itemDescription(item: ConsoleSearchItem): string {
     .join(" · ");
 }
 
-async function loadNavigation(discoverAgents = false): Promise<void> {
-  navigationRequest?.abort();
-  const controller = new AbortController();
-  navigationRequest = controller;
-  navigationLoading.value = true;
-  try {
-    const sectionsValue = record(
-      await requestConsole(props.sectionsBase, { signal: controller.signal }),
-    );
-    const installed = Array.isArray(sectionsValue?.sections)
-      ? sectionsValue.sections.filter(isConsoleSectionId)
-      : [];
-    if (navigationRequest !== controller) return;
-    sections.value = [...new Set(installed)];
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    ? value.filter((item): item is string => typeof item === "string")
+    : []
+}
 
-    if (discoverAgents && props.agentNames === undefined && installed.includes("agents")) {
-      const agentsValue = record(
-        await requestConsole(props.agentsBase, { signal: controller.signal }),
-      );
+async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
+  const definitionSections = installed.filter((section): section is "queues" | "workflows" =>
+    section === "queues" || section === "workflows",
+  )
+  const catalogs = await Promise.all(definitionSections.map(async (section) => ({
+    section,
+    value: record(await requestConsole(props.definitionsBase, {
+      query: { section },
+      signal,
+    })),
+  })))
+  definitionItems.value = catalogs.flatMap(({ section, value }) =>
+    Array.isArray(value?.definitions)
+      ? value.definitions.flatMap((entry) => {
+          const definition = record(entry)
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+          return typeof definition?.name === "string"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+            && typeof definition.file === "string"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+            && typeof definition.source === "string"
+            ? [{ file: definition.file, name: definition.name, section, source: definition.source }]
+            : []
+        })
+      : [],
+  )
+
+  if (installed.includes("kv")) {
+    const query = { limit: 50 }
+    const first = record(await requestConsole(props.kvBase, { query, signal }))
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    const firstStore = typeof first?.store === "string" ? first.store : "default"
+    const stores = strings(first?.stores)
+    const remainingStores = stores.filter(store => store !== firstStore)
+    const storesWithFirstPage = [firstStore, ...remainingStores]
+    const results = await Promise.all(storesWithFirstPage.map((store, index) =>
+      loadConsoleKVPages(props.kvBase, store, signal, index === 0 ? first : undefined, {
+        limit: query.limit,
+        maxPages: 10,
+      }),
+    ))
+    kvItems.value = results.flatMap(({ pages }, index) =>
+      pages.flatMap(value => strings(value.keys).map(key => ({ key, store: storesWithFirstPage[index]! }))),
+    )
+    kvSearchTruncated.value = results.some(result => result.truncated)
+  }
+  else kvSearchTruncated.value = false
+}
+
+async function loadNavigation(discoverContent = false): Promise<void> {
+  navigationRequest?.abort()
+  const controller = new AbortController()
+  navigationRequest = controller
+  navigationLoading.value = true
+  if (discoverContent) {
+    discoveredAgentNames.value = []
+    definitionItems.value = []
+    kvItems.value = []
+    kvSearchTruncated.value = false
+  }
+  try {
+    const navigation = await loadConsoleNavigation(props.sectionsBase)
+    if (!navigation) throw new Error("Could not load Console navigation.")
+    const installed = navigation.sections
+    controller.signal.throwIfAborted()
+    if (navigationRequest !== controller) return
+    sections.value = [...new Set(installed)]
+
+    if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
+      const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
       const names = Array.isArray(agentsValue?.agents)
         ? agentsValue.agents.filter((name): name is string => {
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
@@ -177,11 +312,14 @@ async function loadNavigation(discoverAgents = false): Promise<void> {
       if (navigationRequest !== controller) return;
       discoveredAgentNames.value = [...new Set(names)];
     }
-    navigationError.value = undefined;
-  } catch (error) {
-    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (navigationRequest === controller) navigationError.value = error;
-  } finally {
+    if (discoverContent) await loadContent(installed, controller.signal)
+    navigationError.value = undefined
+  }
+  catch (error) {
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return
+    if (navigationRequest === controller) navigationError.value = error
+  }
+  finally {
     if (navigationRequest === controller) {
       navigationRequest = undefined;
       navigationLoading.value = false;
@@ -204,6 +342,22 @@ async function selectAgent(name: string): Promise<void> {
   });
 }
 
+async function selectDefinition(item: ConsoleDefinitionSearchItem): Promise<void> {
+  open.value = false
+  await router.push({
+    name: resolveConsoleRouteName(route.name, consoleSectionDetails[item.section].routeName),
+    query: { definition: item.name },
+  })
+}
+
+async function selectKVKey(item: ConsoleKVSearchItem): Promise<void> {
+  open.value = false
+  await router.push({
+    name: resolveConsoleRouteName(route.name, consoleSectionDetails.kv.routeName),
+    query: { key: item.key, store: item.store },
+  })
+}
+
 async function selectSession(item: ConsoleSearchItem): Promise<void> {
   if (!item.agentName) return;
   open.value = false;
@@ -215,24 +369,38 @@ async function selectSession(item: ConsoleSearchItem): Promise<void> {
 }
 
 watch(searchTerm, (value) => {
-  if (searchTimer) clearTimeout(searchTimer);
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = undefined
+  if (!open.value) return
   searchTimer = setTimeout(() => {
-    debouncedSearchTerm.value = value.trim();
-  }, 150);
-});
+    searchTimer = undefined
+    if (open.value) debouncedSearchTerm.value = value.trim()
+  }, 150)
+})
 
 watch(open, async (value) => {
-  if (!value) return;
+  if (!value) {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = undefined
+    navigationRequest?.abort()
+    sessionRequest?.abort()
+    return
+  }
   await loadNavigation(true);
+  if (!open.value) return
   if (!agentsEnabled.value) return;
-  if (sessionSearchEnabled.value) await sessionSearch.refresh();
-  else sessionSearchEnabled.value = true;
+  const nextSearchTerm = searchTerm.value.trim()
+  const searchChanged = debouncedSearchTerm.value !== nextSearchTerm
+  debouncedSearchTerm.value = nextSearchTerm
+  if (!sessionSearchEnabled.value) sessionSearchEnabled.value = true
+  else if (!searchChanged) await sessionSearch.refresh()
 });
 
 onMounted(() => void loadNavigation());
 
 onBeforeUnmount(() => {
   navigationRequest?.abort();
+  sessionRequest?.abort();
   if (searchTimer) clearTimeout(searchTimer);
 });
 </script>
@@ -243,26 +411,22 @@ onBeforeUnmount(() => {
     v-model:search-term="searchTerm"
     :groups="groups"
     :loading="loading"
-    placeholder="Search pages, Agents, and sessions…"
+    description="Search pages, Agents, definitions, KV keys, and sessions."
+    placeholder="Search the Console…"
     preserve-group-order
+    title="Search console"
   >
     <template #empty="{ searchTerm: value }">
       <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
         <UIcon
-          :name="paletteError ? 'i-lucide-cloud-off' : 'i-lucide-search-x'"
+          name="i-ph-magnifying-glass-minus-light"
           class="size-6 text-dimmed"
         />
         <p class="text-sm font-medium text-highlighted">
-          {{ paletteError ? "Could not load Console search" : "No matches" }}
+          No matches
         </p>
         <p class="text-xs text-muted">
-          {{
-            paletteError
-              ? errorMessage(paletteError)
-              : value.trim()
-                ? "Try a page, Agent, or phrase from a session."
-                : "No Console results are available yet."
-          }}
+          {{ value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
     </template>
