@@ -320,6 +320,33 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   }, 20_000)
 
+  it("counts pending commands toward the credential budget-state bound", async () => {
+    await installFakeGitHubCommands()
+    let rateLimitKey = "credential:0"
+    const host = createGitHubHost({ credentials: () => ({ rateLimitKey, token: "token" }), reserve: 10 })
+
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    for (let index = 0; index < 999; index++) {
+      rateLimitKey = `credential:${index}`
+      await expect(host.command(["api", "user"]))
+        .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    }
+
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    process.env.VITEHUB_TEST_CLONE_DELAY = "10"
+    rateLimitKey = "credential:pending"
+    const controller = new AbortController()
+    const pending = host.command(["repo", "clone"], { signal: controller.signal })
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    rateLimitKey = "credential:overflow"
+    await expect(host.command(["api", "user"]))
+      .rejects.toThrow("GitHub credential budget state capacity is exhausted")
+
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: "ABORT_ERR" })
+  }, 20_000)
+
   it("reserves cached GraphQL budget before admitting more work", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })

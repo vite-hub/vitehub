@@ -231,6 +231,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     submittedAtVersion?: number
   }>>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
+  const commands = new Map<string, number>()
   const fallbackIdentities = new Map<string, string>()
   const fallbackIdentityLimit = 1_000
   const budgetStateLimit = 1_000
@@ -247,7 +248,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     while (budgetStateAccess.size >= budgetStateLimit) {
       let evicted = false
       for (const [candidate] of budgetStateAccess) {
-        if (reservations.has(candidate) || checks.has(candidate)) continue
+        if (reservations.has(candidate) || checks.has(candidate) || commands.has(candidate)) continue
         const limit = limits.get(candidate)
         if (limit?.remaining === 0 && limit.resetAt > now) continue
         budgetStateAccess.delete(candidate)
@@ -415,6 +416,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let auth: Awaited<ReturnType<typeof scopedAccess>> | undefined
     try {
       auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
+      touchBudgetState(auth.rateLimitKey, Date.now())
+      commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1)
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env, GH_HOST: "github.com" },
@@ -436,6 +439,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       throw error
     }
     finally {
+      if (auth) {
+        const count = commands.get(auth.rateLimitKey)
+        if (count === 1) commands.delete(auth.rateLimitKey)
+        else if (count !== undefined) commands.set(auth.rateLimitKey, count - 1)
+      }
       operation.close()
     }
   }
