@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -226,7 +225,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           runtimeConfig: retainedRuntimeConfig,
         })
         contributeProviderDeploymentOutput(contributionProviderOutput, {
-          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
           owner: "database",
           rootDir: contributionResolved.root,
           write: async ({ write }) => {
@@ -243,7 +242,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         }, generation)
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

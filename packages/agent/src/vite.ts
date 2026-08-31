@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2834,7 +2834,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ? retainProviderOutputAliases(providerImportAliases, retainedSources)
           : providerImportAliases
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
+          discard: contributionArtifactDir ? async () => await removeProviderOutputArtifactDir(contributionArtifactDir) : undefined,
           owner: "agent",
           rootDir: config.root,
           write: async ({ signal, write }) => {
@@ -2869,7 +2869,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -682,7 +682,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ? ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"]
           : undefined
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
           owner: "schedule",
           rootDir,
           write: async ({ signal }) => {
@@ -703,7 +703,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

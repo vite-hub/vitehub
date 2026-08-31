@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
@@ -247,7 +246,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {
-            await rm(artifactDir, { force: true, recursive: true })
+            await removeProviderOutputArtifactDir(artifactDir)
             if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
           },
           owner: "workflow",
@@ -275,7 +274,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }, generation)
       }
       catch (error) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
@@ -286,7 +285,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       await providerOutputGenerations.reset(this, providerOutput, error)
       const artifactDir = stagedArtifactDirs.get(environment)
       if (artifactDir) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
       }
     },

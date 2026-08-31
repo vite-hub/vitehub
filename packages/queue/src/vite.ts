@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -302,7 +301,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         const nitro = (config as { nitro?: unknown }).nitro
         const generation = providerOutputGenerations.get(this)
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
           owner: "queue",
           rootDir,
           write: async ({ signal, write }) => {
@@ -343,7 +342,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         }, generation)
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

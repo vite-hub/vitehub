@@ -84,6 +84,7 @@ async function linkDependencies(source: string, target: string): Promise<void> {
     if (entry.name === ".bin" || entry.name === ".pnpm") continue
     const sourceEntry = resolve(source, entry.name)
     const targetEntry = resolve(target, entry.name)
+    if (!existsSync(sourceEntry)) continue
     const resolvedSourceEntry = realpathSync(sourceEntry)
     if (!statSync(resolvedSourceEntry).isDirectory()) continue
     if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -93,6 +94,16 @@ async function linkDependencies(source: string, target: string): Promise<void> {
     if (existsSync(targetEntry)) continue
     await symlink(resolvedSourceEntry, targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
+}
+
+/** Removes retained provider output after readers release it, tolerating transient filesystem contention. */
+export async function removeProviderOutputArtifactDir(path: string): Promise<void> {
+  await rm(path, {
+    force: true,
+    maxRetries: 5,
+    recursive: true,
+    retryDelay: 50,
+  })
 }
 
 function sourceClosureRoot(root: string): string {

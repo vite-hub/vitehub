@@ -632,6 +632,32 @@ it("preserves dependency resolution for packages installed in a pnpm store", asy
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("ignores dangling optional dependency links while retaining provider sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-optional-dependency-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const dependencyScope = join(rootDir, "node_modules", "@fixture")
+  const danglingDependency = join(dependencyScope, "optional-platform-package")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dependencyScope, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    symlink(join(rootDir, "missing-optional-platform-package"), danglingDependency, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(retained.resolve(danglingDependency), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("preserves pnpm dependencies when the package entry uses its top-level symlink", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-symlink-"))
   tempDirs.push(workspace)
