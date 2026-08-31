@@ -172,6 +172,8 @@ ignoreDependencies = [
   "box-typescript-sdk-gen",
   "dropbox",
   "esbuild",
+  # Bundled Internal Deno finalization imports this from the published facade.
+  "semver",
   "files-sdk",
   "google-auth-library",
   "publint",
