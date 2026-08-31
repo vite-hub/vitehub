@@ -522,7 +522,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandbox?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
@@ -548,9 +548,17 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           : undefined
       }
       scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
+      if ("sandbox" in viteConfig) {
+        sections = sections.filter(section => section !== "sandboxes")
+        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      }
       workspaceDiscoveryRoot = "workspace" in viteConfig
         ? configuredProjectRoot(viteConfig.workspace)
         : workspaceDiscoveryRoot
+      if ("workspace" in viteConfig) {
+        sections = sections.filter(section => section !== "workspaces")
+        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+      }
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)

@@ -201,7 +201,7 @@ export async function discoverConsoleBuildCatalog(options: {
   const rateLimits = options.sections.includes("rate-limits")
     ? discoverRateLimitDeclarations({
         rootDir: options.rateLimitDiscoveryRoot ?? options.projectRoot,
-        scanDirs: options.rateLimitScanDirs ?? (options.rateLimitDiscoveryRoot ? undefined : options.serverDirs),
+        scanDirs: options.rateLimitScanDirs,
       }).map(declaration => rateLimitDefinition(options.projectRoot, declaration))
     : []
   const queues = options.sections.includes("queues")

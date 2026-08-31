@@ -913,6 +913,36 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("does not scan host server directories for default Rate Limit discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-rate-limit-server-dirs-"))
+    const hostServerDir = await mkdtemp(join(tmpdir(), "vitehub-host-server-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["rate-limits"],
+      })
+      const config = {
+        [VITEHUB_SERVER_DIRS]: [hostServerDir],
+        nitro: undefined as { plugins: string[] } | undefined,
+        root,
+      }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":[]})`)
+      expect(generated).not.toContain('"name":"uploads"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(hostServerDir, { force: true, recursive: true })
+    }
+  })
+
   it("serializes discovered Schedule timing metadata without loading handlers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-schedule-host-"))
     try {
@@ -1078,6 +1108,39 @@ describe("Agent invocation console", () => {
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("disables standalone Workspace and Sandbox inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-services-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["sandboxes", "workspaces"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        sandbox?: boolean
+        workspace?: boolean
+      } = { root, sandbox: true, workspace: true }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.sandbox = false
+      config.workspace = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
     }
   })
 
