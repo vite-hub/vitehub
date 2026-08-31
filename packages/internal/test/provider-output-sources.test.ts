@@ -603,7 +603,7 @@ it("skips unrelated nested repositories while retaining requested and imported o
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, 'export { imported } from "../imported-worktree/workflow.mjs"\n'),
     writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
-    writeFile(join(unrelatedRepository, "large-cache.bin"), "must not be retained\n"),
+    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
     writeFile(join(requestedRepository, ".git"), "gitdir: /tmp/requested.git\n"),
     writeFile(requested, "export const requested = true\n"),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
@@ -630,7 +630,7 @@ it("retains nested repositories when a requested handler has a computed import",
   await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(importedRepository, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'const module = "../computed-worktree/workflow.mjs"\nexport const load = async () => await import(module)\n'),
+    writeFile(handler, 'const module = "../computed-worktree/workflow.mjs"\nexport const load = async () => await import /* retained target */ (module)\n'),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
     writeFile(imported, "export const computed = true\n"),
   ])
@@ -646,7 +646,7 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
-it("does not retain unrelated repositories for unresolved computed imports", async () => {
+it("retains nested repositories for unresolved computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
@@ -656,7 +656,7 @@ it("does not retain unrelated repositories for unresolved computed imports", asy
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, "export const load = async module => await import(module)\n"),
     writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
-    writeFile(join(unrelatedRepository, "large-cache.bin"), "must not be retained\n"),
+    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -665,7 +665,7 @@ it("does not retain unrelated repositories for unresolved computed imports", asy
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).resolves.toContain("runtime = true")
 })
 
 it("preserves dependency resolution for a workspace-linked package", async () => {

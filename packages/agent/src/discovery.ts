@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path"
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
+  isGitRepositoryDirectory,
   listMatchingFiles,
   mergeDefinitions,
   normalizeSuffixDefinitionName,
@@ -119,6 +120,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
     for (const entry of entries) {
       const file = resolve(current, entry.name)
       if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
+        if (isGitRepositoryDirectory(file)) continue
         walk(agentsRoot, file)
         continue
       }
