@@ -12,6 +12,7 @@ import ConsoleDatabase from "../components/console-database.vue";
 import ConsoleDefinitions from "../components/console-definitions.vue";
 import ConsoleHome from "../components/console-home.vue";
 import ConsoleKv from "../components/console-kv.vue";
+import { consoleDatabaseSchemaPath, consoleDatabaseTablePath } from "../console-route";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
@@ -100,7 +101,7 @@ const router = createRouter({
     {
       component: ConsoleDatabase,
       name: "vitehub-console-database-schema",
-      path: "/database/schema",
+      path: consoleDatabaseSchemaPath,
       meta: { consoleSection: "database", title: "Schema · ViteHub Console" },
       props: {
         agentsBase: "/api/_vitehub/console/agents",
@@ -115,7 +116,7 @@ const router = createRouter({
     {
       component: ConsoleDatabase,
       name: "vitehub-console-database",
-      path: "/database/:table?",
+      path: consoleDatabaseTablePath,
       meta: { consoleSection: "database", title: "Database · ViteHub Console" },
       props: {
         agentsBase: "/api/_vitehub/console/agents",

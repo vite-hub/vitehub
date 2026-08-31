@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  consoleDatabaseSchemaPath,
+  consoleDatabaseTablePath,
   decodeAgentRouteParam,
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../src/console/runtime/console-route.ts"
 
 describe("Console routes", () => {
+  it("keeps the schema view outside the table route namespace", () => {
+    expect(consoleDatabaseTablePath.replace(":table?", "schema")).toBe("/database/schema")
+    expect(consoleDatabaseSchemaPath).toBe("/database/schema/diagram")
+  })
+
   it.each([".", "..", "~", "support/team"])(
     "round-trips the Agent identity %j through a normalized URL",
     (agentName) => {

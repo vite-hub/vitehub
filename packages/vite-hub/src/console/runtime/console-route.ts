@@ -1,3 +1,6 @@
+export const consoleDatabaseSchemaPath = "/database/schema/diagram"
+export const consoleDatabaseTablePath = "/database/:table?"
+
 export function encodeAgentRouteParam(name: string): string {
   return `~${name}`
 }
