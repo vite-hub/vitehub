@@ -962,6 +962,16 @@ describe("vitehub", () => {
     expect(aliases["@vite-hub/workflow/runtime/state"]).toMatch(/packages\/workflow\/dist\/runtime\/state\.js$/)
   })
 
+  it("retains generated Server Env for deferred provider bundles", () => {
+    const plugins = vitehub({ agent: true, preset: "node" })
+    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const dependency = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
+
+    callHook(dependency.configResolved, [{ root: "/app" }])
+
+    expect(aliases["#vitehub/env/server"]).toBe("/app/.vitehub/env/server.mjs")
+  })
+
   it.each([
     ["cloudflare", "cloudflare-module"],
     ["netlify", "netlify"],

@@ -205,6 +205,9 @@ function frameworkDependencyResolver(
       }
     },
     configResolved(config) {
+      if (options.env !== false && config.root) {
+        providerImportAliases["#vitehub/env/server"] = resolve(config.root, ".vitehub/env/server.mjs")
+      }
       configureProviderOptionalImportAliases(
         providerImportAliases,
         options,
