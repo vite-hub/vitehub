@@ -7,6 +7,7 @@ import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
+import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -41,6 +42,27 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
 }
 
+function configuredProjectRoot(root: string, value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
+  return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+    ? resolve(root, value.projectRoot)
+    : undefined
+}
+
+function configuredProjectRootOption(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
+  return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+    ? value.projectRoot
+    : undefined
+}
+
+function configuredScanDirs(value: unknown): string[] | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading scan directories.
+  return value && typeof value === "object" && "scanDirs" in value && Array.isArray(value.scanDirs)
+    ? value.scanDirs.filter((entry): entry is string => typeof entry === "string")
+    : undefined
+}
+
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
   hook?: (
@@ -69,8 +91,12 @@ type NuxtLike = {
     srcDir?: string
     vite?: UserConfig & {
       auth?: AuthModuleOptions
+      database?: Parameters<typeof vitehub>[0]["database"]
       kv?: KVModuleOptions
       queue?: Parameters<typeof vitehub>[0]["queue"]
+      rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
+      schedule?: Parameters<typeof vitehub>[0]["schedule"]
+      workspace?: Parameters<typeof vitehub>[0]["workspace"]
       workflow?: Parameters<typeof vitehub>[0]["workflow"]
     }
     vitehub?: ViteHubNuxtOptions
@@ -269,22 +295,30 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const blobEnabled = sections.includes("blob")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    ...(blobEnabled
+      ? [
+          `import { installConsoleBlob } from "vite-hub/console/blob"`,
+          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
+        ]
+      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -293,6 +327,9 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(blobEnabled
+      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
+      : []),
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
@@ -317,6 +354,7 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly { handler: string; name: string }[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
@@ -330,7 +368,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -356,6 +394,27 @@ function reconcileConsoleKVHandler(
   const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
   if (conflictingHandler) {
     throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+  }
+  if (index === -1) handlers.push({ handler, route })
+}
+
+function reconcileConsoleBlobHandler(
+  nitro: { handlers?: Array<{ handler: string, route: string }> },
+  enabled: boolean,
+  hostHandlers: ReadonlyArray<{ handler: string, route: string }> = [],
+): void {
+  const route = "/api/_vitehub/console/blob"
+  const handler = join(consoleRuntimeRoot, "server/blob.get.js")
+  const handlers = (nitro.handlers ??= [])
+  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
+  if (!enabled) {
+    if (index !== -1) handlers.splice(index, 1)
+    return
+  }
+  const conflictingHandler = [...hostHandlers, ...handlers]
+    .find(candidate => candidate.route === route && candidate.handler !== handler)
+  if (conflictingHandler) {
+    throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
   }
   if (index === -1) handlers.push({ handler, route })
 }
@@ -386,13 +445,15 @@ async function installConsole(
   workflowDiscoveryRoot: string,
   queueDiscoveryRoot: string,
   sections: readonly ConsoleSectionId[],
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   serverDirs?: string[],
   installInvocations = true,
   writeGeneratedPlugin = true,
   invocationRootState?: ConsoleInvocationRootState,
-  canDiscoverWorkflows: () => boolean = () => true,
+  canDiscoverDefinitions: () => boolean = () => true,
+  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -437,11 +498,25 @@ async function installConsole(
       ...(sections.includes("usage")
         ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
         : []),
+      ...(sections.includes("blob")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/blob.vue"),
+            name: "vitehub-console-blob",
+            path: "/_vitehub/blob",
+          }]
+        : []),
       ...(sections.includes("kv")
         ? [{
             file: join(consoleRuntimeRoot, "pages/kv.vue"),
             name: "vitehub-console-kv",
             path: "/_vitehub/kv",
+          }]
+        : []),
+      ...(sections.includes("databases")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/databases.vue"),
+            name: "vitehub-console-databases",
+            path: "/_vitehub/databases",
           }]
         : []),
       ...(sections.includes("workflows")
@@ -451,11 +526,39 @@ async function installConsole(
             path: "/_vitehub/workflows",
           }]
         : []),
+      ...(sections.includes("workspaces")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/workspaces.vue"),
+            name: "vitehub-console-workspaces",
+            path: "/_vitehub/workspaces",
+          }]
+        : []),
+      ...(sections.includes("sandboxes")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/sandboxes.vue"),
+            name: "vitehub-console-sandboxes",
+            path: "/_vitehub/sandboxes",
+          }]
+        : []),
+      ...(sections.includes("rate-limits")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/rate-limits.vue"),
+            name: "vitehub-console-rate-limits",
+            path: "/_vitehub/rate-limits",
+          }]
+        : []),
       ...(sections.includes("queues")
         ? [{
             file: join(consoleRuntimeRoot, "pages/queues.vue"),
             name: "vitehub-console-queues",
             path: "/_vitehub/queues",
+          }]
+        : []),
+      ...(sections.includes("schedules")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/schedules.vue"),
+            name: "vitehub-console-schedules",
+            path: "/_vitehub/schedules",
           }]
         : []),
     ]
@@ -500,6 +603,12 @@ async function installConsole(
           },
         ]
       : []),
+    ...(sections.includes("blob")
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+          route: "/api/_vitehub/console/blob",
+        }]
+      : []),
     ...(sections.includes("kv")
       ? [{
           handler: join(consoleRuntimeRoot, "server/kv.get.js"),
@@ -516,10 +625,11 @@ async function installConsole(
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    const discoverySections = canDiscoverWorkflows()
+    const discoverySections = canDiscoverDefinitions()
       ? sections
-      : sections.filter(section => section !== "workflows")
-    const catalog = discoverConsoleBuildCatalog({
+      : sections.filter(section => !consoleDefinitionSectionIds.some(definitionSection => definitionSection === section))
+    const catalog = await discoverConsoleBuildCatalog({
+      ...discoveryOptions,
       discoveryRoot,
       projectRoot,
       queueDiscoveryRoot,
@@ -533,6 +643,7 @@ async function installConsole(
       sections,
       catalog.agents,
       catalog,
+      blobStores,
       kvStores,
       fixture,
       invocationRootState?.binding,
@@ -729,7 +840,13 @@ async function applyNitroConfig(
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
+    blob?: Parameters<typeof vitehub>[0]["blob"]
+    database?: Parameters<typeof vitehub>[0]["database"]
     queue?: Parameters<typeof vitehub>[0]["queue"]
+    rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
+    schedule?: Parameters<typeof vitehub>[0]["schedule"]
+    sandbox?: Parameters<typeof vitehub>[0]["sandbox"]
+    workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
   const restoreReplayOwnership = () => {
@@ -750,14 +867,33 @@ async function applyNitroConfig(
       : plugin.enforce === "pre" ? -1 : plugin.enforce === "post" ? 1 : 0
     return order(left) - order(right)
   })
+  let replayedDatabaseDiscoveryRoot: string | undefined
+  let hasReplayedDatabaseDiscoveryRoot = false
   for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
+      const previousDatabaseProjectRoot = configuredProjectRootOption(config.database)
       const result = await handler.call({} as never, config, environment)
+      let returnedDatabase: Parameters<typeof vitehub>[0]["database"] | undefined
       if (result) {
-        const { nitro, ...viteConfig } = result as UserConfig & { nitro?: Record<string, unknown> }
+        // SAFETY: Vite config hooks return Vite's UserConfig shape extended by ViteHub's documented service keys.
+        const { nitro, ...viteConfig } = result as UserConfig & {
+          database?: Parameters<typeof vitehub>[0]["database"]
+          nitro?: Record<string, unknown>
+        }
+        if (Object.hasOwn(viteConfig, "database")) returnedDatabase = viteConfig.database
         config = mergeConfig(config, viteConfig)
+        // SAFETY: The ViteHub replay boundary accepts Nitro's open configuration object under the `nitro` key.
         if (nitro) config.nitro = nitro as Record<string, unknown>
+      }
+      if (plugin.name !== "@vite-hub/database/vite") {
+        const currentDatabaseProjectRoot = configuredProjectRootOption(config.database)
+        if (returnedDatabase !== undefined || currentDatabaseProjectRoot !== previousDatabaseProjectRoot) {
+          hasReplayedDatabaseDiscoveryRoot = true
+          replayedDatabaseDiscoveryRoot = returnedDatabase !== undefined
+            ? configuredProjectRoot(config.root || projectRoot, returnedDatabase)
+            : configuredProjectRoot(config.root || projectRoot, config.database)
+        }
       }
       restoreReplayOwnership()
     }
@@ -792,7 +928,7 @@ async function applyNitroConfig(
     installVitePluginNitroModules(config.nitro, plugins)
     Object.assign(nitroConfig, config.nitro)
   }
-  return config
+  return { config, hasReplayedDatabaseDiscoveryRoot, replayedDatabaseDiscoveryRoot }
 }
 
 function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOptions | undefined): ReturnType<typeof resolveKVViteConfig>["kv"] {
@@ -848,10 +984,31 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   nuxt.options.vite.root ??= rootDir
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
+  const configuredDatabaseDiscoveryRoot = configuredProjectRoot(viteRoot, nuxt.options.vite?.database)
+    ?? configuredProjectRoot(rootDir, options.database)
+  // SAFETY: ViteHub Blob extends Vite's open user config with the documented top-level `blob` key.
+  const viteBlob = (nuxt.options.vite as UserConfig & { blob?: Parameters<typeof vitehub>[0]["blob"] }).blob
+  const effectiveBlob = options.console ? viteBlob ?? options.blob : false
+  const explicitBlob = Boolean(effectiveBlob && effectiveBlob !== true && ("driver" in effectiveBlob || "stores" in effectiveBlob))
+  const consoleBlobEnabled = Boolean(effectiveBlob) && (plan.services.blob.supported || explicitBlob)
+  const resolvedConsoleBlob = consoleBlobEnabled
+    ? resolveBlobViteConfig(effectiveBlob === true ? undefined : effectiveBlob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
   const effectiveQueue = nuxt.options.vite?.queue ?? options.queue
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
-  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, preset: plan.preset, queue: effectiveQueue, workflow: effectiveWorkflow })
+  const consoleSections = resolveConsoleSectionIds({
+    ...options,
+    blob: consoleBlobEnabled,
+    kv: effectiveKV,
+    preset: plan.preset,
+    queue: effectiveQueue,
+    sandbox: options.sandbox === true && plan.services.sandbox.supported,
+    workflow: effectiveWorkflow,
+  })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -1109,12 +1266,25 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       : {}),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    const replayConfig = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    const hostHandlers = Array.isArray(config.handlers) ? [...config.handlers] : []
+    const {
+      config: replayConfig,
+      hasReplayedDatabaseDiscoveryRoot,
+      replayedDatabaseDiscoveryRoot,
+    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
+      const replayedBlob = replayConfig.blob ?? effectiveBlob
+      const replayedExplicitBlob = Boolean(replayedBlob && replayedBlob !== true && ("driver" in replayedBlob || "stores" in replayedBlob))
+      const replayedBlobEnabled = Boolean(replayedBlob) && (plan.services.blob.supported || replayedExplicitBlob)
+      const resolvedReplayedBlob = replayedBlobEnabled
+        ? resolveBlobViteConfig(replayedBlob === true ? undefined : replayedBlob, { hosting: plan.nitroPreset }).blob
+        : false
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
+        blob: replayedBlobEnabled,
+        database: replayConfig.database ?? options.database,
         kv: resolvedKV,
         preset: plan.preset,
         queue: effectiveQueue === false
@@ -1122,27 +1292,42 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : replayConfig.queue ?? effectiveQueue,
+        sandbox: Boolean(replayConfig.sandbox ?? options.sandbox) && plan.services.sandbox.supported,
+        workspace: replayConfig.workspace ?? options.workspace,
         workflow: replayConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
+      consoleBlobStores.splice(
+        0,
+        consoleBlobStores.length,
+        ...(resolvedReplayedBlob ? Object.keys(resolvedReplayedBlob.stores || { default: resolvedReplayedBlob.store }) : []),
+      )
       consoleKVStores.splice(
         0,
         consoleKVStores.length,
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
+      reconcileConsoleBlobHandler(config, consoleSections.includes("blob"), hostHandlers)
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
       reconcileConsoleDefinitionsHandler(
         config,
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
-      const consoleCatalog = discoverConsoleBuildCatalog({
+      const consoleCatalog = await discoverConsoleBuildCatalog({
+        databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
+          ? replayedDatabaseDiscoveryRoot
+          : configuredDatabaseDiscoveryRoot,
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,
+        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
         sections: consoleSections,
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
         workflowDiscoveryRoot: rootDir,
       })
       await writeConsoleNitroPlugin(
@@ -1151,6 +1336,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleSections,
         consoleCatalog.agents,
         consoleCatalog,
+        consoleBlobStores,
         consoleKVStores,
         resolvedConsoleFixture,
         consoleInvocationRootState.binding,
@@ -1211,6 +1397,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       rootDir,
       rootDir,
       consoleSections,
+      consoleBlobStores,
       consoleKVStores,
       resolvedConsoleFixture,
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
@@ -1218,6 +1405,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       !nuxt.options.vitehubCliDiscovery,
       consoleInvocationRootState,
       () => consoleWorkflowConfigResolved,
+      {
+        databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
+        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),
+        rateLimitScanDirs: configuredScanDirs(nuxt.options.vite.rateLimit ?? options.rateLimit),
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
+        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
+      },
     )
   }
 }

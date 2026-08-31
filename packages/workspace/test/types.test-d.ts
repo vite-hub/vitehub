@@ -12,7 +12,8 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
-import { hubWorkspace } from "../src/vite.ts"
+import { discoverViteWorkspaceDefinitions, hubWorkspace } from "../src/vite.ts"
+import type { DiscoveredWorkspaceDefinition } from "../src/vite.ts"
 import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
@@ -321,5 +322,6 @@ describe("workspace types", () => {
     readonly.fs.writeFile("README.md", "nope")
     expectTypeOf(writable.fs.writeFile).toBeFunction()
     expectTypeOf(hubWorkspace()).toMatchTypeOf<Plugin>()
+    expectTypeOf(discoverViteWorkspaceDefinitions(".")).toEqualTypeOf<DiscoveredWorkspaceDefinition[]>()
   })
 })

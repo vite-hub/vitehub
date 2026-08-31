@@ -3,10 +3,10 @@ import { expectTypeOf, it } from "vitest"
 import { createRateLimiter, requireRateLimit } from "../src/index.ts"
 import { cloudflareRateLimitDriver } from "../src/drivers/cloudflare.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
-import { hubRateLimit } from "../src/vite.ts"
+import { discoverRateLimitDeclarations, hubRateLimit } from "../src/vite.ts"
 
 import type { H3Event } from "h3"
-import type { RateLimitDecision, RateLimitDriver, RateLimitDriverOutcome, RateLimitDriverResult, RateLimiter } from "../src/index.ts"
+import type { RateLimitDecision, RateLimitDeclaration, RateLimitDriver, RateLimitDriverOutcome, RateLimitDriverResult, RateLimiter } from "../src/index.ts"
 
 type H3EventWithHostContext = Omit<H3Event, "req"> & {
   readonly req: Omit<H3Event["req"], "context"> & {
@@ -15,6 +15,7 @@ type H3EventWithHostContext = Omit<H3Event, "req"> & {
 }
 
 it("types the portable Rate Limit contract", async () => {
+  // SAFETY: This type-only fixture is never evaluated and exists to exercise the request event contract.
   const event = {} as H3EventWithHostContext
   expectTypeOf(await requireRateLimit(event, "uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })).toEqualTypeOf<void>()
   expectTypeOf(await requireRateLimit(event, "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
@@ -51,6 +52,7 @@ it("types custom and provider drivers", async () => {
   void unavailable
   createRateLimiter({ driver: cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } }), limit: 2, window: "10s" })
   hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
+  expectTypeOf(discoverRateLimitDeclarations({ rootDir: "." })).toEqualTypeOf<RateLimitDeclaration[]>()
 
   // @ts-expect-error kv is not a Rate Limit provider.
   hubRateLimit({ provider: "kv" })

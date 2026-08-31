@@ -27,17 +27,63 @@ function event(query = "", method = "GET"): ConsoleRequestEvent {
 
 function catalog(name: string): ConsoleDefinitionCatalog {
   return {
+    databases: [{
+      fields: [
+        { label: "Mode", value: "Default" },
+        { label: "Tables", value: "users, sessions" },
+      ],
+      file: `server/databases/${name}.ts`,
+      name,
+      source: "server-database-default",
+    }],
     queues: [{
       fields: [],
       file: `server/queues/${name}.ts`,
       name,
       source: "server-queues",
     }],
+    "rate-limits": [{
+      fields: [
+        { label: "Limit", value: "10" },
+        { label: "Window", value: "1m" },
+        { label: "Enforcement", value: "Best effort" },
+        { label: "Provider failure", value: "Deny" },
+        { label: "Source location", value: "12:5" },
+      ],
+      file: `server/api/${name}.ts`,
+      name,
+      source: "require-rate-limit",
+    }],
+    schedules: [{
+      fields: [
+        { label: "Kind", value: "Static schedule" },
+        { label: "Cron", value: "0 9 * * *" },
+        { label: "Time zone", value: "UTC" },
+      ],
+      file: `server/schedules/${name}.ts`,
+      name,
+      source: "server-schedules",
+    }],
+    sandboxes: [{
+      fields: [{ label: "Kind", value: "Definition" }],
+      file: `src/${name}.sandbox.ts`,
+      name,
+      source: "vite-suffix",
+    }],
     workflows: [{
       fields: [{ label: "Steps", value: "prepare, publish" }],
       file: `server/workflows/${name}.workflow.ts`,
       name,
       source: "server-workflows",
+    }],
+    workspaces: [{
+      fields: [
+        { label: "Kind", value: "Workspace Definition" },
+        { label: "Source root", value: `server/workspaces/${name}` },
+      ],
+      file: `server/workspaces/${name}/workspace.ts`,
+      name,
+      source: "server-workspaces-directory-config",
     }],
   }
 }
@@ -63,6 +109,45 @@ describe("Console definition inspection", () => {
       }],
       section: "workflows",
     })
+    expect(definitionsHandler(event("?section=databases"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Mode", value: "Default" },
+          { label: "Tables", value: "users, sessions" },
+        ],
+        file: "server/databases/release.ts",
+        name: "release",
+        source: "server-database-default",
+      }],
+      section: "databases",
+    })
+    expect(definitionsHandler(event("?section=rate-limits"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Limit", value: "10" },
+          { label: "Window", value: "1m" },
+          { label: "Enforcement", value: "Best effort" },
+          { label: "Provider failure", value: "Deny" },
+          { label: "Source location", value: "12:5" },
+        ],
+        file: "server/api/release.ts",
+        name: "release",
+        source: "require-rate-limit",
+      }],
+      section: "rate-limits",
+    })
+    expect(definitionsHandler(event("?section=workspaces"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Kind", value: "Workspace Definition" },
+          { label: "Source root", value: "server/workspaces/release" },
+        ],
+        file: "server/workspaces/release/workspace.ts",
+        name: "release",
+        source: "server-workspaces-directory-config",
+      }],
+      section: "workspaces",
+    })
     expect(definitionsHandler(event("?section=queues"))).toEqual({
       definitions: [{
         fields: [],
@@ -72,6 +157,28 @@ describe("Console definition inspection", () => {
       }],
       section: "queues",
     })
+    expect(definitionsHandler(event("?section=schedules"))).toEqual({
+      definitions: [{
+        fields: [
+          { label: "Kind", value: "Static schedule" },
+          { label: "Cron", value: "0 9 * * *" },
+          { label: "Time zone", value: "UTC" },
+        ],
+        file: "server/schedules/release.ts",
+        name: "release",
+        source: "server-schedules",
+      }],
+      section: "schedules",
+    })
+    expect(definitionsHandler(event("?section=sandboxes"))).toEqual({
+      definitions: [{
+        fields: [{ label: "Kind", value: "Definition" }],
+        file: "src/release.sandbox.ts",
+        name: "release",
+        source: "vite-suffix",
+      }],
+      section: "sandboxes",
+    })
   })
 
   it("validates methods and definition sections", () => {
@@ -79,7 +186,7 @@ describe("Console definition inspection", () => {
 
     expect(() => definitionsHandler(event("", "POST"))).toThrow(expect.objectContaining({ statusCode: 405 }))
     expect(() => definitionsHandler(event())).toThrow(expect.objectContaining({ statusCode: 400 }))
-    expect(() => definitionsHandler(event("?section=schedules"))).toThrow(expect.objectContaining({ statusCode: 400 }))
+    expect(() => definitionsHandler(event("?section=future"))).toThrow(expect.objectContaining({ statusCode: 400 }))
   })
 
   it("isolates concurrent project catalogs across runtime realms", () => {

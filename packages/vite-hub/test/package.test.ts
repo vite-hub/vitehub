@@ -218,6 +218,8 @@ describe("framework package contract", () => {
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
       "./console",
+      "./console/blob",
+      "./console/definitions",
       "./console/kv",
       "./console/sections",
       "./console/server",
@@ -395,6 +397,9 @@ describe("framework package contract", () => {
     );
     expect(consoleIndexRoute).toContain("<ConsoleHome");
     expect(consoleIndexRoute).toContain(":sections-base=");
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/databases.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true);
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8");
     expect(consoleKVRoute).toContain(`sections.includes("kv")`);
@@ -410,6 +415,10 @@ describe("framework package contract", () => {
     expect(consoleKV).toContain("loadedStore.value === store");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/rate-limits.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/schedules.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/sandboxes.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workspaces.vue`)).toBe(true);
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`),
     ).toBe(true);
@@ -478,9 +487,16 @@ describe("framework package contract", () => {
     );
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClient).toContain("/blob");
+    expect(consoleClient).toContain("/databases");
     expect(consoleClient).toContain("/kv");
     expect(consoleClient).toContain("/workflows");
     expect(consoleClient).toContain("/queues");
+    expect(consoleClient).toContain("/rate-limits");
+    expect(consoleClient).toContain("/schedules");
+    expect(consoleClient).toContain("/sandboxes");
+    expect(consoleClient).toContain("/workspaces");
+    expect(consoleClient).toContain("currentRoute.value");
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8"),
     ).toContain("vitehub-console");
@@ -497,6 +513,8 @@ describe("framework package contract", () => {
           console: { exposure: "host-managed" },
           kv: true,
           preset: "node",
+          queue: true,
+          schedule: true,
           workflow: true,
         })
         .find((candidate) => Reflect.get(Object(candidate), "name") === "vite-hub/console");

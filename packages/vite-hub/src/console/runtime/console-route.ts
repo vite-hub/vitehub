@@ -11,7 +11,22 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router defines route names as strings or symbols; only host-decorated string names can carry a suffix.
   if (typeof currentRouteName !== "string") return targetRouteName
 
-  const consoleRouteName = ["vitehub-console-invocation", "vitehub-console-workflows", "vitehub-console-queues", "vitehub-console-agents", "vitehub-console-agent", "vitehub-console-usage", "vitehub-console-kv", "vitehub-console"].find(
+  const consoleRouteName = [
+    "vitehub-console-invocation",
+    "vitehub-console-rate-limits",
+    "vitehub-console-workspaces",
+    "vitehub-console-workflows",
+    "vitehub-console-sandboxes",
+    "vitehub-console-schedules",
+    "vitehub-console-databases",
+    "vitehub-console-queues",
+    "vitehub-console-agents",
+    "vitehub-console-agent",
+    "vitehub-console-usage",
+    "vitehub-console-blob",
+    "vitehub-console-kv",
+    "vitehub-console",
+  ].find(
     (routeName) => currentRouteName.startsWith(routeName),
   )
 

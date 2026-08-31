@@ -11,12 +11,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { defineAgent } from "../src/agent.ts"
+import { vitehub } from "../src/index.ts"
 import {
   consoleInvocationsBindingKey,
   consoleInvocationsBindingRegistryKey,
   consoleInvocationsBindingRootRegistryKey,
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
+  consoleBlobKey,
+  consoleBlobRegistryKey,
+  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
   consoleInvocationsRevisionRegistryKey,
@@ -55,6 +59,7 @@ import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
@@ -117,6 +122,8 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
+  delete scope[consoleBlobKey]
+  delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
@@ -132,6 +139,11 @@ afterEach(() => {
   delete scope[consoleSectionsKey]
   delete scope[consoleProjectNameKey]
   delete scope[consoleSectionsRootKey]
+  Reflect.deleteProperty(process, consoleBlobKey)
+  Reflect.deleteProperty(process, consoleBlobRootKey)
+  Reflect.deleteProperty(process, consoleBlobRegistryKey)
+  Reflect.deleteProperty(process, consoleInvocationsKey)
+  Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
@@ -451,10 +463,11 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
         console: { exposure: "host-managed" },
         kvStores: ["default", "cache"],
         preset: "node",
-        sections: ["agents", "usage", "kv"],
+        sections: ["agents", "usage", "blob", "kv"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -477,13 +490,14 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/invocations/:id",
         "/api/_vitehub/console/search",
         "/api/_vitehub/console/usage",
+        "/api/_vitehub/console/blob",
         "/_vitehub",
         "/_vitehub/**",
         "/api/_vitehub/console/kv",
       ])
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
-      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","kv"])`)
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
@@ -492,9 +506,78 @@ describe("Agent invocation console", () => {
         `fallbackName: "review"`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("registers Blob inspection without loading the Agent server graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-host-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        blobStores: ["default", "archive"],
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["blob"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/api/_vitehub/console/blob",
+        "/_vitehub",
+        "/_vitehub/**",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/blob"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(
+        `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
+      )
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a conflicting standalone Blob inspection handler", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-conflict-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        blobStores: ["default"],
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["blob"],
+      })
+      const config = {
+        nitro: {
+          handlers: [{ handler: "~/server/api/blob.ts", route: "/api/_vitehub/console/blob" }],
+        },
+        root,
+      }
+
+      await expect(callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }]))
+        .rejects.toThrow("Cannot install the Console Blob handler")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -657,6 +740,89 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("serializes discovered Workspace Definition metadata without initializing stores", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-workspace-host-"))
+    try {
+      await mkdir(join(root, "server/workspaces/docs/workspace"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/workspaces/docs/config.ts"),
+        `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["workspaces"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}]})`)
+      expect(generated).not.toContain("The Console must not initialize")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Database Definition metadata without loading schemas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-database-host-"))
+    try {
+      await mkdir(join(root, "server/databases"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/databases/config.ts"),
+        `export default defineDatabase({ schema: { notes, users } })\nthrow new Error("The Console must not evaluate Database Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/_vitehub",
+        "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serializes discovered Queue Definition metadata without loading handlers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-queue-host-"))
     try {
@@ -693,6 +859,388 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}]})`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Rate Limit policies without loading application modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-rate-limit-host-"))
+    try {
+      await mkdir(join(root, "server/api"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/api/upload.post.ts"),
+        [
+          'import { requireRateLimit } from "vite-hub/rate-limit"',
+          'requireRateLimit(event, "uploads", { enforcement: "strict", failure: "allow", limit: 25, window: "10s" })',
+          'throw new Error("The Console must not evaluate Rate Limit modules during discovery.")',
+          "",
+        ].join("\n"),
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["rate-limits"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/_vitehub",
+        "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not scan host server directories for default Rate Limit discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-rate-limit-server-dirs-"))
+    const hostServerDir = await mkdtemp(join(tmpdir(), "vitehub-host-server-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["rate-limits"],
+      })
+      const config: {
+        [VITEHUB_SERVER_DIRS]: string[]
+        nitro?: { plugins: string[] }
+        root: string
+      } = {
+        [VITEHUB_SERVER_DIRS]: [hostServerDir],
+        root,
+      }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":[]})`)
+      expect(generated).not.toContain('"name":"uploads"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+      await rm(hostServerDir, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Schedule timing metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-schedule-host-"))
+    try {
+      await mkdir(join(root, "server/schedules"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/schedules/adhoc.ts"),
+        `export default defineScheduleTarget({ handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
+      )
+      await writeFile(
+        join(root, "server/schedules/daily.ts"),
+        `export default defineSchedule({ cron: "0 0 1 * 1", allowRuntimeSchedules: true, handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
+      )
+      await writeFile(
+        join(root, "server/schedules/dynamic.ts"),
+        `const scheduleCron = process.env.SCHEDULE_CRON || "0 10 * * *"\nexport default defineSchedule({ cron: scheduleCron, handler() {} })\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["schedules"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/_vitehub",
+        "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/adhoc.ts","name":"adhoc","source":"server-schedules"},{"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Runtime schedules","value":"Allowed"}],"file":"server/schedules/daily.ts","name":"daily","source":"server-schedules"},{"fields":[{"label":"Kind","value":"Static schedule"}],"file":"server/schedules/dynamic.ts","name":"dynamic","source":"server-schedules"}]})`)
+      expect(generated).toContain(`"file":"server/schedules/dynamic.ts","name":"dynamic","source":"server-schedules"`)
+      expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("discovers definitions from each service project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-service-roots-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await mkdir(join(root, "packages/database/server/databases"), { recursive: true })
+      await mkdir(join(root, "packages/rate-limit/policies"), { recursive: true })
+      await mkdir(join(root, "packages/workspace/server/workspaces/docs/workspace"), { recursive: true })
+      await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
+      await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
+      await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+      await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
+      const plugins = vitehub({
+        console: { exposure: "host-managed" },
+        database: { projectRoot: "packages/database" },
+        preset: "cloudflare",
+        rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
+        schedule: { projectRoot: "packages/schedule" },
+        workspace: { projectRoot: "packages/workspace" },
+      })
+      // SAFETY: Vite plugin options form a recursive array, and this test narrows each flattened candidate structurally before using it as a plugin.
+      const pluginCandidates = (plugins as unknown[]).flat(Infinity)
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin options can be nested and mixed at this test boundary, so narrow the flattened value by its plugin name.
+      const plugin = pluginCandidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
+      if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
+
+      await callPluginHook(plugin.config, {}, [{ root }, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [{ root }])
+
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"rate-limits":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
+      expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
+      expect(generated).toContain('"workspaces":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
+      expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
+      expect(generated).toContain('"schedules":[{"fields":[{"label":"Kind","value":"Runtime target"}')
+      expect(generated).toContain('"file":"packages/schedule/server/schedules/adhoc.ts","name":"adhoc"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses the resolved Vite Database root when it replaces a configured service root", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-database-override-"))
+    const viteRoot = join(projectRoot, "app")
+    try {
+      await mkdir(join(projectRoot, "packages/api/server/databases"), { recursive: true })
+      await mkdir(join(viteRoot, "server/databases"), { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), "{}\n")
+      await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        databaseDiscoveryRoot: "packages/api",
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases"],
+      })
+      const config: { database?: object; nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      config.database = {}
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain('"file":"app/server/databases/config.ts"')
+      expect(generated).not.toContain('"file":"packages/api/server/databases/config.ts"')
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("uses resolved service overrides as complete Console discovery configuration", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-service-overrides-"))
+    const viteRoot = join(projectRoot, "app")
+    try {
+      await mkdir(viteRoot, { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        databaseDiscoveryRoot: "packages/database",
+        preset: "cloudflare",
+        rateLimitDiscoveryRoot: "packages/rate-limit",
+        rateLimitScanDirs: ["policies"],
+        resolveKVStores: () => false,
+        sections: ["databases", "rate-limits", "workspaces"],
+        workspaceDiscoveryRoot: "packages/workspace",
+      })
+      const config: {
+        database?: false
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        rateLimit?: object
+        root: string
+        workspace?: object
+      } = { root: viteRoot }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      config.database = false
+      config.rateLimit = {}
+      config.workspace = {}
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(projectRoot)}, ["rate-limits","workspaces"])`)
+      expect(config.nitro!.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("disables standalone Workspace and Sandbox inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-services-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["sandboxes", "workspaces"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        sandbox?: boolean
+        workspace?: boolean
+      } = { root, sandbox: true, workspace: true }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.sandbox = false
+      config.workspace = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("reconciles disabled services before initial Console discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-initial-disabled-services-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases", "sandboxes", "workspaces"],
+      })
+      const config: {
+        database: false
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        sandbox: false
+        workspace: false
+      } = { database: false, root, sandbox: false, workspace: false }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses each runtime's default discovery root in a nested Vite app", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-root-"))
+    const viteRoot = join(projectRoot, "app")
+    try {
+      await mkdir(join(projectRoot, "server/schedules"), { recursive: true })
+      await mkdir(join(projectRoot, "src"), { recursive: true })
+      await mkdir(join(viteRoot, "src"), { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), "{}\n")
+      await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
+      await writeFile(join(projectRoot, "src/unrelated.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["rate-limits", "sandboxes", "schedules"],
+      })
+      const config: { nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
+      expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
+      expect(generated).toContain(`"file":"app/src/preview.sandbox.ts","name":"preview","source":"vite-suffix"`)
+      expect(generated).not.toContain(`"name":"unrelated"`)
+      expect(generated).toContain(`"file":"server/schedules/adhoc.ts","name":"adhoc","source":"server-schedules"`)
+      expect(generated).not.toContain(`"file":"../`)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Sandbox Definition metadata without starting a Sandbox", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-sandbox-host-"))
+    try {
+      await mkdir(join(root, "src"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "src/preview.sandbox.ts"), `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["sandboxes"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).not.toContain(`from "vite-hub/console/server"`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandboxes":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox.ts","name":"preview","source":"vite-suffix"}]})`)
+      expect(generated).not.toContain("must not run")
     }
     finally {
       await rm(root, { force: true, recursive: true })

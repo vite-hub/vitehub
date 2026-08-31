@@ -62,6 +62,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-blob.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-definitions.vue",
         to: "dist/console/runtime/components",
       },
@@ -126,10 +130,16 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       { from: "src/console/runtime/pages/agents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/blob.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/databases.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/index.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/queues.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/rate-limits.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/schedules.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/sandboxes.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/workflows.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/workspaces.vue", to: "dist/console/runtime/pages" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
@@ -157,6 +167,7 @@ export default defineConfig({
       "src/console/runtime/definitions.ts",
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
+      "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
@@ -177,6 +188,9 @@ export default defineConfig({
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/sections"];
         delete exports["./console/runtime/server/agents.get"];
+        delete exports["./console/runtime/server/blob"];
+        delete exports["./console/runtime/server/blob.get"];
+        delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocations.get"];
@@ -189,6 +203,8 @@ export default defineConfig({
         delete exports["./console/runtime/server/usage.get"];
         return {
           ...exports,
+          "./console/blob": "./dist/console/runtime/server/blob.js",
+          "./console/definitions": "./dist/console/runtime/server/definitions.js",
           "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",

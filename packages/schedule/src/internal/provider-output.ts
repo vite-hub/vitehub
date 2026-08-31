@@ -316,10 +316,15 @@ async function writeProviderEntries(
 }
 
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
+  const crons = await readRuntimeDefinitionCrons(definitions)
+  for (const [name, cron] of crons) validateProviderCron(cron, name)
+  return crons
+}
+
+export async function readRuntimeDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = new Map<string, string>()
   for (const definition of staticScheduleDefinitions(definitions)) {
     const cron = readStaticScheduleCron(definition.handler, definition.name)
-    validateProviderCron(cron, definition.name)
     crons.set(definition.name, cron)
   }
   return crons
