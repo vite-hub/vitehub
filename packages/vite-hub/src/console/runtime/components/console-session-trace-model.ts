@@ -164,6 +164,165 @@ export function invocationOutcomeTimestamp(
   return timestamps.updatedAt;
 }
 
+export type TraceLifecycle<Observation extends TraceObservationIdentity> = {
+  finish: Observation | undefined;
+  observations: Observation[];
+  start: Observation;
+};
+
+type MutableTraceLifecycle<Observation extends TraceObservationIdentity> =
+  TraceLifecycle<Observation> & {
+    terminalNames: readonly string[];
+  };
+
+type PendingLifecycleQueue<Observation extends TraceObservationIdentity> = {
+  head: number;
+  lifecycles: MutableTraceLifecycle<Observation>[];
+};
+
+function pendingLifecycleQueue<Observation extends TraceObservationIdentity>(
+  queues: Map<string, Map<string, PendingLifecycleQueue<Observation>>>,
+  identity: string,
+  terminalName: string,
+): PendingLifecycleQueue<Observation> {
+  let identityQueues = queues.get(identity);
+  if (!identityQueues) {
+    identityQueues = new Map();
+    queues.set(identity, identityQueues);
+  }
+  let queue = identityQueues.get(terminalName);
+  if (!queue) {
+    queue = { head: 0, lifecycles: [] };
+    identityQueues.set(terminalName, queue);
+  }
+  return queue;
+}
+
+function appendLifecycleObservation<Observation extends TraceObservationIdentity>(
+  lifecycle: MutableTraceLifecycle<Observation>,
+  observation: Observation,
+) {
+  lifecycle.observations.push(observation);
+}
+
+/**
+ * Pairs and correlates sequence-ordered Trace observations in one indexed pass.
+ * Work is linear in the input plus correlated event references, which may be shared
+ * when same-identity lifecycles overlap.
+ */
+export function indexTraceLifecycles<Observation extends TraceObservationIdentity>(
+  starts: Observation[],
+  observations: Observation[],
+  terminalNamesForStart: (start: Observation) => readonly string[],
+): TraceLifecycle<Observation>[] {
+  const identities = new WeakMap<Observation, string>();
+  const identityOf = (observation: Observation) => {
+    const cached = identities.get(observation);
+    if (cached !== undefined) return cached;
+    const identity = traceEventId(observation);
+    identities.set(observation, identity);
+    return identity;
+  };
+  const lifecycles: MutableTraceLifecycle<Observation>[] = starts.map((start) => ({
+    finish: undefined,
+    observations: [],
+    start,
+    terminalNames: terminalNamesForStart(start),
+  }));
+  const lifecycleQueues = new Map<string, Map<string, PendingLifecycleQueue<Observation>>>();
+  const standaloneQueues = new Map<string, Map<string, PendingLifecycleQueue<Observation>>>();
+  let startIndex = 0;
+
+  for (const observation of observations) {
+    while (startIndex < lifecycles.length) {
+      const lifecycle = lifecycles[startIndex]!;
+      if (lifecycle.start.sequence > observation.sequence) break;
+      const queues = isLifecycleStartObservation(lifecycle.start.name)
+        ? lifecycleQueues
+        : standaloneQueues;
+      const identity = identityOf(lifecycle.start);
+      for (const terminalName of new Set(lifecycle.terminalNames))
+        pendingLifecycleQueue(queues, identity, terminalName).lifecycles.push(lifecycle);
+      startIndex += 1;
+    }
+
+    const identity = identityOf(observation);
+    const lifecycleQueue = lifecycleQueues.get(identity)?.get(observation.name);
+    if (lifecycleQueue) {
+      while (lifecycleQueue.head < lifecycleQueue.lifecycles.length) {
+        const lifecycle = lifecycleQueue.lifecycles[lifecycleQueue.head++]!;
+        if (lifecycle.finish) continue;
+        lifecycle.finish = observation;
+        break;
+      }
+    }
+    const standaloneQueue = standaloneQueues.get(identity)?.get(observation.name);
+    if (standaloneQueue) {
+      while (standaloneQueue.head < standaloneQueue.lifecycles.length) {
+        const lifecycle = standaloneQueue.lifecycles[standaloneQueue.head++]!;
+        if (!lifecycle.finish) lifecycle.finish = observation;
+      }
+    }
+  }
+
+  const startsBySequence = new Map<number, MutableTraceLifecycle<Observation>[]>();
+  const finishesBySequence = new Map<number, MutableTraceLifecycle<Observation>[]>();
+  for (const lifecycle of lifecycles) {
+    const sequenceStarts = startsBySequence.get(lifecycle.start.sequence) ?? [];
+    sequenceStarts.push(lifecycle);
+    startsBySequence.set(lifecycle.start.sequence, sequenceStarts);
+    if (!lifecycle.finish) continue;
+    const sequenceFinishes = finishesBySequence.get(lifecycle.finish.sequence) ?? [];
+    sequenceFinishes.push(lifecycle);
+    finishesBySequence.set(lifecycle.finish.sequence, sequenceFinishes);
+  }
+
+  const activeByIdentity = new Map<string, Set<MutableTraceLifecycle<Observation>>>();
+  const activate = (lifecycle: MutableTraceLifecycle<Observation>) => {
+    if (!lifecycle.finish || lifecycle.finish.sequence <= lifecycle.start.sequence) return;
+    const identity = identityOf(lifecycle.start);
+    const active = activeByIdentity.get(identity) ?? new Set();
+    active.add(lifecycle);
+    activeByIdentity.set(identity, active);
+  };
+  const deactivate = (lifecycle: MutableTraceLifecycle<Observation>) => {
+    const identity = identityOf(lifecycle.start);
+    const active = activeByIdentity.get(identity);
+    active?.delete(lifecycle);
+    if (active?.size === 0) activeByIdentity.delete(identity);
+  };
+
+  for (const observation of observations) {
+    const identity = identityOf(observation);
+    const sequenceStarts = startsBySequence.get(observation.sequence) ?? [];
+    const sequenceFinishes = finishesBySequence.get(observation.sequence) ?? [];
+    if (isLifecycleStartObservation(observation.name)) {
+      for (const lifecycle of sequenceStarts) {
+        if (identityOf(lifecycle.start) !== identity) continue;
+        appendLifecycleObservation(lifecycle, observation);
+        activate(lifecycle);
+      }
+      continue;
+    }
+    if (isLifecycleTerminalObservation(observation.name)) {
+      for (const lifecycle of sequenceFinishes) appendLifecycleObservation(lifecycle, observation);
+      for (const lifecycle of sequenceFinishes) deactivate(lifecycle);
+      continue;
+    }
+
+    for (const lifecycle of activeByIdentity.get(identity) ?? [])
+      appendLifecycleObservation(lifecycle, observation);
+    for (const lifecycle of sequenceStarts) {
+      if (identityOf(lifecycle.start) !== identity) continue;
+      appendLifecycleObservation(lifecycle, observation);
+      activate(lifecycle);
+    }
+    for (const lifecycle of sequenceFinishes) deactivate(lifecycle);
+  }
+
+  return lifecycles;
+}
+
 export function pairedToolTerminal<Observation extends TraceObservationIdentity>(
   start: Observation,
   observations: Observation[],

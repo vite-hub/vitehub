@@ -2,7 +2,7 @@
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
-  correlatedLifecycleObservations,
+  indexTraceLifecycles,
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
@@ -14,8 +14,6 @@ import {
   invocationSpanStatus,
   invocationTerminalNames,
   lifecycleTerminalNames,
-  pairedLifecycleTerminal,
-  pairedToolTerminal,
   standaloneSuccessfulLifecycleSequences,
   traceDurationMs,
   traceEventId,
@@ -130,15 +128,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     (left, right) => left.sequence - right.sequence,
   );
   const starts = traceStarts(observations);
-  const pairs = starts.map((start) => ({
-    finish: pairedTerminal(start, observations, invocation),
-    start,
-  }));
-  const result = pairs.map(({ start, finish }) =>
-    pairedSpan(start, finish, observations, invocation),
+  const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+    terminalNames(start, invocation),
+  );
+  const result = lifecycles.map(({ start, finish, observations: events }) =>
+    pairedSpan(start, finish, events, invocation),
   );
   const representedSequences = new Set(
-    pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
+    lifecycles.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
   const standaloneSuccessfulTerminals = standaloneSuccessfulLifecycleSequences(
     observations,
@@ -256,11 +253,10 @@ function traceStarts(observations: Observation[]): Observation[] {
 function pairedSpan(
   start: Observation,
   finish: Observation | undefined,
-  observations: Observation[],
+  events: Observation[],
   invocation: AgentInvocationView,
 ): TraceSpan {
   const id = eventId(start);
-  const events = correlatedLifecycleObservations(start, finish, observations);
   const attributes = Object.assign({}, ...events.map((event) => event.attributes ?? {}));
   const startMs = timestamp(start.timestamp);
   const operation = operationName(start, attributes);
@@ -291,22 +287,13 @@ function pairedSpan(
   };
 }
 
-function pairedTerminal(
-  start: Observation,
-  observations: Observation[],
-  invocation: AgentInvocationView,
-): Observation | undefined {
-  const terminalNames =
-    start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name)
-      ? invocationTerminalNames(invocation.status)
-      : start.name === "agent.task.started"
-        ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
-        : start.name === "agent.approval.request"
-          ? ["agent.approval.decision"]
-          : lifecycleTerminalNames(start.name);
-  if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
-    return pairedToolTerminal(start, observations);
-  return pairedLifecycleTerminal(start, observations, terminalNames);
+function terminalNames(start: Observation, invocation: AgentInvocationView): string[] {
+  if (start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name))
+    return invocationTerminalNames(invocation.status);
+  if (start.name === "agent.task.started")
+    return ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"];
+  if (start.name === "agent.approval.request") return ["agent.approval.decision"];
+  return lifecycleTerminalNames(start.name);
 }
 
 function invocationSpan(invocation: AgentInvocationView, observations: Observation[]): TraceSpan {
