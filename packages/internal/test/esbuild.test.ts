@@ -44,6 +44,48 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).toContain("replacement-token")
   })
 
+  it("leaves unresolved optional package imports to the caller", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await writeFile(entry, 'import "optional-package"\n', "utf8")
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example", replacement: resolve(rootDir, "replacement") }]),
+      external: ["optional-package"],
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain('import "optional-package"')
+  })
+
+  it("applies exact alias replacement tokens to the public specifier after resolution", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "index.mjs")
+    const replacement = resolve(rootDir, "replacement/example")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([mkdir(packageDir, { recursive: true }), mkdir(dirname(replacement), { recursive: true })])
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: "./index.mjs", name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement-token'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: `${resolve(rootDir, "replacement")}/$&` },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement-token")
+  })
+
   it("preserves overlapping trailing-slash alias prefixes", async () => {
     const rootDir = await createTempDir()
     const broadDir = resolve(rootDir, "broad")
@@ -288,7 +330,7 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("original")
   })
 
-  it("preserves extensionless alias suffixes for packages without exports", async () => {
+  it("does not guess a legacy public suffix after imports become absolute", async () => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/example")
     const original = resolve(packageDir, "jobs/task.mjs")
@@ -314,8 +356,64 @@ describe("bundleEsmEntry", () => {
       platform: "node",
     })
 
-    expect(await readFile(outfile, "utf8")).toContain("replacement")
-    expect(await readFile(outfile, "utf8")).not.toContain("original")
+    expect(await readFile(outfile, "utf8")).toContain("original")
+    expect(await readFile(outfile, "utf8")).not.toContain("replacement")
+  })
+
+  it("preserves explicit legacy package suffixes before resolution", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "jobs/task.mjs")
+    const replacementDir = resolve(rootDir, "replacement")
+    const extensionlessReplacement = resolve(replacementDir, "jobs/task")
+    const replacement = resolve(replacementDir, "jobs/task.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([mkdir(dirname(original), { recursive: true }), mkdir(dirname(replacement), { recursive: true })])
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(extensionlessReplacement, "export const value = 'extensionless-replacement'\n", "utf8"),
+      writeFile(replacement, "export const value = 'explicit-replacement'\n", "utf8"),
+      writeFile(entry, 'export { value } from "example/jobs/task.mjs"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
+      format: "esm",
+      platform: "node",
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("explicit-replacement")
+    expect(output).not.toContain("extensionless-replacement")
+  })
+
+  it("does not reverse aliases through duplicate package exports", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "shared.mjs")
+    const replacementDir = resolve(rootDir, "replacement")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([mkdir(packageDir, { recursive: true }), mkdir(replacementDir)])
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./foo": "./shared.mjs", "./bar": "./shared.mjs" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(resolve(replacementDir, "foo"), "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example/foo", replacement: resolve(replacementDir, "foo") }]),
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("original")
+    expect(await readFile(outfile, "utf8")).not.toContain("replacement")
   })
 
   it("does not match exact aliases against sibling export prefixes", async () => {

@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, extname, isAbsolute, resolve } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -64,6 +64,10 @@ function escapeRegExp(value: string): string {
 }
 
 function collectPackageExportCandidates(packageName: string, exportsValue: unknown, packageRelativePath: string): string[] {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package exports are untrusted JSON and string targets are the domain values consumed here.
+  if (typeof exportsValue === "string") {
+    return normalizePathSeparators(exportsValue).replace(/^\.\//, "") === packageRelativePath ? [packageName] : []
+  }
   if (!isPlainObject(exportsValue)) return []
   const candidates: string[] = []
   for (const [exportKey, target] of Object.entries(exportsValue)) {
@@ -181,27 +185,29 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                 if (alias.prefix && /^\.\.?[\\/]/.test(alias.specifier)) {
                   resolvedAliasPath = normalizePathSeparators(resolve(aliasResolveDir, alias.specifier))
                 }
-                else if (alias.prefix && resolutionScope) {
+                else if (resolutionScope) {
                   const packageRelativePath = normalizedSpecifier.slice(resolutionScope.length)
                   const parsedPackageJson: unknown = JSON.parse(await readFile(resolve(resolutionScope, "package.json"), "utf8"))
                   if (!isPlainObject(parsedPackageJson)) return
                   const packageJson = parsedPackageJson
-                  const physicalExtension = extname(packageRelativePath)
-                  const legacyCandidates = packageJson.exports === undefined
-                    ? [
-                        {
-                          publicSpecifier: physicalExtension ? `${packageName}/${packageRelativePath.slice(0, -physicalExtension.length)}` : "",
-                          resolvableSpecifier: `${packageName}/${packageRelativePath}`,
-                        },
-                      ].filter(candidate => candidate.publicSpecifier)
-                    : []
-                  for (const candidate of [
-                    ...collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)
-                      .map(publicSpecifier => ({ publicSpecifier, resolvableSpecifier: publicSpecifier })),
-                    ...legacyCandidates,
-                  ]) {
-                    if (alias.prefix ? !candidate.publicSpecifier.startsWith(alias.specifier) : candidate.publicSpecifier !== alias.specifier) continue
-                    const resolvedCandidate = await build.resolve(candidate.resolvableSpecifier, {
+                  if (packageJson.exports === undefined && !alias.prefix) {
+                    const resolvedCandidate = await build.resolve(alias.specifier, {
+                      importer: args.importer,
+                      kind: args.kind,
+                      namespace: args.namespace,
+                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+                      resolveDir: args.resolveDir,
+                      with: args.with,
+                    })
+                    if (!resolvedCandidate.errors.length && !resolvedCandidate.external && resolvedCandidate.namespace === "file"
+                      && normalizePathSeparators(resolve(resolvedCandidate.path)) === normalizedSpecifier) {
+                      return { canonical: alias.specifier, normalized: alias.specifier, publicSpecifier: alias.specifier }
+                    }
+                    return
+                  }
+                  const matchingPublicSpecifiers = new Set<string>()
+                  for (const publicSpecifier of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
+                    const resolvedCandidate = await build.resolve(publicSpecifier, {
                       importer: args.importer,
                       kind: args.kind,
                       namespace: args.namespace,
@@ -212,10 +218,15 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
-                    return { canonical: candidate.publicSpecifier, normalized: candidate.publicSpecifier, publicSpecifier: candidate.publicSpecifier }
+                    matchingPublicSpecifiers.add(publicSpecifier)
                   }
-                  const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
-                  resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))
+                  if (matchingPublicSpecifiers.size === 1) {
+                    const publicSpecifier = [...matchingPublicSpecifiers][0]!
+                    if (alias.prefix ? publicSpecifier.startsWith(alias.specifier) : publicSpecifier === alias.specifier) {
+                      return { canonical: publicSpecifier, normalized: publicSpecifier, publicSpecifier }
+                    }
+                  }
+                  return
                 }
                 else {
                   const resolvedAlias = await build.resolve(alias.specifier, {
@@ -257,8 +268,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             }
             if (normalizedMatch || canonicalMatch) {
               match = alias
-              matchedAlias = canonicalMatch ? paths.canonical : paths.normalized
-              matchedSpecifier = canonicalMatch ? canonicalSpecifier : normalizedSpecifier
+              matchedAlias = alias.prefix ? (canonicalMatch ? paths.canonical : paths.normalized) : alias.specifier
+              matchedSpecifier = alias.prefix ? (canonicalMatch ? canonicalSpecifier : normalizedSpecifier) : alias.specifier
               break
             }
           }
@@ -267,6 +278,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           ? match.canonicalSpecifier
           : match?.specifier
         matchedSpecifier ||= matchedAlias === match?.canonicalSpecifier ? canonicalSpecifier : normalizedSpecifier
+        if (!match) return
         const target = match?.prefix
           ? matchedSpecifier.replace(matchedAlias!.slice(0, -1), match.replacement.slice(0, -1))
           : matchedSpecifier.replace(matchedAlias!, match?.replacement ?? "")
