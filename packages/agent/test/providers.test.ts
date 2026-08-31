@@ -336,6 +336,12 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  it("serializes shared Provider Output finalization", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+
+    expect(hubAgent().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("activates eval tooling only while executable eval files exist", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-discovery-"))
@@ -981,7 +987,13 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "serve",
-        resolve: { alias: [] },
+        resolve: {
+          alias: [
+            { find: "@", replacement: join(root, "src") },
+            { find: "@/", replacement: join(root, "nested") },
+            { find: "@", replacement: join(root, "duplicate") },
+          ],
+        },
         root,
       })
 
@@ -997,6 +1009,12 @@ describe("agent Vite plugin", () => {
               expect.objectContaining({
                 bundleOptions: expect.objectContaining({
                   alias: {
+                    "@": join(root, "src"),
+                    "@/\0vitehub-prefix:0": `${join(root, "src")}/`,
+                    "@/": join(root, "nested"),
+                    "@//\0vitehub-prefix:1": `${join(root, "nested")}/`,
+                    "@\0vitehub-exact:2": join(root, "duplicate"),
+                    "@/\0vitehub-prefix:2": `${join(root, "duplicate")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
                   external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),
@@ -15040,10 +15058,13 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
         cloudflare: { env },
       })
-      await vi.waitFor(async () => {
-        const acquisitions = await Promise.all(handoffAcquisitions)
-        expect(acquisitions.slice(1)).toContain(null)
-      })
+      await vi.waitFor(
+        async () => {
+          const acquisitions = await Promise.all(handoffAcquisitions)
+          expect(acquisitions.slice(1)).toContain(null)
+        },
+        { timeout: binding!.steer!.ttlMs * 5 },
+      )
       acceptRecoveredRetry()
       await overlappingDelivery
       expect(createBatch).toHaveBeenCalledTimes(3)

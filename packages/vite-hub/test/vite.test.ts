@@ -195,6 +195,12 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("serializes the built-in Provider Output finalizer", () => {
+    const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
+
+    expect(output.closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("discards Provider Output after an output-phase build failure", async () => {
     const plugins = vitehub({ preset: "node" })
     const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")

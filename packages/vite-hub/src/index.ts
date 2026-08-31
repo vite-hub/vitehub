@@ -614,6 +614,7 @@ function deploymentPlugins(
       },
       closeBundle: {
         order: "post",
+        sequential: true,
         async handler() {
           await finalizeProviderDeploymentOutputs(providerOutput)
         },

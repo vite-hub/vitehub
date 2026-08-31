@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -288,6 +288,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
             ...definitions.map(definition => definition.handler),
+            ...Object.keys(providerImportAliases),
             ...Object.values(providerImportAliases),
           ],
           roots: [rootDir],
@@ -296,8 +297,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           ...definition,
           handler: retainedSources.resolve(definition.handler),
         }))
-        const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
-          .map(([specifier, target]) => [specifier, retainedSources.resolve(target)]))
+        const retainedProviderImportAliases = retainProviderOutputAliases(providerImportAliases, retainedSources)
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const nitro = (config as { nitro?: unknown }).nitro
         const generation = providerOutputGenerations.get(this)
@@ -309,12 +309,14 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             const providerRuntimeInputs = captureQueueProviderRuntimeInputs(providerOutput, retainedProviderImportAliases, generation)
             const retainedRuntimeSources = await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "runtime-sources"),
-              paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => Object.values(aliases)),
+              paths: Object.values(providerRuntimeInputs.aliases).flatMap(aliases => [
+                ...Object.keys(aliases),
+                ...Object.values(aliases),
+              ]),
               roots: [rootDir],
             })
             const retainedRuntimeAliases = Object.fromEntries(Object.entries(providerRuntimeInputs.aliases)
-              .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases)
-                .map(([specifier, target]) => [specifier, retainedRuntimeSources.resolve(target)]))]))
+              .map(([provider, aliases]) => [provider, retainProviderOutputAliases(aliases, retainedRuntimeSources)]))
             // SAFETY: The outer entries preserve provider keys and each inner entry preserves string alias targets.
             const typedRetainedRuntimeAliases = retainedRuntimeAliases as QueueProviderRuntimeInputs["aliases"]
             await generateProviderOutputs({
@@ -351,6 +353,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

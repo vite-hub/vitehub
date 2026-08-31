@@ -5,12 +5,41 @@ import { dirname, join } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+it("retains absolute alias keys with their copied source trees", () => {
+  const aliases = retainProviderOutputAliases({
+    "/app/src": "/app/replacements",
+    "#server": "/app/server.ts",
+  }, {
+    resolve: path => path.startsWith("/app/") ? path.replace("/app/", "/retained/") : path,
+  })
+
+  expect(aliases).toEqual({
+    "/app/src": "/retained/replacements",
+    "/retained/src": "/retained/replacements",
+    "#server": "/retained/server.ts",
+  })
+})
+
+it("preserves the first alias when absolute keys share a retained path", () => {
+  const aliases = retainProviderOutputAliases({
+    "/project/src": "/project/first",
+    "/project/a/../src": "/project/second",
+    "/project/src/__vitehub_alias_prefix__0": "/project/first/",
+    "/project/a/../src/__vitehub_alias_prefix__1": "/project/second/",
+  }, {
+    resolve: path => path.replace("/project/a/../", "/project/").replace("/project/", "/retained/"),
+  })
+
+  expect(aliases["/retained/src"]).toBe("/retained/first")
+  expect(aliases["/retained/src/__vitehub_alias_prefix__0"]).toBe("/retained/first/")
 })
 
 it("retains a generation's source-root layout and generated dependencies", async () => {

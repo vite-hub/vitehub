@@ -28,6 +28,10 @@ async function runProviderOutputHooks(plugin: ReturnType<typeof hubQueue>) {
 }
 
 describe("hubQueue", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubQueue().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("registers absolute generated paths when Nitro owns the Vite config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-owned-"))
     roots.push(root)

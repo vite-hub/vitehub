@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
+import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -10,13 +13,22 @@ import {
   captureProviderDeploymentOutputGeneration,
   contributeProviderDeploymentOutput,
   createDefaultCloudflareOutputRoot,
+  createDefaultVercelOutputRoot,
   createProviderDeploymentOutputGenerationState,
   finalizeProviderDeploymentOutputs,
   resetProviderDeploymentOutputs,
 } from "../src/build/deployment-output.ts"
+import { bundleEsmEntry } from "../src/build/esbuild.ts"
 import { createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
 
+type BundledProviderOutput = Pick<typeof import("../src/build/deployment-output.ts"),
+  | "contributeProviderDeploymentOutput"
+  | "createProviderOutputCatalog"
+  | "finalizeProviderDeploymentOutputs"
+>
+
 const tempDirs: string[] = []
+const execFileAsync = promisify(execFile)
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-output-finalizer-"))
@@ -241,7 +253,7 @@ describe("Provider Output finalizer", () => {
     const catalog = createProviderOutputCatalog()
     const writes: string[] = []
     const rootDir = await createTempProject()
-    const contribute = (owner: "agent" | "blob" | "browser" | "database", value = owner) => {
+    const contribute = (owner: "agent" | "blob" | "browser" | "database" | "kv", value = owner) => {
       contributeProviderDeploymentOutput(catalog, {
         owner,
         rootDir,
@@ -256,9 +268,11 @@ describe("Provider Output finalizer", () => {
     contribute("database")
     contribute("blob", "current")
     contribute("browser")
+    contribute("kv", "stale-kv")
+    contribute("kv", "current-kv")
     await finalizeProviderDeploymentOutputs(catalog)
 
-    expect(writes).toEqual(["agent", "database", "current", "browser"])
+    expect(writes).toEqual(["agent", "database", "current", "browser", "current-kv"])
   })
 
   it("clears settled contributions between repeat builds", async () => {
@@ -392,6 +406,144 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(rateLimitManifest, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(scheduleRegistry, "utf8")).resolves.toBe("previous\n")
     await expect(readFile(denoCron, "utf8")).resolves.toBe("previous\n")
+  })
+
+  it.each([
+    ["malformed JSON", "not-json\n"],
+    ["an object", '{"binding":"SETTINGS"}\n'],
+    ["an array with an object", '["SETTINGS",{"binding":"OTHER"}]\n'],
+    ["an array with a non-string primitive", '["SETTINGS",42]\n'],
+  ])("removes the Cloudflare backup when persisted ownership contains %s", async (_description, persistedOwnership) => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const ownershipFile = ".vitehub-kv-bindings.json"
+    await mkdir(outputRoot, { recursive: true })
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      writeFile(join(outputRoot, ownershipFile), persistedOwnership),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: { kv_namespaces: { key: "binding", values: [] } },
+          },
+          wranglerConfigOwnershipFiles: { kv_namespaces: ownershipFile },
+        },
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    await expect(readFile(join(outputRoot, ownershipFile), "utf8")).resolves.toBe(persistedOwnership)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it.runIf(process.platform !== "win32")("does not snapshot provider output when required persisted ownership is absent", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const vercelOutputRoot = createDefaultVercelOutputRoot(rootDir)
+    const unsupportedEntries = [
+      join(outputRoot, "unsupported-pipe"),
+      join(vercelOutputRoot, "unsupported-pipe"),
+    ]
+    await Promise.all([mkdir(outputRoot, { recursive: true }), mkdir(vercelOutputRoot, { recursive: true })])
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      ...unsupportedEntries.map(path => execFileAsync("mkfifo", [path])),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        cleanup: {
+          cloudflare: {
+            requirePersistedOwnership: true,
+            wranglerConfigOwnership: {
+              arrays: { kv_namespaces: { key: "binding", values: [] } },
+            },
+            wranglerConfigOwnershipFiles: { kv_namespaces: ".vitehub-kv-bindings.json" },
+          },
+        },
+        clientOutDir: "dist/client",
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).resolves.toBeUndefined()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    for (const unsupportedEntry of unsupportedEntries) expect(existsSync(unsupportedEntry)).toBe(true)
+  })
+
+  it.runIf(process.platform !== "win32")("removes a partial Cloudflare backup when backup creation fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const unsupportedEntry = join(outputRoot, "unsupported-pipe")
+    await mkdir(outputRoot, { recursive: true })
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      execFileAsync("mkfifo", [unsupportedEntry]),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: { wranglerConfig: { name: "replacement" } },
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    expect(existsSync(unsupportedEntry)).toBe(true)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it.runIf(process.platform !== "win32")("removes the output backup when static backup creation fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const staticOutputDir = join(rootDir, ".vitehub/output/static")
+    const unsupportedEntry = join(staticOutputDir, "unsupported-pipe")
+    const bundleEntry = join(rootDir, "worker.ts")
+    await Promise.all([
+      mkdir(outputRoot, { recursive: true }),
+      mkdir(staticOutputDir, { recursive: true }),
+      mkdir(join(rootDir, "dist/client"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(outputRoot, "wrangler.json"), '{"name":"app"}\n'),
+      writeFile(join(rootDir, "dist/client/index.html"), "client\n"),
+      writeFile(bundleEntry, "export default {}\n"),
+      execFileAsync("mkfifo", [unsupportedEntry]),
+    ])
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        bundleEntry,
+        clientOutDir: "dist/client",
+        cloudflare: { staticOutputDir, wranglerConfig: { name: "replacement" } },
+        rootDir,
+      }),
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow()
+
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe('{"name":"app"}\n')
+    expect(existsSync(unsupportedEntry)).toBe(true)
+    expect((await readdir(rootDir)).some(entry => entry.startsWith(".vitehub-cloudflare-output-"))).toBe(false)
   })
 
   it("restores Vercel output after a later owner removes its parent directory", async () => {
@@ -621,6 +773,41 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(secondOutput, "index.js"), "utf8")).resolves.toBe("second previous\n")
   })
 
+  it("rolls back KV output at the default Cloudflare root when a peer root fails", async () => {
+    const catalog = createProviderOutputCatalog()
+    const kvRoot = await createTempProject()
+    const failingRoot = await createTempProject()
+    const kvOutput = createDefaultCloudflareOutputRoot(kvRoot)
+    await mkdir(kvOutput, { recursive: true })
+    await writeFile(join(kvOutput, "wrangler.json"), '{"name":"previous"}\n')
+    let kvReady!: () => void
+    const kvCompleted = new Promise<void>(resolve => kvReady = resolve)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "kv",
+      rootDir: kvRoot,
+      write: async ({ write }) => {
+        await write({
+          clientOutDir: "dist/client",
+          cloudflare: { wranglerConfig: { name: "replacement" } },
+          rootDir: kvRoot,
+        })
+        kvReady()
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "blob",
+      rootDir: failingRoot,
+      write: async () => {
+        await kvCompleted
+        throw new Error("peer root failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("peer root failed")
+
+    await expect(readFile(join(kvOutput, "wrangler.json"), "utf8")).resolves.toBe('{"name":"previous"}\n')
+  })
+
   it("preserves newer generated inputs when rolling back output ownership", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
@@ -832,6 +1019,56 @@ describe("Provider Output finalizer", () => {
     await Promise.all([firstFinalization, secondFinalization])
 
     expect(started).toEqual(["first", "second"])
+  })
+
+  it("shares root locks across separately bundled providers", async () => {
+    const rootDir = await createTempProject()
+    const deploymentOutput = join(import.meta.dirname, "../src/build/deployment-output.ts")
+    const browserEntry = join(rootDir, "browser-provider.mjs")
+    const browserBundle = join(rootDir, "browser-provider-bundle.mjs")
+    const kvEntry = join(rootDir, "kv-provider.mjs")
+    const kvBundle = join(rootDir, "kv-provider-bundle.mjs")
+    const entry = `export { contributeProviderDeploymentOutput, createProviderOutputCatalog, finalizeProviderDeploymentOutputs } from ${JSON.stringify(deploymentOutput)}\n`
+    await Promise.all([
+      writeFile(browserEntry, entry, "utf8"),
+      writeFile(kvEntry, entry, "utf8"),
+    ])
+    await Promise.all([
+      bundleEsmEntry(browserEntry, browserBundle, { format: "esm", platform: "node" }),
+      bundleEsmEntry(kvEntry, kvBundle, { format: "esm", platform: "node" }),
+    ])
+
+    const browserProvider: BundledProviderOutput = await import(pathToFileURL(browserBundle).href)
+    const kvProvider: BundledProviderOutput = await import(pathToFileURL(kvBundle).href)
+    const browserCatalog = browserProvider.createProviderOutputCatalog()
+    const kvCatalog = kvProvider.createProviderOutputCatalog()
+    const started: string[] = []
+    let releaseBrowser!: () => void
+    browserProvider.contributeProviderDeploymentOutput(browserCatalog, {
+      owner: "browser",
+      rootDir,
+      write: async () => {
+        started.push("browser")
+        await new Promise<void>(resolve => releaseBrowser = resolve)
+      },
+    })
+    kvProvider.contributeProviderDeploymentOutput(kvCatalog, {
+      owner: "kv",
+      rootDir,
+      write: async () => {
+        started.push("kv")
+      },
+    })
+
+    const browserFinalization = browserProvider.finalizeProviderDeploymentOutputs(browserCatalog)
+    await vi.waitFor(() => expect(started).toEqual(["browser"]))
+    const kvFinalization = kvProvider.finalizeProviderDeploymentOutputs(kvCatalog)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(started).toEqual(["browser"])
+    releaseBrowser()
+    await Promise.all([browserFinalization, kvFinalization])
+
+    expect(started).toEqual(["browser", "kv"])
   })
 
   it("serializes the same root across independently loaded Internal copies", async () => {
@@ -1307,6 +1544,69 @@ describe("Provider Output finalizer", () => {
     await expect(readFile(join(vercelRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 3 })
     expect(existsSync(join(netlifyRoot, "functions", "stale.mjs"))).toBe(false)
     await expect(readFile(join(netlifyRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ version: 1 })
+  })
+
+  it("owns persisted Wrangler array cleanup state", async () => {
+    const rootDir = await createTempProject()
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const ownershipFile = ".vitehub-kv-bindings.json"
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual" }],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+    }, null, 2)}\n`)
+
+    const enabled = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(enabled, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          wranglerConfig: { kv_namespaces: [{ binding: "SETTINGS", id: "settings" }] },
+          wranglerConfigOwnership: {
+            arrays: { kv_namespaces: { key: "binding", values: ["SETTINGS"] } },
+          },
+          wranglerConfigOwnershipFiles: { kv_namespaces: ownershipFile },
+        },
+        rootDir,
+      }),
+    })
+    await finalizeProviderDeploymentOutputs(enabled)
+
+    await expect(readFile(join(outputRoot, ownershipFile), "utf8")).resolves.toBe('[\n  "SETTINGS"\n]\n')
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual" },
+        { binding: "SETTINGS", id: "settings" },
+      ],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+    })
+
+    const disabled = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(disabled, {
+      owner: "kv",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cleanup: {
+          cloudflare: {
+            wranglerConfigOwnership: {
+              arrays: { kv_namespaces: { key: "binding", values: [] } },
+            },
+            wranglerConfigOwnershipFiles: { kv_namespaces: ownershipFile },
+          },
+        },
+        rootDir,
+      }),
+    })
+    await finalizeProviderDeploymentOutputs(disabled)
+
+    expect(existsSync(join(outputRoot, ownershipFile))).toBe(false)
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual" }],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+    })
   })
 
   it("does not let a disabled owner remove Cloudflare output written by a peer", async () => {

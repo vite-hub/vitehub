@@ -388,6 +388,65 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("retains current provider bindings while cleaning stale ownership", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "CURRENT", id: "stale-namespace" },
+        { binding: "STALE", id: "stale-namespace" },
+      ],
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
+                values: ["CURRENT", "STALE"],
+              },
+            },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
+    })
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
+                values: ["CURRENT", "STALE"],
+              },
+            },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
+    })
+  })
+
   it("removes empty owned Cloudflare config arrays and output roots", async () => {
     const rootDir = await createTempProject()
     const {
