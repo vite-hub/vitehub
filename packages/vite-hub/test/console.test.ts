@@ -925,9 +925,12 @@ describe("Agent invocation console", () => {
         resolveKVStores: () => false,
         sections: ["rate-limits"],
       })
-      const config = {
+      const config: {
+        [VITEHUB_SERVER_DIRS]: string[]
+        nitro?: { plugins: string[] }
+        root: string
+      } = {
         [VITEHUB_SERVER_DIRS]: [hostServerDir],
-        nitro: undefined as { plugins: string[] } | undefined,
         root,
       }
 
@@ -1133,6 +1136,36 @@ describe("Agent invocation console", () => {
       config.sandbox = false
       config.workspace = false
       await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, [])`)
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("reconciles disabled services before initial Console discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-initial-disabled-services-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases", "sandboxes", "workspaces"],
+      })
+      const config: {
+        database: false
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+        sandbox: false
+        workspace: false
+      } = { database: false, root, sandbox: false, workspace: false }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")

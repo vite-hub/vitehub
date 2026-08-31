@@ -831,8 +831,8 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("preserves a replay-cleared Database root for the Nuxt Console", async () => {
-    const runtimeDefinition = "/tmp/vitehub-nuxt/server/databases/config.ts"
-    const configuredDefinition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
+    const runtimeDefinition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
+    const configuredDefinition = "/tmp/vitehub-nuxt/configured-database/server/databases/config.ts"
     await mkdir(resolve(runtimeDefinition, ".."), { recursive: true })
     await mkdir(resolve(configuredDefinition, ".."), { recursive: true })
     await writeFile(runtimeDefinition, "export default defineDatabase({ schema: { runtime } })\n")
@@ -845,16 +845,16 @@ describe("ViteHub Nuxt integration", () => {
     try {
       await viteHubNuxtModule({
         console: true,
-        database: { projectRoot: "/tmp/vitehub-nuxt/custom-server" },
+        database: { projectRoot: "/tmp/vitehub-nuxt/configured-database" },
         preset: "node",
       }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
 
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-      expect(generated).toContain(`"file":"server/databases/config.ts"`)
+      expect(generated).toContain(`"file":"custom-server/databases/config.ts"`)
       expect(generated).toContain(`"value":"runtime"`)
-      expect(generated).not.toContain(`"file":"custom-server/databases/config.ts"`)
+      expect(generated).not.toContain(`"file":"configured-database/server/databases/config.ts"`)
       expect(generated).not.toContain(`"value":"configured"`)
     }
     finally {

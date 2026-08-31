@@ -375,6 +375,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         kv?: unknown
         queue?: unknown
         rateLimit?: unknown
+        sandbox?: unknown
         schedule?: unknown
         workspace?: unknown
         workflow?: unknown
@@ -384,8 +385,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      if ("database" in viteConfig) {
+        sections = sections.filter(section => section !== "databases")
+        if (viteConfig.database) sections = [...sections, "databases"]
+      }
+      if ("sandbox" in viteConfig) {
+        sections = sections.filter(section => section !== "sandboxes")
+        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      }
+      if ("workspace" in viteConfig) {
+        sections = sections.filter(section => section !== "workspaces")
+        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+      }
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Service configuration crosses Vite's open user-config boundary, so validate its runtime shape before reading the optional root.
-      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
+        && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
@@ -528,7 +543,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate its runtime shape before reading the optional root.
-      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
+        && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
       databaseDiscoveryRoot = "database" in viteConfig
@@ -544,6 +561,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
       if ("rateLimit" in viteConfig) {
         rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit scan directories cross Vite's open config boundary, so validate each entry before discovery.
           ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
           : undefined
       }
