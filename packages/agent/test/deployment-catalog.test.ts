@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
+import { parse, string } from "valibot"
 
 import { hubAgent } from "../src/vite.ts"
 
@@ -468,8 +469,8 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
     const workspace = await runtime.workspace("support")
-    if (typeof workspace.sourceRootDir !== "string") throw new Error("Expected the retained Workspace source root.")
-    await expect(readFile(join(workspace.sourceRootDir, "context.md"), "utf8"))
+    const sourceRootDir = parse(string(), workspace.sourceRootDir)
+    await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
       .resolves.toBe("Retained Workspace context.\n")
     expect(runtime.waitUntilTasks).toHaveLength(2)
   })
