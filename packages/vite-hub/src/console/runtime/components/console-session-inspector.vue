@@ -219,8 +219,10 @@ function openFile(path: string) {
 }
 
 async function openWorkspaceInstructions() {
+  const invocationId = props.invocation.id;
   openView("workspace");
   if (!workspace.value) await loadWorkspace();
+  if (props.invocation.id !== invocationId) return;
   const path = workspace.value?.paths
     .filter((path) => /(^|\/)AGENTS\.md$/i.test(path))
     .sort(
@@ -314,12 +316,14 @@ async function requestWorkspace() {
   workspaceLoading.value = true;
   workspaceError.value = undefined;
   try {
-    workspace.value = parseWorkspaceDescriptor(
+    const loadedWorkspace = parseWorkspaceDescriptor(
       await requestJson(
         `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
         controller.signal,
       ),
     );
+    if (workspaceRequest !== controller) return;
+    workspace.value = loadedWorkspace;
     if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
