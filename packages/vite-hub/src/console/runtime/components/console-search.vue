@@ -11,6 +11,7 @@ import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
+import { consoleDefinitionSectionIds, type ConsoleDefinitionSectionId } from "../definitions"
 import { consoleSectionDetails } from "../sections"
 
 interface ConsoleSearchFilter {
@@ -29,7 +30,7 @@ interface ConsoleSearchItem {
 interface ConsoleDefinitionSearchItem {
   file: string
   name: string
-  section: "queues" | "workflows"
+  section: ConsoleDefinitionSectionId
   source: string
 }
 
@@ -233,8 +234,8 @@ function strings(value: unknown): string[] {
 }
 
 async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
-  const definitionSections = installed.filter((section): section is "queues" | "workflows" =>
-    section === "queues" || section === "workflows",
+  const definitionSections = installed.filter((section): section is ConsoleDefinitionSectionId =>
+    consoleDefinitionSectionIds.some(definitionSection => definitionSection === section),
   )
   const catalogs = await Promise.all(definitionSections.map(async (section) => ({
     section,

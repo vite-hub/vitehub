@@ -220,7 +220,36 @@ export interface AgentScheduleInvocationInput {
   target?: string
 }
 
+export interface AgentActivityLink {
+  label: string
+  url: string
+}
+
+export type AgentActivityStatus = "cancelled" | "completed" | "failed" | "queued" | "running" | "waiting"
+
+export type AgentActivityTaskStatus = "completed" | "in-progress" | "pending"
+
+export type AgentActivityTarget =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly AgentActivityTarget[]
+  | { readonly [key: string]: AgentActivityTarget }
+
+export interface AgentActivityTask {
+  status: AgentActivityTaskStatus
+  title: string
+}
+
+export interface AgentRunActivity {
+  links?: readonly AgentActivityLink[]
+  runId?: string
+  target: AgentActivityTarget
+}
+
 export interface AgentRunMetadata<TOrigin extends string = string> {
+  activity?: AgentRunActivity
   annotations?: Record<string, AgentInvocationAnnotationValue>
   channelId?: string
   messageId?: string
@@ -1686,7 +1715,29 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   [key: string]: unknown
 }
 
+export interface AgentActivityUpdate {
+  agentName?: string
+  error?: string
+  links: readonly AgentActivityLink[]
+  runId: string
+  status: AgentActivityStatus
+  summary?: string
+  tasks: readonly AgentActivityTask[]
+}
+
+export interface AgentChannelActivityContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  activity: AgentActivityUpdate
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  target: AgentActivityTarget
+}
+
+export interface AgentChannelActivityDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  update(context: AgentChannelActivityContext<TRuntimeConfig>): MaybePromise<void>
+}
+
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  activity?: AgentChannelActivityDefinition<TRuntimeConfig>
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>

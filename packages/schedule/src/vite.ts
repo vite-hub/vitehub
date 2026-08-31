@@ -11,7 +11,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroCo
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -19,6 +19,14 @@ import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
+
+export { discoverScheduleDefinitions } from "./discovery.ts"
+
+export async function readScheduleDefinitionCrons(
+  definitions: DiscoveredScheduleDefinition[],
+): Promise<Map<string, string>> {
+  return await readRuntimeDefinitionCrons(definitions)
+}
 
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"

@@ -1350,6 +1350,7 @@ export async function transformEveExtensionCapabilities(
     visitNodes(program, (node, parent) => {
       if (hasSurvivingReference || node.type !== "Identifier" || node.name !== extension.local) return
       if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
+      if (parent?.type === "ImportSpecifier" && parent.imported === node && parent.local !== node) return
       if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
       if (node.start >= extension.declaration.start && node.end <= extension.declaration.end) return
       if (extensions.some((candidate) => {

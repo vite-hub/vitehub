@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client"
 
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 
 import type {
@@ -25,7 +26,7 @@ export interface LibsqlAgentInvocationStoreOptions {
 const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 const maximumDateMs = 8_640_000_000_000_000
-const searchBackfillPageSize = 100
+const backfillPageSize = 100
 const searchVersion = 2
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
@@ -161,6 +162,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         agent_name TEXT NOT NULL DEFAULT '',
         search TEXT,
         search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
         record TEXT NOT NULL
       )`)
       const columns = await client.execute(`PRAGMA table_info(${table})`)
@@ -191,16 +193,43 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
         }
       }
+      if (!columns.rows.some(row => row.name === "updated_at")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "updated_at")) throw error
+        }
+      }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
+        BEGIN
+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
+        END`)
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE ${table} SET
+            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
+            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`)
+      await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
       await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
         AFTER UPDATE OF search, record ON ${table}
         WHEN NEW.search_version = OLD.search_version
         BEGIN
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
+        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
       while (true) {
         const missingSearch = await client.execute({
-          args: [searchVersion, backfillSequence, searchBackfillPageSize],
+          args: [searchVersion, backfillSequence, backfillPageSize],
           sql: `SELECT sequence, record FROM ${table}
             WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
         })
@@ -220,7 +249,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       backfillSequence = 0
       while (true) {
         const missingAgentNames = await client.execute({
-          args: [backfillSequence, searchBackfillPageSize],
+          args: [backfillSequence, backfillPageSize],
           sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
         })
         if (!missingAgentNames.rows.length) break
@@ -234,7 +263,28 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         await client.batch(agentNameBackfill, "write")
       }
+      backfillSequence = 0
+      while (true) {
+        const missingUpdatedAt = await client.execute({
+          args: [backfillSequence, backfillPageSize],
+          sql: `SELECT sequence FROM ${table}
+            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
+        })
+        if (!missingUpdatedAt.rows.length) break
+        const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
+          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          return {
+            args: [numberValue(row.sequence)],
+            sql: `UPDATE ${table} SET
+              status = COALESCE(json_extract(record, '$.status'), status),
+              updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
+              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
+          }
+        })
+        await client.batch(updatedAtBackfill, "write")
+      }
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
+      await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
         ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
@@ -242,8 +292,39 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL DEFAULT 0,
+        claim_token TEXT NOT NULL DEFAULT '',
         expires_at INTEGER NOT NULL
       )`)
+      const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+      if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
+        }
+        await client.execute(`UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
+      }
+      if (!claimColumns.rows.some(row => row.name === "claim_token")) {
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
+        }
+      }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+        AFTER UPDATE OF expires_at ON ${table}_claims
+        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
+        BEGIN
+          UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
+          WHERE id = NEW.id;
+        END`)
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -264,7 +345,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const args: Array<number | string> = []
     const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
     if (maxAgeMs !== false) {
-      filters.push("json_extract(record, '$.updatedAt') < ?")
+      filters.push("updated_at < ?")
       args.push(new Date(now - maxAgeMs).toISOString())
     }
     if (maxRecords !== false) {
@@ -274,16 +355,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       args.push(...terminalStatuses, maxRecords)
     }
     if (!filters.length) return []
-    const reconcileStatuses = `UPDATE ${table}
-      SET status = json_extract(record, '$.status')
-      WHERE status != json_extract(record, '$.status')`
     const deleteInvocations = {
       args: [...terminalStatuses, ...args],
       sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`,
     }
     const deleteClaims = `DELETE FROM ${table}_claims
       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
-    return [reconcileStatuses, deleteInvocations, deleteClaims]
+    return [deleteInvocations, deleteClaims]
   }
   const prune = async (executor?: Pick<Client, "execute">) => {
     const statements = pruneStatements()
@@ -295,15 +373,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     await client.batch(statements, "write")
   }
   return {
-    async claim(id, claimId, leaseMs, force) {
+    async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
+        const claimToken = globalThis.crypto.randomUUID()
         const result = await client.execute({
-          args: [id, claimId, leaseMs, id, force ? 1 : 0],
-          sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
-            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
-            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
-            WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
+          args: [id, claimId, claimToken, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
+          sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
+            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
+            WHERE ? = 1 OR (? IS NOT NULL AND ${table}_claims.claim_token = ?) OR ${table}_claims.claim_id = excluded.claim_id
               OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
         })
         return result.rowsAffected > 0
@@ -319,8 +398,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const statements = [
             ...prePrune,
             {
-              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, serialize(input)],
-              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`,
+              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, input.updatedAt, serialize(input)],
+              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             }
           ]
           if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
@@ -337,6 +416,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
       })
+    },
+    async getClaimToken(id) {
+      await initialize()
+      const result = await client.execute({
+        args: [id],
+        sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
+      })
+      const claimToken = result.rows[0]?.claim_token
+      return hasRuntimeType(claimToken, "string") ? claimToken : undefined
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {
@@ -421,8 +509,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
               sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
             })
             await transaction.execute({
-              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, serialize(stored), id],
-              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`,
+              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, updated.updatedAt, serialize(stored), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`,
             })
             if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {
               await prune(transaction)

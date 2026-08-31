@@ -5,6 +5,7 @@ export type {
   CreateRateLimiterOptions,
   RateLimitConsumeInput,
   RateLimitCounterScope,
+  RateLimitDeclaration,
   RateLimitDecision,
   RateLimitDriver,
   RateLimitDriverCapabilities,

@@ -57,13 +57,20 @@ export type ConsoleOptions =
   | { access?: never, exposure: "host-managed" }
 
 interface ConsoleVitePluginOptions {
+  blobStores?: readonly string[]
   console?: true | ConsoleOptions
+  databaseDiscoveryRoot?: string
   kvStores?: readonly string[]
   preset?: string
+  rateLimitDiscoveryRoot?: string
+  rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
+  resolveBlobStores?: (blob: unknown) => readonly string[] | false
   resolveKVStores?: (kv: unknown) => readonly string[] | false
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
+  scheduleDiscoveryRoot?: string
+  workspaceDiscoveryRoot?: string
 }
 
 export interface ConsoleInvocationRootState {
@@ -160,22 +167,30 @@ function renderConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
 ): string {
   const agentsEnabled = sections.includes("agents")
+  const blobEnabled = sections.includes("blob")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
     `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    ...(blobEnabled
+      ? [
+          `import { installConsoleBlob } from "vite-hub/console/blob"`,
+          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
+        ]
+      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/server"`] : []),
+    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -184,6 +199,9 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    ...(blobEnabled
+      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
+      : []),
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
@@ -208,6 +226,7 @@ async function writeConsoleNitroPlugin(
   sections: readonly ConsoleSectionId[],
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
+  blobStores: readonly string[],
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
@@ -221,7 +240,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -248,25 +267,39 @@ export function generatedConsolePluginRegistration(value: string): boolean {
 export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugin {
   let sections = options.sections ?? []
   let kvStores = options.kvStores ?? []
+  let blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
+  let databaseDiscoveryRoot: string | undefined
   let projectRoot: string | undefined
+  let rateLimitDiscoveryRoot: string | undefined
+  let rateLimitScanDirs: string[] | undefined
   let root: string | undefined
   let serverDirs: string[] | undefined
+  let scheduleDiscoveryRoot: string | undefined
+  let workspaceDiscoveryRoot: string | undefined
   let fixture: string | undefined
   let cliDiscovery = false
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections, serverDirs })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
   function resolveKVRegistration(kv: unknown): void {
     const resolvedKVStores = options.resolveKVStores?.(kv)
-    sections = (options.sections ?? []).filter(section => section !== "kv")
+    sections = sections.filter(section => section !== "kv")
     if (resolvedKVStores !== false) sections = [...sections, "kv"]
     kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+  }
+
+  function resolveBlobRegistration(blob: unknown): void {
+    if (!options.resolveBlobStores) return
+    const resolvedBlobStores = options.resolveBlobStores?.(blob)
+    sections = sections.filter(section => section !== "blob")
+    if (resolvedBlobStores !== false) sections = [...sections, "blob"]
+    blobStores = resolvedBlobStores === false ? [] : resolvedBlobStores ?? options.blobStores ?? []
   }
 
   function resolveWorkflowRegistration(workflow: unknown): void {
@@ -312,6 +345,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     nitro.handlers = handlers
   }
 
+  function reconcileBlobHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/blob"
+    const blobHandler = join(consoleRuntimeRoot, "server/blob.get.js")
+    const handlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
+    if (sections.includes("blob")) {
+      const conflictingHandler = handlers.find(handler => handler?.route === route && handler?.handler !== blobHandler)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      if (!handlers.some(handler => handler?.handler === blobHandler)) handlers.push({ handler: blobHandler, route })
+    }
+    nitro.handlers = sections.includes("blob")
+      ? handlers
+      : handlers.filter(handler => handler?.handler !== blobHandler)
+  }
+
   const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
     async config(config, environment) {
@@ -321,14 +370,47 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const viteConfig = config as typeof config & {
         [VITEHUB_SERVER_DIRS]?: string[]
         auth?: AuthModuleOptions
+        blob?: unknown
+        database?: unknown
         kv?: unknown
         queue?: unknown
+        rateLimit?: unknown
+        sandbox?: unknown
+        schedule?: unknown
+        workspace?: unknown
         workflow?: unknown
         vitehubCliDiscovery?: true
       }
+      resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      if ("database" in viteConfig) {
+        sections = sections.filter(section => section !== "databases")
+        if (viteConfig.database) sections = [...sections, "databases"]
+      }
+      if ("sandbox" in viteConfig) {
+        sections = sections.filter(section => section !== "sandboxes")
+        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      }
+      if ("workspace" in viteConfig) {
+        sections = sections.filter(section => section !== "workspaces")
+        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+      }
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Service configuration crosses Vite's open user-config boundary, so validate its runtime shape before reading the optional root.
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
+        && typeof value.projectRoot === "string"
+        ? resolve(root!, value.projectRoot)
+        : undefined
+      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
+      rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+        ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+        : options.rateLimitScanDirs
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? configuredProjectRoot({ projectRoot: options.scheduleDiscoveryRoot })
+      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? configuredProjectRoot({ projectRoot: options.workspaceDiscoveryRoot })
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
       assertConsoleProductionAccess(configured, {
@@ -356,14 +438,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
       if (!cliDiscovery && !fixture) {
-        const initialSections = sections.filter(section => section !== "workflows")
-        const catalog = discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot, sections: initialSections, serverDirs })
+        const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandboxes", "workflows", "workspaces"])
+        const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
+        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
           sections,
           catalog.agents,
           catalog,
+          blobStores,
           kvStores,
           fixture,
           options.invocationRootState?.binding,
@@ -376,6 +460,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : {}
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
+                join(consoleRuntimeRoot, "server/blob.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
@@ -422,12 +507,19 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         ...(sections.includes("usage")
           ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
           : []),
+        ...(sections.includes("blob")
+          ? [{
+              handler: join(consoleRuntimeRoot, "server/blob.get.js"),
+              route: "/api/_vitehub/console/blob",
+            }]
+          : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
       nitro.handlers = handlers
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)
+      reconcileBlobHandler(nitro)
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
@@ -446,13 +538,50 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(config.root, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, workflow?: unknown }
+      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandbox?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate its runtime shape before reading the optional root.
+      const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
+        && typeof value.projectRoot === "string"
+        ? resolve(root!, value.projectRoot)
+        : undefined
+      databaseDiscoveryRoot = "database" in viteConfig
+        ? configuredProjectRoot(viteConfig.database)
+        : databaseDiscoveryRoot
+      if ("database" in viteConfig) {
+        sections = sections.filter(section => section !== "databases")
+        if (viteConfig.database) sections = [...sections, "databases"]
+      }
+      rateLimitDiscoveryRoot = "rateLimit" in viteConfig
+        ? configuredProjectRoot(viteConfig.rateLimit)
+        : rateLimitDiscoveryRoot
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
+      if ("rateLimit" in viteConfig) {
+        rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit scan directories cross Vite's open config boundary, so validate each entry before discovery.
+          ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+          : undefined
+      }
+      scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
+      if ("sandbox" in viteConfig) {
+        sections = sections.filter(section => section !== "sandboxes")
+        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      }
+      workspaceDiscoveryRoot = "workspace" in viteConfig
+        ? configuredProjectRoot(viteConfig.workspace)
+        : workspaceDiscoveryRoot
+      if ("workspace" in viteConfig) {
+        sections = sections.filter(section => section !== "workspaces")
+        if (viteConfig.workspace) sections = [...sections, "workspaces"]
+      }
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)
+      reconcileBlobHandler(nitro)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

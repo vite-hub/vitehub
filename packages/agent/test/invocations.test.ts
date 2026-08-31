@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
-import { defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -134,6 +134,47 @@ describe("Agent Invocations", () => {
       "agent.invocation.error",
     ])
     expect(record.observations.slice(-3).every(observation => observation.attributes?.["vitehub.trace.truncated"] === true)).toBe(true)
+  })
+
+  it("retains identified cancellation when the observation journal is full", () => {
+    const createdAt = "2026-02-02T02:02:02.000Z"
+    const ordinary = Array.from({ length: 256 }, (_, index) => ({
+      attributes: { "vitehub.observation.id": `journal:${index}` },
+      name: `ordinary-${index}`,
+      sequence: index,
+      timestamp: createdAt,
+      type: "run" as const,
+    }))
+    const cancelled = {
+      attributes: { "vitehub.observation.id": "journal:cancelled" },
+      name: "agent.invocation.cancelled",
+      sequence: 256,
+      timestamp: createdAt,
+      type: "run" as const,
+    }
+
+    const record = applyAgentInvocationStoreUpdate({
+      createdAt,
+      cursor: "1",
+      id: "cancelled-at-capacity",
+      observations: ordinary,
+      status: "cancelled",
+      traceId: "trace",
+      updatedAt: createdAt,
+    }, {
+      observation: cancelled,
+      timestamp: createdAt,
+    })
+
+    expect(record).toMatchObject({ observationsTruncated: true })
+    expect(record.observations).toHaveLength(256)
+    expect(record.observations.at(-1)).toMatchObject({
+      attributes: {
+        "vitehub.observation.id": "journal:cancelled",
+        "vitehub.trace.truncated": true,
+      },
+      name: "agent.invocation.cancelled",
+    })
   })
 
   it("reserves lifecycle evidence before recent delivery outcomes", () => {
@@ -1523,51 +1564,22 @@ describe("Agent Invocations", () => {
     expect((await invocations.getByRunId("late-observation"))?.observations.some(entry => entry.name === "late")).toBe(false)
   })
 
-  it("bounds claim renewal for invocations abandoned before finish", async () => {
+  it("keeps claim ownership for long-running invocations", async () => {
     vi.useFakeTimers()
     try {
       const memory = createMemoryAgentInvocationStore()
       const claim = vi.fn(memory.claim)
       const invocations = defineAgentInvocations({ store: { ...memory, claim } })
-      const journal = await bindAgentInvocations(invocations, runtime("abandoned"))
+      const journal = await bindAgentInvocations(invocations, runtime("long-running"))
       if (!journal) throw new Error("Expected the invocation journal to be configured.")
       await journal.running()
 
       await vi.advanceTimersByTimeAsync(60 * 60_000 + 30_000)
-      const claimsAfterTimeout = claim.mock.calls.length
+      const claimsAfterFirstHour = claim.mock.calls.length
       await vi.advanceTimersByTimeAsync(30_000)
 
-      expect(claim).toHaveBeenCalledTimes(claimsAfterTimeout)
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("does not rearm claim renewal completed after the heartbeat deadline", async () => {
-    vi.useFakeTimers()
-    try {
-      const memory = createMemoryAgentInvocationStore()
-      let releaseClaim: (() => void) | undefined
-      const startedAt = Date.now()
-      const claim = vi.fn(async (...args: Parameters<typeof memory.claim>) => {
-        if (!releaseClaim && Date.now() - startedAt >= 60 * 60_000 - 10_000) {
-          await new Promise<void>((resolve) => { releaseClaim = resolve })
-        }
-        return memory.claim(...args)
-      })
-      const invocations = defineAgentInvocations({ store: { ...memory, claim } })
-      const journal = await bindAgentInvocations(invocations, runtime("async-abandoned"))
-      if (!journal) throw new Error("Expected the invocation journal to be configured.")
-      await journal.running()
-
-      await vi.advanceTimersByTimeAsync(60 * 60_000)
-      releaseClaim?.()
-      await vi.advanceTimersByTimeAsync(0)
-      const claimsAfterDeadline = claim.mock.calls.length
-      await vi.advanceTimersByTimeAsync(30_000)
-
-      expect(claim).toHaveBeenCalledTimes(claimsAfterDeadline)
+      expect(claim.mock.calls.length).toBeGreaterThan(claimsAfterFirstHour)
+      await journal.finish("completed")
     }
     finally {
       vi.useRealTimers()
@@ -2778,6 +2790,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: () => { throw failure },
       get: () => { throw failure },
+      getClaimToken: () => { throw failure },
       list: () => { throw failure },
       release: () => { throw failure },
       update: () => { throw failure },
@@ -2859,6 +2872,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: input => ({ created: true, record: { ...input, cursor: "created/token" } }),
       get: () => undefined,
+      getClaimToken: () => undefined,
       list,
       release: () => {},
       update: () => undefined,
@@ -2945,6 +2959,17 @@ describe("Agent Invocations", () => {
     await expect(invocations.getByRunId("shared-run", "support")).resolves.toMatchObject({ agentName: "support" })
     await expect(invocations.getByRunId("shared-run", "review")).resolves.toMatchObject({ agentName: "review" })
     await expect(invocations.list()).resolves.toMatchObject({ invocations: [{}, {}] })
+  })
+
+  it("resolves the public invocation ID from a run and Agent Definition", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({ name: "support", driver: { run: () => "done" }, invocations, runtime: false })
+
+    await runAgent(agent, runtime("linked-run"), {})
+
+    const id = await agentInvocationId("linked-run", "support")
+    await expect(invocations.get(id)).resolves.toMatchObject({ agentName: "support" })
+    await expect(agentInvocationId("linked-run", "review")).resolves.not.toBe(id)
   })
 
   it("encodes Agent Definition and run identities without delimiter collisions", async () => {
@@ -3405,29 +3430,6 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("prunes terminal SQLite records written with a stale status column", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-stale-status-"))
-    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
-    const timestamp = new Date().toISOString()
-    try {
-      await unboundedStore.create({ createdAt: timestamp, id: "legacy", observations: [], status: "running", traceId: "legacy-trace", updatedAt: timestamp })
-      await client.execute({
-        args: [JSON.stringify({ createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "legacy-trace", updatedAt: timestamp }), "legacy"],
-        sql: "UPDATE vitehub_agent_invocations SET record = ? WHERE id = ?",
-      })
-      await store.create({ createdAt: timestamp, id: "newer", observations: [], status: "completed", traceId: "newer-trace", updatedAt: timestamp })
-
-      await expect(store.get("legacy")).resolves.toBeUndefined()
-      await expect(store.get("newer")).resolves.toMatchObject({ status: "completed" })
-    }
-    finally {
-      client.close()
-      await rm(directory, { force: true, recursive: true })
-    }
-  })
-
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.
@@ -3467,7 +3469,21 @@ describe("Agent Invocations", () => {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
+        updated_at TEXT,
         record TEXT NOT NULL
+      )`)
+      await setupClient.execute(`CREATE TRIGGER vitehub_agent_invocations_legacy_updated_at_update
+        AFTER UPDATE OF record ON vitehub_agent_invocations
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE vitehub_agent_invocations
+          SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`)
+      await setupClient.execute(`CREATE TABLE vitehub_agent_invocations_claims (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
       )`)
       await setupClient.execute({
         args: [JSON.stringify({
@@ -3480,8 +3496,10 @@ describe("Agent Invocations", () => {
           traceId: "legacy-trace",
           updatedAt: "2026-01-01T00:00:00.000Z",
         })],
-        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'running', ?)",
       })
+      await setupClient.execute(`INSERT INTO vitehub_agent_invocations_claims (id, claim_id, expires_at)
+        VALUES ('legacy', 'legacy-worker', 2000000000000)`)
 
       let inspections = 0
       let releaseInspections!: () => void
@@ -3514,13 +3532,32 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
-      const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      const migratedAgent = await firstClient.execute("SELECT agent_name, status, updated_at FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
+      expect(migratedAgent.rows[0]?.status).toBe("completed")
+      expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
+      const migratedUpdateTrigger = await firstClient.execute(
+        `SELECT name, sql FROM sqlite_master
+          WHERE type = 'trigger'
+          AND name IN ('vitehub_agent_invocations_legacy_updated_at_update', 'vitehub_agent_invocations_legacy_lifecycle_update_v2')`,
+      )
+      expect(migratedUpdateTrigger.rows).toHaveLength(1)
+      expect(migratedUpdateTrigger.rows[0]?.name).toBe("vitehub_agent_invocations_legacy_lifecycle_update_v2")
+      expect(migratedUpdateTrigger.rows[0]?.sql).toContain("status = COALESCE")
+      const migratedClaim = await firstClient.execute(`SELECT claimed_at, claim_token
+        FROM vitehub_agent_invocations_claims WHERE id = 'legacy'`)
+      expect(Number(migratedClaim.rows[0]?.claimed_at)).toBeGreaterThan(0)
+      expect(migratedClaim.rows[0]?.claim_token).toBe("")
+      await setupClient.execute(`UPDATE vitehub_agent_invocations_claims
+        SET expires_at = 2000000001000 WHERE id = 'legacy'`)
+      const renewedClaim = await firstClient.execute(`SELECT claimed_at, claim_token
+        FROM vitehub_agent_invocations_claims WHERE id = 'legacy'`)
+      expect(Number(renewedClaim.rows[0]?.claimed_at)).toBeGreaterThanOrEqual(Number(migratedClaim.rows[0]?.claimed_at))
+      expect(renewedClaim.rows[0]?.claim_token).not.toBe("")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
-
       const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
       await initializedStore.list()
       await setupClient.execute({
@@ -3535,9 +3572,19 @@ describe("Agent Invocations", () => {
         })],
         sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
       })
+      const overlappingInsert = await setupClient.execute(
+        "SELECT updated_at FROM vitehub_agent_invocations WHERE id = 'overlapping-legacy-writer'",
+      )
+      expect(overlappingInsert.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
       await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
       })
+      const completedMigrationPlan = await firstClient.execute(`EXPLAIN QUERY PLAN
+        SELECT sequence FROM vitehub_agent_invocations
+        WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > 0 ORDER BY sequence LIMIT 100`)
+      expect(completedMigrationPlan.rows.map(row => row.detail)).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_missing_updated_at_sequence"),
+      )
     }
     finally {
       setupClient.close()
@@ -3600,6 +3647,11 @@ describe("Agent Invocations", () => {
         }), "fresh-overlapping-legacy-writer"],
         sql: "UPDATE vitehub_agent_invocations SET search = ?, record = ? WHERE id = ?",
       })
+      const overlappingUpdate = await client.execute(
+        "SELECT status, updated_at FROM vitehub_agent_invocations WHERE id = 'fresh-overlapping-legacy-writer'",
+      )
+      expect(overlappingUpdate.rows[0]?.status).toBe("completed")
+      expect(overlappingUpdate.rows[0]?.updated_at).toBe("2026-01-01T00:02:00.000Z")
       await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
@@ -3690,6 +3742,36 @@ describe("Agent Invocations", () => {
         traceId: "trace-1",
         updatedAt: createdAt,
       })
+      await store.create({
+        createdAt,
+        id: "legacy-writer",
+        observations: [],
+        status: "pending",
+        traceId: "legacy-writer-trace",
+        updatedAt: createdAt,
+      })
+      await expect(client.execute({
+        args: ["legacy-writer", "legacy", Date.now() + 30_000],
+        sql: `INSERT INTO vitehub_agent_invocations_claims (id, claim_id, expires_at)
+          VALUES (?, ?, ?)`,
+      })).resolves.toMatchObject({ rowsAffected: 1 })
+      await expect(client.execute({
+        args: ["legacy-writer"],
+        sql: `SELECT claimed_at, claim_token FROM vitehub_agent_invocations_claims WHERE id = ?`,
+      })).resolves.toMatchObject({ rows: [{ claimed_at: 0, claim_token: "" }] })
+      await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
+      await client.execute({
+        args: ["invocation-1"],
+        sql: "UPDATE vitehub_agent_invocations_claims SET claim_token = '' WHERE id = ?",
+      })
+      await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(false)
+      await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
+      const firstClaimToken = await store.getClaimToken("invocation-1")
+      expect(firstClaimToken).toEqual(expect.any(String))
+      await expect(store.claim("invocation-1", "second", 30_000, { replaceClaimToken: "not-first" })).resolves.toBe(false)
+      await expect(store.claim("invocation-1", "second", 30_000, { replaceClaimToken: firstClaimToken })).resolves.toBe(true)
+      await expect(store.getClaimToken("invocation-1")).resolves.not.toBe(firstClaimToken)
+      await store.release("invocation-1", "second")
       await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
       const localNow = Date.now()
       const clock = vi.spyOn(Date, "now").mockReturnValue(localNow + 60_000)

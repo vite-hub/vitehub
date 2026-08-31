@@ -129,16 +129,37 @@ export type ProviderDeploymentOutputOwner =
   | "vite-hub"
   | "browser"
   | "kv"
+  | "workspace"
 
 export interface ProviderDeploymentOutputWriter {
   (options: ProviderDeploymentOutputOptions): Promise<void>
 }
 
+interface CloudflareProviderDeploymentOutputStateOptions {
+  outputRoot?: string
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
+  wranglerConfigOwnershipFiles?: Record<string, string>
+}
+
+interface CloudflareProviderDeploymentOutputState {
+  wranglerConfig: unknown
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
+}
+
+export interface CloudflareProviderDeploymentOutputStateReader {
+  (options: CloudflareProviderDeploymentOutputStateOptions): Promise<CloudflareProviderDeploymentOutputState>
+}
+
 export interface ProviderDeploymentOutputContribution {
   discard?: () => Promise<void>
   owner: ProviderDeploymentOutputOwner
+  ready?: () => boolean
   rootDir: string
-  write: (context: { signal: AbortSignal; write: ProviderDeploymentOutputWriter }) => Promise<void>
+  write: (context: {
+    readCloudflareState: CloudflareProviderDeploymentOutputStateReader
+    signal: AbortSignal
+    write: ProviderDeploymentOutputWriter
+  }) => Promise<void>
 }
 
 interface FinalizeProviderDeploymentOutputOptions {
@@ -191,6 +212,7 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "vite-hub",
   "browser",
   "kv",
+  "workspace",
 ]
 
 function throwIfProviderOutputAborted(signal: AbortSignal): void {
@@ -240,6 +262,28 @@ async function readProviderOutputOwnershipFile(outputRoot: string, fileName: str
   catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return []
     throw error
+  }
+}
+
+async function readCloudflareProviderDeploymentOutputState(
+  rootDir: string,
+  options: CloudflareProviderDeploymentOutputStateOptions,
+): Promise<CloudflareProviderDeploymentOutputState> {
+  const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
+  let wranglerConfig: unknown = {}
+  try {
+    wranglerConfig = JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return {
+    wranglerConfig,
+    wranglerConfigOwnership: await resolvePersistedProviderOutputOwnership(
+      outputRoot,
+      options.wranglerConfigOwnership,
+      options.wranglerConfigOwnershipFiles,
+    ),
   }
 }
 
@@ -965,15 +1009,19 @@ function closeProviderDeploymentOutputGenerationCapture(generation: ProviderDepl
 
 export function createProviderDeploymentOutputGenerationState(): {
   capture: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined) => void
+  defer: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined, contribution: ProviderDeploymentOutputContribution) => void
   get: (context: ProviderDeploymentOutputPluginContext | undefined) => ProviderDeploymentOutputGeneration | undefined
+  ready: (context: ProviderDeploymentOutputPluginContext | undefined) => void
   reset: (context: ProviderDeploymentOutputPluginContext | undefined, catalog: ProviderOutputCatalogType | undefined, failure?: unknown) => Promise<void>
 } {
   const generations = new WeakMap<object, ProviderDeploymentOutputGeneration | undefined>()
+  const readiness = new WeakMap<object, { ready: boolean }>()
   const localEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? context ?? providerDeploymentOutputFallbackEnvironment
   const sharedEnvironment = (context: ProviderDeploymentOutputPluginContext | undefined): object => context?.environment ?? providerDeploymentOutputFallbackEnvironment
   return {
     capture(context, catalog) {
       const localEnvironmentKey = localEnvironment(context)
+      readiness.delete(localEnvironmentKey)
       if (!catalog) {
         generations.set(localEnvironmentKey, undefined)
         return
@@ -992,11 +1040,26 @@ export function createProviderDeploymentOutputGenerationState(): {
       providerDeploymentOutputGenerationEnvironments.set(generation, { catalog, environment: environmentKey })
       generations.set(localEnvironmentKey, generation)
     },
+    defer(context, catalog, contribution) {
+      const localEnvironmentKey = localEnvironment(context)
+      const state = { ready: false }
+      readiness.set(localEnvironmentKey, state)
+      contributeProviderDeploymentOutput(catalog, {
+        ...contribution,
+        ready: () => state.ready,
+      }, generations.get(localEnvironmentKey))
+    },
     get(context) {
       return generations.get(localEnvironment(context))
     },
+    ready(context) {
+      const state = readiness.get(localEnvironment(context))
+      if (state) state.ready = true
+    },
     async reset(context, catalog, failure) {
-      const generation = generations.get(localEnvironment(context))
+      const localEnvironmentKey = localEnvironment(context)
+      const generation = generations.get(localEnvironmentKey)
+      readiness.delete(localEnvironmentKey)
       closeProviderDeploymentOutputGenerationCapture(generation)
       await resetProviderDeploymentOutputs(catalog, failure, generation)
     },
@@ -1090,6 +1153,20 @@ export async function finalizeProviderDeploymentOutputs(
       while (true) {
         const contributions = catalog.takeDeploymentContributions()
         if (!contributions.length) return
+        try {
+          if (contributions.some(contribution => contribution.ready?.() === false)) {
+            if (controller.signal.aborted) {
+              await catalog.completeDeploymentContributions(contributions)
+              throwIfProviderOutputAborted(controller.signal)
+            }
+            catalog.rollbackDeploymentContributions(contributions)
+            return
+          }
+        }
+        catch (error) {
+          catalog.rollbackDeploymentContributions(contributions)
+          throw error
+        }
         for (const contribution of contributions) {
           const generation = catalog.deploymentContributionGeneration(contribution)
           if (generation) state.generations.add(generation)
@@ -1120,6 +1197,7 @@ export async function finalizeProviderDeploymentOutputs(
                   for (const contribution of rootContributions) {
                     throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({
+                      readCloudflareState: async options => await readCloudflareProviderDeploymentOutputState(rootDir, options),
                       signal: controller.signal,
                       write: async (writeOptions) => {
                         throwIfProviderOutputAborted(controller.signal)

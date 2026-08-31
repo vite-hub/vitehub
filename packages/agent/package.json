@@ -105,6 +105,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./server/github": {
+      "types": "./dist/server/github.d.ts",
+      "import": "./dist/server/github.js"
+    },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js"

@@ -58,6 +58,7 @@ export interface AgentInvocationControllerAdapter<
 }
 
 export type AgentInvocationFinishOutcome<TOutput = unknown> =
+  | { status: "cancelled" }
   | { output?: TOutput, status: "completed" }
   | { error: unknown, status: "failed" }
 
@@ -158,6 +159,9 @@ export function startLiveAgentInvocation<TOutput = unknown, CALL_OPTIONS = unkno
       if (outcome.status === "completed") {
         snapshot = { id, status: "completed" }
         if (outcome.output !== undefined) snapshot.output = outcome.output
+      }
+      else if (outcome.status === "cancelled") {
+        snapshot = { id, status: "cancelled" }
       }
       else {
         snapshot = abortSignal.aborted

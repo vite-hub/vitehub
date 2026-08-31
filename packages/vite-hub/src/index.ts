@@ -8,7 +8,7 @@ import { defaultServerConditions } from "vite"
 
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
-import { hubBlob } from "@vite-hub/blob/vite"
+import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -58,19 +58,20 @@ import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
+type DeploymentServicesManifest = Record<DeploymentService, object>
 
 function resolveServerOptions(config: ResolvedConfig) {
   // SAFETY: Resolved environment configs use Vite's complete resolved resolve-options shape, matching the root fallback.
   const serverResolve = (config.environments?.nitro?.resolve
     ?? config.environments?.ssr?.resolve
-    ?? config.resolve) as typeof config.resolve
-  const conditions = serverResolve.conditions ?? defaultServerConditions
+    ?? config.resolve) as typeof config.resolve | undefined
+  const conditions = serverResolve?.conditions ?? defaultServerConditions
   return {
-    alias: serverResolve.alias,
+    alias: serverResolve?.alias,
     conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
-    extensions: serverResolve.extensions,
-    mainFields: serverResolve.mainFields,
-    preserveSymlinks: serverResolve.preserveSymlinks,
+    extensions: serverResolve?.extensions,
+    mainFields: serverResolve?.mainFields,
+    preserveSymlinks: serverResolve?.preserveSymlinks,
   }
 }
 
@@ -243,7 +244,7 @@ export interface ViteHubOptions {
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean
-  rateLimit?: boolean
+  rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   sandbox?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
@@ -396,7 +397,7 @@ function shellQuote(value: string): string {
 
 function deploymentNitroModule(
   plan: DeploymentPlan,
-  services: object,
+  services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
@@ -429,7 +430,7 @@ function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
   blobEnabled: boolean,
-  services: object,
+  services: DeploymentServicesManifest,
   options: ViteHubOptions,
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
@@ -495,6 +496,7 @@ function deploymentPlugins(
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
           ;(config as { rateLimit?: unknown }).rateLimit = {
+            ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
             provider: plan.services.rateLimit.adapter,
@@ -704,8 +706,15 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
+  const resolvedConsoleBlob = configuredBlob
+    ? resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, preset: plan.preset })
+  const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -741,9 +750,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
+      blobStores: consoleBlobStores,
       console: options.console === true ? true : options.console,
+      databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
+      rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
+      rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
       resolveAuthConfig: options.auth
         ? (root, serverDirs, auth) => resolveAuthViteConfig(
             auth ?? (options.auth === true ? undefined : options.auth),
@@ -751,6 +764,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
+      resolveBlobStores: (blob) => {
+        if (blob === false) return false
+        if (blob === undefined && !options.blob) return false
+        const resolved = resolveBlobViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `blob` config extension.
+          (blob ?? configuredBlob) as BlobModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).blob
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
       resolveKVStores: (kv) => {
         if (kv === false) return false
         if (kv === undefined && !options.kv) return false
@@ -761,6 +784,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
         ).kv
         return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
       },
+      scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
+      workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
       sections: consoleSections,
     }))
@@ -808,7 +833,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob(
-      presetBlobOptions(plan, options.blob),
+      configuredBlob,
       {
       importBase: `${generatedImportBase}/blob`,
       nitroOwned: true,
@@ -839,7 +864,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
+    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
     plugins.push(hubRateLimit({
+      ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))

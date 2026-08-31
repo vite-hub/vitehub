@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  consoleDatabaseSchemaPath,
+  consoleDatabaseTablePath,
   decodeAgentRouteParam,
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../src/console/runtime/console-route.ts"
 
 describe("Console routes", () => {
+  it("keeps the schema view outside the table route namespace", () => {
+    expect(consoleDatabaseTablePath.replace(":table?", "schema")).toBe("/database/schema")
+    expect(consoleDatabaseSchemaPath).toBe("/database/schema/diagram")
+  })
+
   it.each([".", "..", "~", "support/team"])(
     "round-trips the Agent identity %j through a normalized URL",
     (agentName) => {
@@ -35,7 +42,17 @@ describe("Console routes", () => {
       .toBe("vitehub-console___en")
     expect(resolveConsoleRouteName("vitehub-console-workflows___en", "vitehub-console-agents"))
       .toBe("vitehub-console-agents___en")
+    expect(resolveConsoleRouteName("vitehub-console-blob", "vitehub-console"))
+      .toBe("vitehub-console")
+    expect(resolveConsoleRouteName("vitehub-console-rate-limits___en", "vitehub-console-databases"))
+      .toBe("vitehub-console-databases___en")
+    expect(resolveConsoleRouteName("vitehub-console-queues___en", "vitehub-console-databases"))
+      .toBe("vitehub-console-databases___en")
     expect(resolveConsoleRouteName("vitehub-console-queues___en", "vitehub-console-kv"))
       .toBe("vitehub-console-kv___en")
+    expect(resolveConsoleRouteName("vitehub-console-database-schema___en", "vitehub-console-database"))
+      .toBe("vitehub-console-database___en")
+    expect(resolveConsoleRouteName("vitehub-console-databases___en", "vitehub-console-database"))
+      .toBe("vitehub-console-database___en")
   })
 })

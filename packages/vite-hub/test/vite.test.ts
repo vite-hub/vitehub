@@ -13,6 +13,12 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  resolveBlobViteConfig: vi.fn((blob?: { driver?: string, stores?: Record<string, unknown> }, input?: { hosting?: string }) => ({
+    blob: {
+      store: blob?.driver ? { driver: blob.driver } : input?.hosting === "cloudflare-module" ? { driver: "cloudflare-r2" } : undefined,
+      stores: blob?.stores,
+    },
+  })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
@@ -57,7 +63,10 @@ vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
 }))
-vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
+vi.mock("@vite-hub/blob/vite", () => ({
+  hubBlob: integrationMocks.hubBlob,
+  resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
+}))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
@@ -372,6 +381,27 @@ describe("vitehub", () => {
     }
   })
 
+  it("derives Console Blob stores from the resolved Vite Blob configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-stores-"))
+    try {
+      const plugin = dependencyPluginByName(
+        vitehub({ blob: true, console: true, preset: "node" }),
+        "vite-hub/console",
+      )
+      const config: Record<string, unknown> = { root }
+      await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+      config.blob = { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } }
+      await callHook(plugin.configResolved, [config])
+
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('installConsoleBlob(')
+      expect(generated).toContain('["archive","media"]')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects a conflicting standalone Console KV handler", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, kv: true, preset: "node" }),
@@ -662,6 +692,16 @@ describe("vitehub", () => {
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
+    })
+    expect(pluginNames(vitehub({
+      preset: "cloudflare",
+      rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
+    }))).toContain("@vite-hub/rate-limit/vite")
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/_internal/rate-limit",
+      projectRoot: "packages/policies",
+      provider: "cloudflare",
+      scanDirs: ["rules"],
     })
   })
 
@@ -1366,6 +1406,20 @@ describe("vitehub", () => {
         queue: { namePrefix: "acme-my-app-", provider: "cloudflare" },
         rateLimit: { namespace: "acme-my-app", provider: "cloudflare" },
         sandbox: { name: "acme-my-app-sandbox", provider: "cloudflare" },
+      })
+
+      const configuredRateLimit = await applyDeploymentConfig(
+        {
+          preset: "cloudflare",
+          rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
+        },
+        { root: appRoot },
+      )
+      expect(configuredRateLimit.rateLimit).toEqual({
+        namespace: "acme-my-app",
+        projectRoot: "packages/policies",
+        provider: "cloudflare",
+        scanDirs: ["rules"],
       })
 
       await rm(join(root, "package.json"))

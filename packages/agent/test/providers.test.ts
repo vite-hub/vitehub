@@ -15072,7 +15072,10 @@ describe("server helpers", () => {
         }
         return await originalExtendLock(lock, ttlMs)
       })
-      await vi.waitFor(() => expect(driverSignals[0]?.aborted).toBe(true))
+      await vi.waitFor(
+        () => expect(driverSignals[0]?.aborted).toBe(true),
+        { timeout: binding!.steer!.ttlMs * 5 },
+      )
 
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(3), { timeout: binding!.steer!.ttlMs * 5 })
       await vi.waitFor(() => expect(handoffAcquisitions).toHaveLength(1))

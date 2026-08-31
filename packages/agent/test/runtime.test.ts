@@ -11,6 +11,7 @@ import { isAsyncIterable } from "../src/internal/stream-result.ts"
 import { adapterDefinition } from "./adapter-definition.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentChannelDeliveryFinishEffectResult, AgentFinishEvent } from "../src/index.ts"
+import type { AgentActivityUpdate } from "../src/types.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const loadAiSdk = vi.hoisted(() => vi.fn())
@@ -5765,6 +5766,139 @@ describe("agent message protocol", () => {
     })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
   })
 
+  it("projects invocation status, harness plans, approvals, and final text through the active Channel", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const updates: AgentActivityUpdate[] = []
+    const waitUntil = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              updates.push(structuredClone(activity))
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => (async function* () {
+          yield { data: { plan: [{ status: "inProgress", step: "Read files" }, { status: "pending", step: "Run tests" }] }, type: "data-agent-plan" }
+          yield { id: "approval-1", name: "deploy", type: "approval-request" }
+          yield { data: { requestId: "input-1", status: "requested" }, type: "data-agent-input" }
+          yield { approved: false, id: "approval-1", type: "approval-decision" }
+          yield { data: { plan: [{ status: "completed", step: "Read files" }, { status: "inProgress", step: "Run tests" }] }, type: "data-agent-plan" }
+          yield { data: { answers: { scope: "workspace" }, requestId: "input-1", status: "resolved" }, type: "data-agent-input" }
+          yield { phase: "final", role: "assistant", text: "Finished the review.", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+      name: "reviewer",
+    })
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        activity: {
+          links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],
+          runId: "run-1",
+          target: { id: "work-1" },
+        },
+        channelId: "work",
+        runId: "provider-run-1",
+      },
+      runtime: "unknown",
+      waitUntil,
+    }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(updates.map(update => update.status)).toEqual(["queued", "running", "running", "waiting", "waiting", "running", "completed"])
+    expect(updates[2]?.tasks).toEqual([
+      { status: "in-progress", title: "Read files" },
+      { status: "pending", title: "Run tests" },
+    ])
+    expect(updates[4]).toMatchObject({
+      status: "waiting",
+      tasks: [
+        { status: "completed", title: "Read files" },
+        { status: "in-progress", title: "Run tests" },
+      ],
+    })
+    expect(updates.at(-1)).toMatchObject({
+      agentName: "reviewer",
+      links: [{ label: "Session", url: "https://console.test/invocations/run-1" }],
+      runId: "run-1",
+      status: "completed",
+      summary: "Finished the review.",
+    })
+    expect(waitUntil).toHaveBeenCalled()
+  })
+
+  it("bounds text retained from Response streams for Channel activity", async () => {
+    const { createBoundedTextAccumulator } = await import("../src/internal/bounded-text.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const updates: AgentActivityUpdate[] = []
+    const retained = createBoundedTextAccumulator(12_000)
+    retained.append("a".repeat(8_000))
+    retained.append("b".repeat(8_000))
+    expect(retained.value()).toBe(`${"a".repeat(4_000)}${"b".repeat(8_000)}`)
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              updates.push(structuredClone(activity))
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => new Response("a".repeat(20_000), { headers: { "content-type": "text/plain" } }) },
+    })
+
+    const response = await runAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        activity: { runId: "run-1", target: { id: "work-1" } },
+        channelId: "work",
+        runId: "provider-run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}) as Response
+    await response.text()
+
+    expect(updates.at(-1)).toMatchObject({ status: "completed", summary: "a".repeat(12_000) })
+  })
+
+  it("projects setup failures without replacing the Agent error", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const failure = new Error("driver failed")
+    const statuses: string[] = []
+    const agent = defineAgent({
+      channels: {
+        work: defineChannel("work", {
+          activity: {
+            update: ({ activity }) => {
+              statuses.push(activity.status)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => { throw failure } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { activity: { target: "work-1" }, channelId: "work", runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toBe(failure)
+    expect(statuses).toEqual(["queued", "running", "failed"])
+  })
+
   it("enables equivalent generated routes for shorthand and explicit Web Chat Channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -11047,7 +11181,8 @@ describe("agent message protocol", () => {
         traceLog = context.traceLog
         return {
           fullStream: (async function* () {
-            yield { type: "finish" }
+            yield { type: "start" }
+            await new Promise<void>(() => {})
           })(),
           toUIMessageStream() {
             return new ReadableStream({
@@ -11085,17 +11220,76 @@ describe("agent message protocol", () => {
 
     expect(pulls).toBeLessThanOrEqual(2)
     const cancelResult = await Promise.race([
-      stream.cancel("client disconnected").then(() => "cancelled"),
+      stream.cancel().then(() => "cancelled"),
       new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
     ])
     releaseBlockedPull?.()
 
     expect(cancelResult).toBe("cancelled")
-    expect(cancelReason).toBe("client disconnected")
+    expect(cancelReason).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(traceLog!.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
+    })
     expect(traceLog!.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.finish",
-      "agent.invocation.error",
+      "agent.invocation.cancelled",
+    ])
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "cancelled" }])
+  })
+
+  it("preserves Capability cleanup failures after UI stream cancellation", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const cleanupFailure = new Error("cleanup failed after cancellation")
+    let releaseBlockedPull: (() => void) | undefined
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        close: async () => { throw cleanupFailure },
+        id: "failing-cleanup",
+      })],
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return {
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return new ReadableStream({
+              pull(controller) {
+                if (releaseBlockedPull) return
+                controller.enqueue({ type: "start", messageId: "assistant-1" })
+                return new Promise<void>((resolve) => {
+                  releaseBlockedPull = resolve
+                })
+              },
+              cancel() {
+                releaseBlockedPull?.()
+              },
+            })
+          },
+        }
+      } },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await expect(stream.cancel()).rejects.toBe(cleanupFailure)
+    releaseBlockedPull?.()
+    expect(traceLog!.entries().filter(event => event.name === "agent.invocation.error")).toMatchObject([
+      {
+        activity: { owner: "vitehub", phase: "teardown" },
+        attributes: { "error.message": cleanupFailure.message },
+      },
     ])
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
@@ -11268,7 +11462,7 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(agentError.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
-  it("runs agent finish hooks when Response bodies are canceled", async () => {
+  it("finalizes canceled Response bodies as cancelled", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
@@ -11285,8 +11479,8 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await response.body?.cancel()
-    expect(finish).toHaveBeenCalledTimes(1)
-    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "completed" }])
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "cancelled" }])
   })
 
   it("runs Agent Error Hooks when Response wrapping fails", async () => {
@@ -12063,10 +12257,13 @@ describe("agent message protocol", () => {
 
     it("journals Workflow provider start failures", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
       const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
       const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const failure = new Error("provider start failed")
+      const statuses: AgentActivityUpdate["status"][] = []
+      const waitUntil = vi.fn()
       setAgentWorkflowRuntimeLoaders({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
@@ -12084,18 +12281,203 @@ describe("agent message protocol", () => {
       })
       try {
         await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
           driver: { run: () => "unreachable" },
           invocations,
           runtime: workflow("start-failure-agent"),
         }), {
           memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
           runtime: "unknown",
-          waitUntil: vi.fn(),
+          waitUntil,
         }, {})).rejects.toBe(failure)
 
         await expect(invocations.list()).resolves.toMatchObject({
           invocations: [{ error: { message: failure.message }, status: "failed" }],
         })
+        expect(statuses).toEqual(["queued", "failed"])
+        expect(waitUntil).toHaveBeenCalledTimes(2)
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("projects activity when Workflow preparation fails", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const failure = new Error("workflow preparation failed")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({ createWorkflow: () => { throw failure } }) as never,
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("preparation-failure-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("projects activity when the Workflow runtime state fails to load", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const failure = new Error("workflow runtime state failed to load")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        state: async () => { throw failure },
+        workflow: () => import("@vite-hub/workflow"),
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("runtime-state-failure-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toBe(failure)
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("projects failed activity when a direct Workflow has no name", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const statuses: AgentActivityUpdate["status"][] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+        }) as never,
+        workflow: () => import("@vite-hub/workflow"),
+      })
+      try {
+        await expect(runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { statuses.push(activity.status) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow(),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "workflow-run-1" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})).rejects.toThrow("requires a name")
+
+        expect(statuses).toEqual(["queued", "failed"])
+      }
+      finally {
+        setAgentWorkflowRuntimeLoaders({
+          state: () => import("@vite-hub/workflow/runtime/state"),
+          workflow: () => import("@vite-hub/workflow"),
+        })
+      }
+    })
+
+    it("projects terminal activity from an already-settled Workflow run", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { defineChannel } = await import("../src/channels.ts")
+      const { setAgentWorkflowRuntimeLoaders } = await import("../src/internal/workflow-runtime-loaders.ts")
+      const updates: AgentActivityUpdate[] = []
+      setAgentWorkflowRuntimeLoaders({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        state: async () => ({
+          getInlineWorkflowDefinitions: () => new Map(),
+          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeRegistry: () => undefined,
+          runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
+        }) as never,
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        workflow: async () => ({
+          createWorkflow: () => ({
+            run: async () => ({
+              id: "existing-run",
+              provider: "openworkflow",
+              result: { text: "Already finished." },
+              status: "completed",
+            }),
+          }),
+        }) as never,
+      })
+      try {
+        await runAgent(defineAgent({
+          channels: {
+            work: defineChannel("work", {
+              activity: { update: ({ activity }) => { updates.push(structuredClone(activity)) } },
+              messages: false,
+            }),
+          },
+          driver: { run: () => "unreachable" },
+          runtime: workflow("settled-agent"),
+        }), {
+          memo: vi.fn(),
+          run: { activity: { target: "work-1" }, channelId: "work", runId: "existing-run" },
+          runtime: "unknown",
+          waitUntil: vi.fn(),
+        }, {})
+
+        expect(updates.map(({ status, summary }) => ({ status, summary }))).toEqual([
+          { status: "queued", summary: "" },
+          { status: "completed", summary: "Already finished." },
+        ])
       }
       finally {
         setAgentWorkflowRuntimeLoaders({

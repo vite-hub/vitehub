@@ -190,9 +190,10 @@ export function withReadableStreamCleanup<T>(
   const reader = stream.getReader()
   let cleaned = false
   let cleanupTask: Promise<void> | undefined
+  let pendingCleanupOutcome: StreamCleanupOutcome | undefined
   let pendingError: unknown
   let wrappedController: ReadableStreamDefaultController<T> | undefined
-  const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
+  const runCleanup = async (outcome: StreamCleanupOutcome = pendingCleanupOutcome ?? { completed: true, failed: false }) => {
     if (cleanupTask) return await cleanupTask
     cleaned = true
     options.abortSignal?.removeEventListener("abort", onAbort)
@@ -202,6 +203,7 @@ export function withReadableStreamCleanup<T>(
   const onAbort = () => {
     const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
     if (cleaned) return
+    pendingCleanupOutcome = { error: reason, failed: true }
     cleaned = true
     options.abortSignal?.removeEventListener("abort", onAbort)
     wrappedController?.error(reason)
@@ -256,6 +258,7 @@ export function withReadableStreamCleanup<T>(
     },
     async cancel(reason) {
       let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
+      pendingCleanupOutcome = outcome
       let detachedReaderSettlement: Promise<true> | undefined
       try {
         await options.cancelOnAbort?.(reason)
@@ -268,6 +271,7 @@ export function withReadableStreamCleanup<T>(
       }
       catch (error) {
         outcome = { error, failed: true }
+        pendingCleanupOutcome = outcome
         throw error
       }
       finally {
