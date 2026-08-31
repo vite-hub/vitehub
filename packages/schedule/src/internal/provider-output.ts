@@ -260,7 +260,8 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     .map(([name, cron], index) => {
       const cronId = index.toString(36)
       const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
-      return { cron, cronName: `vitehub-${cronId}-${safeName.slice(0, 56 - cronId.length)}`, name }
+      const cronNamePrefix = `vitehub-${cronId}-`
+      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, name }
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
