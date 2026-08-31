@@ -112,6 +112,21 @@ async function catalogDependencySpecs(catalogName: string, names: readonly strin
   }))
 }
 
+async function resolvedPeerDependencySpecs(peerDependencies: Record<string, string>) {
+  const workspace = parse(workspaceCatalogsSchema, parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+
+  return Object.fromEntries(Object.entries(peerDependencies).map(([name, spec]) => {
+    if (!spec.startsWith("catalog:")) return [name, spec]
+
+    const catalogName = spec.slice("catalog:".length)
+    const catalog = workspace.catalogs[catalogName]
+    if (!catalog) throw new Error(`Missing ${catalogName} dependency catalog`)
+    const resolvedSpec = catalog[name]
+    if (!resolvedSpec) throw new Error(`Missing ${name} in ${catalogName} dependency catalog`)
+    return [name, resolvedSpec]
+  }))
+}
+
 function requiredDependency(manifest: { dependencies?: Record<string, string> }, name: string) {
   const version = manifest.dependencies?.[name]
   if (!version) throw new Error(`Consumer fixture must declare ${name}`)
@@ -271,7 +286,15 @@ async function importPackagesWithoutDeclarationPeer(
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
     const declaredPeers = Object.keys(sourceManifest.peerDependencies || {})
-    const devDependencies = mixedPeerFixtureSpecs(packageName, omittedPeer, requiredPeers, declaredPeers, specs, peerSpecs)
+    const sourcePeerSpecs = await resolvedPeerDependencySpecs(sourceManifest.peerDependencies || {})
+    const devDependencies = mixedPeerFixtureSpecs(
+      packageName,
+      omittedPeer,
+      requiredPeers,
+      declaredPeers,
+      specs,
+      { ...sourcePeerSpecs, ...peerSpecs },
+    )
     await mkdir(appDir, { recursive: true })
     await Promise.all([
       writeFile(join(appDir, ".npmrc"), [
@@ -716,6 +739,28 @@ describe("published declaration diagnostics", () => {
       "@chat-adapter/discord": "4.38.0",
       "@vercel/functions": "^3.7.5",
       askweb: "^0.2.0",
+    })
+    expect(fixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("resolves mixed fixture peers from their package catalogs", async () => {
+    const manifest = await readManifest(join(repoRoot, "packages/blob/package.json"))
+    const declaredPeers = Object.keys(manifest.peerDependencies || {})
+    const peerSpecs = await resolvedPeerDependencySpecs(manifest.peerDependencies || {})
+    const fixtureSpecs = mixedPeerFixtureSpecs(
+      "@vite-hub/blob",
+      "vite",
+      [],
+      declaredPeers,
+      {},
+      { ...peerSpecs, "@types/node": "1.0.0" },
+    )
+
+    expect(fixtureSpecs).toMatchObject({
+      "@aws-sdk/client-s3": "^3.700.0",
+      "@azure/storage-blob": "^12.26.0",
+      "@types/node": "1.0.0",
+      uploadthing: "^7.7.4",
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
