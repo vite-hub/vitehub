@@ -579,7 +579,7 @@ function sourceImportsFeedingWorkspaceStore(
                   for (const importedName of memberNames) {
                     imports.push(imported.type === "ImportDefaultSpecifier"
                       ? { importedName: "default", localName: imported.local.name, selectedName: importedName, specifier }
-                      : { importedName, localName: imported.local.name, selectedName: importedName, specifier })
+                      : { importedName, localName: imported.local.name, specifier })
                   }
                   if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
                     imports.push({ importedName: "default", localName: imported.local.name, specifier })
@@ -680,11 +680,11 @@ function sourceImportsFeedingWorkspaceStore(
                   : babelPathOrBindingIsExported(reference, exportedName)
                 // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
                 if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
-                  imports.push({ importedName: selectedDynamicImportName, localName, selectedName: selectedDynamicImportName, specifier })
+                  imports.push({ importedName: selectedDynamicImportName, localName, specifier })
                 }
                 for (const reference of binding?.referencePaths ?? []) {
                   const memberNames = babelNamespaceMemberNames(reference, reachesRequestedExport)
-                  for (const importedName of memberNames) imports.push({ importedName, localName, selectedName: importedName, specifier })
+                  for (const importedName of memberNames) imports.push({ importedName, localName, specifier })
                 }
               }
               return
@@ -746,7 +746,7 @@ function sourceImportsFeedingWorkspaceStore(
               : "default"
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
-            for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, selectedName: name, specifier })
+            for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, specifier })
           },
         },
       })],
