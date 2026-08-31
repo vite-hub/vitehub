@@ -112,9 +112,13 @@ describe("public package export contracts", () => {
 
   it("publishes Realtime's Tiptap peer bundle in its runtime closure", () => {
     const manifest = readPackageManifest("realtime")
+    const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
     expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
     expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
+    expect(packConfig).toContain("/^@tiptap\\/extension-collaboration/")
+    expect(packConfig).toContain("/^@tiptap\\/y-tiptap/")
+    expect(packConfig).toContain("/^prosemirror-transform$/")
   })
 
   it("publishes Better Auth host declarations in its dependency closure", () => {
