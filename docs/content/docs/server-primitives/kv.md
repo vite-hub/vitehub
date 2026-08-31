@@ -2,6 +2,7 @@
 title: KV
 description: Store and retrieve small values by key through one key-value API.
 navigation.order: 4
+navigation.group: Data
 icon: i-lucide-database-zap
 ---
 

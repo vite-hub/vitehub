@@ -2,6 +2,7 @@
 title: Netlify
 description: Use the ViteHub package contracts that have explicit Netlify runtime or function output.
 navigation.order: 45
+navigation.group: Deployment hosts
 icon: i-simple-icons-netlify
 ---
 

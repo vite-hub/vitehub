@@ -2,6 +2,7 @@
 title: Deno
 description: Generate Deno server output for Agent routes and Schedule wake output without making app code Deno-specific.
 navigation.order: 46
+navigation.group: Deployment hosts
 icon: i-simple-icons-deno
 ---
 

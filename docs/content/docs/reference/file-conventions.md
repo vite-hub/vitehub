@@ -2,6 +2,7 @@
 title: File conventions
 description: Reference the discovery paths that produce ViteHub Discovered Definitions and Discovery Identity.
 navigation.order: 52
+navigation.group: Setup
 icon: i-lucide-folder-tree
 ---
 

@@ -2,6 +2,7 @@
 title: Auth
 description: Configure Better Auth server behavior, route exposure, runtime options, and session checks.
 navigation.order: 3
+navigation.group: Application
 icon: i-lucide-shield-check
 ---
 

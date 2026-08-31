@@ -2,6 +2,7 @@
 title: Vercel
 description: Generate Vercel Provider Output while preserving ViteHub package boundaries.
 navigation.order: 44
+navigation.group: Deployment hosts
 icon: i-simple-icons-vercel
 ---
 

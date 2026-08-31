@@ -2,6 +2,7 @@
 title: Sandbox
 description: Run named package projects through Workspace and Box.
 navigation.order: 12
+navigation.group: Files and execution
 icon: i-lucide-terminal-square
 ---
 

@@ -3,6 +3,7 @@ title: Runtime and host support
 description: Check which ViteHub contracts exist for each host and how the repository proves them.
 navigation.title: Support matrix
 navigation.order: 41
+navigation.group: Choose a target
 icon: i-lucide-table-properties
 ---
 

@@ -3,6 +3,7 @@ title: Package reference
 description: Find the ViteHub package and public import for each feature.
 navigation.title: Package reference
 navigation.order: 50
+navigation.group: Setup
 icon: i-lucide-package
 ---
 

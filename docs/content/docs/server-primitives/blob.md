@@ -2,6 +2,7 @@
 title: Blob
 description: Store uploads, generated files, binary objects, and metadata with one object-storage API.
 navigation.order: 6
+navigation.group: Data
 icon: i-lucide-files
 ---
 

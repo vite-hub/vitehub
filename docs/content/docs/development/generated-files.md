@@ -2,6 +2,7 @@
 title: Generated files
 description: Inspect ViteHub generated files without making them public authoring surfaces.
 navigation.order: 36
+navigation.group: Build state
 icon: i-lucide-file-cog
 ---
 

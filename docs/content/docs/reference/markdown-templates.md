@@ -2,6 +2,7 @@
 title: Markdown templates
 description: Render deterministic Markdown from explicit data, bounded conditions, fragments, and caller-resolved imports.
 navigation.order: 53
+navigation.group: Application APIs
 icon: i-vscode-icons-file-type-markdown
 ---
 

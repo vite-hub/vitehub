@@ -2,6 +2,7 @@
 title: Workspace and Sources
 description: Understand how persistent files differ from read-only origins.
 navigation.order: 13
+navigation.group: Application model
 icon: i-lucide-folder-git-2
 ---
 

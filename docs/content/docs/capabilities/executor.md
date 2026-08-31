@@ -2,6 +2,7 @@
 title: Executor
 description: Connect an Agent to an Executor tool catalog through one authenticated MCP endpoint.
 navigation.icon: i-lucide-plug-zap
+navigation.group: External context
 ---
 
 Use `executor()` when an Agent should use integrations configured in [Executor](https://executor.sh/) without owning each integration credential.

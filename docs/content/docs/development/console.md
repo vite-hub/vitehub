@@ -2,6 +2,7 @@
 title: Console
 description: Enable the read-only Console, navigate configured primitives, and protect its routes.
 navigation.order: 32
+navigation.group: Local tools
 icon: i-lucide-monitor-dot
 ---
 

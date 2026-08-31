@@ -2,6 +2,7 @@
 title: CLI
 description: Run package-owned development workflows through the local Vite config.
 navigation.order: 31
+navigation.group: Local tools
 icon: i-lucide-terminal-square
 ---
 

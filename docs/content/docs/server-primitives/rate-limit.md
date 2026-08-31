@@ -2,6 +2,7 @@
 title: Rate Limit
 description: Require request budgets through an event-first H3 guard and atomic drivers.
 navigation.order: 3.5
+navigation.group: Application
 icon: i-lucide-gauge
 ---
 
