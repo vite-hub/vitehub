@@ -32,6 +32,13 @@ const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (pa
     }),
   }
 }))
+
+function lastProviderSessionStore(): MockProviderSessionStore {
+  const store = createProviderRuntime.mock.lastCall?.[0].sessionStore
+  if (!store) throw new Error("Expected the provider runtime to receive a session store.")
+  return store
+}
+
 const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
   ? "/app/node_modules/@openai/codex/bin/codex.js"
   : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
@@ -224,6 +231,7 @@ describe("Provider Agent Driver", () => {
     const path = `.vitehub/${threadId}.sqlite`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider, sessionStorePath: path }).generate(context(threadId) as never)
 
     expect(createSqliteProviderRuntimeSessionStore).toHaveBeenLastCalledWith(resolve(path))
@@ -242,17 +250,43 @@ describe("Provider Agent Driver", () => {
       return value
     }
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("a") as never)
     const sessionAStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("b") as never)
     const sessionBStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
 
     expect(sessionAStore).toBeDefined()
     expect(sessionBStore).toBeDefined()
-    await sessionAStore!.set(threadId, "session-a-cursor")
-    expect(await sessionAStore!.get(threadId)).toBe("session-a-cursor")
-    expect(await sessionBStore!.get(threadId)).toBeUndefined()
+    if (!sessionAStore || !sessionBStore) throw new Error("Expected partitioned provider session stores.")
+    await sessionAStore.set(threadId, "session-a-cursor")
+    expect(await sessionAStore.get(threadId)).toBe("session-a-cursor")
+    expect(await sessionBStore.get(threadId)).toBeUndefined()
+  })
+
+  it("restores a durable cursor without replaying previous messages after an adapter restart", async () => {
+    const threadId = `thread-durable-restart-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context(threadId) as never)
+    await lastProviderSessionStore().set(threadId, "durable-cursor")
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context(threadId, {
+      messages: [
+        { parts: [{ text: "previous question", type: "text" }], role: "user" },
+        { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)
+
+    expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "durable-cursor" }))
+    expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue" }))
   })
 
   it("does not persist sessions that ViteHub cannot safely resume", async () => {
@@ -262,6 +296,7 @@ describe("Provider Agent Driver", () => {
       credentials: () => "{}",
       provider: "codex",
       sessionStorePath: `.vitehub/${ephemeralThreadId}.sqlite`,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }).generate(context(ephemeralThreadId) as never)
     expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
 
@@ -270,6 +305,7 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({
       provider: "claude-code",
       sessionStorePath: `.vitehub/${auxiliaryThreadId}.sqlite`,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }).generate(markAuxiliaryMessageChannelInstructionContext(context(auxiliaryThreadId)) as never)
     expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
   })
@@ -282,12 +318,13 @@ describe("Provider Agent Driver", () => {
     ]))
 
     await Promise.all([
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       createProviderAgentAdapter({ provider: "codex", sessionStorePath: resolve(path) }).generate(context("thread-session-second") as never),
     ])
 
     expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1)
-    expect(createProviderRuntime.mock.calls.at(-2)?.[0].sessionStore).toBe(createProviderRuntime.mock.lastCall?.[0].sessionStore)
     expect(runtimes.every(value => value.close.mock.calls.length === 1)).toBe(true)
   })
 
@@ -296,8 +333,10 @@ describe("Provider Agent Driver", () => {
     const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
     createSqliteProviderRuntimeSessionStore.mockRejectedValueOnce(new Error("session store unavailable"))
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context("thread-session-failed") as never)).rejects.toThrow("session store unavailable")
     runtime("thread-session-retried", [event("turn.completed", "thread-session-retried", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context("thread-session-retried") as never)
 
     expect(createSqliteProviderRuntimeSessionStore.mock.calls.filter(([value]) => value === resolve(path))).toHaveLength(2)
@@ -309,6 +348,7 @@ describe("Provider Agent Driver", () => {
     let resolveStore!: (value: Awaited<ReturnType<typeof createSqliteProviderRuntimeSessionStore>>) => void
     createSqliteProviderRuntimeSessionStore.mockImplementationOnce(() => new Promise(resolve => resolveStore = resolve))
     const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-cancelled", {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
@@ -329,6 +369,7 @@ describe("Provider Agent Driver", () => {
     await expect(createProviderAgentAdapter({
       provider: "codex",
       sessionStorePath: " ",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     }).generate(context("thread-empty-session-store") as never)).rejects.toThrow("driver.sessionStorePath must be a non-empty string")
   })
 
@@ -1873,6 +1914,7 @@ cli_auth_credentials_store = "keyring"
 
   it("clears a provider cursor when the invocation fails", async () => {
     const threadId = "thread-failed-resume"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: "successful-cursor",
     })
@@ -1880,12 +1922,15 @@ cli_auth_credentials_store = "keyring"
       turnResumeCursor: "failed-cursor",
     })
     const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
+    const sessionStore = lastProviderSessionStore()
+    await sessionStore.set(threadId, "successful-cursor")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId) as never)).rejects.toThrow("provider failed")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
@@ -2839,6 +2884,7 @@ cli_auth_credentials_store = "keyring"
 
   it("clears a provider cursor when Workspace write-back fails", async () => {
     const threadId = "thread-workspace-failed-resume"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: "successful-cursor",
     })
@@ -2869,12 +2915,15 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
       workspaceMode: "write",
     })
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(runContext() as never)
+    const sessionStore = lastProviderSessionStore()
+    await sessionStore.set(threadId, "successful-cursor")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(runContext() as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
@@ -3042,18 +3091,26 @@ cli_auth_credentials_store = "keyring"
 
   it("cancels when the provider emits no terminal event", async () => {
     const threadId = "thread-cancel-race"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
     const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
     const controller = new AbortController()
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
     }) as never)
 
     await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    const sessionStore = lastProviderSessionStore()
+    await sessionStore.set(threadId, "cancelled-cursor")
     controller.abort("cancelled")
 
     await expect(result).rejects.toBe("cancelled")
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    expect(await sessionStore.get(threadId)).toBeUndefined()
+    expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
     expect(provider.close).toHaveBeenCalledOnce()
   })

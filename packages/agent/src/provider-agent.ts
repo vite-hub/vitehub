@@ -183,6 +183,7 @@ function partitionProviderSessionStore(
   store: ProviderRuntimeSessionStore,
   sessionKey: string,
 ): ProviderRuntimeSessionStore {
+  // SAFETY: The provider runtime treats thread IDs as opaque non-empty storage keys.
   const persistedThreadId = sessionKey as ThreadId
   return {
     delete: () => store.delete(persistedThreadId),
@@ -1472,6 +1473,8 @@ async function* runProvider<
   const sessionKey = sessionId
     ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
+  // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
+  const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
   const preservesProviderSession = !auxiliary && (options.provider !== "codex"
     || options.credentials === undefined
@@ -1491,6 +1494,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
+  let sessionStore: ProviderRuntimeSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
@@ -1667,10 +1671,10 @@ async function* runProvider<
       await workspaceCleanup
       await cleanupRoot()
     }
-    if (options.sessionStorePath !== undefined && (typeof options.sessionStorePath !== "string" || !options.sessionStorePath.trim())) {
+    if (options.sessionStorePath !== undefined && (!hasRuntimeType(options.sessionStorePath, "string") || !options.sessionStorePath.trim())) {
       throw new TypeError("[vitehub] driver.sessionStorePath must be a non-empty string.")
     }
-    const sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey
+    sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey
       ? partitionProviderSessionStore(
           await waitForProviderOperation(
             providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore),
@@ -1679,6 +1683,11 @@ async function* runProvider<
           sessionKey,
         )
       : undefined
+    let resumeCursor = pendingResumeCursor
+    if (resumeCursor === undefined && sessionStore) {
+      resumeCursor = await waitForProviderOperation(sessionStore.get(threadId), effectiveSignal)
+      if (resumeCursor !== undefined) pendingResumeCursor = resumeCursor
+    }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
@@ -1731,15 +1740,13 @@ async function* runProvider<
     }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-    const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
-    const resumed = Boolean(preservesProviderSession && sessionKey && resumeCursors.has(sessionKey))
+    const resumed = resumeCursor !== undefined
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
-      resumeCursor: preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined,
+      resumeCursor,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
@@ -1983,17 +1990,32 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
-    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
-    else releaseSessionLock?.()
+    let deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
     if (preservesProviderSession && sessionKey) {
-      if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
+      if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
         resumeCursors.set(sessionKey, pendingResumeCursor)
       }
       else {
         resumeCursors.delete(sessionKey)
+        if (sessionStore) {
+          const durableSessionStore = sessionStore
+          if (deferredCleanup) {
+            deferredCleanup = deferredCleanup.finally(() => durableSessionStore.delete(threadId))
+            observeLateCleanup(deferredCleanup)
+          }
+          else {
+            try {
+              await sessionStore.delete(threadId)
+            }
+            catch (error) {
+              cleanupErrors.push(error)
+            }
+          }
+        }
       }
     }
+    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
+    else releaseSessionLock?.()
     if (cleanupErrors.length) {
       const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
       if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
