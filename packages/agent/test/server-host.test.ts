@@ -1171,7 +1171,6 @@ describe("Agent Invocation host recovery", () => {
   })
 
   it("reads recent and all active Agent Invocations through the public list interface", async () => {
-    const activeCursors: (string | undefined)[] = []
     const list = vi.fn(async (options = {}) => {
       if (!("status" in options)) {
         return {
@@ -1184,7 +1183,6 @@ describe("Agent Invocation host recovery", () => {
         }
       }
 
-      activeCursors.push(options.cursor)
       if (!options.cursor) {
         return {
           cursor: "opaque-next-page",
@@ -1205,7 +1203,9 @@ describe("Agent Invocation host recovery", () => {
       stale: 1,
       total: 6,
     })
-    expect(activeCursors).toEqual([undefined, "opaque-next-page"])
+    expect(list).toHaveBeenNthCalledWith(1, { limit: 100 })
+    expect(list).toHaveBeenNthCalledWith(2, { cursor: undefined, limit: 100, status: ["pending", "running"] })
+    expect(list).toHaveBeenNthCalledWith(3, { cursor: "opaque-next-page", limit: 100, status: ["pending", "running"] })
   })
 })
 
