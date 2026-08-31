@@ -1344,6 +1344,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       invocation: { usage: { usage: { totalTokens: 2 } } },
       result: { usage: { totalTokens: 2 }, usageRecord: { usage: { totalTokens: 2 } } },
     })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
   })
 
   it("preserves snapshotted usage when a rendered UI stream exits early", async () => {
@@ -1382,6 +1383,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       invocation: { usage: { usage: { totalTokens: 3 } } },
       result: { usage: { totalTokens: 3 }, usageRecord: { usage: { totalTokens: 3 } } },
     })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
   })
 
   it.each([

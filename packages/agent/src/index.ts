@@ -5929,15 +5929,15 @@ async function executeAgentInvocationWithCapacityLease<
             finishTask = (async () => {
               const finishUsageRecord = streamed.finishUsage()
               if (!finalOutcome.failed && !finalOutcome.completed) {
-                const lifecycleOutcome: Parameters<typeof lifecycle.finish>[0] = {
+                const lifecycleOutcome: AgentInvocationFinishOutcome = {
                   result: finishResult,
-                  status: "success",
+                  status: "cancelled",
                   usageResolved: true,
                 }
                 if (finishUsageRecord) {
                   lifecycleOutcome.usage = await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
                 }
-                await lifecycle.finish(lifecycleOutcome)
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, lifecycleOutcome, runFailureMessage, outputExtensions)
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
@@ -6087,14 +6087,14 @@ async function executeAgentInvocationWithCapacityLease<
                       finishResult = preserved
                     }
                     finishTask = !finalOutcome.failed && !finalOutcome.completed
-                      ? lifecycle.finish({
+                      ? finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
                           result: finishResult,
-                          status: "success",
+                          status: "cancelled",
                           ...(streamed?.finishUsage()
                             ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
                             : {}),
                           usageResolved: true,
-                        })
+                        }, runFailureMessage, outputExtensions)
                       : finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                     return await finishTask
                   },
