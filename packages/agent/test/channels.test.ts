@@ -7,14 +7,14 @@ import { describe, expect, it, vi } from "vitest"
 
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 
-function githubIssueCommentPayload(body = "/review please") {
+function githubIssueCommentPayload(body = "/review please", userType = "User") {
   return {
     action: "created",
     comment: {
       body,
       id: 99,
       node_id: "comment-node",
-      user: { id: 1, login: "mona", type: "User" },
+      user: { id: 1, login: "mona", type: userType },
     },
     issue: {
       html_url: "https://github.test/acme/app/issues/42",
@@ -1230,7 +1230,15 @@ describe("agent channels", () => {
     expect(mentioned.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "mention-delivery" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-    const slash = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review legacy") })
+    const botMention = await trigger.invoke(context as never, {
+      github: { deliveryId: "bot-mention-delivery", event: "issue_comment" },
+      payload: githubIssueCommentPayload("@agent review this", "Bot"),
+    })
+    if (!(botMention instanceof Response)) throw new Error("Expected ignored bot-authored GitHub mention response.")
+    await expect(botMention.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const slash = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review legacy", "Bot") })
     if (slash instanceof Response) throw new Error("Expected legacy GitHub slash-command invocation.")
     expect(slash.input.context?.github).toMatchObject({ args: "legacy", command: "/review" })
     expect(slash.webhook).toBeUndefined()
@@ -1642,6 +1650,45 @@ describe("agent channels", () => {
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
       threadId: "https://github.test/acme/app/pull/42",
+    })
+
+    const reconcileChannel = github({ pullRequest: { reconcile: {
+      events: ["reopened"],
+      mentions: ["@agent"],
+      prompt: "Keep this pull request healthy.",
+    } } })
+    const reconcileTrigger = reconcileChannel.triggers?.dev
+    if (!reconcileTrigger) throw new Error("Missing GitHub reconciliation dev trigger.")
+    const reconcileContext = { ...context, channel: reconcileChannel }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const fromLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      github: { event: "pull_request" },
+      payload: githubPullRequestPayload("reopened"),
+    })
+    if (fromLifecyclePayload instanceof Response) throw new Error("Expected GitHub lifecycle dev invocation.")
+    expect(fromLifecyclePayload.input).toMatchObject({
+      context: { github: { action: "reopened", command: "/reconcile" } },
+      prompt: "Keep this pull request healthy.",
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const ignoredLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      github: { event: "pull_request" },
+      payload: githubPullRequestPayload("opened"),
+    })
+    if (!(ignoredLifecyclePayload instanceof Response)) throw new Error("Expected ignored GitHub lifecycle dev response.")
+    await expect(ignoredLifecyclePayload.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const fromMentionPayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      github: { event: "issue_comment" },
+      payload: githubIssueCommentPayload("@agent review this"),
+    })
+    if (fromMentionPayload instanceof Response) throw new Error("Expected GitHub mention dev invocation.")
+    expect(fromMentionPayload.input.context?.github).toMatchObject({
+      args: "review this",
+      command: "@agent",
+      event: "issue_comment",
     })
   })
 

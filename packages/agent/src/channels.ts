@@ -739,6 +739,7 @@ function githubPullRequestReconcileFromInput(
 
   if (!event || event === "issue_comment") {
     if (payload.action !== "created" || !payload.issue?.pull_request) return
+    if (maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot") return
     const body = maybeString(payload.comment?.body)
     const parsed = body ? githubMentionCommand(body, options.mentions) : undefined
     const login = maybeString(payload.comment?.user?.login)
@@ -2612,11 +2613,14 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           }
         }
 
-        const payload = githubDevPayload(input)
-        const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
+        let payload = githubDevPayload(input)
+        const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
+        const reconciled = githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile)
+        const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
+        if (reconciled) payload = reconciled.payload
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
-        if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+        if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload)
         const pullRequest = githubPullRequestRunContext(command, {
           ...options,
