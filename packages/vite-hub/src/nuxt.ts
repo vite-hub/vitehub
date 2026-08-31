@@ -443,7 +443,7 @@ async function installConsole(
   installInvocations = true,
   writeGeneratedPlugin = true,
   invocationRootState?: ConsoleInvocationRootState,
-  canDiscoverWorkflows: () => boolean = () => true,
+  canDiscoverDefinitions: () => boolean = () => true,
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
@@ -615,9 +615,9 @@ async function installConsole(
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
-    const discoverySections = canDiscoverWorkflows()
+    const discoverySections = canDiscoverDefinitions()
       ? sections
-      : sections.filter(section => section !== "workflows")
+      : sections.filter(section => !consoleDefinitionSectionIds.some(definitionSection => definitionSection === section))
     const catalog = await discoverConsoleBuildCatalog({
       ...discoveryOptions,
       discoveryRoot,
@@ -830,10 +830,12 @@ async function applyNitroConfig(
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
+    blob?: Parameters<typeof vitehub>[0]["blob"]
     database?: Parameters<typeof vitehub>[0]["database"]
     queue?: Parameters<typeof vitehub>[0]["queue"]
     rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
     schedule?: Parameters<typeof vitehub>[0]["schedule"]
+    sandbox?: Parameters<typeof vitehub>[0]["sandbox"]
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
@@ -859,24 +861,24 @@ async function applyNitroConfig(
   for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
-      const previousDatabase = config.database
+      const previousDatabaseDiscoveryRoot = configuredProjectRoot(config.root || projectRoot, config.database)
       const result = await handler.call({} as never, config, environment)
+      let returnedDatabase: Parameters<typeof vitehub>[0]["database"] | undefined
       if (result) {
         const { nitro, ...viteConfig } = result as UserConfig & {
           database?: Parameters<typeof vitehub>[0]["database"]
           nitro?: Record<string, unknown>
         }
+        if (Object.hasOwn(viteConfig, "database")) returnedDatabase = viteConfig.database
         config = mergeConfig(config, viteConfig)
         if (nitro) config.nitro = nitro as Record<string, unknown>
       }
       if (plugin.name !== "@vite-hub/database/vite") {
-        const returnedDatabase = Boolean(result && Object.hasOwn(result, "database"))
-        const mutatedDatabase = config.database !== previousDatabase
-        if (returnedDatabase || mutatedDatabase) {
-          const contributedDatabase = returnedDatabase
-            ? viteConfig.database
-            : config.database
-          replayedDatabaseDiscoveryRoot = configuredProjectRoot(config.root || projectRoot, contributedDatabase)
+        const currentDatabaseDiscoveryRoot = configuredProjectRoot(config.root || projectRoot, config.database)
+        if (returnedDatabase !== undefined || currentDatabaseDiscoveryRoot !== previousDatabaseDiscoveryRoot) {
+          replayedDatabaseDiscoveryRoot = returnedDatabase !== undefined
+            ? configuredProjectRoot(config.root || projectRoot, returnedDatabase)
+            : currentDatabaseDiscoveryRoot
         }
       }
       restoreReplayOwnership()
@@ -1255,9 +1257,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     consoleWorkflowConfigResolved = true
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
+      const replayedBlob = replayConfig.blob ?? effectiveBlob
+      const replayedExplicitBlob = Boolean(replayedBlob && replayedBlob !== true && ("driver" in replayedBlob || "stores" in replayedBlob))
+      const replayedBlobEnabled = Boolean(replayedBlob) && (plan.services.blob.supported || replayedExplicitBlob)
+      const resolvedReplayedBlob = replayedBlobEnabled
+        ? resolveBlobViteConfig(replayedBlob === true ? undefined : replayedBlob, { hosting: plan.nitroPreset }).blob
+        : false
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
-        blob: consoleBlobEnabled,
+        blob: replayedBlobEnabled,
         database: replayConfig.database ?? options.database,
         kv: resolvedKV,
         preset: plan.preset,
@@ -1266,10 +1274,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : replayConfig.queue ?? effectiveQueue,
+        sandbox: replayConfig.sandbox ?? options.sandbox,
         workspace: replayConfig.workspace ?? options.workspace,
         workflow: replayConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
+      consoleBlobStores.splice(
+        0,
+        consoleBlobStores.length,
+        ...(resolvedReplayedBlob ? Object.keys(resolvedReplayedBlob.stores || { default: resolvedReplayedBlob.store }) : []),
+      )
       consoleKVStores.splice(
         0,
         consoleKVStores.length,

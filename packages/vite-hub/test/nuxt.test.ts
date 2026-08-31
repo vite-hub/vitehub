@@ -826,6 +826,36 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("preserves an in-place replayed Database root with a custom Nuxt server directory", async () => {
+    const runtimeDefinition = "/tmp/vitehub-nuxt/server/databases/config.ts"
+    const nuxtDefinition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
+    await mkdir(resolve(runtimeDefinition, ".."), { recursive: true })
+    await mkdir(resolve(nuxtDefinition, ".."), { recursive: true })
+    await writeFile(runtimeDefinition, "export default defineDatabase({ schema: { runtime } })\n")
+    await writeFile(nuxtDefinition, "export default defineDatabase({ schema: { nuxt } })\n")
+    const development = createNuxt(true, [{
+      name: "vite-hub/database-replay",
+      config(config: UserConfig & { database?: { projectRoot?: string } }) {
+        if (config.database && typeof config.database === "object") config.database.projectRoot = "."
+      },
+    }])
+
+    try {
+      await viteHubNuxtModule({ console: true, database: true, preset: "node" }, development.nuxt)
+      const nitroConfig = nitroOptions(development.nuxt)
+      await development.runNitroConfigHook(nitroConfig)
+
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`"file":"server/databases/config.ts"`)
+      expect(generated).toContain(`"value":"runtime"`)
+      expect(generated).not.toContain(`"file":"custom-server/databases/config.ts"`)
+    }
+    finally {
+      await rm(resolve(runtimeDefinition, "../.."), { force: true, recursive: true })
+      await rm(resolve(nuxtDefinition, "../.."), { force: true, recursive: true })
+    }
+  })
+
   it("uses the effective and replay-resolved Queue configuration for the Nuxt Console", async () => {
     const configured = createNuxt(true)
     configured.nuxt.options.vite.queue = false
@@ -1862,7 +1892,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("removes Workspace Console metadata when Nuxt Vite config disables Workspace", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
     nuxt.options.vite.workspace = false
 
     await viteHubNuxtModule({ console: true, preset: "node", workspace: true }, nuxt)
@@ -1873,6 +1903,37 @@ describe("ViteHub Nuxt integration", () => {
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [])`)
     expect(generated).not.toContain("installConsoleDefinitions")
+  })
+
+  it("removes Sandbox Console metadata when Nuxt replay disables Sandbox", async () => {
+    const development = createNuxt(true, [{
+      name: "vite-hub/sandbox-replay",
+      config: (): UserConfig & { sandbox?: boolean } => ({ sandbox: false }),
+    }])
+
+    await viteHubNuxtModule({ console: true, preset: "cloudflare", sandbox: true }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).not.toContain(`"sandboxes"`)
+    expect(generated).not.toContain(`"section":"sandboxes"`)
+  })
+
+  it("removes Blob Console metadata when Nuxt replay disables Blob", async () => {
+    const development = createNuxt(true, [{
+      name: "vite-hub/blob-replay",
+      config: (): UserConfig & { blob?: boolean } => ({ blob: false }),
+    }])
+
+    await viteHubNuxtModule({ blob: { driver: "fs" }, console: true, preset: "node" }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+
+    expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/blob")
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).not.toContain(`"blob"`)
+    expect(generated).not.toContain("installConsoleBlob")
   })
 
   it("finalizes deployment output after later ViteHub post hooks", async () => {
