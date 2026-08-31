@@ -403,6 +403,11 @@ describe("framework package contract", () => {
     expect(consoleKVRoute).toContain(`v-if="available"`);
     expect(consoleKVRoute).toContain("Try again");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
+    const consoleKV = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-kv.vue`,
+      "utf8",
+    );
+    expect(consoleKV).toContain("loadedStore.value === store");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
     expect(

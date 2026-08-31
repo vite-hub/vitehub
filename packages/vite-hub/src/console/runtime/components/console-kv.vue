@@ -59,6 +59,7 @@ const listLoading = ref(true);
 const valueLoading = ref(false);
 const listError = ref<unknown>();
 const valueError = ref<unknown>();
+const loadedStore = ref<string>();
 let listRequest: AbortController | undefined;
 let valueRequest: AbortController | undefined;
 let applyingRouteSelection = false;
@@ -206,6 +207,7 @@ async function loadKeys(
     keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
+    loadedStore.value = value.store;
     const selection =
       options.append && options.keepSelection && selectedKey.value !== currentSelection
         ? selectedKey.value
@@ -287,7 +289,12 @@ async function applyRouteSelection(): Promise<void> {
     return;
   }
   if (key === undefined) {
-    if (selectedStore.value === store && selectedKey.value === undefined) return;
+    if (
+      selectedStore.value === store &&
+      selectedKey.value === undefined &&
+      loadedStore.value === store
+    )
+      return;
     applyingRouteSelection = true;
     selectedStore.value = store;
     selectedKey.value = undefined;
