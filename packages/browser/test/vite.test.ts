@@ -48,6 +48,10 @@ afterEach(async () => {
 })
 
 describe("hubBrowser", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubBrowser().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("rejects an explicitly empty Browser engine", () => {
     // SAFETY: This test intentionally passes an invalid engine to exercise runtime validation.
     expect(() => hubBrowser({ engine: "" as "chromium" })).toThrow(

@@ -32,6 +32,10 @@ async function writeCloudflareDeclaration(root: string): Promise<void> {
 }
 
 describe("hubRateLimit", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubRateLimit().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("fails configuration for conflicting policies with the same ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-conflicting-policies-"))
     roots.push(root)

@@ -1,4 +1,4 @@
-export const consoleSectionIds = ["agents", "usage", "kv", "workflows", "queues"] as const
+export const consoleSectionIds = ["agents", "usage", "blob", "database", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
@@ -15,11 +15,47 @@ export const consoleSectionDetails = {
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
+  blob: {
+    description: "Inspect configured Blob stores and object metadata without downloading contents.",
+    icon: "i-lucide-file-box",
+    label: "Blob",
+    routeName: "vitehub-console-blob",
+  },
+  database: {
+    description: "Inspect database tables, rows, columns, and relationships.",
+    icon: "i-ph-database-light",
+    label: "Database",
+    routeName: "vitehub-console-database",
+  },
+  databases: {
+    description: "Inspect discovered Database Definitions and static schema metadata.",
+    icon: "i-lucide-database",
+    label: "Databases",
+    routeName: "vitehub-console-databases",
+  },
   kv: {
     description: "Inspect configured KV stores without changing data.",
     icon: "i-ph-key-light",
     label: "KV",
     routeName: "vitehub-console-kv",
+  },
+  "rate-limits": {
+    description: "Inspect discovered Rate Limit policies and their source locations.",
+    icon: "i-lucide-gauge",
+    label: "Rate Limits",
+    routeName: "vitehub-console-rate-limits",
+  },
+  sandboxes: {
+    description: "Inspect discovered Sandbox Definitions without starting runtime resources.",
+    icon: "i-lucide-container",
+    label: "Sandboxes",
+    routeName: "vitehub-console-sandboxes",
+  },
+  workspaces: {
+    description: "Inspect discovered Workspace Definitions and their source roots.",
+    icon: "i-lucide-folder-kanban",
+    label: "Workspaces",
+    routeName: "vitehub-console-workspaces",
   },
   workflows: {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
@@ -32,6 +68,12 @@ export const consoleSectionDetails = {
     icon: "i-ph-tray-light",
     label: "Queues",
     routeName: "vitehub-console-queues",
+  },
+  schedules: {
+    description: "Inspect discovered Schedule Definitions and static timing metadata.",
+    icon: "i-lucide-calendar-clock",
+    label: "Schedules",
+    routeName: "vitehub-console-schedules",
   },
 } as const satisfies Record<ConsoleSectionId, {
   description: string
@@ -51,14 +93,20 @@ export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
   return consoleSectionIds.some((section) => section === value)
 }
 
-export function resolveConsoleSectionIds(options: { agent?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; workflow?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { agent?: unknown; blob?: unknown; database?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandbox?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.agent ? ["agents" as const, "usage" as const] : []),
+    ...(options.blob ? ["blob" as const] : []),
+    ...(options.database ? ["databases" as const] : []),
     ...(options.kv ? ["kv" as const] : []),
+    ...(options.rateLimit ? ["rate-limits" as const] : []),
+    ...(options.sandbox ? ["sandboxes" as const] : []),
+    ...(options.workspace ? ["workspaces" as const] : []),
     ...(workflowEnabled ? ["workflows" as const] : []),
     ...(options.queue ? ["queues" as const] : []),
+    ...(options.schedule ? ["schedules" as const] : []),
   ]
 }
 

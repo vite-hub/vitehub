@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createBackedAgentInvocationController } from "../src/agent-invocation.ts"
+import { awaitAgentInvocationResult, createBackedAgentInvocationController } from "../src/agent-invocation.ts"
 import { defineAgent, startAgentInvocation, workflow } from "../src/index.ts"
 import {
   agentInvocationControlId,
@@ -119,6 +119,31 @@ describe("Agent Invocation controllers", () => {
       })
     })
     await expect(controlled.cancel()).resolves.toMatchObject({ outcome: "invalid-state" })
+  })
+
+  it("records clean output cancellation in the inline controller", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: () => new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("partial"))
+          },
+        })),
+      },
+      runtime: false,
+    })
+    const controller = await startAgentInvocation(agent, runtime(), {})
+    const response = await awaitAgentInvocationResult(controller)
+    if (!(response instanceof Response)) throw new Error("Expected an Agent Response.")
+
+    await response.body?.cancel()
+
+    await vi.waitFor(async () => {
+      await expect(controller.inspect()).resolves.toEqual({
+        invocation: { id: controller.id, status: "cancelled" },
+        outcome: "available",
+      })
+    })
   })
 
   it("reports follow-up and steering as unsupported without simulating input", async () => {

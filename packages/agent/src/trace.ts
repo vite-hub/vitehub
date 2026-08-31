@@ -335,6 +335,16 @@ export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRun
   })
 }
 
+export async function traceAgentInvocationCancelled<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+): Promise<void> {
+  await traceAgentEvent(context, {
+    attributes: invocationAttributes(context),
+    name: "agent.invocation.cancelled",
+    type: "run",
+  })
+}
+
 export async function traceAgentInvocationError<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   error: unknown,

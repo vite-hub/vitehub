@@ -1,8 +1,7 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
-import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -21,6 +20,7 @@ import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
@@ -995,49 +995,13 @@ type CloudflareArtifactsWranglerConfig = {
 
 type ConfiguredCloudflareArtifact = Record<string, unknown> & { binding: string }
 
-function cloudflareArtifactsBindingsFile(rootDir: string): string {
-  return resolve(createDefaultCloudflareOutputRoot(rootDir), cloudflareArtifactsBindingsFileName)
-}
-
-function cloudflareWranglerFile(rootDir: string): string {
-  return resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
-}
-
 function hasCloudflareArtifactBinding(value: unknown): value is ConfiguredCloudflareArtifact {
   return isRecord(value) && typeof value.binding === "string"
 }
 
-async function readConfiguredCloudflareArtifacts(rootDir: string): Promise<ConfiguredCloudflareArtifact[]> {
-  try {
-    const parsed = JSON.parse(await readFile(cloudflareWranglerFile(rootDir), "utf8"))
-    if (!isRecord(parsed) || !Array.isArray(parsed.artifacts)) return []
-    return parsed.artifacts.filter(hasCloudflareArtifactBinding)
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw error
-  }
-}
-
-async function readOwnedCloudflareArtifactsBindings(rootDir: string): Promise<string[]> {
-  try {
-    const parsed = JSON.parse(await readFile(cloudflareArtifactsBindingsFile(rootDir), "utf8"))
-    return Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : []
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw error
-  }
-}
-
-async function writeOwnedCloudflareArtifactsBindings(rootDir: string, bindings: string[]): Promise<void> {
-  const file = cloudflareArtifactsBindingsFile(rootDir)
-  if (!bindings.length) {
-    await rm(file, { force: true })
-    return
-  }
-  await mkdir(createDefaultCloudflareOutputRoot(rootDir), { recursive: true })
-  await writeFile(file, `${JSON.stringify([...new Set(bindings)], null, 2)}\n`, "utf8")
+function configuredCloudflareArtifacts(wranglerConfig: unknown): ConfiguredCloudflareArtifact[] {
+  if (!isRecord(wranglerConfig) || !Array.isArray(wranglerConfig.artifacts)) return []
+  return wranglerConfig.artifacts.filter(hasCloudflareArtifactBinding)
 }
 
 function createCloudflareArtifactsWranglerConfig(configs: ResolvedWorkspaceModuleOptions[]): CloudflareArtifactsWranglerConfig | undefined {
@@ -1142,8 +1106,11 @@ async function resolveCloudflareArtifactsConfigs(
 
 async function writeCloudflareArtifactsProviderOutput(
   rootDir: string,
+  clientOutDir: string,
   config: false | ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
+  readCloudflareState: CloudflareProviderDeploymentOutputStateReader,
+  write: ProviderDeploymentOutputWriter,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
 ): Promise<void> {
@@ -1151,28 +1118,57 @@ async function writeCloudflareArtifactsProviderOutput(
     ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
-  const [configuredArtifacts, previousBindings] = await Promise.all([
-    readConfiguredCloudflareArtifacts(rootDir),
-    readOwnedCloudflareArtifactsBindings(rootDir),
-  ])
+  const wranglerConfigOwnership = {
+    arrays: {
+      artifacts: {
+        key: "binding",
+        values: [] as string[],
+      },
+    },
+  }
+  const wranglerConfigOwnershipFiles = {
+    artifacts: cloudflareArtifactsBindingsFileName,
+  }
+  const state = await readCloudflareState({
+    wranglerConfigOwnership,
+    wranglerConfigOwnershipFiles,
+  })
+  const configuredArtifacts = configuredCloudflareArtifacts(state.wranglerConfig)
+  const previousBindings = state.wranglerConfigOwnership?.arrays?.artifacts?.values
+    ?.filter((value): value is string => typeof value === "string") ?? []
   const ownedArtifacts = resolveOwnedCloudflareArtifacts(requestedConfig?.artifacts ?? [], configuredArtifacts, previousBindings)
   const wranglerConfig = ownedArtifacts.length ? { artifacts: ownedArtifacts } : undefined
   const nextBindings = ownedArtifacts.map(binding => binding.binding)
   if (!wranglerConfig && !previousBindings.length) return
 
-  await writeCloudflareWranglerConfig({
-    rootDir,
-    wranglerConfigOwnership: {
-      arrays: {
-        artifacts: {
-          key: "binding",
-          values: [...previousBindings, ...nextBindings],
-        },
+  const nextOwnership = {
+    arrays: {
+      artifacts: {
+        key: "binding",
+        values: nextBindings,
       },
     },
-    ...(wranglerConfig ? { wranglerConfig } : {}),
+  }
+  await write({
+    clientOutDir,
+    rootDir,
+    ...(wranglerConfig
+      ? {
+          cloudflare: {
+            wranglerConfig,
+            wranglerConfigOwnership: nextOwnership,
+            wranglerConfigOwnershipFiles,
+          },
+        }
+      : {
+          cleanup: {
+            cloudflare: {
+              wranglerConfigOwnership: nextOwnership,
+              wranglerConfigOwnershipFiles,
+            },
+          },
+        }),
   })
-  await writeOwnedCloudflareArtifactsBindings(rootDir, nextBindings)
 }
 
 export interface WorkspaceNitroConfigOptions {
@@ -1373,14 +1369,14 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
 
-  let body: { workspaceCommand?: { args?: unknown, command?: unknown, paths?: unknown, timeout?: unknown, workspace?: unknown } }
+  let body: unknown
   try {
-    body = JSON.parse(await readRequestBody(req)) as typeof body
+    body = JSON.parse(await readRequestBody(req))
   }
   catch {
     return new Response("Malformed Workspace Dev payload.", { status: 400 })
   }
-  const command = body.workspaceCommand
+  const command = isRecord(body) && isRecord(body.workspaceCommand) ? body.workspaceCommand : undefined
   if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
     return new Response("Missing Workspace Dev command.", { status: 400 })
   }
@@ -1694,6 +1690,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let projectRoot: string | undefined
   let viteRoot: string | undefined
@@ -1784,6 +1782,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       const workspaceOptions = stripWorkspaceInternalOptions(
         (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
@@ -1818,6 +1817,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       }
     },
     async buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
       if (!resolved) return
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
@@ -1829,32 +1829,49 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = discoverDefinitions(roots, serverDirs)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      const roots = {
+        projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+        viteRoot: viteRoot || resolve(resolved.root),
+      }
+      providerOutputGenerations.defer(this, providerOutput, {
+        owner: "workspace",
+        rootDir: roots.projectRoot,
+        write: async ({ readCloudflareState, signal, write }) => {
+          const definitions = discoverDefinitions(roots, serverDirs)
+          await copyVercelFunctionRuntimePackages({
+            packages: vercelFunctionRuntimePackages(),
+            rootDir: roots.projectRoot,
+            signal,
+          })
+          await writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolved!.build?.outDir ?? "dist/client",
+            resolvedOptions,
+            definitions,
+            readCloudflareState,
+            write,
+            resolved!.createResolver?.(),
+            resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
+          )
+        },
+      })
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
     closeBundle: {
       order: "post",
       sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        const roots = {
-          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
-          viteRoot: viteRoot || resolve(resolved.root),
-        }
-        const definitions = discoverDefinitions(roots, serverDirs)
-        await Promise.all(definitions.map(async (definition) => {
-          definition.source = await readFile(definition.path, "utf8")
-        }))
-        await Promise.all([
-          copyVercelFunctionRuntimePackages({
-            packages: vercelFunctionRuntimePackages(),
-            rootDir: roots.projectRoot,
-          }),
-          writeCloudflareArtifactsProviderOutput(
-            roots.projectRoot,
-            resolvedOptions,
-            definitions,
-            resolved.createResolver?.(),
-            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
-          ),
-        ])
+        providerOutputGenerations.ready(this)
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
     async configureServer(devServer) {

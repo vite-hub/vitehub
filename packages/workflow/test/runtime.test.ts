@@ -1262,7 +1262,15 @@ describe("workflow runtime", () => {
   it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
-      .mockResolvedValueOnce({ workflowRun: { id: "accepted-run", status: "pending" } })
+      .mockResolvedValueOnce({ workflowRun: {
+        error: null,
+        id: "accepted-run",
+        namespaceId: "default",
+        output: null,
+        status: "pending",
+        version: null,
+        workflowName: "welcome",
+      } })
     class RecoveringOpenWorkflow {
       defineWorkflow() {
         return { run }
@@ -1291,6 +1299,53 @@ describe("workflow runtime", () => {
     })
     expect(run).toHaveBeenCalledTimes(2)
     expect(run).toHaveBeenNthCalledWith(2, {}, { idempotencyKey: "source-run" })
+  })
+
+  it.each([
+    { error: null, output: { text: "Already finished." }, status: "completed" as const },
+    { error: new Error("Already failed."), output: null, status: "failed" as const },
+    { error: null, output: null, providerStatus: "canceled", status: "cancelled" as const },
+  ])("preserves details from an already-$status OpenWorkflow run", async ({ error, output, providerStatus, status }) => {
+    class SettledOpenWorkflow {
+      defineWorkflow() {
+        return {
+          run: async () => ({
+            workflowRun: {
+              error,
+              id: "existing-run",
+              namespaceId: "production",
+              output,
+              status: providerStatus || status,
+              version: null,
+              workflowName: "welcome",
+            },
+          }),
+        }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      if (specifier === "openworkflow") return { OpenWorkflow: SettledOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const run = await runWorkflow("welcome", {}, { id: "existing-run" })
+
+    expect(run).toMatchObject({
+      ...(error ? { metadata: error } : { result: output }),
+      id: "existing-run",
+      provider: "openworkflow",
+      status,
+    })
   })
 
   it("narrows malformed OpenWorkflow run results at the public boundary", async () => {

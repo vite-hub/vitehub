@@ -98,6 +98,10 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
+async function writeCloudflareProviderOutput(options: Parameters<typeof writeProviderDeploymentOutputs>[0]) {
+  await writeProviderDeploymentOutputs({ ...options, afterWrite: undefined, vercel: undefined })
+}
+
 function stubVercelBlobApi() {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url)
@@ -681,7 +685,7 @@ describe("Vite provider outputs", () => {
       blob: { driver: "cloudflare-r2" },
       clientOutDir: "dist/client",
       rootDir,
-    })
+    }, writeCloudflareProviderOutput)
 
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
@@ -713,7 +717,7 @@ describe("Vite provider outputs", () => {
       },
       clientOutDir: "dist/client",
       rootDir,
-    })
+    }, writeCloudflareProviderOutput)
 
     const wranglerConfig = JSON.parse(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")) as {
       r2_buckets?: Array<{ binding: string, bucket_name: string }>

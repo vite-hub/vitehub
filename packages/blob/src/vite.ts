@@ -394,6 +394,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (shouldSkipViteProviderBuild(command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

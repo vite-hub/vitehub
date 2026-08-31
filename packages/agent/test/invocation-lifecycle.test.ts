@@ -243,7 +243,7 @@ describe("Agent Invocation Interface lifecycle", () => {
     probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
-  it("does not await pending raw-stream usage after early termination", async () => {
+  it("does not await pending raw-stream usage after cancellation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const usage = new Promise<never>(() => {})
@@ -261,7 +261,11 @@ describe("Agent Invocation Interface lifecycle", () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await iterator.return?.()
 
-    expect(finish).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, text: "partial" },
+    })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
   it("does not await pending raw-stream usage after full consumption", async () => {
@@ -1340,6 +1344,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       invocation: { usage: { usage: { totalTokens: 2 } } },
       result: { usage: { totalTokens: 2 }, usageRecord: { usage: { totalTokens: 2 } } },
     })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
   })
 
   it("preserves snapshotted usage when a rendered UI stream exits early", async () => {
@@ -1369,8 +1374,10 @@ describe("Agent Invocation Interface lifecycle", () => {
     const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
+    expect(finish).not.toHaveBeenCalled()
     const reader = result.toUIMessageStream().getReader()
     await reader.read()
+    expect(finish).not.toHaveBeenCalled()
     await reader.cancel()
 
     expect(finish).toHaveBeenCalledOnce()
@@ -1378,6 +1385,7 @@ describe("Agent Invocation Interface lifecycle", () => {
       invocation: { usage: { usage: { totalTokens: 3 } } },
       result: { usage: { totalTokens: 3 }, usageRecord: { usage: { totalTokens: 3 } } },
     })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.name).toBe("agent.invocation.cancelled")
   })
 
   it.each([

@@ -142,7 +142,7 @@ onBeforeUnmount(() => request++);
           </UTooltip>
         </nav>
         <p v-else-if="!collapsed && !error" class="px-4 text-sm leading-6 text-muted">
-          Enable Agents, KV, Workflow, or Queue in the ViteHub configuration to add a section.
+          Enable Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, or Schedule in the ViteHub configuration to add a section.
         </p>
       </template>
 
@@ -221,7 +221,7 @@ onBeforeUnmount(() => request++);
               class="mt-8 min-h-72 rounded-xl border border-dashed border-default"
               icon="i-ph-layout-light"
               title="No primitives enabled"
-              description="Enable Agents, KV, Workflow, or Queue in the ViteHub configuration to add a Console page."
+              description="Enable Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, or Schedule in the ViteHub configuration to add a Console page."
             />
           </div>
         </main>

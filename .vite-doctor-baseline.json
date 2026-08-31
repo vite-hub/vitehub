@@ -9495,6 +9495,21 @@
       "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
       "file": "packages/realtime/src/server.ts",
       "fingerprint": "ea28d4c74041d5d1242ddfbe6ffa9b3dc58aa86720c4b3dded2c6123561a3515"
+    },
+    {
+      "ruleId": "typescript/strict/no-runtime-typeof",
+      "file": "packages/workspace/src/hosts/vite/plugin.ts",
+      "fingerprint": "ccca88e101d26ba840bb7f3521fd0abe9f2921750da8904d472f419c05d1b423"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/internal/src/build/deployment-output.ts",
+      "fingerprint": "f27e9c0c22656999f9f6b100a4d5d2ca80b12f6593c17c5e30e3ac415b72053e"
+    },
+    {
+      "ruleId": "typescript/strict/require-safety-comment-for-type-assertion",
+      "file": "packages/workspace/src/hosts/vite/plugin.ts",
+      "fingerprint": "41e9646601c8ee507761f3bde0d4154014b77b1373d33b3241766500a6c03e88"
     }
   ]
 }

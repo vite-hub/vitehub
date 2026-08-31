@@ -7,9 +7,12 @@ import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 import ConsoleApp from "../components/console-app.vue";
+import ConsoleBlob from "../components/console-blob.vue";
+import ConsoleDatabase from "../components/console-database.vue";
+import ConsoleDefinitions from "../components/console-definitions.vue";
 import ConsoleHome from "../components/console-home.vue";
 import ConsoleKv from "../components/console-kv.vue";
-import ConsoleDefinitions from "../components/console-definitions.vue";
+import { consoleDatabaseSchemaPath, consoleDatabaseTablePath } from "../console-route";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
@@ -82,6 +85,50 @@ const router = createRouter({
       },
     },
     {
+      component: ConsoleBlob,
+      name: "vitehub-console-blob",
+      path: "/blob",
+      meta: { consoleSection: "blob", title: "Blob · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        blobBase: "/api/_vitehub/console/blob",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDatabase,
+      name: "vitehub-console-database-schema",
+      path: consoleDatabaseSchemaPath,
+      meta: { consoleSection: "database", title: "Schema · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        view: "schema",
+      },
+    },
+    {
+      component: ConsoleDatabase,
+      name: "vitehub-console-database",
+      path: consoleDatabaseTablePath,
+      meta: { consoleSection: "database", title: "Database · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        sectionsBase,
+        view: "data",
+      },
+    },
+    {
       component: ConsoleKv,
       name: "vitehub-console-kv",
       path: "/kv",
@@ -112,6 +159,20 @@ const router = createRouter({
     },
     {
       component: ConsoleDefinitions,
+      name: "vitehub-console-databases",
+      path: "/databases",
+      meta: { consoleSection: "databases", title: "Databases · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "databases",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
       name: "vitehub-console-workflows",
       path: "/workflows",
       meta: { consoleSection: "workflows", title: "Workflows · ViteHub Console" },
@@ -126,6 +187,48 @@ const router = createRouter({
     },
     {
       component: ConsoleDefinitions,
+      name: "vitehub-console-workspaces",
+      path: "/workspaces",
+      meta: { consoleSection: "workspaces", title: "Workspaces · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "workspaces",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
+      name: "vitehub-console-sandboxes",
+      path: "/sandboxes",
+      meta: { consoleSection: "sandboxes", title: "Sandboxes · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "sandboxes",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
+      name: "vitehub-console-rate-limits",
+      path: "/rate-limits",
+      meta: { consoleSection: "rate-limits", title: "Rate Limits · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "rate-limits",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
       name: "vitehub-console-queues",
       path: "/queues",
       meta: { consoleSection: "queues", title: "Queues · ViteHub Console" },
@@ -135,6 +238,20 @@ const router = createRouter({
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "queues",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleDefinitions,
+      name: "vitehub-console-schedules",
+      path: "/schedules",
+      meta: { consoleSection: "schedules", title: "Schedules · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "schedules",
         sectionsBase,
       },
     },
@@ -153,4 +270,8 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = String(to.meta.title ?? "ViteHub Console");
 });
-createApp(App).use(router).use(ui).use(createViteHubUI()).mount("#app");
+createApp(App)
+  .use(router)
+  .use(ui, { router: () => router.currentRoute.value })
+  .use(createViteHubUI())
+  .mount("#app");
