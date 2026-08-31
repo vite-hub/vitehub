@@ -8,8 +8,10 @@ export interface ViteHubUIViteOptions {
 }
 
 export default function viteHubUI(options: ViteHubUIViteOptions = {}): PluginOption[] {
+  const nuxtUIPlugin = nuxtUi(options.nuxtUI as Parameters<typeof nuxtUi>[0]) as unknown as PluginOption;
+
   return [
-    nuxtUi(options.nuxtUI as Parameters<typeof nuxtUi>[0]),
-    options.comark === false ? undefined : comark(options.comark),
+    nuxtUIPlugin,
+    options.comark === false ? undefined : (comark(options.comark) as unknown as PluginOption),
   ].filter(Boolean) as PluginOption[];
 }
