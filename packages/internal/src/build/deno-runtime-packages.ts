@@ -853,7 +853,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
   const targetDir = join(outputNodeModules, ...name.split("/"))
-  if (ownedTargets.has(targetDir)) return
+  if (!options.ownsTarget && ownedTargets.has(targetDir)) return
   if (options.ownsTarget) ownedTargets.add(targetDir)
   const stagedKey = packageKey + "\0" + targetDir
   if (staged.has(stagedKey)) return
@@ -882,15 +882,17 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     }
   }
   for (const dependencyName of dependencyNames) {
-    const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
+    const hoistOptionalDependency = Boolean(packageJson.optionalDependencies?.[dependencyName])
+      && (options.hoistOptionalDependencies || outputNodeModules === rootOutputNodeModules)
+    const dependencyNodeModules = hoistOptionalDependency
       ? outputNodeModules
       : join(targetDir, "node_modules")
     await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, rootOutputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, {
-      hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
+      hoistOptionalDependencies: hoistOptionalDependency,
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
-      ownsTarget: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
+      ownsTarget: hoistOptionalDependency,
       optional: Boolean(packageJson.optionalDependencies?.[dependencyName]),
     })
   }

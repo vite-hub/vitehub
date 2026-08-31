@@ -317,7 +317,6 @@ import "real"
     expect(scheduleBundle).not.toContain("./registry.mjs")
     expect(scheduleBundle).not.toContain("../../server/schedules/heartbeat.ts")
     await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
-      compilerOptions: { types: ["./node_modules/@types/node/index.d.ts"] },
       deploy: { runtime: { mode: "dynamic", entrypoint: "./main.ts", cwd: "." } },
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
