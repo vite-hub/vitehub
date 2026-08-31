@@ -94,13 +94,20 @@ const list = useAgentInvocations({
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
-const selectedDetailStatus = ref<AgentInvocationListItem["status"]>();
+const selectedDetailStatus = ref<{
+  id: string;
+  status: AgentInvocationListItem["status"];
+}>();
 const initialSessionLoading = computed(() =>
   !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
   if (!pageVisible.value || !selectedInvocationId.value) return false;
-  const status = selectedSummary.value?.status ?? selectedDetailStatus.value;
+  const status =
+    selectedSummary.value?.status ??
+    (selectedDetailStatus.value?.id === selectedInvocationId.value
+      ? selectedDetailStatus.value.status
+      : undefined);
   return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {
@@ -515,9 +522,9 @@ watch(selectedInvocationId, () => {
 });
 
 watch(
-  () => detail.invocation.value?.status,
-  (status) => {
-    selectedDetailStatus.value = status;
+  [() => detail.invocation.value?.id, () => detail.invocation.value?.status],
+  ([id, status]) => {
+    selectedDetailStatus.value = id && status ? { id, status } : undefined;
   },
 );
 
