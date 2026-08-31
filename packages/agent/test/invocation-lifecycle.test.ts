@@ -1374,8 +1374,10 @@ describe("Agent Invocation Interface lifecycle", () => {
     const result = await runAgent(agent, createInvocationRuntime(), { prompt: "hello" }) as {
       toUIMessageStream: () => ReadableStream<unknown>
     }
+    expect(finish).not.toHaveBeenCalled()
     const reader = result.toUIMessageStream().getReader()
     await reader.read()
+    expect(finish).not.toHaveBeenCalled()
     await reader.cancel()
 
     expect(finish).toHaveBeenCalledOnce()

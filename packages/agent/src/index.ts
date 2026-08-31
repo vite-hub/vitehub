@@ -5694,7 +5694,9 @@ async function executeAgentInvocationWithCapacityLease<
       const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
         && !(options.renderOutput && invocation.output)
         && (options.holdCapacity === true
-          || (hasFinishConsumer(invocation) && rendered !== rawDriverResult && rawDriverHasDeferredUsage)
+          || (hasFinishConsumer(invocation)
+            && rendered !== rawDriverResult
+            && (rawDriverHasDeferredUsage || isUIMessageStreamResult(rendered)))
           || (invocation.finishHook
             && !invocation.finishDeliveryEffectProviders.length
             && !invocation.finishExtensionProviders.length
@@ -5811,7 +5813,7 @@ async function executeAgentInvocationWithCapacityLease<
                     },
                     {
                       abortSignal: invocation.input.abortSignal,
-                      detachPendingReaderCancellation: false,
+                      detachPendingReaderCancellation: true,
                       cancelOnAbort: async reason => {
                         await Promise.allSettled([
                           source.cancel(reason),
@@ -6371,7 +6373,17 @@ async function executeAgentInvocationWithCapacityLease<
       }
       if (collectToolResult) finalizationOptions.onNormalizedChunk = collectToolResult
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
+          const settled = await Promise.race([
+            finishTask.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await finishTask
+          else void finishTask.catch(() => {})
+          return
+        }
+        await finishTask
       }, finalizationOptions)
     }
 
