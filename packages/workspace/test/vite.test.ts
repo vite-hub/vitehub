@@ -3236,7 +3236,9 @@ describe("hubWorkspace", () => {
     })
     const config = { command: "build" as const, root }
 
+    // SAFETY: hubWorkspace always defines configResolved as an async object hook accepting Vite's resolved config.
     await (first.configResolved as (resolvedConfig: typeof config) => Promise<void>)({ ...config })
+    // SAFETY: hubWorkspace always defines configResolved as an async object hook accepting Vite's resolved config.
     await (second.configResolved as (resolvedConfig: typeof config) => Promise<void>)({ ...config })
     await prepareWorkspaceProviderOutput(first)
     await prepareWorkspaceProviderOutput(second)
