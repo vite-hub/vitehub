@@ -840,11 +840,15 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
 }
 
-function resolveWorkspaceSourceRoot(file: string): string {
+function resolveColocatedAgentWorkspaceRoot(file: string): string | undefined {
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
     ? workspaceDirectory
-    : dirname(file)
+    : undefined
+}
+
+function resolveWorkspaceSourceRoot(file: string): string {
+  return resolveColocatedAgentWorkspaceRoot(file) ?? dirname(file)
 }
 
 function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFromOptions: string, typescript = false): string[] {
@@ -2823,7 +2827,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           const instructionDependencies = new Set<string>()
           await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
           const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
-          return [definition.handler, ...instructionDependencies, ...(skillsRoot ? [skillsRoot] : [])]
+          const workspaceRoot = resolveColocatedAgentWorkspaceRoot(definition.handler)
+          return [
+            definition.handler,
+            ...instructionDependencies,
+            ...(skillsRoot ? [skillsRoot] : []),
+            ...(workspaceRoot ? [workspaceRoot] : []),
+          ]
         }))).flat()
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
