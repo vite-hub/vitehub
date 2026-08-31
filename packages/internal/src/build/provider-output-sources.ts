@@ -151,7 +151,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   return paths
 }
 
-async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
+async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
   try {
@@ -165,6 +165,12 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
       outdir: resolve(root, ".vitehub-provider-trace"),
       packages: "external",
       platform: "node",
+      plugins: [{
+        name: "vitehub-provider-vite-resource-query",
+        setup(traceBuild) {
+          traceBuild.onResolve({ filter: /[?#]/ }, request => ({ external: true, path: request.path }))
+        },
+      }],
       write: false,
     })
     const importedSources = new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
@@ -177,9 +183,8 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
     return importedSources
   }
   catch {
-    // A provider bundler may support imports that bare esbuild cannot resolve. Without a complete
-    // graph, pruning nested repositories could remove otherwise valid transitive inputs.
-    return undefined
+    // Requested entries remain available even when Vite-specific resolution cannot be traced here.
+    return new Set(entries)
   }
 }
 
@@ -259,7 +264,6 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (resolvedSource !== root
             && existsSync(resolve(resolvedSource, ".git"))
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-            && importedSources !== undefined
             && ![...importedSources].some(path => pathContains(resolvedSource, path))
             && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
             && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false

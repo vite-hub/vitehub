@@ -661,13 +661,20 @@ it("preserves nested repositories when Vite-only imports prevent a complete trac
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "agent.ts")
   const importedRepository = join(rootDir, "imported-worktree")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(importedRepository, { recursive: true })])
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
+    mkdir(unrelatedRepository, { recursive: true }),
+  ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, 'import prompt from "./prompt.md?raw"\nexport { value } from "../imported-worktree/value.mjs"\nexport { prompt }\n'),
     writeFile(join(dirname(handler), "prompt.md"), "Retained prompt\n"),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
     writeFile(join(importedRepository, "value.mjs"), 'export const value = "retained"\n'),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "large-cache.bin"), "unrelated\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -677,6 +684,7 @@ it("preserves nested repositories when Vite-only imports prevent a complete trac
   })
 
   await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("skips unrelated nested repositories while retaining requested and imported ones", async () => {
