@@ -231,21 +231,24 @@ it("retains Nuxt build tsconfigs without retaining other generated output", asyn
   const handler = join(rootDir, "server", "workflow.ts")
   const tsconfig = join(rootDir, ".nuxt", "tsconfig.app.json")
   const manifest = join(rootDir, ".nuxt", "manifest.json")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(tsconfig), { recursive: true })])
+  const requestedAliasTarget = join(rootDir, ".nuxt", "dist", "server.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(requestedAliasTarget), { recursive: true })])
   await Promise.all([
     writeFile(handler, "export default {}\n"),
     writeFile(tsconfig, "{}\n"),
     writeFile(manifest, "{}\n"),
+    writeFile(requestedAliasTarget, "export const generated = true\n"),
   ])
 
   const retained = await retainProviderOutputSources({
     artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
-    paths: [rootDir, handler],
+    paths: [rootDir, handler, requestedAliasTarget],
     roots: [rootDir],
   })
 
   await expect(readFile(retained.resolve(tsconfig), "utf8")).resolves.toBe("{}\n")
   await expect(readFile(retained.resolve(manifest), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(requestedAliasTarget), "utf8")).resolves.toContain("generated = true")
 })
 
 it("relinks dependency trees nested beneath retained workspace packages", async () => {
@@ -669,17 +672,26 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
-it("retains nested repositories for unresolved computed imports", async () => {
+it("retains transitive nested repositories for unresolved computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
-  const unrelatedRepository = join(rootDir, "unrelated-worktree")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(unrelatedRepository, { recursive: true })])
+  const computedRepository = join(rootDir, "computed-worktree")
+  const computed = join(computedRepository, "workflow.mjs")
+  const dependencyRepository = join(rootDir, "dependency-worktree")
+  const dependency = join(dependencyRepository, "value.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(dependencyRepository, { recursive: true }),
+  ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, "export const load = async module => await import(module)\n"),
-    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
-    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(computed, 'export { value } from "../dependency-worktree/value.mjs"\n'),
+    writeFile(join(dependencyRepository, ".git"), "gitdir: /tmp/dependency.git\n"),
+    writeFile(dependency, 'export const value = "transitive"\n'),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -688,7 +700,9 @@ it("retains nested repositories for unresolved computed imports", async () => {
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).resolves.toContain("runtime = true")
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: (module: string) => Promise<{ value: string }> }
+  await expect(retainedHandler.load("../computed-worktree/workflow.mjs")).resolves.toMatchObject({ value: "transitive" })
 })
 
 it("retains nested repositories for computed CommonJS requires", async () => {

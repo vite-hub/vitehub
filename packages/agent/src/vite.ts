@@ -25,7 +25,7 @@ import { resolveProviderRuntimePackages } from "./internal/provider-runtime-pack
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
-import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
+import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -2822,7 +2822,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
-              paths: [...definitions.map(definition => definition.handler), ...Object.keys(providerImportAliases), ...Object.values(providerImportAliases)],
+              paths: [
+                ...definitions.flatMap((definition) => {
+                  const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
+                  return skillsRoot ? [definition.handler, skillsRoot] : [definition.handler]
+                }),
+                ...Object.keys(providerImportAliases),
+                ...Object.values(providerImportAliases),
+              ],
               roots: [config.root],
             })
           : undefined

@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
-import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
+import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
 
 const roots: string[] = []
 
@@ -63,10 +63,13 @@ describe("colocated Agent Skills", () => {
     await mkdir(join(root, "review", "skills", "review"), { recursive: true })
     await writeFile(join(root, "review.ts"), "export default {}\n", "utf8")
     await writeFile(join(root, "review", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+    await writeFile(join(root, "review", "skills", "review", ".git"), "gitdir: /tmp/review-skill.git\n", "utf8")
 
     expect(readColocatedAgentSkills(join(root, "review.ts"))).toBeUndefined()
+    expect(resolveColocatedAgentSkillsRoot(join(root, "review.ts"))).toBeUndefined()
     await writeFile(join(root, "review", "index.ts"), "export default {}\n", "utf8")
     expect(readColocatedAgentSkills(join(root, "review", "index.ts"))).toBeDefined()
+    expect(resolveColocatedAgentSkillsRoot(join(root, "review", "index.ts"))).toBe(join(root, "review", "skills"))
   })
 
   it("preserves support for a symlinked Skills root", async () => {

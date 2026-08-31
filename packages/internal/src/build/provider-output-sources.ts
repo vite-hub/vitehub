@@ -260,7 +260,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           const scopedSegments = relative(containingConfiguredRoot ?? root, resolvedSource).split(sep)
           const scopedFirst = containingConfiguredRoot ? scopedSegments[0] : first
           if (scopedFirst === ".nuxt") {
-            return scopedSegments.length === 1
+            return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+              || scopedSegments.length === 1
               || (scopedSegments.length === 2 && /^tsconfig(?:\.[^.]+)?\.json$/i.test(scopedSegments[1]!))
           }
           const nestedGeneratedOutput = scopedSegments
