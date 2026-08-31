@@ -3866,6 +3866,105 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("keeps ordinary libSQL reads available while compact search backfills", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-background-search-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let releaseBackfill: (() => void) | undefined
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      const timestamp = "2026-01-01T00:00:00.000Z"
+      const record = {
+        agentName: "review",
+        createdAt: timestamp,
+        id: "legacy-search-v2",
+        observations: [{
+          attributes: { "message.content": "Legacy searchable message" },
+          name: "agent.message",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "legacy-search-v2-trace",
+        updatedAt: timestamp,
+      }
+      await client.execute({
+        args: [record.id, record.status, record.agentName, JSON.stringify(record).toLowerCase(), 2, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      let markBackfillStarted!: () => void
+      const backfillStarted = new Promise<void>((resolve) => {
+        markBackfillStarted = resolve
+      })
+      const backfillReleased = new Promise<void>((resolve) => {
+        releaseBackfill = resolve
+      })
+      // SAFETY: The proxy forwards every Client member and only pauses the v3 search-backfill query.
+      const stalledClient = new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            const input = args[0]
+            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+              ? input.sql
+              : ""
+            if (sql.includes("search_version < ?")) {
+              markBackfillStarted()
+              await backfillReleased
+            }
+            // SAFETY: The proxy receives Client.execute arguments and forwards them unchanged.
+            return await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+          }
+        },
+      }) as Client
+      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
+      const ordinaryReads = Promise.all([
+        store.get("legacy-search-v2"),
+        store.list(),
+        store.listAgentNames!(),
+      ])
+
+      await backfillStarted
+      await expect(ordinaryReads).resolves.toEqual([
+        expect.objectContaining({ id: "legacy-search-v2" }),
+        { invocations: [expect.objectContaining({ id: "legacy-search-v2" })] },
+        ["review"],
+      ])
+      let searchSettled = false
+      const search = Promise.resolve(store.list({ search: "legacy searchable message" }))
+      void search.then(() => {
+        searchSettled = true
+      }, () => {
+        searchSettled = true
+      })
+      await Promise.resolve()
+      expect(searchSettled).toBe(false)
+
+      releaseBackfill?.()
+      await expect(search).resolves.toEqual({
+        invocations: [expect.objectContaining({ id: "legacy-search-v2" })],
+      })
+    }
+    finally {
+      releaseBackfill?.()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("filters old-shape writes in fresh libSQL journals", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -3982,7 +4081,7 @@ describe("Agent Invocations", () => {
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
 
-      await expect(store.list()).rejects.toThrow("migration interrupted")
+      await expect(store.list({ search: "repository-204" })).rejects.toThrow("migration interrupted")
       const committed = await client.execute("SELECT count(*) AS count FROM vitehub_agent_invocations WHERE search IS NOT NULL")
       expect(Number(committed.rows[0]?.count)).toBe(100)
 

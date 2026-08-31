@@ -144,11 +144,44 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
   const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
+  let searchBackfill: Promise<void> | undefined
   let writes = Promise.resolve()
   const write = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = writes.then(operation, operation)
     writes = result.then(() => undefined, () => undefined)
     return result
+  }
+  const backfillSearch = async () => {
+    let backfillSequence = 0
+    while (true) {
+      const missingSearch = await client.execute({
+        args: [searchVersion, backfillSequence, backfillPageSize],
+        sql: `SELECT sequence, record FROM ${table}
+          WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      if (!missingSearch.rows.length) break
+      const searchUpdates = missingSearch.rows.flatMap((row) => {
+        backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+        const record = deserialize(row.record, row.sequence)
+        return record
+          ? [{
+              args: [searchableAgentInvocationText(storedRecord(record)), searchVersion, numberValue(row.sequence)],
+              sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
+            }]
+          : []
+      })
+      if (searchUpdates.length) await client.batch(searchUpdates, "write")
+    }
+  }
+  const ensureSearchBackfill = () => {
+    if (!searchBackfill) searchBackfill = backfillSearch().catch((error) => {
+      searchBackfill = undefined
+      throw error
+    })
+    return searchBackfill
+  }
+  const startSearchBackfill = () => {
+    void ensureSearchBackfill().catch(() => undefined)
   }
   const initialize = async () => {
     if (!initialized) initialized = (async () => {
@@ -224,26 +257,6 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
         ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
-      while (true) {
-        const missingSearch = await client.execute({
-          args: [searchVersion, backfillSequence, backfillPageSize],
-          sql: `SELECT sequence, record FROM ${table}
-            WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingSearch.rows.length) break
-        const searchBackfill = missingSearch.rows.flatMap((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
-          return record
-            ? [{
-                args: [searchableAgentInvocationText(storedRecord(record)), searchVersion, numberValue(row.sequence)],
-                sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
-              }]
-            : []
-        })
-        if (searchBackfill.length) await client.batch(searchBackfill, "write")
-      }
-      backfillSequence = 0
       while (true) {
         const missingAgentNames = await client.execute({
           args: [backfillSequence, backfillPageSize],
@@ -322,6 +335,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
           WHERE id = NEW.id;
         END`)
+      startSearchBackfill()
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -452,6 +466,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const search = searchValue(listOptions.search)
       if (search) {
+        await ensureSearchBackfill()
         filters.push("search LIKE ? ESCAPE '\\'")
         args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
