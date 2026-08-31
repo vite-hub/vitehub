@@ -31,7 +31,13 @@ export function agentInvocationContext(source: AgentInvocationDisplaySource): st
   if (repository && (typeof pullRequest === "string" || typeof pullRequest === "number")) {
     return `${repository} · PR #${pullRequest}`;
   }
-  return source.threadId ?? source.origin ?? source.channelId ?? source.id;
+  return (
+    annotation(source, "triggeredBy") ??
+    source.threadId ??
+    source.origin ??
+    source.channelId ??
+    source.id
+  );
 }
 
 export function agentInvocationProject(source: AgentInvocationDisplaySource): string {
