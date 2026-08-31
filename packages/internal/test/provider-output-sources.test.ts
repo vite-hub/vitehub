@@ -641,6 +641,7 @@ it("retains nested repositories when a requested handler has a computed import",
     roots: [rootDir],
   })
 
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: () => Promise<{ computed: boolean }> }
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
