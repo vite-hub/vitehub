@@ -4673,12 +4673,12 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
-  | { status: "cancelled" }
+  | { result?: unknown, status: "cancelled", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { completed?: boolean, failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
-  return outcome.failed ? { error: outcome.error, status: "error" } : outcome.completed === false ? { status: "cancelled" } : { result, status: "success" }
+  return outcome.failed ? { error: outcome.error, status: "error" } : outcome.completed === false ? { result, status: "cancelled" } : { result, status: "success" }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
@@ -5002,9 +5002,9 @@ async function finishAgentInvocation<
   const outcomeFailed = outcome.status === "error"
   let failed = outcomeFailed
   let error = outcome.status === "error" ? outcome.error : undefined
-  let result = outcome.status === "success" ? outcome.result : undefined
-  let usage = outcome.status === "success" ? outcome.usage : undefined
-  const usageResolved = outcome.status === "success" && outcome.usageResolved
+  let result = outcome.status === "error" ? undefined : outcome.result
+  let usage = outcome.status === "error" ? undefined : outcome.usage
+  const usageResolved = outcome.status !== "error" && outcome.usageResolved
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
   let closeError: unknown
@@ -5058,7 +5058,7 @@ async function finishAgentInvocation<
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
-    if (!outcomeCancelled && hasFinishWork(context)) {
+    if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -6325,7 +6325,15 @@ async function executeAgentInvocationWithCapacityLease<
           : driverUsageFallback
         const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
         if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish(finishOutcomeFromCleanup(outcome))
+          const usage = finishResult && hasRuntimeType(finishResult, "object")
+            ? toAgentRunResult(finishResult).usageRecord
+            : undefined
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
+            result: finishResult,
+            status: "cancelled",
+            usage,
+            usageResolved: true,
+          }, streamFailureMessage, outputExtensions)
         }
         else {
           const finishOutcome = finishOutcomeFromCleanup(outcome)
@@ -6431,7 +6439,12 @@ async function executeAgentInvocationWithCapacityLease<
           if (rejected) outcome = { error: rejected.reason, failed: true }
           const finishResult = await streamed.finishResult(rendered, !outcome.failed && outcome.completed === true)
           if (!outcome.failed && !outcome.completed) {
-            await lifecycle.finish(finishOutcomeFromCleanup(outcome))
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
+              result: finishResult,
+              status: "cancelled",
+              usage: streamed.finishUsage(),
+              usageResolved: true,
+            }, streamFailureMessage, outputExtensions)
           }
           else {
             const finishOutcome = finishOutcomeFromCleanup(outcome)
@@ -6469,7 +6482,15 @@ async function executeAgentInvocationWithCapacityLease<
           const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
           const finalized = await finalizeUiMessageStreamOutput(tracedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
-              await lifecycle.finish(finishOutcomeFromCleanup(outcome))
+              const usage = streamedUsageRecord
+                ? await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run)
+                : undefined
+              await finishStreamAgentInvocation(invocation, lifecycle, response, {
+                result: response,
+                status: "cancelled",
+                usage,
+                usageResolved: true,
+              }, streamFailureMessage, outputExtensions)
             }
             else {
               const finishOutcome = finishOutcomeFromCleanup(outcome)
