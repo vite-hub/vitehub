@@ -221,7 +221,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
   const limitVersions = new Map<string, number>()
-  const reservations = new Map<string, Set<{ points: number, resetAt: number, submittedAtVersion?: number }>>()
+  const reservations = new Map<string, Set<{
+    points: number
+    resetAt: number
+    rolledOver?: boolean
+    submittedAtVersion?: number
+  }>>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
   let appToken: { expiresAt: number, token: string } | undefined
@@ -339,6 +344,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
 
     const env: Record<string, string> = {
+      GH_HOST: "github.com",
       GH_TOKEN: token,
       GITHUB_TOKEN: token,
       GIT_CONFIG_COUNT: "2",
@@ -419,11 +425,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         }
         const reserved = { ...available, remaining: available.remaining - options.cost }
         const limitVersion = limitVersions.get(key) ?? 0
-        const reservation = { points: options.cost, resetAt: available.resetAt } as {
+        const reservation: {
           points: number
           resetAt: number
+          rolledOver?: boolean
           submittedAtVersion?: number
-        }
+        } = { points: options.cost, resetAt: available.resetAt }
         const outstanding = reservations.get(key) ?? new Set()
         outstanding.add(reservation)
         reservations.set(key, outstanding)
@@ -449,7 +456,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (outstanding.size === 0) reservations.delete(key)
           const releasedPoints = options.cost - actualCost
           const current = limits.get(key)
-          if (current?.resetAt === reserved.resetAt) {
+          if (current?.resetAt === reservation.resetAt) {
             const refreshIncludesSettledQuery = !released
               && reservation.submittedAtVersion !== undefined
               && (limitVersions.get(key) ?? 0) !== reservation.submittedAtVersion
@@ -488,8 +495,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (activeReservations) {
             for (const reservation of activeReservations) {
               if (reservation.resetAt === limit.resetAt) continue
-              if (reservation.submittedAtVersion === undefined) activeReservations.delete(reservation)
-              else reservation.resetAt = limit.resetAt
+              if (reservation.submittedAtVersion === undefined || reservation.rolledOver) {
+                activeReservations.delete(reservation)
+              }
+              else {
+                reservation.resetAt = limit.resetAt
+                reservation.rolledOver = true
+                reservation.submittedAtVersion = (limitVersions.get(key) ?? 0) + 1
+              }
             }
             if (activeReservations.size === 0) reservations.delete(key)
           }

@@ -111,6 +111,7 @@ describe("GitHub host", () => {
 
     expect(first).toMatchObject({
       env: {
+        GH_HOST: "github.com",
         GH_TOKEN: "installation-token",
         GIT_AUTHOR_EMAIL: "bot@vitehub.dev",
         GIT_AUTHOR_NAME: "vitehub-bot",
@@ -356,7 +357,7 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
     await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 90 }))
       .resolves.toMatchObject({ remaining: 10 })
-    expired.settle(40)
+    expired.release()
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
@@ -375,6 +376,20 @@ describe("GitHub host", () => {
     inFlight.settle(40)
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 11 }))
       .resolves.toMatchObject({ remaining: 49 })
+  })
+
+  it("expires an abandoned submitted GraphQL reservation after one rollover", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const abandoned = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    abandoned.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000200"
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 90 }))
+      .resolves.toMatchObject({ remaining: 10 })
   })
 
   it("rejects an actual GraphQL cost above its reservation", async () => {
