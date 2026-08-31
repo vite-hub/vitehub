@@ -187,6 +187,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (pathContains(artifactDir, resolvedSource)) return false
           if (isTransientSourceDirectory(resolvedSource)
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
+          if (resolvedSource !== root
+            && existsSync(resolve(resolvedSource, ".git"))
+            && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
+            && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
           const nested = relative(root, resolvedSource)
           if (!nested) return true
           const segments = nested.split(sep)

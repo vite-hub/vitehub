@@ -584,6 +584,38 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("skips unrelated nested repositories while retaining requested ones", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-repositories-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  const requestedRepository = join(rootDir, "requested-worktree")
+  const requested = join(requestedRepository, "workflow.ts")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(unrelatedRepository, { recursive: true }),
+    mkdir(requestedRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, "export default {}\n"),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "large-cache.bin"), "must not be retained\n"),
+    writeFile(join(requestedRepository, ".git"), "gitdir: /tmp/requested.git\n"),
+    writeFile(requested, "export const requested = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler, requested],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(retained.resolve(requested), "utf8")).resolves.toContain("requested = true")
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("preserves dependency resolution for a workspace-linked package", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
   tempDirs.push(workspace)
