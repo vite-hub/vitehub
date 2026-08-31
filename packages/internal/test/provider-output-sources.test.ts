@@ -646,6 +646,28 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
+it("does not retain unrelated repositories for unresolved computed imports", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(unrelatedRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, "export const load = async module => await import(module)\n"),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "large-cache.bin"), "must not be retained\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("preserves dependency resolution for a workspace-linked package", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
   tempDirs.push(workspace)
