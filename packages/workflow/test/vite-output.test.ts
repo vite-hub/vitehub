@@ -10,6 +10,7 @@ import { build, buildSync } from "esbuild"
 import { afterAll, describe, expect, it } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
@@ -114,6 +115,11 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   const handler = join(rootDir, "server", "workflows", "welcome.ts")
   const workflowDirectory = join(rootDir, "server", "workflows", "cleanup")
   const step = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
+  const mixedDirectory = join(rootDir, "server", "workflows", "mixed")
+  const mixedHandler = join(mixedDirectory, "index.ts")
+  const mixedStep = join(mixedDirectory, "01-mixed.ts")
+  const mixedDependencyRoot = join(rootDir, "mixed-dependency")
+  const mixedDependency = join(mixedDependencyRoot, "value.mjs")
   const agentHandler = join(rootDir, "server", "agents", "review", "agent.ts")
   const skillsRoot = join(dirname(agentHandler), "skills")
   const workspaceRoot = join(dirname(agentHandler), "workspace")
@@ -122,12 +128,18 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   const policy = join(instructionRoot, "tone.md")
   await Promise.all([
     mkdir(workflowDirectory, { recursive: true }),
+    mkdir(mixedDirectory, { recursive: true }),
+    mkdir(mixedDependencyRoot, { recursive: true }),
     mkdir(join(skillsRoot, "review"), { recursive: true }),
     mkdir(workspaceRoot, { recursive: true }),
     mkdir(instructionRoot, { recursive: true }),
   ])
   await writeFile(handler, "export default async function welcome() {}\n")
   await writeFile(step, "export default async function cleanup() {}\n")
+  await writeFile(mixedHandler, 'export { value } from "../../../mixed-dependency/value.mjs"\n')
+  await writeFile(mixedStep, "export default async function mixed() {}\n")
+  await writeFile(join(mixedDependencyRoot, ".git"), "gitdir: /tmp/mixed-dependency.git\n")
+  await writeFile(mixedDependency, 'export const value = "retained"\n')
   await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
   await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
   await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
@@ -137,8 +149,26 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await writeFile(join(instructionRoot, ".git"), "gitdir: /tmp/review-policies.git\n")
 
   const sources = discoverWorkflowProviderSourcePaths(rootDir)
-  expect(sources.sort()).toEqual([agentHandler, instructions, policy, skillsRoot, workspaceRoot, step, handler].sort())
+  expect(sources.sort()).toEqual([
+    agentHandler,
+    handler,
+    instructions,
+    mixedHandler,
+    mixedStep,
+    policy,
+    skillsRoot,
+    step,
+    workspaceRoot,
+  ].sort())
   expect(sources).not.toContain(workflowDirectory)
+  expect(sources).not.toContain(mixedDirectory)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "test", "sources"),
+    paths: sources,
+    roots: [rootDir],
+  })
+  await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
 })
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {

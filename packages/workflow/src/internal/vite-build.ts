@@ -1128,7 +1128,10 @@ export async function writeProviderEntries(
 export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
   return discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
     .flatMap((definition) => {
-      const executableSources = definition.steps?.length ? definition.steps : [definition.handler]
+      const executableSources = [
+        ...(statSync(definition.handler).isFile() ? [definition.handler] : []),
+        ...(definition.steps ?? []),
+      ]
       if (definition.source !== "agent-workflow") return executableSources
       const instructionDependencies = new Set<string>()
       readAgentInstructions(definition.handler, instructionDependencies)
