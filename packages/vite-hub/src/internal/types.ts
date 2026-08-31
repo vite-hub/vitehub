@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
 import {
@@ -35,7 +35,22 @@ interface ViteHubPluginConfig {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
-async function collectGeneratedTypeFiles(directory: string, root = directory): Promise<string[]> {
+function isUnresolvableDirectory(error: unknown): boolean {
+  return error instanceof Error && ["ELOOP", "ENOENT"].includes(String(Reflect.get(error, "code")))
+}
+
+async function collectGeneratedTypeFiles(
+  directory: string,
+  root = directory,
+  visitedDirectories = new Set<string>(),
+): Promise<string[]> {
+  const realDirectory = await realpath(directory).catch((error) => {
+    if (isUnresolvableDirectory(error)) return undefined
+    throw error
+  })
+  if (!realDirectory || visitedDirectories.has(realDirectory)) return []
+  visitedDirectories.add(realDirectory)
+
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
@@ -49,11 +64,11 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
   for (const entry of entries) {
     const path = join(directory, entry.name)
     const isDirectory = entry.isDirectory() || (entry.isSymbolicLink() && await stat(path).then(value => value.isDirectory()).catch((error) => {
-      if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return false
+      if (isUnresolvableDirectory(error)) return false
       throw error
     }))
     if (isDirectory && !(directory === root && entry.name === "data") && !isRetainedSourceDirectory(entry.name)) {
-      for (const file of await collectGeneratedTypeFiles(path, root)) files.push(file)
+      for (const file of await collectGeneratedTypeFiles(path, root, visitedDirectories)) files.push(file)
     }
     else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
       const generatedPath = relative(root, path).replaceAll("\\", "/")

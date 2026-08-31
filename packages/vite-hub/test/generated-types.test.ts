@@ -302,6 +302,26 @@ describe("framework generated types", () => {
     await expect(readFile(join(viteRoot, ".vitehub/types.d.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("ignores directory symlinks that revisit a generated type directory", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedTypes = join(root, ".vitehub/types")
+    await mkdir(join(generatedTypes, "cycle"), { recursive: true })
+    await writeFile(join(generatedTypes, "cycle/local.d.ts"), "interface LocalType {}\n")
+    await symlink("..", join(generatedTypes, "cycle/current"), "dir")
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot })
+
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe(
+      [
+        `/// <reference path="./types/cycle/local.d.ts" />`,
+        ``,
+        `export {}`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
   it("refreshes build output and exposes the prepare lifecycle", async () => {
     const { root, viteRoot } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
