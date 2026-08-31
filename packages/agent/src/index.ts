@@ -5750,7 +5750,7 @@ async function executeAgentInvocationWithCapacityLease<
               if (!outcome.failed && !outcome.completed) {
                 const lifecycleOutcome: Parameters<typeof lifecycle.finish>[0] = {
                   result: finishResult,
-                  status: "success",
+                  status: "cancelled",
                   usageResolved: true,
                 }
                 if (finishUsageRecord) {
