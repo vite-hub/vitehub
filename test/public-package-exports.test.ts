@@ -46,12 +46,14 @@ describe("public package export contracts", () => {
       ["@vite-hub/auth/agent", "@vite-hub/agent"],
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/source/client", "vue"],
+      ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
+      ["vite-hub/ui/vite", "vite"],
       ["vite-hub/workspace/collections/client", "vue"],
     ])
 
@@ -78,7 +80,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/vite", "vite"],
       ["@vite-hub/schedule/vite", "vite"],
-      ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["@vite-hub/workflow/vite", "vite"],
