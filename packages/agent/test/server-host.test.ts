@@ -704,11 +704,11 @@ describe("GitHub host", () => {
       repository: "vite-hub/vitehub",
     }, async ({ push }) => await push())
 
-    expect(credentials).toHaveBeenCalledTimes(3)
-    await expect(readFile(commandLog, "utf8")).resolves.toContain("push origin|token-3")
+    expect(credentials).toHaveBeenCalledTimes(2)
+    await expect(readFile(commandLog, "utf8")).resolves.toContain("push origin|token-2")
   })
 
-  it("uses base access for fork checkout and head access for the callback", async () => {
+  it("preserves base access for fork callbacks and uses head access for pushes", async () => {
     await installFakeGitHubCommands()
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -735,11 +735,16 @@ describe("GitHub host", () => {
       headSha: "expected-head",
       number: 128,
       repository: "vite-hub/vitehub",
-    }, async ({ token }) => expect(token).toBe("head-token"))
+    }, async ({ env, push, token }) => {
+      expect(token).toBe("base-token")
+      expect(env.GH_TOKEN).toBe("base-token")
+      await push()
+    })
 
     const log = await readFile(commandLog, "utf8")
     expect(log).toContain("gh repo clone https://github.com/vite-hub/vitehub.git")
     expect(log).toContain("base-token|github.com")
+    expect(log).toContain("push origin|head-token")
   })
 
   it("keeps one access deadline across credential stages", async () => {

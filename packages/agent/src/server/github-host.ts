@@ -580,9 +580,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
-      const auth = pullRequest.headRepository && pullRequest.headRepository !== pullRequest.repository
-        ? await access({ refresh: true, repository: pullRequest.headRepository, signal: operation.signal })
-        : baseAuth
       operation.signal.throwIfAborted()
       const push = async () => {
         const refreshed = await access({
@@ -596,7 +593,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           signal: operation.signal,
         })
       }
-      return await run({ ...auth, path: checkout, push, signal: operation.signal })
+      return await run({ ...baseAuth, path: checkout, push, signal: operation.signal })
     }
     finally {
       operation.close()
