@@ -1,8 +1,10 @@
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { dirname, extname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
+
+import { isPlainObject } from "../object.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
@@ -57,31 +59,38 @@ function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 function collectPackageExportCandidates(packageName: string, exportsValue: unknown, packageRelativePath: string): string[] {
-  if (!exportsValue || typeof exportsValue !== "object" || Array.isArray(exportsValue)) return []
+  if (!isPlainObject(exportsValue)) return []
   const candidates: string[] = []
   for (const [exportKey, target] of Object.entries(exportsValue)) {
     if (!exportKey.startsWith(".")) continue
     const targets: unknown[] = [target]
     while (targets.length) {
       const value = targets.shift()
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package exports are untrusted JSON and string targets are the domain values consumed here.
       if (typeof value === "string") {
         const normalizedTarget = normalizePathSeparators(value).replace(/^\.\//, "")
-        const wildcardIndex = normalizedTarget.indexOf("*")
-        if (wildcardIndex === -1) {
+        const targetParts = normalizedTarget.split("*")
+        if (targetParts.length === 1) {
           if (normalizedTarget === packageRelativePath) candidates.push(`${packageName}${exportKey.slice(1)}`)
           continue
         }
-        const targetPrefix = normalizedTarget.slice(0, wildcardIndex)
-        const targetSuffix = normalizedTarget.slice(wildcardIndex + 1)
-        if (!packageRelativePath.startsWith(targetPrefix) || !packageRelativePath.endsWith(targetSuffix)) continue
-        const wildcard = packageRelativePath.slice(targetPrefix.length, packageRelativePath.length - targetSuffix.length)
+        const targetPattern = `${escapeRegExp(targetParts[0]!)}(.*?)${targetParts.slice(1)
+          .map((part, index) => `${index ? "\\1" : ""}${escapeRegExp(part)}`)
+          .join("")}`
+        const wildcardMatch = new RegExp(`^${targetPattern}$`).exec(packageRelativePath)
+        const wildcard = wildcardMatch?.[1]
+        if (wildcard === undefined) continue
         candidates.push(`${packageName}${exportKey.slice(1).replace("*", wildcard)}`)
       }
       else if (Array.isArray(value)) {
         targets.push(...value)
       }
-      else if (value && typeof value === "object") {
+      else if (isPlainObject(value)) {
         targets.push(...Object.values(value))
       }
     }
@@ -174,7 +183,9 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                 }
                 else if (alias.prefix && resolutionScope) {
                   const packageRelativePath = normalizedSpecifier.slice(resolutionScope.length)
-                  const packageJson = JSON.parse(await readFile(resolve(resolutionScope, "package.json"), "utf8")) as { exports?: unknown }
+                  const parsedPackageJson: unknown = JSON.parse(await readFile(resolve(resolutionScope, "package.json"), "utf8"))
+                  if (!isPlainObject(parsedPackageJson)) return
+                  const packageJson = parsedPackageJson
                   for (const candidate of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
                     if (!candidate.startsWith(alias.specifier)) continue
                     const resolvedCandidate = await build.resolve(candidate, {
@@ -188,7 +199,11 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
-                    return { canonical: candidate, normalized: candidate, publicSpecifier: candidate }
+                    const physicalExtension = extname(normalizedSpecifier)
+                    const publicSpecifier = physicalExtension && !candidate.endsWith(physicalExtension)
+                      ? `${candidate}${physicalExtension}`
+                      : candidate
+                    return { canonical: candidate, normalized: candidate, publicSpecifier }
                   }
                   const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
                   resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))

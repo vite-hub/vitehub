@@ -397,6 +397,15 @@ describe("hubKv", () => {
       expect(JSON.parse(await readFile(wranglerFile, "utf8")).kv_namespaces).toEqual([{ binding: "KV" }])
 
       const nitro = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+      nitro.nitro.setup({
+        options: {
+          cloudflare: {
+            wrangler: {
+              kv_namespaces: [{ binding: "KV", id: "hook-id" }],
+            },
+          },
+        },
+      })
       await testHook(nitro.configResolved, configResolvedContract)({
         build: { outDir: "dist" },
         command: "build",

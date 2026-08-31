@@ -233,12 +233,13 @@ describe("bundleEsmEntry", () => {
   })
 
   it.each([
-    { exportTarget: "./jobs/*", sourceDir: "jobs" },
-    { exportTarget: "./src/jobs/*", sourceDir: "src/jobs" },
-  ])("matches bare package prefix aliases after $exportTarget imports become absolute", async ({ exportTarget, sourceDir }) => {
+    { exportTarget: "./jobs/*", sourcePath: "jobs/task.mjs" },
+    { exportTarget: "./src/jobs/*", sourcePath: "src/jobs/task.mjs" },
+    { exportTarget: "./src/*/generated/*.mjs", sourcePath: "src/task/generated/task.mjs" },
+  ])("matches bare package prefix aliases after $exportTarget imports become absolute", async ({ exportTarget, sourcePath }) => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/example")
-    const original = resolve(packageDir, sourceDir, "task.mjs")
+    const original = resolve(packageDir, sourcePath)
     const replacementDir = resolve(rootDir, "replacement")
     const replacement = resolve(replacementDir, "jobs/task.mjs")
     const entry = resolve(rootDir, "entry.mjs")

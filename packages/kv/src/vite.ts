@@ -321,7 +321,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
           ? [...new Map([
               ...getNitroCloudflareKVNamespaces(nitroOptions),
               ...getNitroCloudflareKVNamespaces(getResolvedNitroConfig(resolved)),
-            ].map(namespace => [JSON.stringify([namespace.binding, namespace.id]), namespace])).values()]
+            ].map(namespace => [namespace.binding, namespace])).values()]
           : []
         const wranglerConfigOwnership = {
           arrays: {
