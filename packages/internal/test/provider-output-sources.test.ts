@@ -656,6 +656,26 @@ it("snapshots requested symlinked files inside the retained generation", async (
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
 })
 
+it("snapshots requested files beneath symlinked directories", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-source-"))
+  const handlerSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-target-"))
+  tempDirs.push(rootDir, handlerSource)
+  const handlers = join(rootDir, "server", "agents")
+  const handler = join(handlers, "review.ts")
+  await Promise.all([mkdir(dirname(handlers), { recursive: true }), writeFile(join(handlerSource, "review.ts"), 'export const value = "captured"\n')])
+  await symlink(handlerSource, handlers)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(join(handlerSource, "review.ts"), 'export const value = "changed"\n')
+
+  expect((await lstat(dirname(retained.resolve(handler)))).isSymbolicLink()).toBe(false)
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+})
+
 it("retains queried resources and their imports inside nested repositories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
   tempDirs.push(rootDir)
@@ -818,11 +838,11 @@ it("retains nested repositories for computed CommonJS requires", async () => {
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.cjs")
   const requiredRepository = join(rootDir, "required-worktree")
-  const required = join(requiredRepository, "workflow.cjs")
+  const required = join(requiredRepository, "workflow.js")
   await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'const module = "../required-worktree/workflow.cjs"\nexports.load = () => require(module)\n'),
+    writeFile(handler, 'const module = "../required-worktree/workflow"\nexports.load = () => require(module)\n'),
     writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
     writeFile(required, "module.exports = { required: true }\n"),
   ])
@@ -843,11 +863,11 @@ it("retains nested repositories for computed module.require calls", async () => 
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.cjs")
   const requiredRepository = join(rootDir, "required-worktree")
-  const required = join(requiredRepository, "workflow.cjs")
+  const required = join(requiredRepository, "index.js")
   await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'const target = "../required-worktree/workflow.cjs"\nexports.load = () => module.require(target)\n'),
+    writeFile(handler, 'const target = "../required-worktree"\nexports.load = () => module.require(target)\n'),
     writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
     writeFile(required, "module.exports = { required: true }\n"),
   ])
