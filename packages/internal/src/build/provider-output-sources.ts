@@ -148,10 +148,11 @@ function resolveComputedModuleSource(file: string, specifier: string): string | 
 function traceComputedModuleSources(file: string, source: string): string[] {
   const masked = maskSourceLiterals(source)
   const bindings = new Map<string, string>()
-  const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*(["'])(.*?)\2/gis
+  const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(declarations)) {
     const quoteOffset = match[0].indexOf(match[2]!)
     if (!/\b(?:const|let|var)\s+[A-Z_$][\w$]*\s*=\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    if (match[2] === "`" && match[3]!.includes("${")) continue
     bindings.set(match[1]!, match[3]!)
   }
 

@@ -955,12 +955,25 @@ it("retains nested repositories when a requested handler has a computed import",
   const handler = join(rootDir, "server", "workflow.mjs")
   const importedRepository = join(rootDir, "computed-worktree")
   const imported = join(importedRepository, "workflow.mjs")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(importedRepository, { recursive: true })])
+  const templateRepository = join(rootDir, "template-worktree")
+  const templateImported = join(templateRepository, "workflow.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
+    mkdir(templateRepository, { recursive: true }),
+  ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'const module = "../computed-worktree/workflow.mjs"\nexport const load = async () => await import /* retained target */ (module)\n'),
+    writeFile(handler, [
+      'const module = "../computed-worktree/workflow.mjs"',
+      "const templateModule = `../template-worktree/workflow.mjs`",
+      "export const load = async () => ({ computed: await import /* retained target */ (module), template: await import(templateModule) })",
+      "",
+    ].join("\n")),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
     writeFile(imported, "export const computed = true\n"),
+    writeFile(join(templateRepository, ".git"), "gitdir: /tmp/template.git\n"),
+    writeFile(templateImported, "export const templated = true\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -970,8 +983,10 @@ it("retains nested repositories when a requested handler has a computed import",
   })
 
   // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
-  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: () => Promise<{ computed: boolean }> }
-  await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => Promise<{ computed: { computed: boolean }, template: { templated: boolean } }>
+  }
+  await expect(retainedHandler.load()).resolves.toMatchObject({ computed: { computed: true }, template: { templated: true } })
 })
 
 it("retains transitive nested repositories for explicitly requested computed imports", async () => {
