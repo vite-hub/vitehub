@@ -32,7 +32,9 @@ const totals = computed(() =>
         { label: "Active", value: health.value.workload.active },
         { label: "Completed", value: health.value.workload.completed },
         { label: "Failed", value: health.value.workload.failed },
-        { label: "Snapshots", value: health.value.workload.snapshots },
+        ...(health.value.workload.snapshots === undefined
+          ? []
+          : [{ label: "Snapshots", value: health.value.workload.snapshots }]),
       ]
     : [],
 );

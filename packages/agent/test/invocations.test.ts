@@ -516,6 +516,44 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("lists distinct Agent names without paging through invocation summaries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    try {
+      for (const [index, store] of stores.entries()) {
+        for (const [record, agentName] of ["review", "support", "review", "legacy"].entries()) {
+          await store.create({
+            agentName,
+            createdAt: timestamp,
+            id: `${index}-${record}`,
+            observations: [],
+            status: "completed",
+            traceId: `${index}-${record}-trace`,
+            updatedAt: timestamp,
+          })
+        }
+        if (index === 1) {
+          await client.execute({
+            args: [`${index}-3`],
+            sql: "UPDATE vitehub_agent_invocations SET agent_name = '' WHERE id = ?",
+          })
+        }
+
+        await expect(defineAgentInvocations({ store }).listAgentNames()).resolves.toEqual([
+          "legacy",
+          "review",
+          "support",
+        ])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({

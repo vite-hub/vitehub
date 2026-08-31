@@ -475,6 +475,19 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         }),
       }
     },
+    async listAgentNames() {
+      await initialize()
+      const result = await client.execute(`SELECT DISTINCT name FROM (
+        SELECT agent_name AS name FROM ${table} WHERE agent_name <> ''
+        UNION ALL
+        SELECT json_extract(record, '$.agentName') AS name FROM ${table}
+          WHERE agent_name IS NULL OR agent_name = ''
+      ) WHERE typeof(name) = 'text' AND name <> '' ORDER BY name`)
+      return result.rows.flatMap((row) => {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- LibSQL rows are external storage values, so validate the indexed Agent name before exposing it.
+        return typeof row.name === "string" ? [row.name] : []
+      })
+    },
     async release(id, claimId) {
       await write(async () => {
         await initialize()

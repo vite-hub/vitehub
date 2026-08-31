@@ -30,6 +30,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleHealth from "./console-health.vue";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
@@ -74,18 +75,28 @@ let clock: ReturnType<typeof setInterval> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
+let initialListPending = !selectedAgentName.value;
 const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
-const detailPollInterval = computed(() =>
-  pageVisible.value && selectedInvocationId.value ? 3_000 : false,
-);
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
-  immediate: pageVisible.value,
+  immediate: pageVisible.value && !initialListPending,
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
-  query: computed(() => (selectedAgentName.value ? { agent: selectedAgentName.value } : {})),
+  query: computed(() => ({
+    ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
+    limit: 10,
+  })),
+});
+const selectedSummary = computed(() =>
+  list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
+);
+const selectedDetailStatus = ref<AgentInvocationListItem["status"]>();
+const detailPollInterval = computed(() => {
+  if (!pageVisible.value || !selectedInvocationId.value) return false;
+  const status = selectedSummary.value?.status ?? selectedDetailStatus.value;
+  return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
@@ -101,6 +112,7 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
+    provider: stringValue(invocation.annotations?.["agent.model.provider"]),
     startedAt: invocation.startedAt,
     status: invocation.status,
     title: agentInvocationTitle(invocation),
@@ -129,9 +141,6 @@ const routeAgent = computed(() => {
 });
 const isUsageRoute = computed(
   () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
-);
-const selectedSummary = computed(() =>
-  list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
@@ -175,7 +184,7 @@ const splitterItems: SplitterItem[] = [
     minSize: 220,
     defaultSize: 680,
     sizeUnit: "px",
-    class: "min-h-0 min-w-0 overflow-hidden",
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
   {
     id: "details",
@@ -184,7 +193,7 @@ const splitterItems: SplitterItem[] = [
     maxSize: 1080,
     defaultSize: 560,
     sizeUnit: "px",
-    class: "min-h-0 min-w-0 overflow-hidden",
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
 ];
 
@@ -337,6 +346,7 @@ async function loadAgents(): Promise<void> {
         })
       : [];
     if (agentsRequest === controller) {
+      if (names.length) initialListPending = false;
       agentNames.value = [...new Set(names)];
       agentsError.value = undefined;
     }
@@ -347,17 +357,35 @@ async function loadAgents(): Promise<void> {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
       agentsLoading.value = false;
+      if (initialListPending && !selectedAgentName.value) {
+        initialListPending = false;
+        if (pageVisible.value) void list.refresh();
+      }
     }
   }
 }
 
 async function refresh(): Promise<void> {
+  const agents = loadAgents();
+  const invocations = initialListPending && !selectedAgentName.value
+    ? agents.then(() => undefined)
+    : list.refresh();
   await Promise.all([
     detectHostCapabilities(),
-    loadAgents(),
-    list.refresh(),
+    agents,
+    invocations,
     selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
   ]);
+}
+
+function inspectSession(target: "agent" | "workspace"): void {
+  const view = target === "agent" ? "details" : "workspace";
+  inspectorTab.value = view;
+  if (!inspectorOpenViews.value.includes(view)) {
+    inspectorOpenViews.value = [...inspectorOpenViews.value, view];
+  }
+  inspectorActiveSurface.value = `view:${view}`;
+  detailsOpen.value = true;
 }
 
 function retryPagination(): void {
@@ -463,6 +491,7 @@ watch(
 
 watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
+  selectedDetailStatus.value = undefined;
   const identity = selectedInvocationId.value
     ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
     : undefined;
@@ -472,6 +501,13 @@ watch(selectedInvocationId, () => {
     inspectorOpenPaths.value = [];
   }
 });
+
+watch(
+  () => detail.invocation.value?.status,
+  (status) => {
+    selectedDetailStatus.value = status;
+  },
+);
 
 watch(
   isUsageRoute,
@@ -619,7 +655,7 @@ onBeforeUnmount(() => {
           :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
-          :loading="list.isLoadingMore.value"
+          :loading="list.isLoading.value || list.isLoadingMore.value"
           :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
           :retry-key="invocationPaginationKey"
@@ -627,6 +663,18 @@ onBeforeUnmount(() => {
           @end-reached="list.loadMore()"
           @select="selectInvocation($event)"
         >
+          <template #footer>
+            <div v-if="list.cursor.value" class="flex justify-center px-2 py-3">
+              <UButton
+                color="neutral"
+                label="Load older sessions"
+                size="xs"
+                variant="soft"
+                :loading="list.isLoadingMore.value"
+                @click="list.loadMore()"
+              />
+            </div>
+          </template>
           <template #empty
             ><UEmpty
               class="px-4"
@@ -708,175 +756,147 @@ onBeforeUnmount(() => {
     </UDashboardPanel>
 
     <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-      <template #header>
-        <UDashboardNavbar
-          class="vitehub-console__session-navbar"
-          :title="selectedTitle"
-          :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
-        >
-          <template #title>
-            <div v-if="selectedDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-              <UIcon name="i-ph-folder-light" class="size-4 shrink-0 text-muted opacity-70" />
-              <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{
-                selectedProject
-              }}</span>
-              <span class="text-dimmed" aria-hidden="true">/</span>
-              <strong class="min-w-0 truncate font-medium text-highlighted">{{
-                selectedTitle
-              }}</strong>
-            </div>
-            <span v-else class="text-sm font-medium">{{ selectedTitle }}</span>
-          </template>
-          <template #right>
-            <UTooltip text="Open sessions">
-              <UButton
-                data-slot="mobile-session-navigation"
-                class="lg:hidden"
-                icon="i-ph-sidebar-simple-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Open sessions"
-                @click="sessionsOpen = true"
-              />
-            </UTooltip>
-            <UTooltip v-if="selectedExternalUrl" text="Open related page">
-              <UButton
-                :to="selectedExternalUrl"
-                target="_blank"
-                icon="i-ph-arrow-square-out-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Open related page"
-              />
-            </UTooltip>
-            <UTooltip text="Refresh session">
-              <UButton
-                icon="i-ph-arrows-clockwise-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                :loading="list.isLoading.value || detail.isLoading.value"
-                aria-label="Refresh session"
-                @click="refresh"
-              />
-            </UTooltip>
-            <UTooltip v-if="invocationView" text="Session details">
-              <UButton
-                icon="i-ph-sidebar-simple-light"
-                color="neutral"
-                :variant="detailsOpen ? 'soft' : 'ghost'"
-                size="sm"
-                aria-label="Session details"
-                :aria-pressed="detailsOpen"
-                @click="detailsOpen = !detailsOpen"
-              />
-            </UTooltip>
-          </template>
-        </UDashboardNavbar>
-      </template>
-
       <template #body>
         <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
-          <div
-            v-if="!selectedInvocationId"
-            class="flex h-full items-center justify-center p-8 text-sm text-muted"
-          >
-            Select an Agent Invocation to inspect its work.
-          </div>
-          <UEmpty
-            v-else-if="errorMessage(detail.error.value) && !invocationView"
+          <ConsoleSessionInspector
+            v-if="invocationView && isDesktop && detailsOpen && detailsMaximized"
+            :invocation="invocationView"
+            :maximized="true"
+            :workspace-base="`${hostBase}/api/invocations`"
+            v-model:tab="inspectorTab"
+            v-model:active-surface="inspectorActiveSurface"
+            v-model:open-views="inspectorOpenViews"
+            v-model:open-paths="inspectorOpenPaths"
+            v-model:selected-path="inspectorSelectedPath"
             class="h-full"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load this session"
-            :description="errorMessage(detail.error.value)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-            ]"
+            @close="closeDetails"
+            @focus-activity="selectActivity"
+            @toggle-maximized="detailsMaximized = false"
           />
-          <div
-            v-else-if="detail.isLoading.value && !invocationView"
-            class="flex h-full items-center justify-center"
+          <USplitter
+            v-else-if="invocationView && isDesktop && detailsOpen"
+            id="agent-session-layout"
+            auto-save-id="vitehub-agent-session-layout"
+            :items="splitterItems"
+            class="h-full min-h-0 overflow-hidden"
           >
-            <UIcon
-              name="i-ph-circle-notch-light"
-              class="size-4 animate-spin text-muted opacity-70"
+            <template #thread>
+              <div class="flex h-full min-h-0 flex-col overflow-hidden">
+                <ConsoleSessionNavbar
+                  :details-open="detailsOpen"
+                  :external-url="selectedExternalUrl"
+                  :has-display="Boolean(selectedDisplay)"
+                  :has-selection="Boolean(selectedInvocationId)"
+                  :loading="list.isLoading.value || detail.isLoading.value"
+                  :project="selectedProject"
+                  :title="selectedTitle"
+                  @open-sessions="sessionsOpen = true"
+                  @refresh="refresh"
+                  @toggle-details="detailsOpen = !detailsOpen"
+                />
+                <UAlert
+                  v-if="errorMessage(detail.error.value)"
+                  class="m-3 shrink-0"
+                  color="error"
+                  variant="subtle"
+                  icon="i-ph-cloud-slash-light"
+                  title="Could not refresh this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  ]"
+                />
+                <AgentInvocation
+                  :header="false"
+                  :invocation="invocationView"
+                  :selected-activity-id="selectedActivityId"
+                  class="min-h-0 flex-1"
+                  @inspect="inspectSession"
+                />
+              </div>
+            </template>
+            <template #details>
+              <ConsoleSessionInspector
+                :invocation="invocationView"
+                :workspace-base="`${hostBase}/api/invocations`"
+                v-model:tab="inspectorTab"
+                v-model:active-surface="inspectorActiveSurface"
+                v-model:open-views="inspectorOpenViews"
+                v-model:open-paths="inspectorOpenPaths"
+                v-model:selected-path="inspectorSelectedPath"
+                class="h-full"
+                @close="closeDetails"
+                @focus-activity="selectActivity"
+                @toggle-maximized="detailsMaximized = true"
+              />
+            </template>
+            <template #resize-handle>
+              <span
+                class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+              />
+            </template>
+          </USplitter>
+          <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
+            <ConsoleSessionNavbar
+              :details-open="detailsOpen"
+              :external-url="selectedExternalUrl"
+              :has-display="Boolean(selectedDisplay)"
+              :has-selection="Boolean(selectedInvocationId)"
+              :loading="list.isLoading.value || detail.isLoading.value"
+              :project="selectedProject"
+              :title="selectedTitle"
+              @open-sessions="sessionsOpen = true"
+              @refresh="refresh"
+              @toggle-details="detailsOpen = !detailsOpen"
             />
-          </div>
-          <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
-            <UAlert
-              v-if="errorMessage(detail.error.value)"
-              class="m-3 shrink-0"
-              color="error"
-              variant="subtle"
+            <div
+              v-if="!selectedInvocationId"
+              class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted"
+            >
+              Select an Agent Invocation to inspect its work.
+            </div>
+            <UEmpty
+              v-else-if="errorMessage(detail.error.value) && !invocationView"
+              class="min-h-0 flex-1"
               icon="i-ph-cloud-slash-light"
-              title="Could not refresh this session"
+              title="Could not load this session"
               :description="errorMessage(detail.error.value)"
               :actions="[
                 { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
               ]"
             />
-            <ConsoleSessionInspector
-              v-if="isDesktop && detailsOpen && detailsMaximized"
-              :invocation="invocationView"
-              :maximized="true"
-              :workspace-base="`${hostBase}/api/invocations`"
-              v-model:tab="inspectorTab"
-              v-model:active-surface="inspectorActiveSurface"
-              v-model:open-views="inspectorOpenViews"
-              v-model:open-paths="inspectorOpenPaths"
-              v-model:selected-path="inspectorSelectedPath"
-              class="min-h-0 flex-1"
-              @close="closeDetails"
-              @focus-activity="selectActivity"
-              @toggle-maximized="detailsMaximized = false"
-            />
-            <USplitter
-              v-else-if="isDesktop && detailsOpen"
-              id="agent-session-layout"
-              auto-save-id="vitehub-agent-session-layout"
-              :items="splitterItems"
-              class="min-h-0 flex-1 overflow-hidden"
+            <div
+              v-else-if="detail.isLoading.value && !invocationView"
+              class="flex min-h-0 flex-1 items-center justify-center"
             >
-              <template #thread>
-                <AgentInvocation
-                  :header="false"
-                  :invocation="invocationView"
-                  :selected-activity-id="selectedActivityId"
-                  class="h-full"
-                />
-              </template>
-              <template #details>
-                <ConsoleSessionInspector
-                  :invocation="invocationView"
-                  :workspace-base="`${hostBase}/api/invocations`"
-                  v-model:tab="inspectorTab"
-                  v-model:active-surface="inspectorActiveSurface"
-                  v-model:open-views="inspectorOpenViews"
-                  v-model:open-paths="inspectorOpenPaths"
-                  v-model:selected-path="inspectorSelectedPath"
-                  class="h-full"
-                  @close="closeDetails"
-                  @focus-activity="selectActivity"
-                  @toggle-maximized="detailsMaximized = true"
-                />
-              </template>
-              <template #resize-handle>
-                <span
-                  class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
-                />
-              </template>
-            </USplitter>
-            <AgentInvocation
-              v-else
-              :header="false"
-              :invocation="invocationView"
-              :selected-activity-id="selectedActivityId"
-              class="min-h-0 flex-1"
-            />
+              <UIcon
+                name="i-ph-circle-notch-light"
+                class="size-4 animate-spin text-muted opacity-70"
+              />
+            </div>
+            <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
+              <UAlert
+                v-if="errorMessage(detail.error.value)"
+                class="m-3 shrink-0"
+                color="error"
+                variant="subtle"
+                icon="i-ph-cloud-slash-light"
+                title="Could not refresh this session"
+                :description="errorMessage(detail.error.value)"
+                :actions="[
+                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                ]"
+              />
+              <AgentInvocation
+                :header="false"
+                :invocation="invocationView"
+                :selected-activity-id="selectedActivityId"
+                class="min-h-0 flex-1"
+                @inspect="inspectSession"
+              />
+            </div>
             <USlideover
-              v-if="!isDesktop"
+              v-if="!isDesktop && invocationView"
               v-model:open="detailsOpen"
               side="right"
               title="Session details"

@@ -307,8 +307,30 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
     expect(consolePage).toContain("AgentInvocationList");
+    expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
     expect(consolePage).toContain("ConsoleHealth");
+    const consoleSessionCss = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session.css`,
+      "utf8",
+    );
+    expect(consoleSessionCss).toMatch(/\.session-inspector\s*\{[\s\S]*?height: 100%;/);
+    expect(consolePage).toContain("limit: 10");
+    expect(consolePage).toContain('status === "completed" || status === "failed" || status === "cancelled"');
+    expect(consolePage).toContain('label="Load older sessions"');
+    expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
+    expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
+    expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");
+    expect(consolePage).toContain('v-else-if="invocationView && isDesktop && detailsOpen"');
+    expect(consolePage).toContain("<ConsoleSessionNavbar");
+    expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
+    expect(consolePage).toContain('@inspect="inspectSession"');
+    expect(consolePage).toContain("function inspectSession");
+    const consoleSessionNavbar = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-navbar.vue`,
+      "utf8",
+    );
+    expect(consoleSessionNavbar).toContain('v-if="hasSelection" text="Session details"');
     const sessionInspector = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
       "utf8",
@@ -352,9 +374,9 @@ describe("framework package contract", () => {
       existsSync(`${packageRoot}/dist/console/runtime/components/console-health-model.ts`),
     ).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
-    expect(consolePage).toContain("<UDashboardNavbar");
-    expect(consolePage).toContain('class="lg:hidden"');
-    expect(consolePage).not.toContain('class="xl:hidden"');
+    expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
+    expect(consoleSessionNavbar).toContain('class="lg:hidden"');
+    expect(consoleSessionNavbar).not.toContain('class="xl:hidden"');
     expect(consolePage).toContain(':header="false"');
     expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
@@ -373,9 +395,9 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)");
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)");
-    expect(consolePage).toContain('data-slot="mobile-session-navigation"');
+    expect(consoleSessionNavbar).toContain('data-slot="mobile-session-navigation"');
     expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")');
-    expect(consolePage).toContain('class="vitehub-console__session-navbar"');
+    expect(consoleSessionNavbar).toContain('class="vitehub-console__session-navbar"');
     expect(consolePage).toContain("minSize: 220");
     expect(consolePage).toContain("defaultSize: 680");
     expect(consolePage).toContain("maxSize: 1080");
@@ -399,7 +421,9 @@ describe("framework package contract", () => {
     expect(consoleIndexRoute).toContain("<ConsoleHome");
     expect(consoleIndexRoute).toContain(":sections-base=");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(
+      true,
+    );
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/databases.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true);
     const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8");

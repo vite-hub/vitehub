@@ -104,6 +104,7 @@ export interface AgentInvocationStore {
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
+  listAgentNames?(): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -120,6 +121,7 @@ export interface AgentInvocations {
   get(id: string): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
+  listAgentNames(): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -856,6 +858,10 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         }),
       }
     },
+    listAgentNames() {
+      return [...new Set([...records.values()].flatMap(record => record.agentName?.trim() || []))]
+        .sort()
+    },
     release(id, claimId) {
       if (claims.get(id)?.claimId === claimId) claims.delete(id)
     },
@@ -1455,6 +1461,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
+    },
+    async listAgentNames() {
+      if (store.listAgentNames) {
+        return [...new Set((await store.listAgentNames()).map(name => name.trim()).filter(Boolean))]
+          .sort()
+      }
+      const names = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ cursor, limit: MAX_LIST_LIMIT })
+        for (const invocation of page.invocations) {
+          if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...names].sort()
     },
   }
   return invocations

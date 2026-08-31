@@ -15,6 +15,11 @@ describe("Console Health model", () => {
     expect(isConsoleHealth(health)).toBe(true);
   });
 
+  it("accepts hosts that do not persist Workspace snapshots", () => {
+    const { snapshots: _snapshots, ...workload } = health.workload;
+    expect(isConsoleHealth({ ...health, workload })).toBe(true);
+  });
+
   it("rejects malformed diagnostics during capability discovery", () => {
     expect(isConsoleHealth({ ...health, diagnostics: [{ label: "Storage" }] })).toBe(false);
   });

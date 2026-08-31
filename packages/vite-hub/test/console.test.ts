@@ -1608,6 +1608,30 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("serves Agent names without paging through invocation summaries", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      agentName: "archived",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      id: "archived",
+      observations: [],
+      status: "completed",
+      traceId: "archived-trace",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents(["current"], invocations)
+    store.list = vi.fn(() => {
+      throw new Error("The Console should use the distinct Agent-name index.")
+    })
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["archived", "current"],
+    })
+    expect(store.list).not.toHaveBeenCalled()
+  })
+
   it("serves enabled Console sections in stable order for the active project", () => {
     installConsoleSections("/first", ["agents"])
     installConsoleProjectName("/first", "first-app")

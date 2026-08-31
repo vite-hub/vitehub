@@ -158,9 +158,9 @@ export const AgentInvocationList = defineComponent({
     const groups = computed(() => {
       const sorted = sortInvocationItems(props.items);
       return [
-        { collapsible: false, items: sorted.filter(item => item.status === "running"), key: "working", label: "Working" },
-        { collapsible: true, defaultOpen: true, items: sorted.filter(item => item.status === "pending"), key: "queued", label: "Queued" },
-        { collapsible: true, defaultOpen: false, items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
+        { collapsible: false, hasMore: props.hasMore && props.remainingStatuses.includes("running"), items: sorted.filter(item => item.status === "running"), key: "working", label: "Working" },
+        { collapsible: true, defaultOpen: true, hasMore: props.hasMore && props.remainingStatuses.includes("pending"), items: sorted.filter(item => item.status === "pending"), key: "queued", label: "Queued" },
+        { collapsible: true, defaultOpen: false, hasMore: props.hasMore && props.remainingStatuses.some(status => status !== "running" && status !== "pending"), items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
       ].filter(group => group.items.length > 0);
     });
     const visibleItems = computed(() => props.items.filter((item) => {
@@ -266,9 +266,9 @@ export const AgentInvocationList = defineComponent({
     const renderGroupHeading = (group: (typeof groups.value)[number]) => [
       h("span", { class: "vh-invocation-list__group-label" }, group.label),
       h("span", {
-        "aria-label": `${group.items.length} ${group.items.length === 1 ? "session" : "sessions"}`,
+        "aria-label": `${group.hasMore ? "At least " : ""}${group.items.length} ${group.items.length === 1 ? "session" : "sessions"}${group.hasMore ? "; more available" : ""}`,
         class: "vh-invocation-list__group-count",
-      }, String(group.items.length)),
+      }, `${group.items.length}${group.hasMore ? "+" : ""}`),
     ];
     const renderGroup = (group: (typeof groups.value)[number]) => group.collapsible
       ? h("details", {
