@@ -3,7 +3,11 @@ export {
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
-export { failInterruptedAgentInvocations, summarizeAgentInvocationWorkload } from "./server/invocation-health.ts"
+export {
+  failInterruptedAgentInvocations,
+  readAgentInvocationWorkload,
+  summarizeAgentInvocationWorkload,
+} from "./server/invocation-health.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
 export {
