@@ -88,7 +88,7 @@ describe("docs build warning budget", () => {
       "[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.",
       "[warn] Could not fetch from `https://fonts.bunny.net/list`. Will retry in `1000ms`. `3` retries left.",
       "[warn] [PLUGIN_TIMINGS] render pages took 1s",
-      "[warn] [INEFFECTIVE_DYNAMIC_IMPORT] Button.vue is dynamically and statically imported",
+      "[warn] [INEFFECTIVE_DYNAMIC_IMPORT] ../node_modules/.pnpm/@nuxt+ui@4.11.0/node_modules/@nuxt/ui/dist/runtime/components/Button.vue is dynamically imported",
       "[warn] [Icon] failed to load icon `simple-icons:pnpm`",
       "[warn] [Icon] loading icon `vscode-icons:file-type-css` timed out after 1500ms",
       "[warn] [nitro] [cloudflare] Wrangler config `assets`set by config or modules is overridden and will be ignored.",

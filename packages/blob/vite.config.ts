@@ -47,7 +47,7 @@ export default defineConfig({
       undici: fileURLToPath(new URL("./src/internal/vercel-fetch.ts", import.meta.url)),
     },
     tsconfig: "tsconfig.build.json",
-    copy: [{ from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" }],
+    copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
       neverBundle: ["vite", "esbuild", ...filesSdkProviderPeers],
       alwaysBundle: [
@@ -58,6 +58,15 @@ export default defineConfig({
       ],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "blob-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     entry: [
       "src/config.ts",
       "src/content-type.ts",

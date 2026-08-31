@@ -5,8 +5,6 @@ declare module "#vitehub/env/public" {
 }
 
 declare module "#vitehub/env/server" {
-  import type { SecretEnv } from "@vite-hub/env/secret"
-
   export interface ServerEnv extends Record<string, unknown> {}
   export interface ServerEnvInspectionEntry {
     masked: boolean
@@ -18,7 +16,7 @@ declare module "#vitehub/env/server" {
     entries: readonly ServerEnvInspectionEntry[]
   }
   export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
-  type DeepReadonly<T> = T extends SecretEnv<unknown>
+  type DeepReadonly<T> = T extends import("@vite-hub/env/secret").SecretEnv<unknown>
     ? T
     : T extends (...args: infer TArguments) => infer TResult
     ? (...args: TArguments) => TResult
@@ -30,5 +28,3 @@ declare module "#vitehub/env/server" {
   export function useServerEnv(event?: unknown): ServerEnv
   export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal }): Promise<T>
 }
-
-export {}

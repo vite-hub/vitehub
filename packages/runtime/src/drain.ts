@@ -6,6 +6,11 @@ const pidInput: string | undefined = process.argv[2]
 const statusUrl: string = process.argv[3] || "http://127.0.0.1:3000/api/drain"
 const pid: number = Number(pidInput)
 
+if (pidInput === "-h" || pidInput === "--help") {
+  console.log("Usage: vitehub-drain MAINPID [STATUS_URL]")
+  process.exit(0)
+}
+
 if (!Number.isSafeInteger(pid) || pid <= 0) {
   console.error("usage: vitehub-drain MAINPID [STATUS_URL]")
   process.exit(2)

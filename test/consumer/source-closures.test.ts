@@ -25,7 +25,7 @@ async function run(command: string, args: string[], cwd: string) {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    // SAFETY: execFile rejects with the documented Error shape carrying optional output streams.
+    // SAFETY: execFile attaches captured stdout and stderr to its rejected Error.
     const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
     throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
   }
@@ -85,7 +85,8 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+  const metaValue: unknown = JSON.parse(await readFile(meta, "utf8"))
+  return parse(workerMetadataSchema, metaValue)
 }
 
 function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {

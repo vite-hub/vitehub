@@ -89,6 +89,7 @@ describe("@vite-hub/ui package contract", () => {
       "@comark/vue": "0.6.2",
       "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.4.8",
+      "@types/node": "catalog:tooling",
     });
   });
 
