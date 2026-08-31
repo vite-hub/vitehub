@@ -296,6 +296,34 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("matches scope aliases after scoped package imports become absolute", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/@scope/example")
+    const original = resolve(packageDir, "dist/vite.mjs")
+    const replacementDir = resolve(rootDir, "replacement")
+    const replacement = resolve(replacementDir, "example/vite")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([mkdir(dirname(original), { recursive: true }), mkdir(dirname(replacement), { recursive: true })])
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./vite": "./dist/vite.mjs" }, name: "@scope/example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "@scope", replacement: replacementDir }]),
+      format: "esm",
+      platform: "node",
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("replacement")
+    expect(output).not.toContain("original")
+  })
+
   it.each([
     { exportTarget: "./jobs/*", replacementPath: "jobs/task.mjs", sourcePath: "jobs/task.mjs" },
     { exportTarget: "./src/jobs/*", replacementPath: "jobs/task.mjs", sourcePath: "src/jobs/task.mjs" },

@@ -159,8 +159,18 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
         if (!match && isAbsolute(args.path)) {
           for (const alias of aliases) {
             if (isAbsolute(alias.specifier)) continue
-            const aliasSegments = alias.specifier.split("/")
-            const packageName = alias.specifier.startsWith("@") ? aliasSegments.slice(0, 2).join("/") : aliasSegments[0]!
+            const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
+            const aliasSegments = packageAlias.split("/")
+            if (!alias.prefix && aliasSegments.length === 1 && packageAlias.startsWith("@")) continue
+            let packageName = packageAlias.startsWith("@") ? aliasSegments.slice(0, 2).join("/") : aliasSegments[0]!
+            if (alias.prefix && aliasSegments.length === 1 && alias.specifier.startsWith("@")) {
+              const scopeMarker = `/node_modules/${packageAlias}/`
+              const scopeMarkerIndex = normalizedSpecifier.lastIndexOf(scopeMarker)
+              const scopedPackage = scopeMarkerIndex === -1
+                ? undefined
+                : normalizedSpecifier.slice(scopeMarkerIndex + scopeMarker.length).split("/")[0]
+              if (scopedPackage) packageName = `${packageAlias}/${scopedPackage}`
+            }
             const packageMarker = `/node_modules/${packageName}/`
             const packageMarkerIndex = normalizedSpecifier.lastIndexOf(packageMarker)
             const resolutionScope = packageMarkerIndex === -1
