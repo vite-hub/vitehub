@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
@@ -357,7 +357,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {
-            await rm(artifactDir, { force: true, recursive: true })
+            await removeProviderOutputArtifactDir(artifactDir)
             if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
           },
           owner: "blob",
@@ -377,7 +377,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         }, generation)
       }
       catch (error) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
@@ -388,7 +388,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       await providerOutputGenerations.reset(this, providerOutput, error)
       const artifactDir = stagedArtifactDirs.get(environment)
       if (artifactDir) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
       }
     },
