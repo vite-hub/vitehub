@@ -864,19 +864,24 @@ it("resolves Vite-root queried resources from the configured project root", asyn
   const handler = join(rootDir, "server", "agent.ts")
   const resourceRepository = join(rootDir, "prompt-worktree")
   const publicRepository = join(rootDir, "public")
+  const distPrompt = join(rootDir, "dist", "prompt.md")
+  const staleDistFile = join(rootDir, "dist", "stale.txt")
   const bundleFile = join(workspace, "provider-output.mjs")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(resourceRepository, { recursive: true }),
     mkdir(publicRepository, { recursive: true }),
+    mkdir(dirname(distPrompt), { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n"),
-    writeFile(handler, 'import prompt from "/prompt-worktree/prompt.md?raw"\nimport publicPrompt from "/public-prompt.md?raw"\nexport { prompt, publicPrompt }\n'),
+    writeFile(handler, 'import distPrompt from "/dist/prompt.md?raw"\nimport prompt from "/prompt-worktree/prompt.md?raw"\nimport publicPrompt from "/public-prompt.md?raw"\nexport { distPrompt, prompt, publicPrompt }\n'),
     writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
     writeFile(join(resourceRepository, "prompt.md"), "Project prompt\n"),
     writeFile(join(publicRepository, ".git"), "gitdir: /tmp/public.git\n"),
     writeFile(join(publicRepository, "public-prompt.md"), "Public prompt\n"),
+    writeFile(distPrompt, "Dist prompt\n"),
+    writeFile(staleDistFile, "Stale output\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -888,6 +893,7 @@ it("resolves Vite-root queried resources from the configured project root", asyn
   await Promise.all([
     writeFile(join(resourceRepository, "prompt.md"), "Changed project prompt\n"),
     writeFile(join(publicRepository, "public-prompt.md"), "Changed public prompt\n"),
+    writeFile(distPrompt, "Changed dist prompt\n"),
   ])
   await bundleEsmEntry(retained.resolve(handler), bundleFile, {
     format: "esm",
@@ -897,7 +903,10 @@ it("resolves Vite-root queried resources from the configured project root", asyn
 
   await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Project prompt\n")
   await expect(readFile(retained.resolve(join(publicRepository, "public-prompt.md")), "utf8")).resolves.toBe("Public prompt\n")
+  await expect(readFile(retained.resolve(distPrompt), "utf8")).resolves.toBe("Dist prompt\n")
+  await expect(readFile(retained.resolve(staleDistFile), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({
+    distPrompt: "Dist prompt\n",
     prompt: "Project prompt\n",
     publicPrompt: "Public prompt\n",
   })

@@ -533,6 +533,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
           && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
           return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            || [...importedSources].some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
             || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
             || configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource)
               && !relative(outputRoot, resolvedSource).split(sep).some(segment => ignoredSourceDirectories.has(segment)))
