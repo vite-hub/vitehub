@@ -363,8 +363,12 @@ describe("Vite db provider outputs", () => {
       rootDir,
       runtimeConfig,
     }, async (output) => {
-      expect(output.cloudflare?.bundleOptions?.alias?.["@vite-hub/blob"]).toBe("blob-old-cloudflare.mjs")
-      expect(output.vercel?.bundleOptions.alias?.["@vite-hub/blob"]).toBe("blob-old-vercel.mjs")
+      expect(output.cloudflare?.bundleOptions?.alias).toEqual(expect.objectContaining({
+        "@vite-hub/blob": "blob-old-cloudflare.mjs",
+      }))
+      expect(output.vercel?.bundleOptions.alias).toEqual(expect.objectContaining({
+        "@vite-hub/blob": "blob-old-vercel.mjs",
+      }))
     })
   })
 

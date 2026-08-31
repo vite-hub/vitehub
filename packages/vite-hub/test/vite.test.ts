@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
   discoverWorkflowDefinitions: vi.fn(() => []),
+  finalizeDenoDeploymentOutput: vi.fn(),
+  finalizeDeploymentPlanOutput: vi.fn(),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
@@ -51,6 +53,12 @@ vi.mock("@vite-hub/agent/vite", () => ({
   discoverAgentDefinitionEntries: integrationMocks.discoverAgentDefinitionEntries,
   hubAgent: integrationMocks.hubAgent,
 }))
+vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
+  finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
+}))
+vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
+  finalizeDeploymentPlanOutput: integrationMocks.finalizeDeploymentPlanOutput,
+}))
 vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
@@ -87,7 +95,7 @@ vi.mock("@vite-hub/workflow/vite", () => ({
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
-import type { Plugin, PluginOption } from "vite"
+import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
@@ -214,9 +222,8 @@ describe("vitehub", () => {
     const plugins = vitehub({ preset: "node" })
     const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
-    const config: Record<string, unknown> = {}
+    const config: Record<string, unknown> = { ...await resolveConfig({}, "build") }
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
-    config.command = "build"
     config.plugins = plugins
     callHook(output.configResolved, [config])
 
@@ -1215,6 +1222,110 @@ describe("vitehub", () => {
         ],
       },
     })
+  })
+
+  it("allows custom alias resolvers until Deno Schedule output is staged", () => {
+    const plugin = dependencyPluginByName(vitehub({ preset: "deno" }), "vite-hub/deployment-output")
+    const customResolver = { resolveId: vi.fn() }
+
+    expect(() => callHook(plugin.configResolved, [{
+      command: "build",
+      nitro: { preset: "deno-deploy" },
+      plugins: [],
+      resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
+    }])).not.toThrow()
+  })
+
+  it("forwards resolved aliases and Nitro server conditions to Deno output staging", async () => {
+    integrationMocks.finalizeDenoDeploymentOutput.mockClear()
+    integrationMocks.finalizeDeploymentPlanOutput.mockClear()
+    const plugins = vitehub({ preset: "deno" })
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    const config: Record<string, unknown> = {}
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
+    callHook(output.config, [{ resolve: { conditions: ["browser", "launch"] } }, { command: "build", mode: "production" }])
+    // SAFETY: The preset config hook populated Nitro modules for the Deno build above.
+    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
+    vi.stubEnv("NODE_ENV", "production")
+    let resolvedConfig: Awaited<ReturnType<typeof resolveConfig>>
+    try {
+      resolvedConfig = await resolveConfig({
+        resolve: { conditions: ["browser", "launch"] },
+      }, "build", "staging")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+    callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
+    let compiled: (() => Promise<void>) | undefined
+    const nitro = {
+      hooks: {
+        hook: vi.fn((name: string, callback: () => Promise<void>) => {
+          if (name === "compiled") compiled = callback
+        }),
+      },
+      options: {
+        commands: nitroConfig.commands,
+        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        preset: "deno_deploy",
+        rootDir: "/app",
+      },
+    }
+    // SAFETY: The deployment preset prepends its Nitro module to the configured module list.
+    const module = nitroConfig.modules[0] as (target: typeof nitro) => void
+    module(nitro)
+    if (!compiled) throw new TypeError("Expected the Deno output callback.")
+
+    await (compiled as () => Promise<void>)()
+
+    expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
+      conditions: ["browser", "launch"],
+    }))
+
+    integrationMocks.finalizeDenoDeploymentOutput.mockClear()
+    callHook(output.configResolved, [{
+      ...resolvedConfig,
+      environments: {
+        ...resolvedConfig.environments,
+        nitro: {
+          ...resolvedConfig.environments.ssr,
+          resolve: {
+            ...resolvedConfig.resolve,
+            alias: [
+              { find: "#server-first", replacement: "/server/first.ts" },
+              { find: "#server-second", replacement: "/server/second.ts" },
+            ],
+            conditions: ["module", "node", "development|production", "browser", "launch"],
+            extensions: [".mts", ".mjs", ".ts", ".js"],
+            mainFields: ["server", "module", "main"],
+            preserveSymlinks: true,
+          },
+        },
+      },
+      resolve: {
+        ...resolvedConfig.resolve,
+        alias: [
+          { find: "#root-only", replacement: "/root/only.ts" },
+        ],
+      },
+      nitro: nitroConfig,
+    }])
+    compiled = undefined
+    module(nitro)
+    if (!compiled) throw new TypeError("Expected the updated Deno output callback.")
+    await (compiled as () => Promise<void>)()
+
+    expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
+      alias: [
+        { customResolver: false, find: "#server-first", replacement: "/server/first.ts" },
+        { customResolver: false, find: "#server-second", replacement: "/server/second.ts" },
+      ],
+      conditions: ["module", "node", "production", "browser", "launch"],
+      extensions: [".mts", ".mjs", ".ts", ".js"],
+      mainFields: ["server", "module", "main"],
+      preserveSymlinks: true,
+    }))
   })
 
   it("composes deployment output through a Nitro module", async () => {

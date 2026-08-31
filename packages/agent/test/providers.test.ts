@@ -504,6 +504,30 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("normalizes the final server environment externals for Rolldown", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const hook = plugin.configEnvironment
+    const result = isRuntimeFunction(hook)
+      ? hook.call(
+          // SAFETY: This hook fixture does not read the Vite plugin context.
+          {} as never,
+          "ssr",
+          // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
+          {
+            build: { rolldownOptions: { external: ["existing", () => true, /^node:/] } },
+            consumer: "server",
+          } as never,
+          // SAFETY: This hook fixture does not read the environment options argument.
+          {} as never,
+        )
+      : undefined
+
+    expect(result).toMatchObject({
+      build: { rolldownOptions: { external: ["existing", /^node:/] } },
+    })
+  })
+
   it("exposes hubAgent options through Vite config", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { discordGateway: true } })
@@ -1653,7 +1677,7 @@ describe("agent Vite plugin", () => {
     const config = {
       build: {
         rolldownOptions: {
-          external: ["existing"],
+          external: ["existing", () => true],
         },
         rollupOptions: {
           external: ["legacy"],

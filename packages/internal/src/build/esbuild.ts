@@ -7,9 +7,10 @@ import { build as bundle, type Plugin } from "esbuild"
 import { isPlainObject } from "../object.ts"
 
 interface BundleEsmEntryOptions {
-  alias?: Record<string, string>
+  alias?: Record<string, string> | ViteAlias[]
   banner?: string
   conditions?: string[]
+  extensions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
   mainFields?: string[]
@@ -18,9 +19,16 @@ interface BundleEsmEntryOptions {
   packages?: "bundle" | "external"
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
+  preserveSymlinks?: boolean
   rootDir?: string
   signal?: AbortSignal
   workingDir?: string
+}
+
+export interface ViteAlias {
+  customResolver?: boolean
+  find: string | RegExp
+  replacement: string
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
@@ -309,6 +317,52 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
   }
 }
 
+function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin | undefined {
+  if (!Array.isArray(aliases)) return
+  const resolvingAlias = "vitehubResolvingAlias"
+  return {
+    name: "vitehub-vite-alias",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        if (args.pluginData?.[resolvingAlias]) return
+        const alias = aliases.find(({ find }) => {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
+          if (typeof find === "string") return args.path === find || args.path.startsWith(`${find}/`)
+          find.lastIndex = 0
+          return find.test(args.path)
+        })
+        if (!alias) return
+        if (alias.customResolver) {
+          return {
+            errors: [{ text: `[vitehub] Deno Schedule output cannot stage the Vite alias ${JSON.stringify(args.path)} because it uses customResolver.` }],
+          }
+        }
+        if (alias.find instanceof RegExp) alias.find.lastIndex = 0
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
+        const replacement = typeof alias.find === "string"
+          ? `${alias.replacement}${args.path.slice(alias.find.length)}`
+          : args.path.replace(alias.find, alias.replacement)
+        const result = await build.resolve(replacement, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: Object.assign(
+            {},
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- esbuild exposes pluginData as unknown, and this boundary preserves only object-shaped metadata.
+            args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {},
+            { [resolvingAlias]: true },
+          ),
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
+        const pluginData = Object.assign({}, result.pluginData)
+        Reflect.deleteProperty(pluginData, resolvingAlias)
+        return { ...result, pluginData }
+      })
+    },
+  }
+}
+
 function stripMarkdownCode(template: string): string {
   let fence: { marker: string, length: number, listIndented: boolean } | undefined
   let inList = false
@@ -519,11 +573,21 @@ export async function bundleEsmEntry(
   options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+  const viteAliasPlugin = createViteAliasPlugin(options.alias)
+  const aliasSpecifiers = Array.isArray(options.alias)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
+    ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
+    : Object.keys(options.alias || {})
+  const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
   const plugins: Plugin[] = []
-  const resolvedAliasPlugin = createResolvedAliasPlugin(options.alias, options.workingDir ?? options.rootDir ?? process.cwd())
+  const resolvedAliasPlugin = createResolvedAliasPlugin(
+    Array.isArray(options.alias) ? undefined : options.alias,
+    options.workingDir ?? options.rootDir ?? process.cwd(),
+  )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
-  plugins.push(...(options.plugins ?? []), createFileUrlPlugin(), createViteRawPlugin(options.rootDir, frameworkRuntime))
+  plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
+  if (viteAliasPlugin) plugins.push(viteAliasPlugin)
+  plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,
@@ -548,11 +612,13 @@ export async function bundleEsmEntry(
     format,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
+    resolveExtensions: options.extensions,
     minifyIdentifiers: options.minifyIdentifiers,
     minifyWhitespace: options.minifyWhitespace,
     outfile,
     packages: options.packages,
     platform,
+    preserveSymlinks: options.preserveSymlinks,
     plugins,
     sourcemap: false,
     target: "es2022",

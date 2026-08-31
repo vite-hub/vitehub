@@ -262,6 +262,20 @@ describe("schedule provider output", () => {
 
   it("emits Deno cron provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-output-")
+    const nestedScheduleDir = join(rootDir, "src", "foo")
+    const longScheduleName = "a".repeat(80)
+    await mkdir(nestedScheduleDir, { recursive: true })
+    for (const file of [
+      join(nestedScheduleDir, "bar.schedule.ts"),
+      join(rootDir, "src", "foo_2f_bar.schedule.ts"),
+      join(rootDir, "src", `${longScheduleName}.schedule.ts`),
+    ]) {
+      await writeFile(file, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+        "",
+      ].join("\n"), "utf8")
+    }
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -271,8 +285,32 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
+    expect(source).toContain("Deno.cron(cronName, cron")
+    const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
+    expect(cronNames).toHaveLength(4)
+    expect(new Set(cronNames).size).toBe(cronNames.length)
+    expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).not.toContain("./registry.mjs")
+    expect(source).toContain("handler: () => \"ok\"")
+  })
+
+  it("preserves published Deno cron output when closure bundling fails", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-output-failure-")
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const publishedSource = await readFile(denoCron, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      runtimeImport: "./missing-runtime.mjs",
+    })).rejects.toThrow()
+
+    expect(await readFile(denoCron, "utf8")).toBe(publishedSource)
+    expect(existsSync(`${denoCron}.vitehub-input-tmp.mjs`)).toBe(false)
+    expect(existsSync(`${denoCron}.vitehub-tmp`)).toBe(false)
   })
 
   it("can route Deno cron provider wake output through a preset facade", async () => {
@@ -288,7 +326,7 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain('from "#app/schedule/runtime"')
-    expect(source).toContain('"cleanup": "0 0 * * *"')
+    expect(source).toContain('"cronName": "vitehub-0-cleanup"')
     expect(source).toContain("executeStaticSchedule")
   })
 

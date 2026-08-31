@@ -635,13 +635,16 @@ function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentSta
 
 function mergeRollupExternals(external: RollupExternalOption | undefined, additions: readonly string[]): RollupExternalOption | undefined {
   if (external === undefined) return [...additions]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so this boundary must distinguish its string member.
   if (typeof external === "string") return additions.includes(external) ? [...additions] : [external, ...additions]
   if (external instanceof RegExp) return [external, ...additions]
   if (Array.isArray(external)) {
     const missing = additions.filter(source => !external.includes(source))
     return missing.length ? [...external, ...missing] : external
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so callability identifies its function member.
   if (typeof external === "function") {
+    // SAFETY: The preceding runtime check proves this Rollup external is the function member of the union.
     const externalFunction = external as RollupExternalFunction
     return (source: string, importer?: string, isResolved?: boolean) =>
       additions.includes(source) || Boolean(externalFunction(source, importer, isResolved))
@@ -654,13 +657,23 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 }
 
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
+  // SAFETY: This adapter augments Vite's build config only with the legacy rollupOptions field that it reads below.
   const build = (config.build ?? {}) as NonNullable<BuildWithRolldownOptions["build"]> & { rollupOptions?: unknown }
   const rollupOptions = isRecord(build.rollupOptions) ? build.rollupOptions : {}
+  // SAFETY: The legacy rollupOptions record is narrowed above and exposes Rollup's documented external option.
+  const configuredExternal = build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined
+  const rolldownExternal = Array.isArray(configuredExternal)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and Rolldown accepts only its string and RegExp members here.
+    ? configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
+    : configuredExternal
   delete build.rollupOptions
   build.rolldownOptions = {
     ...rollupOptions,
     ...build.rolldownOptions,
-    external: mergeRollupExternals(build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined, additions),
+    external: mergeRollupExternals(
+      rolldownExternal,
+      additions,
+    ),
   }
   return {
     ...build,
@@ -697,6 +710,7 @@ function cloneNitroConfig(value: unknown): NitroConfig {
     nitro.cloudflare = cloudflare
   }
 
+  // SAFETY: The clone retains NitroConfig fields and only copies nested configuration objects and arrays.
   return nitro as NitroConfig
 }
 
@@ -711,6 +725,12 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: strin
 
 function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const nitro = cloneNitroConfig(value)
+  if (isRecord(nitro.rollupConfig) && Array.isArray(nitro.rollupConfig.external)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and this adapter retains only string and RegExp members.
+    nitro.rollupConfig.external = nitro.rollupConfig.external.filter(
+      (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
+    )
+  }
   const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
   const existingInline = Array.isArray(externals.inline) ? externals.inline : []
   externals.inline = externals.inline === true
@@ -2771,6 +2791,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
 
       return {
+        // SAFETY: Vite passes its environment build configuration, which this adapter augments without changing its owned fields.
+        build: mergeBuildExternal(config as BuildWithRolldownOptions, []),
         resolve: {
           noExternal: mergeNoExternal(config.resolve?.noExternal),
         },

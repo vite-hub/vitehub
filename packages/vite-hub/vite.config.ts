@@ -152,7 +152,7 @@ export default defineConfig({
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
     deps: {
-      neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$))/],
+      neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },

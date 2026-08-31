@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
+import { defaultServerConditions } from "vite"
+
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
@@ -42,6 +44,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -50,12 +53,27 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 type DeploymentServicesManifest = Record<DeploymentService, object>
+
+function resolveServerOptions(config: ResolvedConfig) {
+  // SAFETY: Resolved environment configs use Vite's complete resolved resolve-options shape, matching the root fallback.
+  const serverResolve = (config.environments?.nitro?.resolve
+    ?? config.environments?.ssr?.resolve
+    ?? config.resolve) as typeof config.resolve | undefined
+  const conditions = serverResolve?.conditions ?? defaultServerConditions
+  return {
+    alias: serverResolve?.alias,
+    conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
+    extensions: serverResolve?.extensions ?? [],
+    mainFields: serverResolve?.mainFields ?? [],
+    preserveSymlinks: serverResolve?.preserveSymlinks ?? false,
+  }
+}
 
 const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
@@ -383,6 +401,7 @@ function deploymentNitroModule(
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
+  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -400,7 +419,7 @@ function deploymentNitroModule(
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
       if (plan.output.packaging === "deno-node-modules") {
-        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir })
+        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
     })
@@ -416,6 +435,14 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean } = {
+    alias: [],
+    conditions: [],
+    extensions: [],
+    hasScheduleIntegration: false,
+    mainFields: [],
+    preserveSymlinks: false,
+  }
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
@@ -540,7 +567,7 @@ function deploymentPlugins(
             }
           }
           nitro.modules = [
-            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned),
+            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => resolvedBuildConfig),
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
           ]
           if (plan.output.packaging === "deno-node-modules") {
@@ -592,6 +619,19 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const serverResolve = resolveServerOptions(config)
+        resolvedBuildConfig = {
+          alias: (serverResolve.alias ?? []).map(alias => ({
+            customResolver: alias.customResolver !== undefined,
+            find: alias.find,
+            replacement: alias.replacement,
+          })),
+          conditions: serverResolve.conditions,
+          extensions: serverResolve.extensions,
+          hasScheduleIntegration: config.plugins?.some(plugin => plugin.name === "@vite-hub/schedule/vite") ?? false,
+          mainFields: serverResolve.mainFields,
+          preserveSymlinks: serverResolve.preserveSymlinks,
+        }
         providerOutput = useProviderOutputCatalog(config)
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)

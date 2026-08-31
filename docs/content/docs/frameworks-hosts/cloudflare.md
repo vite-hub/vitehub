@@ -21,22 +21,23 @@ Keep the Definition and Runtime Helper host-neutral. Put Cloudflare details in I
 
 ## Provider-owned configuration
 
-The primitive package options select Cloudflare. Each provider field stays with the package that owns the primitive.
+Select the Cloudflare preset in the framework integration. Each primitive still owns its Definitions and Runtime Helpers.
 
 ```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { hubQueue } from '@vite-hub/queue/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubDb(),
-    hubQueue(),
+    vitehub({
+      preset: 'cloudflare',
+      database: true,
+      queue: true,
+    }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
   ],
-  queue: {
-    provider: 'cloudflare',
-    binding: 'JOBS',
-  },
 })
 ```
 
@@ -68,11 +69,12 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 ## Generated output
 
-Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. A production-shaped build materialises the selected output under `dist`.
+Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. The Cloudflare preset materialises its deployment artifact under `.output/server`.
 
 ```bash [Terminal]
 pnpm build
-find dist -maxdepth 4 -type f | sort
+test -f .output/server/wrangler.json
+find .output -maxdepth 4 -type f | sort
 ```
 
 Generate Agent routes through Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
@@ -110,18 +112,18 @@ Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare
 
 ```ts [vite.config.ts]
 import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
 
-export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
-    store: {
-      provider: 'cloudflare-artifacts',
-      binding: 'WORKSPACE_ARTIFACTS',
-      namespace: 'vitehub',
-    },
-  },
-})
+export default {
+  plugins: [
+    hubWorkspace({
+      store: {
+        provider: 'cloudflare-artifacts',
+        binding: 'WORKSPACE_ARTIFACTS',
+        namespace: 'vitehub',
+      },
+    }),
+  ],
+}
 ```
 
 Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Workspace preserves unrelated app-owned Artifacts bindings. Cloudflare hosting still defaults to the ephemeral `memory` Store because Artifacts requires explicit beta access.
@@ -131,17 +133,14 @@ Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Wo
 Register the Browser integration when trusted server code needs Cloudflare Browser Run sessions.
 
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [
-    vitehub({
-      preset: 'cloudflare',
-      browser: true,
-    }),
-  ],
-})
+export default {
+  plugins: vitehub({
+    preset: 'cloudflare',
+    browser: true,
+  }),
+}
 ```
 
 ViteHub writes the generated `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.

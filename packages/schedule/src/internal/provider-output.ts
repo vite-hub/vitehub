@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
+import { builtinModules } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
@@ -254,7 +255,14 @@ function sanitizeNetlifyScheduleFunctionName(name: string): string {
 }
 
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport) {
-  const scheduleCrons = Object.fromEntries([...crons.entries()].sort(([left], [right]) => left.localeCompare(right)))
+  const scheduleCrons = [...crons.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, cron], index) => {
+      const cronId = index.toString(36)
+      const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
+      const cronNamePrefix = `vitehub-${cronId}-`
+      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, name }
+    })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
@@ -268,8 +276,8 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  return loaded?.default ?? loaded",
     "}",
     "",
-    "for (const [name, cron] of Object.entries(scheduleCrons)) {",
-    "  Deno.cron(`vitehub:${name}`, cron, async () => {",
+    "for (const { cron, cronName, name } of scheduleCrons) {",
+    "  Deno.cron(cronName, cron, async () => {",
     "    const definition = await loadScheduleDefinition(name)",
     "    if (!definition) {",
     "      throw new Error(`Missing schedule definition: ${name}`)",
@@ -278,7 +286,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  })",
     "}",
     "",
-    "export const vitehubScheduleDefinitions = Object.keys(scheduleCrons)",
+    "export const vitehubScheduleDefinitions = scheduleCrons.map(({ name }) => name)",
     "",
   ].join("\n")
 }
@@ -704,7 +712,28 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
   options.signal?.throwIfAborted()
   if (artifacts.definitions.length > 0) {
-    await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
+    const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
+    try {
+      await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+      await bundleEsmEntry(stagedDenoCronInputFile, stagedDenoCronFile, {
+        alias: options.bundleAlias,
+        external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
+        format: "esm",
+        packages: "external",
+        platform: "neutral",
+        plugins: [createScheduleDefinitionAliasPlugin()],
+        rootDir: options.rootDir,
+        signal: options.signal,
+      })
+      await rename(stagedDenoCronFile, artifacts.denoCronFile)
+    }
+    finally {
+      await Promise.all([
+        rm(stagedDenoCronInputFile, { force: true }),
+        rm(stagedDenoCronFile, { force: true }),
+      ])
+    }
     options.signal?.throwIfAborted()
     await writeCloudflareScheduleOutput({
       bundleAlias: options.bundleAlias,

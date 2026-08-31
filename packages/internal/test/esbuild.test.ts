@@ -1245,6 +1245,57 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("bare replacement")
   })
 
+  it("preserves first-match ordering for Vite alias arrays", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const first = join(rootDir, "first.mjs")
+    const second = join(rootDir, "second.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import value from "virtual/value"\nexport default value\n', "utf8")
+    await writeFile(first, 'export default "first"\n', "utf8")
+    await writeFile(second, 'export default "second"\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: [
+        { find: /^virtual\/value$/, replacement: first },
+        { find: "virtual", replacement: rootDir },
+        { find: /^virtual\/value$/, replacement: second },
+      ],
+      format: "esm",
+      platform: "node",
+    })
+
+    // SAFETY: Every alias target exports a string literal as its default.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("first")
+  })
+
+  it("resolves aliases imported by aliased modules", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const first = join(rootDir, "first.mjs")
+    const second = join(rootDir, "second.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import value from "first-alias"\nexport default value\n', "utf8")
+    await writeFile(first, 'export { default } from "second-alias"\n', "utf8")
+    await writeFile(second, 'export default "chained"\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: [
+        { find: "first-alias", replacement: first },
+        { find: "second-alias", replacement: second },
+      ],
+      format: "esm",
+      platform: "node",
+    })
+
+    // SAFETY: The chained alias target exports a string literal as its default.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("chained")
+  })
+
   it("prefers Node exports over module exports in Node bundles", async () => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "node_modules", "conditional-package")

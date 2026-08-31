@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
-import { array, boolean, object, optional, parse, record, string, unknown } from "valibot"
+import { array, boolean, instance, object, optional, parse, record, safeParse, string, union, unknown } from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
@@ -19,15 +19,19 @@ const workerMetadataSchema = object({
     imports: optional(array(object({ external: optional(boolean()), path: string() }))),
   })),
 })
+const commandErrorSchema = object({
+  stderr: optional(union([string(), instance(Buffer)])),
+  stdout: optional(union([string(), instance(Buffer)])),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    // SAFETY: execFile attaches captured stdout and stderr to its rejected Error.
-    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
-    throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
+    const failed = safeParse(commandErrorSchema, error)
+    const output = failed.success ? `${failed.output.stdout || ""}${failed.output.stderr || ""}` : ""
+    throw new Error(`${command} ${args.join(" ")} failed\n${output}`, { cause: error })
   }
 }
 
