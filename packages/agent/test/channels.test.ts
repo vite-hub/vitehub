@@ -1662,8 +1662,7 @@ describe("agent channels", () => {
     const reconcileContext = { ...context, channel: reconcileChannel }
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {
-      github: { event: "pull_request" },
-      payload: githubPullRequestPayload("reopened"),
+      ...githubPullRequestPayload("reopened"),
     })
     if (fromLifecyclePayload instanceof Response) throw new Error("Expected GitHub lifecycle dev invocation.")
     expect(fromLifecyclePayload.input).toMatchObject({
@@ -1799,6 +1798,24 @@ describe("agent channels", () => {
         method: "PATCH",
       }),
     )
+
+    const lifecycleUpdateContext = {
+      ...updateContext,
+      input: {
+        ...updateContext.input,
+        context: {
+          github: {
+            ...updateContext.input.context.github,
+            event: "pull_request",
+          },
+        },
+      },
+    }
+    // SAFETY: This test fixture intentionally constructs a lifecycle delivery effect context.
+    await expect(updateEffect(lifecycleUpdateContext as never)).rejects.toThrow(
+      "GitHub pull request lifecycle invocations cannot update a triggering comment",
+    )
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
   it("traces rewritten GitHub review and failed update bodies through delivery", async () => {

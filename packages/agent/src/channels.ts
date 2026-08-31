@@ -729,8 +729,8 @@ function githubPullRequestReconcileFromInput(
   const options = reconcile === true ? {} : reconcile
   const payload = inputPayload(input)
   const facts = inputGithubFacts(input)
-  const event = maybeString(facts?.event)
   if (!payload) return
+  const event = maybeString(facts?.event) || (isRecord(payload.pull_request) ? "pull_request" : undefined)
   const repository = maybeString(payload.repository?.full_name)
   const [owner, repo] = repository?.split("/") || []
   const installationId = maybeNumber(facts?.installationId) ?? maybeNumber(payload.installation?.id)
@@ -2244,6 +2244,9 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
     async update(context) {
       const command = githubCommandFromEffect(context)
       if (!command) return
+      if (command.event === "pull_request") {
+        throw new Error("[vitehub] GitHub pull request lifecycle invocations cannot update a triggering comment.")
+      }
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
