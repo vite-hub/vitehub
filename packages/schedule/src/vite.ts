@@ -10,7 +10,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroCo
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -24,7 +24,7 @@ export { discoverScheduleDefinitions } from "./discovery.ts"
 export async function readScheduleDefinitionCrons(
   definitions: DiscoveredScheduleDefinition[],
 ): Promise<Map<string, string>> {
-  return await readDefinitionCrons(definitions)
+  return await readRuntimeDefinitionCrons(definitions)
 }
 
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
