@@ -20,7 +20,8 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
-import { installConsoleSections } from "./console/runtime/server/sections.ts"
+import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
+import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -66,7 +67,12 @@ type NuxtLike = {
     rootDir?: string
     serverDir?: string
     srcDir?: string
-    vite?: UserConfig & { auth?: AuthModuleOptions, kv?: KVModuleOptions }
+    vite?: UserConfig & {
+      auth?: AuthModuleOptions
+      kv?: KVModuleOptions
+      queue?: Parameters<typeof vitehub>[0]["queue"]
+      workflow?: Parameters<typeof vitehub>[0]["workflow"]
+    }
     vitehub?: ViteHubNuxtOptions
     vitehubCliDiscovery?: true
     watch?: string[]
@@ -270,11 +276,11 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const kvEnabled = sections.includes("kv")
-  const definitionsEnabled = sections.includes("workflows")
+  const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
       : []),
@@ -287,6 +293,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
+    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [
@@ -377,6 +384,7 @@ async function installConsole(
   projectRoot: string,
   discoveryRoot: string,
   workflowDiscoveryRoot: string,
+  queueDiscoveryRoot: string,
   sections: readonly ConsoleSectionId[],
   kvStores: readonly string[],
   fixture?: string,
@@ -396,6 +404,7 @@ async function installConsole(
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections)
+  installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
@@ -428,16 +437,25 @@ async function installConsole(
       ...(sections.includes("usage")
         ? [{ file: join(consoleRuntimeRoot, "pages/agents.vue"), name: "vitehub-console-usage", path: "/_vitehub/usage" }]
         : []),
-      {
-        file: join(consoleRuntimeRoot, "pages/kv.vue"),
-        name: "vitehub-console-kv",
-        path: "/_vitehub/kv",
-      },
+      ...(sections.includes("kv")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/kv.vue"),
+            name: "vitehub-console-kv",
+            path: "/_vitehub/kv",
+          }]
+        : []),
       ...(sections.includes("workflows")
         ? [{
             file: join(consoleRuntimeRoot, "pages/workflows.vue"),
             name: "vitehub-console-workflows",
             path: "/_vitehub/workflows",
+          }]
+        : []),
+      ...(sections.includes("queues")
+        ? [{
+            file: join(consoleRuntimeRoot, "pages/queues.vue"),
+            name: "vitehub-console-queues",
+            path: "/_vitehub/queues",
           }]
         : []),
     ]
@@ -504,6 +522,7 @@ async function installConsole(
     const catalog = discoverConsoleBuildCatalog({
       discoveryRoot,
       projectRoot,
+      queueDiscoveryRoot,
       sections: discoverySections,
       serverDirs,
       workflowDiscoveryRoot,
@@ -710,6 +729,7 @@ async function applyNitroConfig(
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
+    queue?: Parameters<typeof vitehub>[0]["queue"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
   const restoreReplayOwnership = () => {
@@ -829,8 +849,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   const effectiveKV = nuxt.options.vite?.kv ?? options.kv
+  const effectiveQueue = nuxt.options.vite?.queue ?? options.queue
   const effectiveWorkflow = nuxt.options.vite?.workflow ?? options.workflow
-  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, preset: plan.preset, workflow: effectiveWorkflow })
+  const consoleSections = resolveConsoleSectionIds({ ...options, kv: effectiveKV, preset: plan.preset, queue: effectiveQueue, workflow: effectiveWorkflow })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
   const resolvedConsoleKV = effectiveKV
     ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
@@ -873,6 +894,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     kv?: KVModuleOptions
+    queue?: Parameters<typeof vitehub>[0]["queue"]
   }
   if (envConfig && Object.values(envConfig).some(Boolean)) {
     const existingEnv = viteConfig.env ?? {}
@@ -1095,6 +1117,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...options,
         kv: resolvedKV,
         preset: plan.preset,
+        queue: effectiveQueue === false
+          ? false
+          : effectiveQueue === undefined
+            ? undefined
+            : replayConfig.queue ?? effectiveQueue,
         workflow: replayConfig.workflow ?? options.workflow,
       })
       consoleSections.splice(0, consoleSections.length, ...resolvedSections)
@@ -1104,11 +1131,16 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
+      installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
-      reconcileConsoleDefinitionsHandler(config, consoleSections.includes("workflows"))
+      reconcileConsoleDefinitionsHandler(
+        config,
+        consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
+      )
       const consoleCatalog = discoverConsoleBuildCatalog({
         discoveryRoot: viteRoot,
         projectRoot,
+        queueDiscoveryRoot: rootDir,
         sections: consoleSections,
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
         workflowDiscoveryRoot: rootDir,
@@ -1176,6 +1208,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nuxt,
       projectRoot,
       viteRoot,
+      rootDir,
       rootDir,
       consoleSections,
       consoleKVStores,

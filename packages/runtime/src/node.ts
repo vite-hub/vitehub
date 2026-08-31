@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { availableMemory, memoryUsage, resourceUsage } from "node:process"
@@ -197,5 +198,245 @@ export function nodeRuntimeResources(options: NodeRuntimeResourceInspectorOption
         ],
       }
     },
+  }
+}
+
+export type ProcessReconcilerStatus = "accepting" | "drained" | "draining" | "failed"
+export type ProcessReconcilerSignal = Exclude<NodeJS.Signals, "SIGKILL" | "SIGSTOP">
+
+export interface ProcessReconcilerRunContext {
+  track<T>(work: Promise<T>): Promise<T>
+}
+
+export interface ProcessReconcilerOptions {
+  intervalMs: number
+  onDrained?: () => Promise<void> | void
+  onError?: (error: unknown, reason: string) => Promise<void> | void
+  onQuiesce?: () => Promise<void> | void
+  repairReason?: string
+  run: (reason: string, context: ProcessReconcilerRunContext) => Promise<void> | void
+  signal?: false | ProcessReconcilerSignal
+}
+
+export interface ProcessReconciler extends ProcessReconcilerRunContext {
+  close: () => Promise<void>
+  drain: () => Promise<void>
+  status: () => ProcessReconcilerStatus
+  wake: (reason: string) => void
+}
+
+export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
+  if (!Number.isFinite(options.intervalMs) || options.intervalMs < 1 || options.intervalMs > 2_147_483_647) {
+    throw new TypeError("Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.")
+  }
+  const configuredSignal: string | false | undefined = options.signal
+  if (configuredSignal === "SIGKILL" || configuredSignal === "SIGSTOP") {
+    throw new TypeError(`Process reconciler signal ${configuredSignal} cannot be handled.`)
+  }
+
+  let closed = false
+  let drainPromise: Promise<void> | undefined
+  let queued = false
+  let reason = "coalesced"
+  let rerun = false
+  let running: Promise<void> | undefined
+  let status: ProcessReconcilerStatus = "accepting"
+  let timer: NodeJS.Timeout | undefined
+  const activeCallbacks = new Set<object>()
+  const callbackContext = new AsyncLocalStorage<object>()
+  const settlements = new Map<Promise<unknown>, Promise<PromiseSettledResult<unknown>>>()
+
+  const invokeCallback = async <T>(callback: () => Promise<T> | T): Promise<T> => {
+    const token = {}
+    activeCallbacks.add(token)
+    try {
+      return await callbackContext.run(token, callback)
+    }
+    finally {
+      activeCallbacks.delete(token)
+    }
+  }
+
+  const track: ProcessReconcilerRunContext["track"] = (work) => {
+    const promise = Promise.resolve(work)
+    if (status === "drained" || status === "failed") return promise
+    const settlement = promise.then(
+      (value): PromiseSettledResult<unknown> => ({ status: "fulfilled", value }),
+      (reason): PromiseSettledResult<unknown> => ({ reason, status: "rejected" }),
+    )
+    settlements.set(promise, settlement)
+    void settlement.then(() => {
+      if (status === "accepting") settlements.delete(promise)
+    })
+    return promise
+  }
+
+  const scheduleRepair = () => {
+    if (closed || timer) return
+    timer = setTimeout(() => {
+      timer = undefined
+      wake(options.repairReason || "repair")
+    }, options.intervalMs)
+    timer.unref?.()
+  }
+
+  const execute = async (): Promise<void> => {
+    queued = false
+    if (running) {
+      rerun = true
+      return await running
+    }
+    let resolveActive!: () => void
+    let rejectActive!: (error: unknown) => void
+    const active = new Promise<void>((resolve, reject) => {
+      resolveActive = resolve
+      rejectActive = reject
+    })
+    running = active
+    const runAdmitted = async (): Promise<void> => {
+      let failure: unknown
+      let hasFailure = false
+      do {
+        rerun = false
+        const currentReason = reason
+        reason = "coalesced"
+        try {
+          await invokeCallback(() => options.run(currentReason, { track }))
+        }
+        catch (error) {
+          if (options.onError) {
+            try {
+              await invokeCallback(() => options.onError!(error, currentReason))
+            }
+            catch (reportingError) {
+              if (!hasFailure) {
+                failure = reportingError
+                hasFailure = true
+              }
+            }
+          }
+        }
+      } while (rerun)
+      if (hasFailure) throw failure
+    }
+    const complete = (failure?: unknown, hasFailure = false): void => {
+      if (rerun) {
+        void runAdmitted().then(
+          () => complete(failure, hasFailure),
+          error => complete(hasFailure ? failure : error, true),
+        )
+        return
+      }
+      running = undefined
+      scheduleRepair()
+      if (hasFailure) rejectActive(failure)
+      else resolveActive()
+    }
+    void runAdmitted().then(
+      () => complete(),
+      error => complete(error, true),
+    )
+    await active
+  }
+
+  const wake = (nextReason: string) => {
+    if (closed) return
+    reason = nextReason
+    if (timer) clearTimeout(timer)
+    timer = undefined
+    if (running) {
+      rerun = true
+      return
+    }
+    if (queued) return
+    queued = true
+    queueMicrotask(() => void execute().catch(() => {}))
+  }
+
+  const drain = (): Promise<void> => {
+    const caller = callbackContext.getStore()
+    if (caller && activeCallbacks.has(caller)) {
+      return Promise.reject(new TypeError("Process reconciler callbacks cannot call drain() while active."))
+    }
+    if (drainPromise) return drainPromise
+    drainPromise = (async () => {
+      let failure: unknown
+      let hasFailure = false
+      const retainFailure = (error: unknown) => {
+        if (hasFailure) return
+        failure = error
+        hasFailure = true
+      }
+      const settleTrackedWork = async (final: boolean): Promise<void> => {
+        while (true) {
+          if (settlements.size === 0) {
+            if (final) status = hasFailure ? "failed" : "drained"
+            return
+          }
+          const batch = [...settlements.entries()]
+          const results = await Promise.all(batch.map(([, settlement]) => settlement))
+          for (const [promise] of batch) settlements.delete(promise)
+          const rejected = results.find(result => result.status === "rejected")
+          if (rejected) retainFailure(rejected.reason)
+        }
+      }
+
+      status = "draining"
+      closed = true
+      if (queued && !running) await Promise.resolve()
+      const admittedRun = running
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      try {
+        if (options.onQuiesce) await invokeCallback(options.onQuiesce)
+      }
+      catch (error) {
+        retainFailure(error)
+      }
+      try {
+        await admittedRun
+      }
+      catch (error) {
+        retainFailure(error)
+      }
+      await settleTrackedWork(false)
+      if (!hasFailure && options.onDrained) {
+        try {
+          await invokeCallback(options.onDrained)
+          await new Promise<void>(resolve => setImmediate(resolve))
+        }
+        catch (error) {
+          retainFailure(error)
+        }
+      }
+      await settleTrackedWork(true)
+      if (hasFailure) throw failure
+    })()
+    return drainPromise
+  }
+
+  const signal = options.signal === false ? undefined : options.signal
+  const listener = signal
+    ? () => {
+        void drain().catch(async (error) => {
+          try {
+            await options.onError?.(error, "drain")
+          }
+          catch {}
+        })
+      }
+    : undefined
+  if (signal && listener) process.on(signal, listener)
+  scheduleRepair()
+
+  return {
+    async close() {
+      await drain()
+      if (signal && listener) process.off(signal, listener)
+    },
+    drain,
+    status: () => status,
+    track,
+    wake,
   }
 }

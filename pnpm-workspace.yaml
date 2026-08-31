@@ -3,6 +3,7 @@ packages:
   - "docs"
   - "packages/*"
   - "packages/*/examples/*"
+  - "playground/console"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41

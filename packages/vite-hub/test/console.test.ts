@@ -23,12 +23,14 @@ import {
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
+  consoleProjectNameKey,
   consoleSectionsKey,
   consoleSectionsRootKey,
   consoleSectionsRegistryKey,
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
+  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
@@ -42,7 +44,7 @@ import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandler from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandler from "../src/console/runtime/server/sections.get.ts"
-import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import usageHandler from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
@@ -128,12 +130,14 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
   delete scope[consoleSectionsKey]
+  delete scope[consoleProjectNameKey]
   delete scope[consoleSectionsRootKey]
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
   Reflect.deleteProperty(process, consoleSectionsKey)
+  Reflect.deleteProperty(process, consoleProjectNameKey)
   Reflect.deleteProperty(process, consoleSectionsRootKey)
   Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
@@ -443,7 +447,7 @@ describe("Agent invocation console", () => {
   it("registers the standalone console UI and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
-      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-host" })}\n`)
       await writeFile(join(root, "review.agent.ts"), "export default {}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
@@ -480,6 +484,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" })])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","kv"])`)
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
       )
@@ -589,6 +594,36 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("disables Queue inspection from resolved Vite configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-queue-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["queues"],
+      })
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        queue?: boolean
+        root: string
+      } = { queue: true, root }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+      config.queue = false
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).not.toContain("/api/_vitehub/console/definitions")
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).not.toContain("installConsoleDefinitions")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("uses configured server directories during resolved Workflow discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-workflow-server-dirs-"))
     try {
@@ -616,6 +651,48 @@ describe("Agent invocation console", () => {
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('"name":"custom"')
       expect(generated).not.toContain('"name":"welcome"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serializes discovered Queue Definition metadata without loading handlers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-queue-host-"))
+    try {
+      await mkdir(join(root, "server/queues"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(
+        join(root, "server/queues/email.ts"),
+        `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
+      )
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["queues"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: {
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        root: string
+      } = { root }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/sections",
+        "/_vitehub",
+        "/_vitehub/**",
+        "/api/_vitehub/console/definitions",
+      ])
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -985,12 +1062,27 @@ describe("Agent invocation console", () => {
 
   it("serves enabled Console sections in stable order for the active project", () => {
     installConsoleSections("/first", ["agents"])
+    installConsoleProjectName("/first", "first-app")
     installConsoleSections("/second", ["kv"])
+    installConsoleProjectName("/second", "second-app")
 
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["kv"] })
+    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+      projectName: "second-app",
+      sections: ["kv"],
+    })
 
     scope[consoleSectionsRootKey] = "/first"
-    expect(sectionsHandler(event("127.0.0.1"))).toEqual({ sections: ["agents"] })
+    expect(sectionsHandler(event("127.0.0.1"))).toEqual({
+      projectName: "first-app",
+      sections: ["agents"],
+    })
+  })
+
+  it("resolves the project name from the process registry across isolated realms", () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "shared-app")
+
+    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", () => {

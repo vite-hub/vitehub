@@ -137,7 +137,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server" as string | undefined,
       srcDir: "/tmp/vitehub-nuxt/app",
-      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; workflow?: boolean },
+      vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & { kv?: KVModuleOptions; queue?: boolean; workflow?: boolean },
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -659,7 +659,7 @@ describe("ViteHub Nuxt integration", () => {
     const disabledNitroConfig = nitroOptions(disabled.nuxt)
     await disabled.runNitroConfigHook(disabledNitroConfig)
 
-    expect(pages).toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
+    expect(pages).not.toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
     expect(disabledNitroConfig.handlers).toContain(applicationKVHandler)
 
     const conflicting = createNuxt(true)
@@ -707,6 +707,40 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
+  })
+
+  it("uses the effective and replay-resolved Queue configuration for the Nuxt Console", async () => {
+    const configured = createNuxt(true)
+    configured.nuxt.options.vite.queue = false
+
+    await viteHubNuxtModule({ console: true, preset: "node", queue: true }, configured.nuxt)
+    const configuredNitroConfig = nitroOptions(configured.nuxt)
+    await configured.runNitroConfigHook(configuredNitroConfig)
+    const configuredPages: Array<{ file: string; name: string; path: string }> = []
+    configured.runPagesHook(configuredPages)
+
+    expect(configuredPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    expect(nitroHandlerRoutes(configuredNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
+      "installConsoleDefinitions",
+    )
+
+    const replayed = createNuxt(true, [{
+      name: "vite-hub/queue-replay",
+      config: (): UserConfig & { queue?: boolean } => ({ queue: false }),
+    }])
+
+    await viteHubNuxtModule({ console: true, preset: "node", queue: true }, replayed.nuxt)
+    const replayedNitroConfig = nitroOptions(replayed.nuxt)
+    await replayed.runNitroConfigHook(replayedNitroConfig)
+    const replayedPages: Array<{ file: string; name: string; path: string }> = []
+    replayed.runPagesHook(replayedPages)
+
+    expect(replayedPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    expect(nitroHandlerRoutes(replayedNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
     )
@@ -1050,6 +1084,65 @@ describe("ViteHub Nuxt integration", () => {
     finally {
       vi.unstubAllEnvs()
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("installs only discovered Queue metadata for a Queue-only Console", async () => {
+    const definition = "/tmp/vitehub-nuxt/custom-server/queues/email.ts"
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    await writeFile(
+      definition,
+      `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
+    )
+    try {
+      const development = createNuxt(true)
+
+      await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+      const pages: Array<{ file: string; name: string; path: string }> = []
+      development.runPagesHook(pages)
+
+      expect(pages).toEqual([
+        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
+        expect.objectContaining({ name: "vitehub-console-queues", path: "/_vitehub/queues" }),
+      ])
+      expect(development.nuxt.options.nitro).toMatchObject({
+        handlers: [
+          { route: "/api/_vitehub/console/sections" },
+          { route: "/api/_vitehub/console/definitions" },
+        ],
+      })
+      expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["queues"])`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"queues":[{"fields":[],"file":"custom-server/queues/email.ts","name":"email","source":"server-queues"}]})`)
+      expect(generated).not.toContain("The Console must not evaluate")
+      expect(generated).not.toContain("installConsoleInvocations")
+    }
+    finally {
+      await rm(definition, { force: true })
+    }
+  })
+
+  it("discovers Nuxt Queue Definitions from the Queue runtime root", async () => {
+    const rootQueue = "/tmp/vitehub-nuxt/email.queue.ts"
+    const viteQueue = "/tmp/vitehub-nuxt/app/preview.queue.ts"
+    await mkdir(resolve(viteQueue, ".."), { recursive: true })
+    await writeFile(rootQueue, "export default defineQueue({})\n")
+    await writeFile(viteQueue, "export default defineQueue({})\n")
+    const development = createNuxt(true)
+    Reflect.deleteProperty(development.nuxt.options, "serverDir")
+    development.nuxt.options.vite.root = "/tmp/vitehub-nuxt/app"
+
+    try {
+      await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain('"file":"email.queue.ts"')
+      expect(generated).toContain('"file":"app/preview.queue.ts"')
+    }
+    finally {
+      await rm(rootQueue, { force: true })
+      await rm(viteQueue, { force: true })
     }
   })
 

@@ -646,6 +646,11 @@ describe("agent public types", () => {
       sessions: true,
       triggerHistory: { maxMessages: 20, source: "thread" },
     }
+    const invalidMessages: AgentMessageChannelSettings = {
+      // @ts-expect-error Thread-backed trigger history requires an explicit message bound.
+      triggerHistory: { source: "thread" },
+    }
+    expectTypeOf(invalidMessages).toEqualTypeOf<AgentMessageChannelSettings>()
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
     const reviewFinishEffect: AgentChannelDeliveryFinishEffect = context => ({

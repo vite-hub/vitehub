@@ -155,7 +155,7 @@ onBeforeUnmount(() => request?.abort())
           <UTooltip text="Open sessions">
             <UButton
               class="lg:hidden"
-              icon="i-lucide-panel-left"
+              icon="i-ph-sidebar-simple-light"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -190,7 +190,7 @@ onBeforeUnmount(() => request?.abort())
             <UButton
               aria-label="Refresh usage"
               color="neutral"
-              icon="i-lucide-refresh-cw"
+              icon="i-ph-arrows-clockwise-light"
               size="sm"
               variant="ghost"
               :loading="loading"
@@ -207,16 +207,16 @@ onBeforeUnmount(() => request?.abort())
           v-if="errorMessage(error)"
           color="error"
           variant="subtle"
-          icon="i-lucide-cloud-off"
+          icon="i-ph-cloud-slash-light"
           title="Could not load usage"
           :description="errorMessage(error)"
-          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: load }]"
+          :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: load }]"
         />
         <UAlert
           v-if="summary?.partial"
           color="warning"
           variant="subtle"
-          icon="i-lucide-triangle-alert"
+          icon="i-ph-warning-light"
           title="Partial usage"
           description="Some usage evidence is unavailable for this period, so the totals may be incomplete."
         />
@@ -231,7 +231,7 @@ onBeforeUnmount(() => request?.abort())
         <UEmpty
           v-else-if="!error && !summary?.available"
           class="min-h-96"
-          icon="i-lucide-chart-no-axes-column"
+          icon="i-ph-chart-bar-light"
           title="No usage recorded yet"
           description="Provider-reported usage appears here after an Agent Invocation completes."
         />
