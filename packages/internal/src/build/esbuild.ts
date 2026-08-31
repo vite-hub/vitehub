@@ -57,6 +57,38 @@ function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
 }
 
+function collectPackageExportCandidates(packageName: string, exportsValue: unknown, packageRelativePath: string): string[] {
+  if (!exportsValue || typeof exportsValue !== "object" || Array.isArray(exportsValue)) return []
+  const candidates: string[] = []
+  for (const [exportKey, target] of Object.entries(exportsValue)) {
+    if (!exportKey.startsWith(".")) continue
+    const targets: unknown[] = [target]
+    while (targets.length) {
+      const value = targets.shift()
+      if (typeof value === "string") {
+        const normalizedTarget = normalizePathSeparators(value).replace(/^\.\//, "")
+        const wildcardIndex = normalizedTarget.indexOf("*")
+        if (wildcardIndex === -1) {
+          if (normalizedTarget === packageRelativePath) candidates.push(`${packageName}${exportKey.slice(1)}`)
+          continue
+        }
+        const targetPrefix = normalizedTarget.slice(0, wildcardIndex)
+        const targetSuffix = normalizedTarget.slice(wildcardIndex + 1)
+        if (!packageRelativePath.startsWith(targetPrefix) || !packageRelativePath.endsWith(targetSuffix)) continue
+        const wildcard = packageRelativePath.slice(targetPrefix.length, packageRelativePath.length - targetSuffix.length)
+        candidates.push(`${packageName}${exportKey.slice(1).replace("*", wildcard)}`)
+      }
+      else if (Array.isArray(value)) {
+        targets.push(...value)
+      }
+      else if (value && typeof value === "object") {
+        targets.push(...Object.values(value))
+      }
+    }
+  }
+  return candidates
+}
+
 function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
@@ -84,7 +116,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
   return {
     name: "vitehub-resolved-alias",
     setup(build) {
-      const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string } | undefined>>()
+      const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string, publicSpecifier?: string } | undefined>>()
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
         const aliases = await resolvedEntries
@@ -141,6 +173,23 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   resolvedAliasPath = normalizePathSeparators(resolve(aliasResolveDir, alias.specifier))
                 }
                 else if (alias.prefix && resolutionScope) {
+                  const packageRelativePath = normalizedSpecifier.slice(resolutionScope.length)
+                  const packageJson = JSON.parse(await readFile(resolve(resolutionScope, "package.json"), "utf8")) as { exports?: unknown }
+                  for (const candidate of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
+                    if (!candidate.startsWith(alias.specifier)) continue
+                    const resolvedCandidate = await build.resolve(candidate, {
+                      importer: args.importer,
+                      kind: args.kind,
+                      namespace: args.namespace,
+                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+                      resolveDir: args.resolveDir,
+                      with: args.with,
+                    })
+                    if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
+                    const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
+                    if (candidatePath !== normalizedSpecifier) continue
+                    return { canonical: candidate, normalized: candidate, publicSpecifier: candidate }
+                  }
                   const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
                   resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))
                 }
@@ -166,6 +215,12 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             }
             const paths = await resolution
             if (!paths) continue
+            if (paths.publicSpecifier) {
+              match = alias
+              matchedAlias = alias.specifier
+              matchedSpecifier = paths.publicSpecifier
+              break
+            }
             const normalizedMatch = alias.prefix
               ? normalizedSpecifier.startsWith(paths.normalized)
               : normalizedSpecifier === paths.normalized

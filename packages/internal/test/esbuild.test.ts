@@ -232,10 +232,13 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
-  it("matches bare package prefix aliases after subpath imports become absolute", async () => {
+  it.each([
+    { exportTarget: "./jobs/*", sourceDir: "jobs" },
+    { exportTarget: "./src/jobs/*", sourceDir: "src/jobs" },
+  ])("matches bare package prefix aliases after $exportTarget imports become absolute", async ({ exportTarget, sourceDir }) => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/example")
-    const original = resolve(packageDir, "jobs/task.mjs")
+    const original = resolve(packageDir, sourceDir, "task.mjs")
     const replacementDir = resolve(rootDir, "replacement")
     const replacement = resolve(replacementDir, "jobs/task.mjs")
     const entry = resolve(rootDir, "entry.mjs")
@@ -245,7 +248,7 @@ describe("bundleEsmEntry", () => {
       mkdir(dirname(replacement), { recursive: true }),
     ])
     await Promise.all([
-      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./jobs/*": "./jobs/*" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./jobs/*": exportTarget }, name: "example", type: "module" })}\n`, "utf8"),
       writeFile(original, "export const value = 'original'\n", "utf8"),
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
