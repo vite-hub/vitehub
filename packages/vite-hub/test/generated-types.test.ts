@@ -270,9 +270,15 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
+      mkdir(join(root, ".vitehub/workflow/sources/0"), { recursive: true }),
+      mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
+    ])
+    await Promise.all([
       writeFile(join(root, ".vitehub/types/markdown-template.d.ts"), 'declare module "*.template.md" {}\n'),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
+      writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
+      writeFile(join(root, ".vitehub/workflow-generations/one/sources/0/stale.d.ts"), "invalid generation declaration\n"),
       writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])

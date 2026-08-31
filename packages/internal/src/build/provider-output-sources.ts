@@ -188,8 +188,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
           const nested = relative(root, resolvedSource)
           if (!nested) return true
-          const first = nested.split(sep)[0]!
-          if (first === "node_modules") return false
+          const segments = nested.split(sep)
+          if (segments.includes("node_modules")) return false
+          const first = segments[0]!
           const containingConfiguredRoot = nestedConfiguredRoots
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
             .sort((left, right) => right.length - left.length)[0]

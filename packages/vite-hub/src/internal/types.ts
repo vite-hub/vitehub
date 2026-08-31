@@ -13,6 +13,14 @@ import type { Plugin } from "vite"
 
 const viteHubTypesEntry = ".vitehub/types.d.ts"
 
+function isRetainedSourceDirectory(name: string): boolean {
+  return name === "node_modules"
+    || name === "sources"
+    || name === "runtime-sources"
+    || name.endsWith("-generations")
+    || name.endsWith("-sources")
+}
+
 interface ViteHubTypesOptions {
   projectRoot: string
 }
@@ -40,8 +48,8 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
   const files: string[] = []
   for (const entry of entries) {
     const path = join(directory, entry.name)
-    if (entry.isDirectory() && !(directory === root && entry.name === "data")) {
-      files.push(...await collectGeneratedTypeFiles(path, root))
+    if (entry.isDirectory() && !(directory === root && entry.name === "data") && !isRetainedSourceDirectory(entry.name)) {
+      for (const file of await collectGeneratedTypeFiles(path, root)) files.push(file)
     }
     else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
       const generatedPath = relative(root, path).replaceAll("\\", "/")

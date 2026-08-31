@@ -225,6 +225,33 @@ it("excludes ignored output directories beneath a configured closure root", asyn
   await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
 })
 
+it("excludes dependency trees nested beneath workspace packages", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-dependencies-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.ts")
+  const nestedDependency = join(workspace, "packages", "docs", "node_modules", "fixture-dependency", "index.d.ts")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(nestedDependency), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    writeFile(nestedDependency, "export interface StaleDependency {}\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(retained.resolve(nestedDependency), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("retains relative dependencies beside a requested output entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-output-"))
   tempDirs.push(rootDir)
