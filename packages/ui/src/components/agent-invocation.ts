@@ -251,7 +251,7 @@ const InvocationPayload = defineComponent({
       h("summary", [
         h("strong", props.label),
         h("code", payloadPreview(props.value, text.value)),
-        h("span", { "aria-hidden": "true", class: "vh-invocation-event__disclosure" }, "⌄"),
+        renderChevronDown("vh-invocation-event__disclosure"),
       ]),
       open.value ? h("div", { class: "vh-invocation-payload__content" }, [
         h("div", { class: "vh-invocation-payload__toolbar" }, [
@@ -403,7 +403,7 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
     "M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
   ],
   search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
-  tool: ["M14.7 6.3a4 4 0 0 0-5-5l2.1 2.1-2.4 2.4-2.1-2.1a4 4 0 0 0 5 5L3 18l3 3 9.3-9.3a4 4 0 0 0 5-5l-2.1 2.1-2.4-2.4z"],
+  tool: ["M9 7V5h6v2", "M4 8h16v11H4z", "M4 12h5v2h6v-2h5"],
 };
 
 function renderActivityIcon(activity: InvocationActivity) {
@@ -453,7 +453,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
-      ? h("span", { class: "vh-invocation-event__disclosure", "aria-hidden": "true" }, "⌄")
+      ? renderChevronDown("vh-invocation-event__disclosure")
       : null,
   ];
   const summary = inspectable && !hasDetails
@@ -586,8 +586,8 @@ function renderPreparationDetail(activity: InvocationActivity, url: string | und
 }
 
 function renderChevronDown(className: string) {
-  return h("svg", { "aria-hidden": "true", class: className, fill: "none", viewBox: "0 0 24 24" }, [
-    h("path", { d: "m6 9 6 6 6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  return h("svg", { "aria-hidden": "true", class: className, viewBox: "0 0 256 256" }, [
+    h("path", { d: "m212.24 100.24-80 80a6 6 0 0 1-8.48 0l-80-80a6 6 0 0 1 8.48-8.48L128 167.51l75.76-75.75a6 6 0 0 1 8.48 8.48", fill: "currentColor" }),
   ]);
 }
 

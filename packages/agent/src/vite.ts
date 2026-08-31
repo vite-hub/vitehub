@@ -5,7 +5,8 @@ import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
+import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -836,13 +837,7 @@ function isNetlifyHosting(config: ResolvedConfig): boolean {
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  for (const alias of config.resolve.alias) {
-    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
-      aliases[alias.find] = alias.replacement
-    }
-  }
-  return aliases
+  return encodeProviderOutputAliases(config.resolve.alias)
 }
 
 function resolveWorkspaceSourceRoot(file: string): string {
@@ -1414,11 +1409,19 @@ interface EveExtensionManifest {
   requires?: unknown
 }
 
-const supportedEveExtensionContracts: Record<string, number> = {
-  config: 1,
-  dynamicTool: 8,
-  extension: 1,
-  tool: 5,
+const supportedEveExtensionContracts: Record<number, Record<string, number>> = {
+  1: {
+    config: 1,
+    dynamicTool: 8,
+    extension: 1,
+    tool: 5,
+  },
+  2: {
+    config: 1,
+    dynamicTool: 20,
+    extension: 1,
+    tool: 20,
+  },
 }
 
 async function resolveEveExtensionPackage(
@@ -1434,17 +1437,24 @@ async function resolveEveExtensionPackage(
     const packagePath = join(directory, "package.json")
     if (existsSync(packagePath)) {
       const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the package name must be validated before use.
       if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
         if (!validate) return packageJson.name
         const dist = packageJson.eve?.extension?.dist
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the manifest path must be a string.
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
-        if (manifest.kind !== "eve-extension" || manifest.formatVersion !== 1 || !manifest.requires || typeof manifest.requires !== "object") {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The external manifest version selects the supported contract table.
+        const contracts = typeof manifest.formatVersion === "number"
+          ? supportedEveExtensionContracts[manifest.formatVersion]
+          : undefined
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External manifests must supply a contract-version record before enumeration.
+        if (manifest.kind !== "eve-extension" || !contracts || !manifest.requires || typeof manifest.requires !== "object") {
           throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
         }
         for (const [contract, version] of Object.entries(manifest.requires)) {
-          if (supportedEveExtensionContracts[contract] !== version) {
+          if (contracts[contract] !== version) {
             throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
           }
         }
@@ -2811,7 +2821,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
-              paths: [...definitions.map(definition => definition.handler), ...Object.values(providerImportAliases)],
+              paths: [...definitions.map(definition => definition.handler), ...Object.keys(providerImportAliases), ...Object.values(providerImportAliases)],
               roots: [config.root],
             })
           : undefined
@@ -2819,8 +2829,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...definition,
           handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
         }))
-        const retainedProviderImportAliases = Object.fromEntries(Object.entries(providerImportAliases)
-          .map(([specifier, target]) => [specifier, retainedSources?.resolve(target) ?? target]))
+        const retainedProviderImportAliases = retainedSources
+          ? retainProviderOutputAliases(providerImportAliases, retainedSources)
+          : providerImportAliases
         contributeProviderDeploymentOutput(providerOutput, {
           discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
           owner: "agent",
@@ -2867,6 +2878,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || resolved.command !== "build") return
         await finalizeProviderDeploymentOutputs(providerOutput)

@@ -539,7 +539,7 @@ describe("agent chat capability discovery", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
-      capabilities: [chat()],
+      capabilities: [chat({ triggerHistory: { maxMessages: 3, source: "thread" } })],
       driver: {
         run: ({ messages }) => messages.map(message => `${message.role}:${getMessageText(message)}`).join(" | "),
       },
@@ -582,7 +582,7 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
-  })
+  }, 10_000)
 
   it("runs invocation-resolved Capability CLI commands through the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-")

@@ -4,7 +4,40 @@ import type { KVListOptions, KVListPage, ResolvedUpstashKVStoreConfig } from "..
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface UpstashClient {
+  eval: (script: string, keys: string[], args: string[]) => Promise<number>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models the caller-typed Upstash read command used by the unstorage adapter.
+  getdel: <T = unknown>(key: string) => Promise<T | null>
   scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
+}
+
+// Check existence before INCR because an existing zero must keep its current expiry.
+const incrementScript = `
+local existed = redis.call('EXISTS', KEYS[1])
+local current = redis.call('GET', KEYS[1])
+if current then
+  local negative = string.sub(current, 1, 1) == '-'
+  local digits = negative and string.sub(current, 2) or current
+  local boundary = negative and '9007199254740992' or '9007199254740991'
+  local beyond = #digits > #boundary or (#digits == #boundary and digits > boundary)
+  local at_positive_boundary = not negative and digits == boundary
+  if beyond or at_positive_boundary then
+    return redis.error_reply('Atomic KV increment exceeds the JavaScript safe integer range.')
+  end
+end
+local value = redis.call('INCR', KEYS[1])
+if existed == 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return value
+`
+
+function normalizeTTL(ttl: number): number {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw new TypeError("Atomic KV increment requires a positive TTL in seconds.")
+  const seconds = Math.ceil(ttl)
+  if (!Number.isSafeInteger(seconds)) {
+    throw new RangeError("Atomic KV increment TTL exceeds the supported integer range.")
+  }
+  return seconds
 }
 
 interface UpstashCursor {
@@ -47,6 +80,13 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   const maximumContinuations = 32
   const maximumContinuationBytes = 1024 * 1024
   let continuationBytes = 0
+
+  driver.getAndDeleteItem = async key => driver.getInstance().getdel(key)
+  driver.incrementItem = async (key, ttl) => {
+    const value = Number(await driver.getInstance().eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
+    if (!Number.isSafeInteger(value)) throw new RangeError("Atomic KV increment exceeds the JavaScript safe integer range.")
+    return value
+  }
 
   function releaseContinuation(cursor: string): void {
     const continuation = continuations.get(cursor)

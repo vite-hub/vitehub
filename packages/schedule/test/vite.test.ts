@@ -39,6 +39,10 @@ function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: strin
 }
 
 describe("Vite schedule integration", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubSchedule().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("collects provider import aliases without a Workflow plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-aliases-"))
     const getImportAliases = vi.fn(async () => ({}))

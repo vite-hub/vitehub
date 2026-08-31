@@ -3,6 +3,7 @@ packages:
   - "docs"
   - "packages/*"
   - "packages/*/examples/*"
+  - "playground/console"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
   '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
@@ -16,13 +17,13 @@ catalogMode: prefer
 
 catalogs:
   ai:
-    "@ai-sdk/gateway": 4.0.26
+    "@ai-sdk/gateway": 4.0.46
     "@ai-sdk/mcp": 2.0.36
-    "@ai-sdk/vue": 4.0.38
+    "@ai-sdk/vue": 4.0.58
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
     agents: ^0.17.4
-    ai: 7.0.38
+    ai: 7.0.58
     askweb: ^0.2.0
     evalite: 1.0.0-beta.16
   ai-compat:

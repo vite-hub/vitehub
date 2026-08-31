@@ -272,6 +272,7 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

@@ -3,24 +3,58 @@ import type { ConsoleSectionId } from "../sections"
 import { isConsoleSectionId } from "../sections"
 import { requestConsole } from "./request"
 
-function parseConsoleSections(value: unknown): ConsoleSectionId[] {
+export interface ConsoleNavigation {
+  projectName?: string
+  sections: ConsoleSectionId[]
+}
+
+const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
+const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
+
+function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const sections = (value as { sections?: unknown } | null | undefined)?.sections
-  return Array.isArray(sections) ? sections.filter(isConsoleSectionId) : []
+  const response = value as { projectName?: unknown, sections?: unknown } | null | undefined
+  const sections = Array.isArray(response?.sections) ? response.sections.filter(isConsoleSectionId) : []
+  return {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    ...(typeof response?.projectName === "string" && response.projectName.trim()
+      ? { projectName: response.projectName.trim() }
+      : {}),
+    sections,
+  }
+}
+
+export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
+  let request = navigationRequests.get(base)
+  if (!request) {
+    request = requestConsole(base)
+      .then((value) => {
+        const navigation = parseConsoleNavigation(value)
+        for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
+        return navigation
+      })
+      .catch(() => {
+        navigationRequests.delete(base)
+        return undefined
+      })
+    navigationRequests.set(base, request)
+  }
+  return await request
+}
+
+export function subscribeConsoleNavigation(
+  base: string,
+  subscriber: (navigation: ConsoleNavigation) => void,
+): () => void {
+  const subscribers = navigationSubscribers.get(base) || new Set()
+  subscribers.add(subscriber)
+  navigationSubscribers.set(base, subscribers)
+  return () => {
+    subscribers.delete(subscriber)
+    if (subscribers.size === 0) navigationSubscribers.delete(base)
+  }
 }
 
 export function createConsoleSectionLoader(base: string): () => Promise<ConsoleSectionId[] | undefined> {
-  let installedSections: Promise<ConsoleSectionId[] | undefined> | undefined
-
-  return async () => {
-    if (!installedSections) {
-      installedSections = requestConsole(base)
-        .then(parseConsoleSections)
-        .catch(() => {
-          installedSections = undefined
-          return undefined
-        })
-    }
-    return await installedSections
-  }
+  return async () => (await loadConsoleNavigation(base))?.sections
 }

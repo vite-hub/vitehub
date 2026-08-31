@@ -1512,10 +1512,12 @@ async function finalizeStagedDenoDeploymentOutput(
   })
 
   const denoConfig: {
+    compilerOptions: { types: string[] }
     deploy: { runtime: { cwd: string, entrypoint: string, mode: string } }
     nodeModulesDir: string
     tasks: { start: string }
   } = {
+    compilerOptions: { types: [] },
     deploy: {
       runtime: {
         mode: "dynamic",

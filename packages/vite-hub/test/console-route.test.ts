@@ -35,5 +35,7 @@ describe("Console routes", () => {
       .toBe("vitehub-console___en")
     expect(resolveConsoleRouteName("vitehub-console-workflows___en", "vitehub-console-agents"))
       .toBe("vitehub-console-agents___en")
+    expect(resolveConsoleRouteName("vitehub-console-queues___en", "vitehub-console-kv"))
+      .toBe("vitehub-console-kv___en")
   })
 })

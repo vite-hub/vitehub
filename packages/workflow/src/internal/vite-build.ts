@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
@@ -11,7 +12,7 @@ import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agen
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -109,8 +110,6 @@ async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise
 const generatedRegistryFileName = "registry.mjs"
 const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
 const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`
-const packageDir = computePackageDir(import.meta.url)
-const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
@@ -657,6 +656,7 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
     },
     resolveId(id: string) {
       if (id === moduleId) return resolvedModuleId
+      if (id.startsWith("file:")) return fileURLToPath(id)
     },
     load(id: string) {
       if (id !== resolvedModuleId) return
@@ -727,7 +727,7 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
 }
 
 function renderRegistryImport(registryFile: string, file: string): string {
-  return `import(${JSON.stringify(createImportPath(registryFile, file))})`
+  return `import(${JSON.stringify(pathToFileURL(file).href)})`
 }
 
 function resolveAgentWorkspaceSourceRoot(file: string): string {
@@ -807,7 +807,6 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
 }
 
 function createVercelNativeWorkflowContents(
-  nativeFile: string,
   definition: DiscoveredWorkflowDefinition,
 ): string {
   const imports: string[] = []
@@ -818,12 +817,25 @@ function createVercelNativeWorkflowContents(
   const stepNames = steps.map((step, index) => {
     const implementation = `${workflowExport}Step${index}Implementation`
     const name = `${workflowExport}Step${index}`
-    imports.push(`import ${implementation} from ${JSON.stringify(createImportPath(nativeFile, step))}`)
+    imports.push(`import ${implementation} from ${JSON.stringify(step)}`)
     workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
     return name
   })
   workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
   return [...imports, "", ...workflows, ""].join("\n")
+}
+
+export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
+  const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
+  const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
+  const replacements = [
+    [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
+    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
+    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
+    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
+    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
+  ] as const
+  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
 }
 
 function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition, vercelNativeFiles: Record<string, string> = {}) {
@@ -846,7 +858,7 @@ function renderWorkflowRegistryEntry(registryFile: string, definition: Discovere
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = vercelNativeFiles[definition.name]
   const nativeImport = nativeExport && vercelNativeFile
-    ? `const native = (await ${renderRegistryImport(registryFile, vercelNativeFile)}).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
+    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
@@ -981,16 +993,17 @@ function renderProviderEntry(
   entryFile: string,
   userAppEntry: string | undefined,
   serializedWorkflowConfig: string,
+  workflowImportBase: string,
   framework: boolean,
 ) {
   const installVercelWorkflowRuntime = spec.name === "vercel" && framework
   const imports = [
-    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
+    `import { ${spec.factory}${spec.name === "cloudflare" ? ", installWorkflowCloudflareRuntime" : ""}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(`${workflowImportBase}/${spec.runtimeModule}`)}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
     ...(installVercelWorkflowRuntime ? [`import * as workflowApi from "workflow/api"`, `import * as workflowRuntime from "workflow/runtime"`] : []),
   ]
   if (spec.name === "cloudflare") {
-    imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-runner")))}`)
+    imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(`${workflowImportBase}/runtime/cloudflare-runner`)}`)
     imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (userAppEntry) {
@@ -1071,7 +1084,7 @@ export async function writeProviderEntries(
   if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
   await Promise.all(nativeDefinitions.map(async definition => {
     const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, createVercelNativeWorkflowContents(nativeFile, definition), "utf8")
+    await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
   }))
   const registryContents = createWorkflowRegistryContents(
     registryFile,
@@ -1088,7 +1101,14 @@ export async function writeProviderEntries(
       ? cloudflareWorkflowConfig
       : resolveWorkflowConfig(workflow, spec.hosting)
     const serialized = JSON.stringify(workflowConfig, null, 2)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, serialized, Boolean(importBases.workflow)), "utf8")
+    await writeFile(entryFile, renderProviderEntry(
+      spec,
+      entryFile,
+      userAppEntry,
+      serialized,
+      importBases.workflow ?? workflowPackageName,
+      Boolean(importBases.workflow),
+    ), "utf8")
     entryFiles[spec.name] = entryFile
   }))
 
@@ -1388,15 +1408,39 @@ async function generateProviderOutputsWithinLock(
     if (resolve(artifacts.generatedDir) === generatedDir) return
     const nextDir = `${generatedDir}.${randomUUID()}.next`
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
-    await cp(artifacts.generatedDir, nextDir, { recursive: true })
     const hadPrevious = existsSync(generatedDir)
+    let movedPrevious = false
     try {
-      if (hadPrevious) await rename(generatedDir, previousDir)
+      await cp(artifacts.generatedDir, nextDir, { recursive: true })
+      const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
+      if (existsSync(retainedSourcesDir)) {
+        const publishedSourcesDir = resolve(generatedDir, "sources")
+        await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+        const rewriteRetainedSourceImports = async (file: string) => {
+          const contents = await readFile(file, "utf8")
+          const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
+          if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
+        }
+        await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
+        await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
+        for (const spec of providerEntrySpecs) {
+          const entryFile = resolve(nextDir, spec.entryFile)
+          const contents = await readFile(entryFile, "utf8")
+          const stagedSourcesImport = createImportPath(resolve(artifacts.generatedDir, spec.entryFile), retainedSourcesDir)
+          const publishedSourcesImport = createImportPath(resolve(generatedDir, spec.entryFile), publishedSourcesDir)
+          const rewritten = contents.replaceAll(`${JSON.stringify(stagedSourcesImport).slice(0, -1)}/`, `${JSON.stringify(publishedSourcesImport).slice(0, -1)}/`)
+          if (rewritten !== contents) await writeFile(entryFile, rewritten, "utf8")
+        }
+      }
+      if (hadPrevious) {
+        await rename(generatedDir, previousDir)
+        movedPrevious = true
+      }
       await rename(nextDir, generatedDir)
     }
     catch (error) {
       await rm(nextDir, { force: true, recursive: true })
-      if (hadPrevious) {
+      if (movedPrevious) {
         try {
           await rm(generatedDir, { force: true, recursive: true })
           await rename(previousDir, generatedDir)

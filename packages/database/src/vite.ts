@@ -270,6 +270,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)

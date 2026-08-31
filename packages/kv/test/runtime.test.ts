@@ -24,6 +24,8 @@ const mountedDrivers: {
 
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | Error | undefined
+let upstashEval: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> | undefined
+let upstashGetdel: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>> | undefined
 let upstashScan: ReturnType<typeof vi.fn> | undefined
 // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
@@ -34,13 +36,23 @@ function resetStorage() {
   delete mountedDrivers.cloudflare
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
+  upstashEval = undefined
+  upstashGetdel = undefined
   upstashScan = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
   return (options: Record<string, unknown> = {}) => {
     mountedDrivers[name] = options
-    return memoryDriver()
+    return {
+      ...memoryDriver(),
+      async getAndDeleteItem(key: string) {
+        return await upstashGetdel?.(key) ?? null
+      },
+      async incrementItem(key: string, ttl: number): Promise<number> {
+        return Number(await upstashEval?.(key, ttl) ?? 1)
+      },
+    }
   }
 }
 
@@ -124,7 +136,7 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
 vi.mock("unstorage/drivers/upstash", () => ({
   default: vi.fn(() => ({
     ...memoryDriver(),
-    getInstance: () => ({ scan: upstashScan }),
+    getInstance: () => ({ eval: upstashEval, getdel: upstashGetdel, scan: upstashScan }),
   })),
 }))
 
@@ -195,6 +207,71 @@ describe("kv runtime", () => {
       token: "upstash-token",
       url: "https://upstash.example.com",
     })
+  })
+
+  it("exposes atomic Upstash operations through the KV helper", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => '{"singleUse":true}')
+    upstashEval = vi.fn(async () => 2)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expect(expectKVSuccess(await kv.getAndDelete<{ singleUse: boolean }>("verification"))).toEqual({ singleUse: true })
+    expect(expectKVSuccess(await kv.increment("attempts", 60))).toBe(2)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
+  })
+
+  it("maps atomic operations to native Upstash commands", async () => {
+    upstashGetdel = vi.fn(async () => '"single-use"')
+    upstashEval = vi.fn(async () => 1)
+    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
+    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+
+    await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe('"single-use"')
+    await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
+    expect(upstashGetdel).toHaveBeenCalledWith("verification")
+    expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
+    const script = String(upstashEval?.mock.calls[0]?.[0])
+    expect(script).toContain("redis.call('EXISTS'")
+    expect(script).toContain("negative and '9007199254740992' or '9007199254740991'")
+    expect(script).toContain("local at_positive_boundary = not negative and digits == boundary")
+    expect(script.indexOf("if beyond or at_positive_boundary")).toBeLessThan(script.indexOf("redis.call('INCR'"))
+    expect(script).toContain("if existed == 0")
+    expect(script).toContain("redis.call('EXPIRE'")
+    await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
+    await expect(driver.incrementItem?.("attempts", 1e21)).rejects.toThrow("supported integer range")
+    expect(upstashEval).toHaveBeenCalledOnce()
+
+    upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
+    const unsafeDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+    await expect(unsafeDriver.incrementItem?.("attempts", 60)).rejects.toThrow("safe integer range")
+  })
+
+  it("normalizes atomic operation keys like ordinary storage operations", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashGetdel = vi.fn(async () => "single-use")
+    upstashEval = vi.fn(async () => 1)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await kv.getAndDelete("token/path")
+    await kv.increment("attempt/path", 60)
+    expect(upstashGetdel).toHaveBeenCalledWith("token:path")
+    expect(upstashEval).toHaveBeenCalledWith("attempt:path", 60)
+  })
+
+  it("rejects atomic operations on unsupported KV stores", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.getAndDelete("verification")).rejects.toThrow("does not support atomic operations")
+    await expect(kv.increment("attempts", 60)).rejects.toThrow("does not support atomic operations")
+
+    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
+    const denoStorage = createHostedKVStorage({ store: { driver: "deno-kv" } })
+    expect(denoStorage.getAndDeleteItem).toBeUndefined()
+    expect(denoStorage.incrementItem).toBeUndefined()
   })
 
   it("honors explicit hosting before ambient Deno KV detection", async () => {

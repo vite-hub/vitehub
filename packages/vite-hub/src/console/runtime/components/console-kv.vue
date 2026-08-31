@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { TableColumn, TableRow } from "@nuxt/ui";
+import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBackButton from "./console-back-button.vue";
+import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsoleMark from "./console-mark.vue";
+import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 
 interface KVListResponse {
@@ -29,18 +32,25 @@ interface KVValueResponse {
   value?: string;
 }
 
+interface KVRow {
+  key: string;
+  store: string;
+}
+
 const props = defineProps<{
   agentsBase: string;
+  definitionsBase: string;
   kvBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
 
+const route = useRoute();
+const router = useRouter();
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
 const stores = ref<string[]>([]);
 const selectedStore = ref("default");
-const prefix = ref("");
 const keys = ref<string[]>([]);
 const nextCursor = ref<string>();
 const selectedKey = ref<string>();
@@ -49,16 +59,33 @@ const listLoading = ref(true);
 const valueLoading = ref(false);
 const listError = ref<unknown>();
 const valueError = ref<unknown>();
+const loadedStore = ref<string>();
 let listRequest: AbortController | undefined;
 let valueRequest: AbortController | undefined;
-let prefixTimer: ReturnType<typeof setTimeout> | undefined;
+let applyingRouteSelection = false;
 
-const storeItems = computed(() => stores.value.map(store => ({ label: store, value: store })));
+const storeItems = computed(() => stores.value.map((store) => ({ label: store, value: store })));
+const tableRows = computed<KVRow[]>(() =>
+  keys.value.map((key) => ({ key, store: selectedStore.value })),
+);
+const columns: TableColumn<KVRow>[] = [
+  { accessorKey: "key", header: "Key" },
+  { accessorKey: "store", header: "Store" },
+];
+const tableMeta = computed(() => ({
+  class: {
+    tr: (row: TableRow<KVRow>) => (row.original.key === selectedKey.value ? "bg-elevated/60" : ""),
+  },
+}));
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function queryString(value: LocationQueryValue | LocationQueryValue[]): string | undefined {
+  return value === null || Array.isArray(value) ? undefined : value;
 }
 
 function parseList(value: unknown): KVListResponse {
@@ -122,11 +149,13 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   valueRequest = controller;
   valueLoading.value = true;
   try {
-    const value = parseValue(await requestConsole(props.kvBase, {
-      body: { key, store: selectedStore.value },
-      method: "POST",
-      signal: controller.signal,
-    }));
+    const value = parseValue(
+      await requestConsole(props.kvBase, {
+        body: { key, store: selectedStore.value },
+        method: "POST",
+        signal: controller.signal,
+      }),
+    );
     if (valueRequest === controller) selectedValue.value = value;
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
@@ -139,7 +168,9 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   }
 }
 
-async function loadKeys(options: { append?: boolean; keepSelection?: boolean } = {}): Promise<void> {
+async function loadKeys(
+  options: { append?: boolean; keepMissingSelection?: boolean; keepSelection?: boolean } = {},
+): Promise<void> {
   listRequest?.abort();
   const currentSelection = options.keepSelection ? selectedKey.value : undefined;
   const controller = new AbortController();
@@ -157,10 +188,15 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     valueError.value = undefined;
   }
   try {
-    const value = parseList(await requestConsole(props.kvBase, {
-      query: { cursor: options.append ? nextCursor.value : undefined, prefix: prefix.value || undefined, store: selectedStore.value },
-      signal: controller.signal,
-    }));
+    const value = parseList(
+      await requestConsole(props.kvBase, {
+        query: {
+          cursor: options.append ? nextCursor.value : undefined,
+          store: selectedStore.value,
+        },
+        signal: controller.signal,
+      }),
+    );
     if (listRequest !== controller) return;
     stores.value = value.stores;
     if (value.error) {
@@ -171,18 +207,24 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
     keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
-    const selection = options.append && options.keepSelection && selectedKey.value !== currentSelection
-      ? selectedKey.value
-      : currentSelection;
-    selectedKey.value = selection !== undefined && keys.value.includes(selection) ? selection : keys.value[0];
+    loadedStore.value = value.store;
+    const selection =
+      options.append && options.keepSelection && selectedKey.value !== currentSelection
+        ? selectedKey.value
+        : currentSelection;
+    selectedKey.value = selection !== undefined &&
+        (options.keepMissingSelection || keys.value.includes(selection))
+      ? selection
+      : keys.value[0];
     await loadValue();
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
     if (listRequest === controller) {
-      retryExpiredCursor = options.append === true
-        && error instanceof Object
-        && "code" in error
-        && error.code === "cursor_expired";
+      retryExpiredCursor =
+        options.append === true &&
+        error instanceof Object &&
+        "code" in error &&
+        error.code === "cursor_expired";
       if (!retryExpiredCursor) listError.value = error;
     }
   } finally {
@@ -191,42 +233,104 @@ async function loadKeys(options: { append?: boolean; keepSelection?: boolean } =
       listLoading.value = false;
     }
   }
-  if (retryExpiredCursor) await loadKeys({ keepSelection: true });
+  if (retryExpiredCursor) await loadKeys({ keepMissingSelection: true, keepSelection: true });
 }
 
 async function selectKey(key: string): Promise<void> {
   selectedKey.value = key;
   sidebarOpen.value = false;
+  syncRouteSelection();
   await loadValue(key);
 }
 
+function selectRow(_event: Event, row: TableRow<KVRow>): void {
+  void selectKey(row.original.key);
+}
+
 async function refresh(): Promise<void> {
-  await loadKeys({ keepSelection: true });
+  await loadKeys({ keepMissingSelection: true, keepSelection: true });
 }
 
 async function loadMore(): Promise<void> {
-  await loadKeys({ append: true, keepSelection: true });
+  await loadKeys({ append: true, keepMissingSelection: true, keepSelection: true });
 }
 
-watch(selectedStore, () => {
+function syncRouteSelection(): void {
+  if (
+    route.query.store === selectedStore.value &&
+    route.query.key === selectedKey.value
+  )
+    return;
+  void router.replace({
+    query: { ...route.query, key: selectedKey.value, store: selectedStore.value },
+  });
+}
+
+watch(selectedStore, async () => {
+  if (applyingRouteSelection) return;
   selectedKey.value = undefined;
-  void loadKeys();
+  await loadKeys();
+  syncRouteSelection();
 });
 
-watch(prefix, () => {
-  if (prefixTimer) clearTimeout(prefixTimer);
-  prefixTimer = setTimeout(() => void loadKeys(), 200);
-});
+async function applyRouteSelection(): Promise<void> {
+  const store = queryString(route.query.store);
+  const key = queryString(route.query.key);
+  if (store === undefined) {
+    if (selectedStore.value === "default" && selectedKey.value === undefined) return;
+    applyingRouteSelection = true;
+    selectedStore.value = "default";
+    selectedKey.value = undefined;
+    try {
+      await loadKeys();
+    } finally {
+      applyingRouteSelection = false;
+    }
+    return;
+  }
+  if (key === undefined) {
+    if (
+      selectedStore.value === store &&
+      selectedKey.value === undefined &&
+      loadedStore.value === store
+    )
+      return;
+    applyingRouteSelection = true;
+    selectedStore.value = store;
+    selectedKey.value = undefined;
+    try {
+      await loadKeys();
+    } finally {
+      applyingRouteSelection = false;
+    }
+    return;
+  }
+  if (selectedStore.value === store && selectedKey.value === key) return;
+  applyingRouteSelection = true;
+  selectedStore.value = store;
+  selectedKey.value = key;
+  try {
+    await loadKeys({ keepMissingSelection: true, keepSelection: true });
+  } finally {
+    applyingRouteSelection = false;
+  }
+}
 
 onMounted(() => {
   rememberConsoleSection("kv");
-  void loadKeys();
+  if (queryString(route.query.store) !== undefined) {
+    void applyRouteSelection();
+  } else void loadKeys();
 });
+
+watch(
+  () => [route.query.store, route.query.key],
+  () => void applyRouteSelection(),
+);
 
 onBeforeUnmount(() => {
   listRequest?.abort();
   valueRequest?.abort();
-  if (prefixTimer) clearTimeout(prefixTimer);
 });
 </script>
 
@@ -236,137 +340,44 @@ onBeforeUnmount(() => {
       id="kv-keys"
       v-model:open="sidebarOpen"
       v-model:collapsed="sidebarCollapsed"
-      :default-size="21"
+      :default-size="20"
       :collapsed-size="4"
-      :min-size="17"
-      :max-size="28"
-      :menu="{ title: 'KV keys', description: 'Browse configured KV stores.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
+      :min-size="16"
+      :max-size="26"
+      :menu="{ title: 'KV', description: 'Inspect configured KV stores.' }"
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-2 py-1.5' }"
       collapsible
       resizable
     >
       <template #header="{ collapsed }">
-        <div class="flex h-10 w-full min-w-0 items-center gap-2.5 px-1.5">
-          <ConsoleMark />
-          <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none">
-            <small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted">
-              ViteHub Console
-            </small>
-            <strong class="mt-1 truncate text-sm font-semibold text-highlighted">KV</strong>
-          </span>
-        </div>
+        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
       </template>
 
       <template #default="{ collapsed }">
-        <div class="px-2 pt-2">
-          <ConsoleBackButton :collapsed="collapsed" />
-        </div>
-        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
-          <div>
-            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">KV storage</span>
-            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Keys</h1>
-          </div>
-          <span class="text-xs text-muted">{{ keys.length }}</span>
-        </div>
-        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+        <div class="px-2 py-2">
           <UDashboardSearchButton
             :collapsed="collapsed"
             block
-            class="w-full bg-transparent ring-default"
+            class="w-full bg-transparent ring-0 hover:bg-elevated/60"
             label="Search console"
           />
         </div>
-        <div v-if="!collapsed" class="grid gap-2 px-3 pb-3">
-          <USelect
-            v-if="stores.length > 1"
-            v-model="selectedStore"
-            :items="storeItems"
-            aria-label="KV store"
-            size="sm"
-          />
-          <UInput
-            v-model="prefix"
-            aria-label="Filter keys by prefix"
-            icon="i-lucide-search"
-            placeholder="Filter by prefix"
-            size="sm"
-          />
-        </div>
-        <div v-if="!collapsed && errorMessage(listError)" class="px-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Could not load keys"
-            :description="errorMessage(listError)"
-            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]"
-          />
-        </div>
-        <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
-          <div class="grid gap-1 px-2 py-1">
-            <UTooltip v-for="key in keys" :key="key" :text="key || '(empty key)'" :content="{ side: 'right' }">
-              <UButton
-                icon="i-lucide-key-round"
-                color="neutral"
-                :variant="selectedKey === key ? 'soft' : 'ghost'"
-                block
-                :aria-label="key || 'Empty key'"
-                @click="selectKey(key)"
-              />
-            </UTooltip>
-          </div>
-        </div>
-        <div v-else-if="listLoading && !keys.length" class="grid gap-2 px-3">
-          <USkeleton v-for="index in 6" :key="index" class="h-10 rounded-md" />
-        </div>
-        <nav v-else-if="keys.length || nextCursor" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="KV keys">
-          <button
-            v-for="key in keys"
-            :key="key"
-            type="button"
-            class="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-start text-sm outline-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-primary"
-            :class="selectedKey === key ? 'bg-elevated text-highlighted' : 'text-toned'"
-            @click="selectKey(key)"
-          >
-            <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-dimmed" />
-            <span class="truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
-          </button>
-          <UButton v-if="nextCursor" block class="mt-2" color="neutral" variant="ghost" :loading="listLoading" @click="loadMore">
-            Load more
-          </UButton>
-        </nav>
-        <UEmpty
-          v-else-if="!listLoading && !listError && !collapsed"
-          class="min-h-0 flex-1 px-4"
-          icon="i-lucide-key-round"
-          :title="prefix ? 'No matching keys' : 'This store is empty'"
-          :description="prefix ? 'Try a shorter key prefix.' : 'Keys will appear here when the application writes them.'"
-        />
       </template>
 
       <template #footer="{ collapsed, collapse }">
-        <span v-if="!collapsed" class="flex items-center gap-1.5 text-xs text-muted">
-          <UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only
-        </span>
-        <UTooltip text="Refresh keys">
-          <UButton
-            aria-label="Refresh keys"
-            color="neutral"
-            icon="i-lucide-refresh-cw"
-            size="xs"
-            variant="ghost"
-            :loading="listLoading || valueLoading"
-            @click="refresh"
-          />
-        </UTooltip>
+        <ConsolePrimitiveSwitcher
+          active="kv"
+          :collapsed="collapsed"
+          :sections-base="sectionsBase"
+        />
         <UButton
           class="max-lg:hidden"
-          :class="collapsed ? '' : 'ml-1'"
-          :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+          :class="collapsed ? '' : 'ml-auto'"
+          icon="i-ph-sidebar-simple-light"
           color="neutral"
           variant="ghost"
           size="xs"
-          :aria-label="collapsed ? 'Show KV keys' : 'Hide KV keys'"
+          :aria-label="collapsed ? 'Show sidebar' : 'Hide sidebar'"
           @click="collapse(!collapsed)"
         />
       </template>
@@ -374,89 +385,157 @@ onBeforeUnmount(() => {
 
     <ConsoleSearch
       :agents-base="agentsBase"
+      :definitions-base="definitionsBase"
+      :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="kv-value">
-      <div class="flex min-h-0 flex-1 flex-col" aria-live="polite">
-        <header class="flex h-14 shrink-0 items-center border-b border-default px-4">
-          <UButton
-            class="mr-2 lg:hidden"
-            aria-label="Open KV keys"
-            color="neutral"
-            icon="i-lucide-panel-left"
-            variant="ghost"
-            @click="sidebarOpen = true"
+    <UDashboardPanel id="kv-value" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+      <template #header>
+        <UDashboardNavbar
+          title="KV"
+          :toggle="{ 'aria-label': 'Open sidebar' }"
+          :ui="{ root: 'border-b border-default' }"
+        >
+          <template #right>
+            <span class="hidden text-xs text-muted sm:inline"
+              >{{ keys.length }} {{ keys.length === 1 ? "key" : "keys" }}</span
+            >
+            <USelect
+              v-if="stores.length > 1"
+              v-model="selectedStore"
+              class="w-36"
+              :items="storeItems"
+              aria-label="KV store"
+            />
+            <span v-else class="hidden font-mono text-xs text-muted sm:inline">{{
+              selectedStore
+            }}</span>
+            <UTooltip text="Refresh keys">
+              <UButton
+                aria-label="Refresh keys"
+                color="neutral"
+                icon="i-ph-arrows-clockwise-light"
+                size="xs"
+                variant="ghost"
+                :loading="listLoading || valueLoading"
+                @click="refresh"
+              />
+            </UTooltip>
+            <UBadge color="neutral" label="Read-only" size="sm" variant="subtle" />
+          </template>
+        </UDashboardNavbar>
+      </template>
+
+      <template #body>
+        <main class="min-h-0 flex-1 overflow-y-auto">
+          <UAlert
+            v-if="errorMessage(listError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-ph-cloud-slash-light"
+            title="Could not load keys"
+            :description="errorMessage(listError)"
+            :actions="[
+              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+            ]"
           />
-          <div class="min-w-0">
-            <p class="truncate font-mono text-xs font-medium text-highlighted">
-              {{ selectedKey === "" ? "(empty key)" : selectedKey ?? "KV" }}
-            </p>
-            <p v-if="selectedKey !== undefined" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
-          </div>
-          <UBadge class="ml-auto" color="neutral" label="Read-only" size="sm" variant="soft" />
-        </header>
+          <template v-else>
+            <UTable
+              :columns="columns"
+              :data="tableRows"
+              empty="No keys in this store."
+              :loading="listLoading"
+              :meta="tableMeta"
+              sticky="header"
+              :on-select="selectRow"
+              :ui="{
+                root: 'max-h-[42vh] border-b border-default',
+                tr: 'outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
+              }"
+            >
+              <template #key-cell="{ row }">
+                <span class="flex min-w-0 items-center gap-2 font-mono text-xs text-highlighted">
+                  <UIcon name="i-ph-key-light" class="size-3.5 shrink-0 text-muted opacity-65" />
+                  <span class="truncate">{{ row.original.key || "(empty key)" }}</span>
+                </span>
+              </template>
+              <template #store-cell="{ row }">
+                <span class="font-mono text-[11px] text-muted">{{ row.original.store }}</span>
+              </template>
+            </UTable>
+            <div v-if="nextCursor" class="border-b border-default px-3 py-2">
+              <UButton
+                color="neutral"
+                label="Load more"
+                size="xs"
+                variant="ghost"
+                :loading="listLoading"
+                @click="loadMore"
+              />
+            </div>
+          </template>
 
-        <UEmpty
-          v-if="selectedKey === undefined && !listLoading"
-          class="min-h-0 flex-1"
-          icon="i-lucide-mouse-pointer-click"
-          title="Select a key"
-          description="Choose a key from the sidebar to inspect its stored value."
-        />
-        <div v-else-if="valueLoading && !selectedValue" class="flex min-h-0 flex-1 items-center justify-center">
-          <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-        </div>
-        <UEmpty
-          v-else-if="errorMessage(valueError)"
-          class="min-h-0 flex-1"
-          icon="i-lucide-cloud-off"
-          title="Could not load this value"
-          :description="errorMessage(valueError)"
-          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: () => loadValue() }]"
-        />
-        <UEmpty
-          v-else-if="selectedValue && !selectedValue.found"
-          class="min-h-0 flex-1"
-          icon="i-lucide-key-round"
-          title="Key no longer exists"
-          description="Refresh the key list to load the current store contents."
-        />
-        <main v-else-if="selectedValue" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <div class="mx-auto w-full max-w-5xl">
-            <dl class="grid gap-px overflow-hidden rounded-lg border border-default bg-default sm:grid-cols-3">
-              <div class="min-w-0 bg-muted/30 px-4 py-3">
-                <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">Store</dt>
-                <dd class="mt-1 truncate font-mono text-xs text-highlighted">{{ selectedValue.store }}</dd>
-              </div>
-              <div class="min-w-0 border-t border-default bg-muted/30 px-4 py-3 sm:border-l sm:border-t-0">
-                <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">Type</dt>
-                <dd class="mt-1 truncate font-mono text-xs text-highlighted">{{ selectedValue.type }}</dd>
-              </div>
-              <div class="min-w-0 border-t border-default bg-muted/30 px-4 py-3 sm:border-l sm:border-t-0">
-                <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">Format</dt>
-                <dd class="mt-1 truncate font-mono text-xs text-highlighted">{{ selectedValue.format }}</dd>
-              </div>
-            </dl>
-
-            <section class="mt-4 overflow-hidden rounded-lg border border-default bg-default">
-              <div class="flex h-10 items-center border-b border-default px-3">
-                <h2 class="text-xs font-medium text-highlighted">Value</h2>
-                <UBadge
-                  v-if="selectedValue.truncated"
-                  class="ml-auto"
-                  color="warning"
-                  label="Truncated at 256 KiB"
-                  size="sm"
-                  variant="soft"
-                />
-              </div>
-              <pre class="min-h-56 overflow-auto p-4 font-mono text-xs leading-5 text-toned"><code>{{ selectedValue.value }}</code></pre>
-            </section>
+          <div v-if="valueLoading && !selectedValue" class="flex h-24 items-center justify-center">
+            <UIcon
+              name="i-ph-circle-notch-light"
+              class="size-4 animate-spin text-muted opacity-70"
+            />
           </div>
+          <UAlert
+            v-else-if="errorMessage(valueError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-ph-cloud-slash-light"
+            title="Could not load this value"
+            :description="errorMessage(valueError)"
+            :actions="[
+              {
+                label: 'Try again',
+                icon: 'i-ph-arrows-clockwise-light',
+                onClick: () => loadValue(),
+              },
+            ]"
+          />
+          <UAlert
+            v-else-if="selectedValue && !selectedValue.found"
+            class="m-3"
+            color="warning"
+            variant="subtle"
+            icon="i-ph-key-light"
+            title="Key no longer exists"
+            description="Refresh the table to load the current store contents."
+          />
+          <section v-else-if="selectedValue" class="min-w-0">
+            <header
+              class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-default px-3 py-2"
+            >
+              <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">
+                {{ selectedValue.key || "(empty key)" }}
+              </h2>
+              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+                selectedValue.type
+              }}</span>
+              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+                selectedValue.format
+              }}</span>
+              <UBadge
+                v-if="selectedValue.truncated"
+                color="warning"
+                label="Truncated at 256 KiB"
+                size="sm"
+                variant="subtle"
+              />
+            </header>
+            <pre
+              class="min-h-48 overflow-auto p-4 font-mono text-xs leading-5 text-toned"
+            ><code>{{ selectedValue.value }}</code></pre>
+          </section>
         </main>
-      </div>
+      </template>
     </UDashboardPanel>
   </ConsoleFrame>
 </template>

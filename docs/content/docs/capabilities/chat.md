@@ -62,7 +62,7 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `lifecycleHooks` | `Record<string, unknown>` | none | Additional lifecycle-hook settings for integrations that consume Chat Capability configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages?: number }` | last 20 messages, or `threadHistory.maxMessages` when derived | Chat History Window sent into the `chat.message` Agent Trigger. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill/cache; stores messages but does not by itself define model input. |
 | `messageHistory` | Chat SDK message-history configuration | inherited | Adapter message-history behavior passed to the Chat SDK. |
 | `logger` | Chat SDK logger | inherited | Logger passed to adapter-backed Chat SDK delivery. |

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -71,6 +71,7 @@ interface ViteE2EComposerOptions {
   db?: ResolvedDBViteConfig
   hosting: HostedProvider
   kv?: false | ResolvedKVModuleOptions
+  providerImportAliases?: Record<string, string>
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
@@ -746,8 +747,17 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
+    const kvViteRuntimeGuardFile = resolve(generatedDir, "kv-vite-runtime-guard.mjs")
+    const canonicalKvPackageDir = await realpath(kvPackageDir)
+    alias["@vite-hub/kv/runtime/cloudflare-kv"] = resolve(kvPackageDir, "src/runtime/cloudflare-kv.ts")
+    alias["@vite-hub/kv/vite"] = kvViteRuntimeGuardFile
+    alias[resolvePackageRuntime(kvPackageDir, "vite")] = kvViteRuntimeGuardFile
+    alias[resolve(canonicalKvPackageDir, "dist/vite.js")] = kvViteRuntimeGuardFile
     alias["@vite-hub/kv"] = kvRuntimeFile
-    runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
+    runtimeWrites.push(
+      writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),
+      writeFile(kvViteRuntimeGuardFile, "export const hubKv = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
+    )
   }
 
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
@@ -1520,13 +1530,20 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
     async config() {
       const artifacts = await prepareFeatureArtifacts(options)
       resolvedAlias = artifacts.alias
+      if (options.providerImportAliases) Object.assign(options.providerImportAliases, resolvedAlias)
       return {
         resolve: {
-          alias: resolvedAlias,
+          alias: Object.entries(resolvedAlias)
+            .filter(([find]) => find !== "@vite-hub/kv/vite")
+            .map(([find, replacement]) => ({
+              find: find === "@vite-hub/kv" ? /^@vite-hub\/kv$/ : find,
+              replacement,
+            })),
         },
       }
     },
     resolveId(id) {
+      if (id === "@vite-hub/kv/vite") return
       return resolvedAlias?.[id]
     },
     async closeBundle() {
