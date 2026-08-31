@@ -7,18 +7,20 @@ export async function failInterruptedAgentInvocations(
     claimLeaseMs?: number
     limit?: number
     message?: string
+    recoveryTimeoutMs?: number
     recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
   },
 ): Promise<number> {
   const before = options.before ?? Date.now()
   const claimLeaseMs = options.claimLeaseMs ?? 30_000
+  const recoveryTimeoutMs = options.recoveryTimeoutMs ?? claimLeaseMs
   const limit = options.limit ?? 100
   let cursor: string | undefined
   let failed = 0
   const blocked: AgentInvocationSummary[] = []
-  const fail = async (invocation: AgentInvocationSummary): Promise<boolean> => {
+  const fail = async (invocation: AgentInvocationSummary, force = false): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
-    if (!await store.claim(invocation.id, claimId, claimLeaseMs)) return false
+    if (!await store.claim(invocation.id, claimId, claimLeaseMs, force)) return false
     try {
       const updated = await store.update(invocation.id, {
         error: { message: options.message || "The host stopped before this Agent Invocation finished." },
@@ -43,9 +45,11 @@ export async function failInterruptedAgentInvocations(
     cursor = records.cursor
   } while (cursor)
   if (blocked.length > 0) {
-    await new Promise(resolve => setTimeout(resolve, claimLeaseMs))
+    await new Promise(resolve => setTimeout(resolve, recoveryTimeoutMs))
     for (const invocation of blocked) {
-      if (await options.recover(invocation) && await fail(invocation)) failed += 1
+      const current = await store.get(invocation.id)
+      if (current && (current.status === "pending" || current.status === "running")
+        && await options.recover(current) && await fail(current, true)) failed += 1
     }
   }
   return failed

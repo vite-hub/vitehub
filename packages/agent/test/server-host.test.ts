@@ -711,10 +711,15 @@ describe("GitHub host", () => {
   it("preserves base access for fork callbacks and uses head access for pushes", async () => {
     await installFakeGitHubCommands()
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-      token: "base-token",
-    }), { status: 201 })))
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      return url.pathname === "/user"
+        ? new Response(JSON.stringify({ id: 123 }), { status: 200 })
+        : new Response(JSON.stringify({
+            expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+            token: "base-token",
+          }), { status: 201 })
+    }))
     const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
     temporaryDirectories.add(commandLog)
     process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
@@ -877,22 +882,47 @@ describe("Agent Invocation host recovery", () => {
     await expect(Promise.resolve(store.get("old-100"))).resolves.toMatchObject({ status: "running" })
   })
 
-  it("retries recovery after a stopped host claim expires", async () => {
+  it("takes over a stopped host claim after the recovery timeout", async () => {
     vi.useFakeTimers()
     const store = createMemoryAgentInvocationStore()
     const createdAt = "2026-08-30T10:00:00.000Z"
     store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
-    await store.claim("interrupted", "stopped-host", 20)
+    await store.claim("interrupted", "stopped-host", 100)
 
     const recovery = failInterruptedAgentInvocations(store, {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
       claimLeaseMs: 20,
+      recoveryTimeoutMs: 20,
       recover: () => true,
     })
     await vi.advanceTimersByTimeAsync(20)
 
     await expect(recovery).resolves.toBe(1)
     await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
+  })
+
+  it("preserves work reclaimed by a live host during the recovery timeout", async () => {
+    vi.useFakeTimers()
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "reclaimed", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    await store.claim("reclaimed", "live-host", 100)
+    let stopped = true
+    const recover = vi.fn(() => stopped)
+
+    const recovery = failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      claimLeaseMs: 20,
+      recoveryTimeoutMs: 20,
+      recover,
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recover).toHaveBeenCalledOnce()
+    stopped = false
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expect(recovery).resolves.toBe(0)
+    await expect(Promise.resolve(store.get("reclaimed"))).resolves.toMatchObject({ status: "running" })
   })
 
   it("excludes provider-owned durable work from process recovery", async () => {
