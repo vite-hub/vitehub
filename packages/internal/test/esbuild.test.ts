@@ -22,6 +22,28 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("applies Vite replacement-string tokens in prefix aliases", async () => {
+    const rootDir = await createTempDir()
+    const replacementDir = resolve(rootDir, "replacement")
+    const replacement = resolve(replacementDir, "@/job.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(dirname(replacement), { recursive: true })
+    await Promise.all([
+      writeFile(entry, 'export { value } from "@/job.mjs"\n', "utf8"),
+      writeFile(replacement, "export const value = 'replacement-token'\n", "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "@", replacement: `${replacementDir}/$&` }]),
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement-token")
+  })
+
   it("preserves overlapping trailing-slash alias prefixes", async () => {
     const rootDir = await createTempDir()
     const broadDir = resolve(rootDir, "broad")

@@ -268,8 +268,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           : match?.specifier
         matchedSpecifier ||= matchedAlias === match?.canonicalSpecifier ? canonicalSpecifier : normalizedSpecifier
         const target = match?.prefix
-          ? `${match.replacement}${matchedSpecifier.slice(matchedAlias!.length)}`
-          : match?.replacement
+          ? matchedSpecifier.replace(matchedAlias!.slice(0, -1), match.replacement.slice(0, -1))
+          : matchedSpecifier.replace(matchedAlias!, match?.replacement ?? "")
         if (!target) return
         const resolvedTarget = /^\.\.?[\\/]/.test(target) ? resolve(aliasResolveDir, target) : target
         return build.resolve(resolvedTarget, {
