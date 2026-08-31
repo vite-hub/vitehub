@@ -262,6 +262,11 @@ describe("Agent Invocation Interface lifecycle", () => {
     await iterator.return?.()
 
     expect(finish).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(finish).toHaveBeenCalledOnce())
+    expect(finish.mock.calls[0]![0]).toMatchObject({
+      result: { raw, text: "partial" },
+    })
+    expect(finish.mock.calls[0]![0].result).not.toHaveProperty("usage")
   })
 
   it("does not await pending raw-stream usage after full consumption", async () => {

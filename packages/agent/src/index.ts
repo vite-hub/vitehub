@@ -4678,7 +4678,12 @@ type AgentInvocationFinishOutcome =
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { completed?: boolean, failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
-  return outcome.failed ? { error: outcome.error, status: "error" } : outcome.completed === false ? { result, status: "cancelled" } : { result, status: "success" }
+  if (outcome.failed) return { error: outcome.error, status: "error" }
+  if (outcome.completed !== false) return { result, status: "success" }
+  const usage = result && hasRuntimeType(result, "object")
+    ? toAgentRunResult(result).usageRecord
+    : undefined
+  return { result, status: "cancelled", usage, usageResolved: true }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
