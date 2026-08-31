@@ -229,6 +229,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }>>()
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
+  const fallbackIdentityLimit = 1_000
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
 
@@ -260,6 +261,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   async function fallbackRateLimitKey(token: string, configuredKey: string | undefined, input: GitHubHostCheckoutOptions): Promise<string> {
+    const stableKey = configuredKey?.trim()
+    if (stableKey) return `credential:${stableKey}`
     const tokenKey = createHash("sha256").update(token).digest("base64url")
     const cached = fallbackIdentities.get(tokenKey)
     if (cached) return cached
@@ -272,13 +275,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       signal: input.signal,
     })
     if (response.status === 403) {
-      const stableKey = configuredKey?.trim()
-      if (!stableKey) {
-        throw new Error("GitHub credentials that cannot identify their user must provide rateLimitKey.")
-      }
-      const key = `credential:${stableKey}`
-      fallbackIdentities.set(tokenKey, key)
-      return key
+      throw new Error("GitHub credentials that cannot identify their user must provide rateLimitKey.")
     }
     if (!response.ok) throw new Error(`GitHub user request failed with ${response.status}.`)
     const body: unknown = await response.json()
@@ -287,6 +284,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       throw new TypeError("GitHub did not return a valid authenticated user ID.")
     }
     const key = `user:${id}`
+    if (fallbackIdentities.size >= fallbackIdentityLimit) {
+      const oldest = fallbackIdentities.keys().next().value
+      if (oldest) fallbackIdentities.delete(oldest)
+    }
     fallbackIdentities.set(tokenKey, key)
     return key
   }
@@ -457,12 +458,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           const releasedPoints = options.cost - actualCost
           const current = limits.get(key)
           if (current?.resetAt === reservation.resetAt) {
-            const refreshIncludesSettledQuery = !released
-              && reservation.submittedAtVersion !== undefined
-              && (limitVersions.get(key) ?? 0) !== reservation.submittedAtVersion
-            if (!refreshIncludesSettledQuery) {
-              limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
-            }
+            limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
           }
         }
         return {
@@ -480,7 +476,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)
       const pending = checks.get(key)
       if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
-      const limitBeforeCheck = limits.get(key)
       const check = (async () => {
         const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
         try {
@@ -507,14 +502,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             if (activeReservations.size === 0) reservations.delete(key)
           }
           const outstanding = [...(activeReservations ?? [])]
-            .filter(reservation => reservation.resetAt === limit.resetAt)
+            .filter(reservation => reservation.resetAt === limit.resetAt && reservation.submittedAtVersion === undefined)
             .reduce((points, reservation) => points + reservation.points, 0)
           const current = limits.get(key)
-          const reconciled = current !== limitBeforeCheck
-            && current !== undefined
+          const reconciled = current !== undefined
             && current.resetAt > Date.now()
-            && current.remaining <= limit.remaining
-            ? current
+            && current.resetAt === limit.resetAt
+            ? { ...limit, remaining: Math.min(current.remaining, limit.remaining - outstanding) }
             : { ...limit, remaining: limit.remaining - outstanding }
           limitVersions.set(key, (limitVersions.get(key) ?? 0) + 1)
           limits.set(key, reconciled)

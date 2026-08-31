@@ -257,7 +257,8 @@ describe("GitHub host", () => {
 
   it("shares fallback installation-token budgets across rotation", async () => {
     await installFakeGitHubCommands()
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(undefined, { status: 403 })))
+    const fetch = vi.fn(async () => new Response(undefined, { status: 403 }))
+    vi.stubGlobal("fetch", fetch)
     let token = "first-installation-token"
     const host = createGitHubHost({ credentials: () => ({ rateLimitKey: "installation:123", token }), reserve: 10 })
 
@@ -265,6 +266,7 @@ describe("GitHub host", () => {
     token = "second-installation-token"
     await expect(host.ensureGraphQLBudget("contributor/fork", { cost: 31 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("keeps distinct fallback installation-token budgets isolated", async () => {
@@ -330,6 +332,22 @@ describe("GitHub host", () => {
     reservation.settle(30)
     await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 11 }))
       .resolves.toMatchObject({ remaining: 49 })
+  })
+
+  it("settles a submitted GraphQL reservation after a same-window refresh", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "60"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    reservation.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 51 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 50 }))
+      .resolves.toMatchObject({ remaining: 10 })
   })
 
   it("keeps submitted GraphQL reservations until settlement", async () => {
@@ -876,7 +894,7 @@ describe("Agent Invocation host recovery", () => {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
       claimLeaseMs: 1,
       limit: 25,
-      recover: invocation => invocation.id !== "provider-owned",
+      recover: invocation => invocation.id !== "old-100",
     })).resolves.toBe(100)
     await expect(Promise.resolve(store.get("old-0"))).resolves.toMatchObject({ status: "failed" })
     await expect(Promise.resolve(store.get("old-100"))).resolves.toMatchObject({ status: "running" })
@@ -923,6 +941,30 @@ describe("Agent Invocation host recovery", () => {
 
     await expect(recovery).resolves.toBe(0)
     await expect(Promise.resolve(store.get("reclaimed"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("preserves a claim renewed between the final recovery check and takeover", async () => {
+    vi.useFakeTimers()
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "renewed", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    await store.claim("renewed", "stopped-host", 100)
+    let recoveries = 0
+
+    const recovery = failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      claimLeaseMs: 20,
+      recoveryTimeoutMs: 20,
+      recover: async () => {
+        recoveries += 1
+        if (recoveries === 2) await store.claim("renewed", "live-host", 100, { replaceExisting: true })
+        return true
+      },
+    })
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expect(recovery).resolves.toBe(0)
+    await expect(Promise.resolve(store.get("renewed"))).resolves.toMatchObject({ status: "running" })
   })
 
   it("excludes provider-owned durable work from process recovery", async () => {

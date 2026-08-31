@@ -242,8 +242,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL
       )`)
+      const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+      if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
+        await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+      }
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -295,15 +300,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     await client.batch(statements, "write")
   }
   return {
-    async claim(id, claimId, leaseMs, force) {
+    async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
         const result = await client.execute({
-          args: [id, claimId, leaseMs, id, force ? 1 : 0],
-          sql: `INSERT INTO ${table}_claims (id, claim_id, expires_at)
-            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
-            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, expires_at = excluded.expires_at
-            WHERE ? = 1 OR ${table}_claims.claim_id = excluded.claim_id
+          args: [id, claimId, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimedBefore ?? -1],
+          sql: `INSERT INTO ${table}_claims (id, claim_id, claimed_at, expires_at)
+            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
+            WHERE ? = 1 OR ${table}_claims.claimed_at <= ? OR ${table}_claims.claim_id = excluded.claim_id
               OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
         })
         return result.rowsAffected > 0

@@ -96,7 +96,10 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  claim(id: string, claimId: string, leaseMs: number, force?: boolean): MaybePromise<boolean>
+  claim(id: string, claimId: string, leaseMs: number, options?: {
+    replaceClaimedBefore?: number
+    replaceExisting?: boolean
+  }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
@@ -791,14 +794,17 @@ export function applyAgentInvocationStoreUpdate(
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
-  const claims = new Map<string, { claimId: string, expiresAt: number }>()
+  const claims = new Map<string, { claimedAt: number, claimId: string, expiresAt: number }>()
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
-    claim(id, claimId, leaseMs, force) {
+    claim(id, claimId, leaseMs, options) {
       const claim = claims.get(id)
-      if (!records.has(id) || (!force && claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
-      claims.set(id, { claimId, expiresAt: Date.now() + leaseMs })
+      const now = Date.now()
+      const replace = options?.replaceExisting
+        || (options?.replaceClaimedBefore !== undefined && claim !== undefined && claim.claimedAt <= options.replaceClaimedBefore)
+      if (!records.has(id) || (!replace && claim && claim.claimId !== claimId && claim.expiresAt > now)) return false
+      claims.set(id, { claimedAt: now, claimId, expiresAt: now + leaseMs })
       return true
     },
     create(input) {
@@ -1093,7 +1099,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const renew = async (force = false): Promise<boolean> => {
         if (!await ensureCreated()) return false
-        const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force))
+        const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force ? { replaceExisting: true } : undefined))
         ownsRecord = claim === true
         if (ownsRecord && finished) {
           await boundedStoreOperation(() => store.release(recordId, claimId))
@@ -1229,7 +1235,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         while (!persisted && Date.now() < deadline) {
           await write(async () => {
             if (!await ensureCreated()) return
-            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
+            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
             if (claimed !== true) return
             try {
               const timestamp = normalizedTimestamp(observation.timestamp)

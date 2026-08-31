@@ -18,9 +18,11 @@ export async function failInterruptedAgentInvocations(
   let cursor: string | undefined
   let failed = 0
   const blocked: AgentInvocationSummary[] = []
-  const fail = async (invocation: AgentInvocationSummary, force = false): Promise<boolean> => {
+  const recoveryStartedAt = Date.now()
+  const fail = async (invocation: AgentInvocationSummary, replaceClaimedBefore?: number): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
-    if (!await store.claim(invocation.id, claimId, claimLeaseMs, force)) return false
+    if (!await store.claim(invocation.id, claimId, claimLeaseMs,
+      replaceClaimedBefore === undefined ? undefined : { replaceClaimedBefore })) return false
     try {
       const updated = await store.update(invocation.id, {
         error: { message: options.message || "The host stopped before this Agent Invocation finished." },
@@ -49,7 +51,7 @@ export async function failInterruptedAgentInvocations(
     for (const invocation of blocked) {
       const current = await store.get(invocation.id)
       if (current && (current.status === "pending" || current.status === "running")
-        && await options.recover(current) && await fail(current, true)) failed += 1
+        && await options.recover(current) && await fail(current, recoveryStartedAt)) failed += 1
     }
   }
   return failed
