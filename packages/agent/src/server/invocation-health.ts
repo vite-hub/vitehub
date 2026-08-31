@@ -1,4 +1,9 @@
-import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationSummary } from "../invocations.ts"
+import type {
+  AgentInvocationRecord,
+  AgentInvocations,
+  AgentInvocationStore,
+  AgentInvocationSummary,
+} from "../invocations.ts"
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
@@ -72,4 +77,19 @@ export function summarizeAgentInvocationWorkload(
     else if (invocation.status === "failed") counts.failed += 1
   }
   return counts
+}
+
+export async function readAgentInvocationWorkload(
+  invocations: Pick<AgentInvocations, "list">,
+  processStartedAt: number,
+): Promise<{ active: number, completed: number, failed: number, stale: number, total: number }> {
+  const recent = await invocations.list({ limit: 100 })
+  const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
+  let cursor: string | undefined
+  do {
+    const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"] })
+    for (const invocation of active.invocations) records.set(invocation.id, invocation)
+    cursor = active.cursor
+  } while (cursor)
+  return summarizeAgentInvocationWorkload([...records.values()], processStartedAt)
 }
