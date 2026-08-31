@@ -661,8 +661,8 @@ describe("published declaration diagnostics", () => {
     const withoutNuxtUi = declarationPeerAbsentRuntimeContracts("@nuxt/ui")
 
     expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/markdown-template/internal/vite")
-    expect(withoutVite.map(contract => contract.specifier)).toContain("@vite-hub/ui/vite")
-    expect(withoutVite.map(contract => contract.specifier)).toContain("vite-hub/ui/vite")
+    expect(withoutVite.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
+    expect(withoutVite.map(contract => contract.specifier)).not.toContain("vite-hub/ui/vite")
     expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("@vite-hub/ui/vite")
     expect(withoutNuxtUi.map(contract => contract.specifier)).not.toContain("vite-hub/ui/vite")
 

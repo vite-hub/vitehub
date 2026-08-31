@@ -72,7 +72,6 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/realtime/vite", ["vite"]],
   ["@vite-hub/sandbox/vite", ["vite"]],
   ["@vite-hub/schedule/vite", ["vite"]],
-  ["@vite-hub/ui/vite", ["vite"]],
   ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
   ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
   ["@vite-hub/workflow/vite", ["vite"]],
@@ -80,7 +79,6 @@ const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/workspace/vite", ["vite"]],
   ["vite-hub/browser/controllers/playwright", ["playwright-core"]],
   ["vite-hub/ui/nuxt", ["vue"]],
-  ["vite-hub/ui/vite", ["vite"]],
 ])
 
 function optionalDeclarationPeersForExport(specifier: string, subpath: string) {
