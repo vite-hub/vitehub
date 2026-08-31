@@ -281,6 +281,26 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 40 })
   })
 
+  it("bounds inactive credential budget state", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-budget-commands-${crypto.randomUUID()}.log`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    let rateLimitKey = "credential:0"
+    const host = createGitHubHost({ credentials: () => ({ rateLimitKey, token: "token" }), reserve: 10 })
+
+    for (let index = 0; index <= 1_000; index++) {
+      rateLimitKey = `credential:${index}`
+      const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
+      reservation.release()
+    }
+    rateLimitKey = "credential:0"
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 })
+    reservation.release()
+
+    expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github.com rate_limit/g)).toHaveLength(1_002)
+  }, 20_000)
+
   it("reserves cached GraphQL budget before admitting more work", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
@@ -379,6 +399,20 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
+  it("preserves overlapping GraphQL reservations during settlement", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 0 })
+
+    const first = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    first.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "70"
+    const second = await host.ensureGraphQLBudget("vite-hub/another", { cost: 20 })
+    second.submit()
+    first.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 11 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
   it("keeps submitted GraphQL reservations until settlement", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
@@ -404,6 +438,7 @@ describe("GitHub host", () => {
     process.env.VITEHUB_TEST_RATE_LIMIT_RESET = "2000000100"
     await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 90 }))
       .resolves.toMatchObject({ remaining: 10 })
+    expect(() => expired.submit()).toThrow("Expired GitHub GraphQL reservations cannot be submitted.")
     expired.release()
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))

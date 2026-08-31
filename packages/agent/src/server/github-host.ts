@@ -223,6 +223,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const limitVersions = new Map<string, number>()
   const observedLimits = new Map<string, GitHubGraphQLRateLimit & { version: number }>()
   const reservations = new Map<string, Set<{
+    admittedAtVersion: number
+    expired?: boolean
     points: number
     resetAt: number
     rolledOver?: boolean
@@ -231,8 +233,25 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const checks = new Map<string, Promise<GitHubGraphQLRateLimit>>()
   const fallbackIdentities = new Map<string, string>()
   const fallbackIdentityLimit = 1_000
+  const budgetStateLimit = 1_000
+  const budgetStateAccess = new Map<string, number>()
   let appToken: { expiresAt: number, token: string } | undefined
   let appTokenKey: string | undefined
+
+  function touchBudgetState(key: string, now: number): void {
+    budgetStateAccess.delete(key)
+    budgetStateAccess.set(key, now)
+    for (const [candidate] of budgetStateAccess) {
+      if (candidate === key || reservations.has(candidate) || checks.has(candidate)) continue
+      const limit = limits.get(candidate)
+      if (limit && limit.resetAt > now && budgetStateAccess.size <= budgetStateLimit) continue
+      budgetStateAccess.delete(candidate)
+      limits.delete(candidate)
+      limitVersions.delete(candidate)
+      observedLimits.delete(candidate)
+      if (budgetStateAccess.size <= budgetStateLimit) break
+    }
+  }
 
   async function credentials(input: GitHubHostCheckoutOptions): Promise<GitHubHostCredentials> {
     const operation = controlledOperation(input)
@@ -418,6 +437,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const auth = await scopedAccess({ repository, signal: operation.signal })
       const key = auth.rateLimitKey
       const now = Date.now()
+      touchBudgetState(key, now)
       const cached = limits.get(key)
       const admit = (limit: GitHubGraphQLRateLimit): GitHubGraphQLReservation => {
         const current = limits.get(key)
@@ -428,11 +448,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const reserved = { ...available, remaining: available.remaining - options.cost }
         const limitVersion = limitVersions.get(key) ?? 0
         const reservation: {
+          admittedAtVersion: number
+          expired?: boolean
           points: number
           resetAt: number
           rolledOver?: boolean
           submittedAtVersion?: number
-        } = { points: options.cost, resetAt: available.resetAt }
+        } = { admittedAtVersion: limitVersion, points: options.cost, resetAt: available.resetAt }
         const outstanding = reservations.get(key) ?? new Set()
         outstanding.add(reservation)
         reservations.set(key, outstanding)
@@ -463,7 +485,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             const remaining = current.remaining + releasedPoints
             const observationCeiling = observed?.resetAt === current.resetAt
               ? observed.version > (reservation.submittedAtVersion ?? observed.version)
-                ? Math.max(0, observed.remaining - actualCost)
+                ? Math.max(0, observed.remaining - actualCost
+                    - [...(outstanding ?? [])]
+                      .filter(other => other.admittedAtVersion >= observed.version)
+                      .reduce((points, other) => points + other.points, 0))
                 : observed.remaining
               : undefined
             limits.set(key, {
@@ -480,6 +505,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           settle,
           submit() {
             if (settled) throw new Error("Settled GitHub GraphQL reservations cannot be submitted.")
+            if (reservation.expired) throw new Error("Expired GitHub GraphQL reservations cannot be submitted.")
             reservation.submittedAtVersion ??= limitVersions.get(key) ?? limitVersion
           },
         }
@@ -509,6 +535,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             for (const reservation of activeReservations) {
               if (reservation.resetAt === limit.resetAt) continue
               if (reservation.submittedAtVersion === undefined || reservation.rolledOver) {
+                reservation.expired = true
                 activeReservations.delete(reservation)
               }
               else {
