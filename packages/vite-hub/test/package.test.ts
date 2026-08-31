@@ -357,6 +357,10 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
+    expect(sessionInspector).toContain('<button v-if="props.workspaceBase"');
+    expect(sessionInspector).toContain(
+      "if (!workspace.value && !workspaceLoading.value) await loadWorkspace();",
+    );
     expect(sessionInspector).toContain("invocationUsage.totalTokens");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");

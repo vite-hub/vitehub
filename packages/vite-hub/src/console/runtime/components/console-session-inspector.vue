@@ -600,7 +600,7 @@ function message(error: unknown) {
         >
           <h4>System instructions</h4>
           <p>Resolved instructions were not recorded for this invocation.</p>
-          <button v-if="workspace" type="button" @click="openWorkspaceInstructions">
+          <button v-if="props.workspaceBase" type="button" @click="openWorkspaceInstructions">
             <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />
