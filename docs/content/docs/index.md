@@ -6,8 +6,8 @@ icon: i-lucide-book-open
 ---
 
 ViteHub adds server features to Vite applications. Trusted application code calls
-**Server Primitives** directly. **Agents** combine a Driver with selected
-Capabilities, a Workspace, and application entry points.
+**Server Primitives** directly. Every **Agent** selects a Driver. It can also add
+selected Capabilities, a Workspace, and application entry points.
 
 You can use either lane on its own. An application can also use both without
 giving an Agent access to every server feature.
