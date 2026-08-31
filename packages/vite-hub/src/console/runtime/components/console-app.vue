@@ -55,7 +55,6 @@ const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : un
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
-const paginationRetryRevision = ref(0);
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
@@ -130,7 +129,6 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
-const invocationPaginationKey = computed(() => paginationRetryRevision.value);
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentLabel = computed(
   () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
@@ -406,10 +404,6 @@ function inspectSession(target: "agent" | "workspace"): void {
   detailsOpen.value = true;
 }
 
-function retryPagination(): void {
-  paginationRetryRevision.value++;
-}
-
 function statusIcon(status: AgentInvocationListItem["status"]): string {
   if (status === "running") return "i-ph-circle-notch-light";
   if (status === "completed") return "i-ph-check-light";
@@ -643,7 +637,7 @@ onBeforeUnmount(() => {
             size="sm"
             variant="soft"
             :loading="list.isLoadingMore.value"
-            @click="retryPagination"
+            @click="list.loadMore"
           />
         </div>
         <div
@@ -685,7 +679,6 @@ onBeforeUnmount(() => {
           :loading="list.isLoading.value || list.isLoadingMore.value"
           :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
-          :retry-key="invocationPaginationKey"
           :selected-id="selectedInvocationId"
           @select="selectInvocation($event)"
         >

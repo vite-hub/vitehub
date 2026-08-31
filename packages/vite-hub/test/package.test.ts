@@ -395,12 +395,10 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':header="false"');
     expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
-    expect(consolePage).toContain(':retry-key="invocationPaginationKey"');
-    expect(consolePage).toContain(
-      "const invocationPaginationKey = computed(() => paginationRetryRevision.value);",
-    );
+    expect(consolePage).not.toContain(':retry-key="invocationPaginationKey"');
     expect(consolePage).toContain("list.loadMoreError.value");
     expect(consolePage).toContain("Retry loading older sessions");
+    expect(consolePage).toContain('@click="list.loadMore"');
     expect(consolePage).toContain("Switch Agent");
     expect(consolePage).toContain("agentMenuItems");
     expect(consolePage).toContain("invocation.agentName !== selectedAgentName.value");
