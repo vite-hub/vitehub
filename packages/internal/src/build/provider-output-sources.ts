@@ -154,6 +154,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
 async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
+  const queriedResourceSources = new Set<string>()
   try {
     const result = await build({
       absWorkingDir: root,
@@ -168,12 +169,20 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
       plugins: [{
         name: "vitehub-provider-vite-resource-query",
         setup(traceBuild) {
-          traceBuild.onResolve({ filter: /[?#]/ }, request => ({ external: true, path: request.path }))
+          traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
+            const resourcePath = request.path.split(/[?#]/, 1)[0]!
+            if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
+              const resourceSource = resolve(request.resolveDir, resourcePath)
+              if (existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
+            }
+            return { external: true, path: request.path }
+          })
         },
       }],
       write: false,
     })
     const importedSources = new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
+    for (const resourceSource of queriedResourceSources) importedSources.add(resourceSource)
     const importedSourceContents = await Promise.all([...importedSources]
       .filter(path => traceableSourceExtensions.has(extname(path)))
       .map(async path => [path, await readFile(path, "utf8")] as const))

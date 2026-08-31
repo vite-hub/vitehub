@@ -656,21 +656,24 @@ it("snapshots requested symlinked files inside the retained generation", async (
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
 })
 
-it("preserves nested repositories when Vite-only imports prevent a complete trace", async () => {
+it("retains queried resources inside nested repositories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
   const importedRepository = join(rootDir, "imported-worktree")
   const unrelatedRepository = join(rootDir, "unrelated-worktree")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
+    mkdir(resourceRepository, { recursive: true }),
     mkdir(importedRepository, { recursive: true }),
     mkdir(unrelatedRepository, { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'import prompt from "./prompt.md?raw"\nexport { value } from "../imported-worktree/value.mjs"\nexport { prompt }\n'),
-    writeFile(join(dirname(handler), "prompt.md"), "Retained prompt\n"),
+    writeFile(handler, 'import prompt from "../prompt-worktree/prompt.md?raw"\nexport { value } from "../imported-worktree/value.mjs"\nexport { prompt }\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
+    writeFile(join(resourceRepository, "prompt.md"), "Retained prompt\n"),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
     writeFile(join(importedRepository, "value.mjs"), 'export const value = "retained"\n'),
     writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
@@ -683,6 +686,7 @@ it("preserves nested repositories when Vite-only imports prevent a complete trac
     roots: [rootDir],
   })
 
+  await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Retained prompt\n")
   await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
   await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
