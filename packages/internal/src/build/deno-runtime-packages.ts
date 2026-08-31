@@ -1093,6 +1093,26 @@ async function readRuntimePackages(
         packageJsonPath,
       })
     }
+    for (const name of collectBundledPackageNames(source)) {
+      if (packages.has(name)) continue
+      const recordedPackageJsonPath = resolvedPackageJsonPaths.get(name)
+      const packageJsonPath = recordedPackageJsonPath
+        ?? await resolvePackageJson(name, createRequire(file), dirname(file))
+        ?? await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
+      if (!packageJsonPath) continue
+      const resolvedPackageJsonPath = await realpath(packageJsonPath)
+      const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
+      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
+      packages.set(name, {
+        hoistOptionalDependencies: true,
+        includeOptionalDependencies: true,
+        includePeerDependencies: true,
+        name,
+        onlyIfOptionalDependencies: true,
+        optional: true,
+        packageJsonPath: resolvedPackageJsonPath,
+      })
+    }
   }
   for (const source of sources) {
     const staticNames = collectStaticPackageNames(source)
