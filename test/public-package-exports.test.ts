@@ -110,6 +110,13 @@ describe("public package export contracts", () => {
     expect(realtimeManifest.peerDependenciesMeta?.["@types/json-schema"]?.optional, "realtime should require @types/json-schema").not.toBe(true)
   })
 
+  it("publishes Realtime's Tiptap peer bundle in its runtime closure", () => {
+    const manifest = readPackageManifest("realtime")
+
+    expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
+    expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
+  })
+
   it("publishes Better Auth host declarations in its dependency closure", () => {
     const manifest = readPackageManifest("auth")
     for (const dependency of ["@cloudflare/workers-types", "@types/node", "bun-types"]) {

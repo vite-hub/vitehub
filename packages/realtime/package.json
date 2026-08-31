@@ -46,6 +46,7 @@
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/markdown": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
     "@vite-hub/auth": "workspace:*",
@@ -61,7 +62,6 @@
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
-    "@tiptap/pm": "catalog:realtime",
     "@vite-hub/internal": "workspace:*",
     "linkedom": "^0.18.12",
     "publint": "catalog:tooling",

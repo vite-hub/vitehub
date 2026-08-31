@@ -1535,6 +1535,9 @@ importers:
       '@tiptap/markdown':
         specifier: catalog:realtime
         version: 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)
+      '@tiptap/pm':
+        specifier: catalog:realtime
+        version: 3.29.2
       '@tiptap/starter-kit':
         specifier: catalog:realtime
         version: 3.29.2
@@ -1572,9 +1575,6 @@ importers:
         specifier: catalog:realtime
         version: 13.6.30
     devDependencies:
-      '@tiptap/pm':
-        specifier: catalog:realtime
-        version: 3.29.2
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
