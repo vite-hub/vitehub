@@ -322,6 +322,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("<template #loading />");
     expect(consolePage).toContain('status === "completed" || status === "failed" || status === "cancelled"');
     expect(consolePage).toContain('label="Load older sessions"');
+    expect(consolePage).not.toContain('@end-reached="list.loadMore()"');
     expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
     expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
     expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");

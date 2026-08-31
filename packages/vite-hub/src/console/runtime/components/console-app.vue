@@ -687,7 +687,6 @@ onBeforeUnmount(() => {
           :now="nowMs"
           :retry-key="invocationPaginationKey"
           :selected-id="selectedInvocationId"
-          @end-reached="list.loadMore()"
           @select="selectInvocation($event)"
         >
           <template #loading />
