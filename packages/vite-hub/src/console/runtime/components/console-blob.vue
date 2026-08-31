@@ -32,6 +32,8 @@ interface BlobPageResponse {
 const props = defineProps<{
   agentsBase: string;
   blobBase: string;
+  definitionsBase: string;
+  kvBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
@@ -282,7 +284,7 @@ onBeforeUnmount(() => {
       </template>
     </UDashboardSidebar>
 
-    <ConsoleSearch :agents-base="agentsBase" :search-base="searchBase" :sections-base="sectionsBase" />
+    <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
 
     <UDashboardPanel id="blob-object">
       <div class="flex min-h-0 flex-1 flex-col" aria-live="polite">

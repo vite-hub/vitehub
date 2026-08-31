@@ -90,6 +90,8 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         blobBase: "/api/_vitehub/console/blob",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
       },
@@ -131,6 +133,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "databases",
         sectionsBase,
@@ -158,6 +161,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "workspaces",
         sectionsBase,
@@ -171,6 +175,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "sandboxes",
         sectionsBase,
@@ -184,6 +189,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "rate-limits",
         sectionsBase,
@@ -211,6 +217,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "schedules",
         sectionsBase,

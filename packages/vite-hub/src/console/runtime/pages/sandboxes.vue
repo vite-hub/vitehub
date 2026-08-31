@@ -14,6 +14,7 @@ useHead({ title: "Sandboxes · ViteHub Console" });
       <ConsoleDefinitions
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :definitions-base="`${appBaseURL}/api/_vitehub/console/definitions`"
+        :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
         section="sandboxes"

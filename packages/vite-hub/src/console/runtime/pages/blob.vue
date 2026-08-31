@@ -15,6 +15,8 @@ useHead({ title: "Blob · ViteHub Console" });
       <ConsoleBlob
         :agents-base="`${appBaseURL}/api/_vitehub/console/agents`"
         :blob-base="`${appBaseURL}/api/_vitehub/console/blob`"
+        :definitions-base="`${appBaseURL}/api/_vitehub/console/definitions`"
+        :kv-base="`${appBaseURL}/api/_vitehub/console/kv`"
         :search-base="`${appBaseURL}/api/_vitehub/console/search`"
         :sections-base="`${appBaseURL}/api/_vitehub/console/sections`"
       />
