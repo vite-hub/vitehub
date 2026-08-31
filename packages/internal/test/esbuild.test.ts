@@ -233,15 +233,15 @@ describe("bundleEsmEntry", () => {
   })
 
   it.each([
-    { exportTarget: "./jobs/*", sourcePath: "jobs/task.mjs" },
-    { exportTarget: "./src/jobs/*", sourcePath: "src/jobs/task.mjs" },
-    { exportTarget: "./src/*/generated/*.mjs", sourcePath: "src/task/generated/task.mjs" },
-  ])("matches bare package prefix aliases after $exportTarget imports become absolute", async ({ exportTarget, sourcePath }) => {
+    { exportTarget: "./jobs/*", replacementPath: "jobs/task.mjs", sourcePath: "jobs/task.mjs" },
+    { exportTarget: "./src/jobs/*", replacementPath: "jobs/task.mjs", sourcePath: "src/jobs/task.mjs" },
+    { exportTarget: "./src/*/generated/*.mjs", replacementPath: "jobs/task", sourcePath: "src/task/generated/task.mjs" },
+  ])("matches bare package prefix aliases after $exportTarget imports become absolute", async ({ exportTarget, replacementPath, sourcePath }) => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/example")
     const original = resolve(packageDir, sourcePath)
     const replacementDir = resolve(rootDir, "replacement")
-    const replacement = resolve(replacementDir, "jobs/task.mjs")
+    const replacement = resolve(replacementDir, replacementPath)
     const entry = resolve(rootDir, "entry.mjs")
     const outfile = resolve(rootDir, "output.mjs")
     await Promise.all([
@@ -264,6 +264,32 @@ describe("bundleEsmEntry", () => {
 
     expect(await readFile(outfile, "utf8")).toContain("replacement")
     expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
+  it("does not match exact aliases against sibling export prefixes", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "jobs/task.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(dirname(original), { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./jobs/task": "./jobs/task.mjs" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "example/job": replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("original")
+    expect(await readFile(outfile, "utf8")).not.toContain("replacement")
   })
 
   it("resolves bare aliases independently for each importer", async () => {

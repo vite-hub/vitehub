@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
-import { dirname, extname, isAbsolute, resolve } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -187,7 +187,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   if (!isPlainObject(parsedPackageJson)) return
                   const packageJson = parsedPackageJson
                   for (const candidate of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
-                    if (!candidate.startsWith(alias.specifier)) continue
+                    if (alias.prefix ? !candidate.startsWith(alias.specifier) : candidate !== alias.specifier) continue
                     const resolvedCandidate = await build.resolve(candidate, {
                       importer: args.importer,
                       kind: args.kind,
@@ -199,11 +199,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
-                    const physicalExtension = extname(normalizedSpecifier)
-                    const publicSpecifier = physicalExtension && !candidate.endsWith(physicalExtension)
-                      ? `${candidate}${physicalExtension}`
-                      : candidate
-                    return { canonical: candidate, normalized: candidate, publicSpecifier }
+                    return { canonical: candidate, normalized: candidate, publicSpecifier: candidate }
                   }
                   const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
                   resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))
