@@ -821,6 +821,7 @@ function sourceHasUnresolvedWorkspaceRoot(
       plugins: [() => ({
         visitor: {
           ObjectProperty(path: BabelObjectPropertyPath) {
+            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
             if (
               babelPropertyName(path) === "root"
               && babelPropertyIsTopLevelDefaultExport(path)
@@ -862,6 +863,7 @@ function sourceInlineWorkspaceStoreOperations(
             const selectedName = argument?.type === "MemberExpression"
               ? argument.property?.name ?? argument.property?.value
               : undefined
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
             if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
             operations.push({
               kind: "spread",
