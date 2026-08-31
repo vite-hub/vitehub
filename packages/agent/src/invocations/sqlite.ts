@@ -2,6 +2,7 @@ import { createClient } from "@libsql/client"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
+import { searchableAgentInvocationText } from "./search.ts"
 
 import type {
   AgentInvocationListOptions,
@@ -27,7 +28,7 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 const maximumDateMs = 8_640_000_000_000_000
 const backfillPageSize = 100
-const searchVersion = 2
+const searchVersion = 3
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
 function tableName(prefix = "vitehub_agent_"): string {
@@ -73,10 +74,6 @@ function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | u
 function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord, "cursor"> {
   const { cursor: _cursor, ...stored } = record
   return stored
-}
-
-function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
-  return JSON.stringify(record).toLowerCase()
 }
 
 function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -239,7 +236,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const record = deserialize(row.record, row.sequence)
           return record
             ? [{
-                args: [searchableRecord(storedRecord(record)), searchVersion, numberValue(row.sequence)],
+                args: [searchableAgentInvocationText(storedRecord(record)), searchVersion, numberValue(row.sequence)],
                 sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
               }]
             : []
@@ -398,7 +395,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const statements = [
             ...prePrune,
             {
-              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, input.updatedAt, serialize(input)],
+              args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, input.updatedAt, serialize(input)],
               sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             }
           ]
@@ -522,7 +519,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
               sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
             })
             await transaction.execute({
-              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, updated.updatedAt, serialize(stored), id],
+              args: [updated.status, agentNameRecord(stored), searchableAgentInvocationText(stored), searchVersion, updated.updatedAt, serialize(stored), id],
               sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`,
             })
             if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {

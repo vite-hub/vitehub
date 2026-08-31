@@ -3273,6 +3273,117 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("stores a compact searchable SQLite projection without raw tool payloads", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-projection-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    const bulkyToolPayload = `raw-tool-payload-${"x".repeat(512 * 1024)}`
+    try {
+      await store.create({
+        agentName: "babysitter",
+        annotations: { "github.repository": "vite-hub/vitehub" },
+        createdAt: timestamp,
+        id: "compact-search",
+        observations: [{
+          attributes: {
+            "input.messages": [{ content: "Investigate the slow session picker", role: "user" }],
+            "message.content": "The selected session now opens quickly.",
+            "tool.name": "shell",
+            "tool.output": { content: bulkyToolPayload },
+            "vitehub.activity.body": bulkyToolPayload,
+          },
+          name: "agent.message",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "compact-search-trace",
+        updatedAt: timestamp,
+      })
+
+      await expect(store.list({ search: "selected session now opens" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      await expect(store.list({ search: "slow session picker" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      await expect(store.list({ search: "raw-tool-payload" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "vite-hub/vitehub" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      const indexed = await client.execute(`SELECT length(record) AS record_bytes,
+        length(search) AS search_bytes, search, search_version
+        FROM vitehub_agent_invocations WHERE id = 'compact-search'`)
+      expect(Number(indexed.rows[0]?.search_version)).toBe(3)
+      expect(Number(indexed.rows[0]?.search_bytes)).toBeLessThan(Number(indexed.rows[0]?.record_bytes) / 100)
+      expect(String(indexed.rows[0]?.search)).not.toContain("raw-tool-payload")
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rebuilds version-two SQLite search rows with the compact projection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-v3-migration-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    const bulkyToolPayload = `legacy-tool-payload-${"x".repeat(256 * 1024)}`
+    const record = {
+      agentName: "review",
+      createdAt: timestamp,
+      id: "legacy-search-v2",
+      observations: [{
+        attributes: {
+          "message.content": "Legacy searchable message",
+          "tool.output": bulkyToolPayload,
+        },
+        name: "agent.message",
+        sequence: 1,
+        timestamp,
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "legacy-search-v2-trace",
+      updatedAt: timestamp,
+    }
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      await client.execute({
+        args: [record.id, record.status, record.agentName, JSON.stringify(record).toLowerCase(), 2, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+      await expect(store.list({ search: "legacy searchable message" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "legacy-search-v2" })],
+      })
+      await expect(store.list({ search: "legacy-tool-payload" })).resolves.toEqual({ invocations: [] })
+      const migrated = await client.execute(`SELECT length(record) AS record_bytes,
+        length(search) AS search_bytes, search_version
+        FROM vitehub_agent_invocations WHERE id = 'legacy-search-v2'`)
+      expect(Number(migrated.rows[0]?.search_version)).toBe(3)
+      expect(Number(migrated.rows[0]?.search_bytes)).toBeLessThan(Number(migrated.rows[0]?.record_bytes) / 100)
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("omits SQLite observation payloads before reading list rows", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summaries-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

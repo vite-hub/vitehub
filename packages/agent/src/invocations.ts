@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -272,8 +273,7 @@ function normalizeSearch(search: string | undefined): string | undefined {
 
 function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
   if (!search) return true
-  const { cursor: _cursor, ...searchable } = record
-  return JSON.stringify(searchable).toLowerCase().includes(search.toLowerCase())
+  return searchableAgentInvocationText(record).includes(search.toLowerCase())
 }
 
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
