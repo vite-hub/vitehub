@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -169,6 +169,50 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
     roots: [rootDir],
   })
   await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
+})
+
+it("carries resolved parent Agent Workflow instructions into retained entries", async () => {
+  const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
+  const rootDir = join(container, "apps", "web")
+  const agentRoot = join(rootDir, "server", "agents", "review")
+  const handler = join(agentRoot, "agent.ts")
+  const policy = join(container, "shared", "policy.md")
+  await Promise.all([
+    mkdir(agentRoot, { recursive: true }),
+    mkdir(dirname(policy), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(handler, "export default defineAgent({ runtime: workflow() })\n"),
+    writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nReview the change.\n`),
+    writeFile(policy, "Follow the shared Workflow policy.\n"),
+  ])
+
+  const providerSources = discoverWorkflowProviderSources(rootDir)
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(artifactDir, "sources"),
+    paths: providerSources.paths,
+    roots: [rootDir],
+  })
+  const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+    .map(([sourceHandler, instructions]) => [retained.resolve(sourceHandler), instructions]))
+  await rm(policy)
+
+  const artifacts = await writeProviderEntries(
+    rootDir,
+    false,
+    {},
+    undefined,
+    false,
+    undefined,
+    retained.resolve(rootDir),
+    join(artifactDir, "output"),
+    retainedAgentInstructions,
+  )
+
+  const registry = await readFile(artifacts.registryFile, "utf8")
+  expect(registry).toContain("Follow the shared Workflow policy.")
+  expect(registry).toContain("Review the change.")
 })
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {

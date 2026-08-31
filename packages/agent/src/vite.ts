@@ -1638,6 +1638,16 @@ interface GeneratedAgentDeploymentCatalog {
   setup: string[]
 }
 
+const retainedColocatedInstructions = Symbol("vitehub.retainedColocatedInstructions")
+
+async function resolveDeploymentColocatedInstructions(definition: DiscoveredAgentDefinition): Promise<string | undefined> {
+  const retainedDefinition = definition as DiscoveredAgentDefinition & {
+    [retainedColocatedInstructions]?: string
+  }
+  if (retainedColocatedInstructions in retainedDefinition) return retainedDefinition[retainedColocatedInstructions]
+  return await readColocatedAgentInstructions(definition.handler)
+}
+
 async function generateAgentDeploymentCatalog(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
@@ -1658,7 +1668,7 @@ async function generateAgentDeploymentCatalog(
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-    const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
+    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
     const colocatedSkills = readColocatedAgentSkills(definition.handler)
     const agentExpression = `withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
     return {
@@ -2823,18 +2833,23 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           : undefined
         const contributionArtifactDir = artifactDir
         const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
-        const definitionSourcePaths = (await Promise.all(definitions.map(async (definition) => {
+        const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
-          await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
+          const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
           const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
           const workspaceRoot = resolveColocatedAgentWorkspaceRoot(definition.handler)
-          return [
-            definition.handler,
-            ...instructionDependencies,
-            ...(skillsRoot ? [skillsRoot] : []),
-            ...(workspaceRoot ? [workspaceRoot] : []),
-          ]
-        }))).flat()
+          return {
+            definition,
+            instructions,
+            paths: [
+              definition.handler,
+              ...instructionDependencies,
+              ...(skillsRoot ? [skillsRoot] : []),
+              ...(workspaceRoot ? [workspaceRoot] : []),
+            ],
+          }
+        }))
+        const definitionSourcePaths = definitionSources.flatMap(source => source.paths)
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
@@ -2846,9 +2861,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               roots: [config.root],
             })
           : undefined
-        const retainedDefinitions = definitions.map(definition => ({
-          ...definition,
-          handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
+        const retainedDefinitions = definitionSources.map(source => ({
+          ...source.definition,
+          [retainedColocatedInstructions]: source.instructions,
+          handler: retainedSources?.resolve(source.definition.handler) ?? source.definition.handler,
         }))
         const retainedProviderImportAliases = retainedSources
           ? retainProviderOutputAliases(providerImportAliases, retainedSources)

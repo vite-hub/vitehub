@@ -10,7 +10,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEn
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSourcePaths, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -105,19 +105,22 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
     const aliases = await providerImportAliases()
+    const providerSources = discoverWorkflowProviderSources(resolved.root, serverDirs)
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
             ...Object.keys(aliases),
             ...Object.values(aliases),
-            ...discoverWorkflowProviderSourcePaths(resolved.root, serverDirs),
+            ...providerSources.paths,
           ],
           roots: [resolved.root],
         })
       : undefined
     const definitionRootDir = retainedSources?.resolve(resolved.root) ?? resolved.root
     const retainedServerDirs = serverDirs?.map(directory => retainedSources?.resolve(directory) ?? directory)
+    const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+      .map(([handler, instructions]) => [retainedSources?.resolve(handler) ?? handler, instructions]))
     const artifacts = await writeProviderEntries(rootDir, workflow, {
       agent: internalOptions?.agentImportBase,
       workflow: internalOptions?.importBase,
@@ -125,7 +128,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined)
+      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
     const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
@@ -222,6 +225,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           cloudflare: providerRuntimeImportAliases("cloudflare", generation),
           vercel: providerRuntimeImportAliases("vercel", generation),
         }
+        const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
@@ -231,7 +235,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             ...Object.values(runtimeImportAliases.cloudflare),
             ...Object.keys(runtimeImportAliases.vercel),
             ...Object.values(runtimeImportAliases.vercel),
-            ...discoverWorkflowProviderSourcePaths(config.root, workflowServerDirs),
+            ...providerSources.paths,
           ],
           roots: [config.root],
         })
@@ -242,12 +246,14 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
         const retainedDefinitionRoot = retainedSources.resolve(config.root)
         const retainedServerDirs = workflowServerDirs?.map(directory => retainedSources.resolve(directory))
+        const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+          .map(([handler, instructions]) => [retainedSources.resolve(handler), instructions]))
         const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
           agent: internalOptions?.agentImportBase,
           workflow: internalOptions?.importBase,
           workspace: internalOptions?.workspaceImportBase,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
-        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"))
+        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions)
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {

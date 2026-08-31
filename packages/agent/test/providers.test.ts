@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -979,6 +979,50 @@ describe("agent Vite plugin", () => {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("carries resolved parent instruction imports into Netlify provider output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "netlify"
+    const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
+    const root = join(container, "apps", "web")
+    const agentRoot = join(root, "server", "agents", "support")
+    const policy = join(container, "shared", "policy.md")
+    try {
+      await Promise.all([
+        mkdir(agentRoot, { recursive: true }),
+        mkdir(join(container, "shared"), { recursive: true }),
+      ])
+      await Promise.all([
+        writeFile(join(agentRoot, "agent.ts"), "export default {}\n", "utf8"),
+        writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nHandle support requests.\n`, "utf8"),
+        writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
+      ])
+      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const configResolved = plugin.configResolved as (config: {
+        build: { outDir: string }
+        command: "build"
+        resolve: { alias: Array<{ find: string; replacement: string }> }
+        root: string
+      }) => Promise<void>
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: agentProviderOutputAliases() },
+        root,
+      })
+
+      await runProviderOutputHooks(plugin)
+
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("Follow the shared parent policy.")
+      expect(wrapper).toContain("Handle support requests.")
+    } finally {
+      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      await rm(container, { force: true, recursive: true })
     }
   })
 

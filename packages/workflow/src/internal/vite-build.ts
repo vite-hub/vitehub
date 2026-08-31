@@ -788,13 +788,20 @@ function readAgentSkills(file: string): Record<string, { content: string, encodi
   }))
 }
 
-function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
+function renderAgentWorkflowRegistryEntry(
+  registryFile: string,
+  definition: DiscoveredWorkflowDefinition,
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
+) {
+  const instructions = retainedAgentInstructions?.has(definition.handler)
+    ? retainedAgentInstructions.get(definition.handler)
+    : readAgentInstructions(definition.handler)
   return [
     `  ${JSON.stringify(definition.name)}: Object.assign(async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
+    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -839,9 +846,14 @@ export function rewriteRetainedSourceImportPaths(contents: string, retainedSourc
   return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
 }
 
-function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition, vercelNativeFiles: Record<string, string> = {}) {
+function renderWorkflowRegistryEntry(
+  registryFile: string,
+  definition: DiscoveredWorkflowDefinition,
+  vercelNativeFiles: Record<string, string> = {},
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
+) {
   if (definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery") {
-    return renderAgentWorkflowRegistryEntry(registryFile, definition)
+    return renderAgentWorkflowRegistryEntry(registryFile, definition, retainedAgentInstructions)
   }
 
   if (!definition.steps?.length) {
@@ -892,6 +904,7 @@ export function createWorkflowRegistryContents(
   definitions: DiscoveredWorkflowDefinition[],
   importBases: WorkflowImportBases = {},
   vercelNativeFiles: Record<string, string> = {},
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
   const agentImportBase = importBases.agent ?? "@vite-hub/agent"
   const workflowImportBase = importBases.workflow ?? workflowPackageName
@@ -953,7 +966,7 @@ export function createWorkflowRegistryContents(
       : []),
     ...(needsRegistryEntryCache ? ["const registryEntryCache = new Map()", ""] : []),
     "const registry = {",
-    ...definitions.map(definition => renderWorkflowRegistryEntry(registryFile, definition, vercelNativeFiles)),
+    ...definitions.map(definition => renderWorkflowRegistryEntry(registryFile, definition, vercelNativeFiles, retainedAgentInstructions)),
     "}",
     "",
     "export default registry",
@@ -1049,6 +1062,7 @@ export async function writeProviderEntries(
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ) {
   await mkdir(generatedDir, { recursive: true })
 
@@ -1092,6 +1106,7 @@ export async function writeProviderEntries(
     providerDefinitions,
     importBases,
     vercelNativeFiles,
+    retainedAgentInstructions,
   )
   await writeFile(registryFile, transformRegistry ? await transformRegistry(registryContents, registryFile) : registryContents, "utf8")
 
@@ -1125,8 +1140,12 @@ export async function writeProviderEntries(
   }
 }
 
-export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
-  return discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
+export function discoverWorkflowProviderSources(definitionRootDir: string, serverDirs?: string[]): {
+  agentInstructions: ReadonlyMap<string, string | undefined>
+  paths: string[]
+} {
+  const agentInstructions = new Map<string, string | undefined>()
+  const paths = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
     .flatMap((definition) => {
       const executableSources = [
         ...(statSync(definition.handler).isFile() ? [definition.handler] : []),
@@ -1134,7 +1153,7 @@ export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, s
       ]
       if (definition.source !== "agent-workflow") return executableSources
       const instructionDependencies = new Set<string>()
-      readAgentInstructions(definition.handler, instructionDependencies)
+      agentInstructions.set(definition.handler, readAgentInstructions(definition.handler, instructionDependencies))
       const workspaceRoot = join(dirname(definition.handler), "workspace")
       return [
         ...executableSources,
@@ -1143,6 +1162,11 @@ export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, s
         existsSync(workspaceRoot) && statSync(workspaceRoot).isDirectory() ? workspaceRoot : undefined,
       ].filter((path): path is string => Boolean(path))
     })
+  return { agentInstructions, paths }
+}
+
+export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
+  return discoverWorkflowProviderSources(definitionRootDir, serverDirs).paths
 }
 
 function createCloudflareOutput(
