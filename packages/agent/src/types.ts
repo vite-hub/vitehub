@@ -1235,6 +1235,8 @@ export interface AgentProviderDriverOptions<
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
   providerSettings?: Record<string, unknown>
+  /** SQLite file used to persist provider session cursors across process restarts. */
+  sessionStorePath?: string
 }
 
 export interface AgentProviderSealedCredential {
@@ -1299,6 +1301,7 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionStorePath?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -1323,6 +1326,7 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionStorePath?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -1910,6 +1914,7 @@ export interface AgentInspectionProviderMetadata {
   providerSettings?: string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  sessionStore?: "sqlite"
 }
 
 export interface AgentInspectionDriverMetadata {
