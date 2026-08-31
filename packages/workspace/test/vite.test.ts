@@ -1553,6 +1553,7 @@ describe("hubWorkspace", () => {
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
     await configResolved({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
@@ -1607,6 +1608,7 @@ describe("hubWorkspace", () => {
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
     await configResolved({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
@@ -1631,6 +1633,7 @@ describe("hubWorkspace", () => {
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
 
     await configResolved({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
@@ -3167,7 +3170,15 @@ describe("hubWorkspace", () => {
   it("serializes concurrent Workspace Artifacts builds for the same root", async () => {
     const root = await createViteRoot()
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
+    const firstCopy = createDeferred()
+    const firstCopyStarted = createDeferred()
+    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => {
+      firstCopyStarted.resolve()
+      await firstCopy.promise
+    })
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const first = hubWorkspace({
       store: { binding: "FIRST_WORKSPACE_FILES", namespace: "first", provider: "cloudflare-artifacts" },
@@ -3181,10 +3192,12 @@ describe("hubWorkspace", () => {
     await (second.configResolved as (resolvedConfig: typeof config) => Promise<void>)({ ...config })
     await prepareWorkspaceProviderOutput(first)
     await prepareWorkspaceProviderOutput(second)
-    await Promise.all([
-      (first.closeBundle as { handler: () => Promise<void> }).handler(),
-      (second.closeBundle as { handler: () => Promise<void> }).handler(),
-    ])
+    const firstClose = (first.closeBundle as { handler: () => Promise<void> }).handler()
+    await firstCopyStarted.promise
+    const secondClose = (second.closeBundle as { handler: () => Promise<void> }).handler()
+    await vi.waitFor(() => expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(1))
+    firstCopy.resolve()
+    await Promise.all([firstClose, secondClose])
 
     const wrangler = await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)
     const ownedBindings = await readFile(join(outputRoot, ".vitehub-workspace-artifacts-bindings.json"), "utf8").then(JSON.parse)
@@ -3193,6 +3206,7 @@ describe("hubWorkspace", () => {
       [{ binding: "SECOND_WORKSPACE_FILES", namespace: "second" }],
     ]).toContainEqual(wrangler.artifacts)
     expect(ownedBindings).toEqual([wrangler.artifacts[0].binding])
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(2)
   })
 
   it("leaves e2e hosted output to the e2e composer", async () => {

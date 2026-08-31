@@ -1843,16 +1843,22 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workspace",
         rootDir: roots.projectRoot,
-        write: async ({ readCloudflareState, write }) => await writeCloudflareArtifactsProviderOutput(
-          roots.projectRoot,
-          resolved!.build?.outDir ?? "dist/client",
-          resolvedOptions,
-          definitions,
-          readCloudflareState,
-          write,
-          resolved!.createResolver?.(),
-          resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
-        ),
+        write: async ({ readCloudflareState, write }) => {
+          await copyVercelFunctionRuntimePackages({
+            packages: vercelFunctionRuntimePackages(),
+            rootDir: roots.projectRoot,
+          })
+          await writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolved!.build?.outDir ?? "dist/client",
+            resolvedOptions,
+            definitions,
+            readCloudflareState,
+            write,
+            resolved!.createResolver?.(),
+            resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
+          )
+        },
       }, providerOutputGenerations.get(this))
     },
     async renderError(error) {
@@ -1871,10 +1877,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await Promise.all(definitions.map(async (definition) => {
           definition.source = await readFile(definition.path, "utf8")
         }))
-        await copyVercelFunctionRuntimePackages({
-          packages: vercelFunctionRuntimePackages(),
-          rootDir: roots.projectRoot,
-        })
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
