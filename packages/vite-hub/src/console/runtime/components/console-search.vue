@@ -70,6 +70,7 @@ const navigationLoading = ref(true)
 const navigationError = ref<unknown>()
 const sessionSearchEnabled = ref(false)
 let navigationRequest: AbortController | undefined
+let sessionRequest: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
 
@@ -84,7 +85,19 @@ const sessionSearch = useCollection("vitehub-console-search", {
   filter: searchFilter,
   immediate: false,
   limit: 12,
-  request: (_endpoint, options) => requestConsole(props.searchBase, options),
+  request: async (_endpoint, options) => {
+    const controller = new AbortController()
+    sessionRequest = controller
+    const abort = () => controller.abort()
+    options.signal?.addEventListener("abort", abort, { once: true })
+    try {
+      return await requestConsole(props.searchBase, { ...options, signal: controller.signal })
+    }
+    finally {
+      options.signal?.removeEventListener("abort", abort)
+      if (sessionRequest === controller) sessionRequest = undefined
+    }
+  },
 });
 const sessionItems = computed<CommandPaletteItem[]>(() =>
   sessionSearch.pending.value
@@ -365,9 +378,11 @@ watch(searchTerm, (value) => {
 watch(open, async (value) => {
   if (!value) {
     navigationRequest?.abort()
+    sessionRequest?.abort()
     return
   }
   await loadNavigation(true);
+  if (!open.value) return
   if (!agentsEnabled.value) return;
   if (sessionSearchEnabled.value) await sessionSearch.refresh();
   else sessionSearchEnabled.value = true;
@@ -377,6 +392,7 @@ onMounted(() => void loadNavigation());
 
 onBeforeUnmount(() => {
   navigationRequest?.abort();
+  sessionRequest?.abort();
   if (searchTimer) clearTimeout(searchTimer);
 });
 </script>

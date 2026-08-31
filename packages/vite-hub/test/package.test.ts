@@ -438,14 +438,17 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain("kvSearchTruncated.value = false");
     expect(consoleSearch).toContain(`if (!value) {
     navigationRequest?.abort()
+    sessionRequest?.abort()
     return
   }`);
+    expect(consoleSearch).toContain("if (!open.value) return");
     const consoleBrand = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-brand.vue`,
       "utf8",
     );
     expect(consoleBrand).toContain("<RouterLink");
     expect(consoleBrand).toContain("resolveConsoleRouteName(route.name, 'vitehub-console')");
+    expect(consoleBrand).toContain("subscribeConsoleNavigation(props.sectionsBase");
     const consolePrimitiveSwitcher = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-primitive-switcher.vue`,
       "utf8",

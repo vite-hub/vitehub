@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue"
+import { onBeforeUnmount, onMounted, ref } from "vue"
 import { useRoute } from "vue-router"
 
-import { loadConsoleNavigation } from "../client/sections"
+import { loadConsoleNavigation, subscribeConsoleNavigation } from "../client/sections"
 import { resolveConsoleRouteName } from "../console-route"
 
 const props = defineProps<{
@@ -12,10 +12,16 @@ const props = defineProps<{
 
 const projectName = ref<string>()
 const route = useRoute()
+let unsubscribeNavigation: (() => void) | undefined
 
 onMounted(async () => {
+  unsubscribeNavigation = subscribeConsoleNavigation(props.sectionsBase, (navigation) => {
+    projectName.value = navigation.projectName
+  })
   projectName.value = (await loadConsoleNavigation(props.sectionsBase))?.projectName
 })
+
+onBeforeUnmount(() => unsubscribeNavigation?.())
 </script>
 
 <template>

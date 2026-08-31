@@ -9,6 +9,7 @@ export interface ConsoleNavigation {
 }
 
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
+const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
@@ -27,7 +28,11 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
   let request = navigationRequests.get(base)
   if (!request) {
     request = requestConsole(base)
-      .then(parseConsoleNavigation)
+      .then((value) => {
+        const navigation = parseConsoleNavigation(value)
+        for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
+        return navigation
+      })
       .catch(() => {
         navigationRequests.delete(base)
         return undefined
@@ -35,6 +40,19 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+export function subscribeConsoleNavigation(
+  base: string,
+  subscriber: (navigation: ConsoleNavigation) => void,
+): () => void {
+  const subscribers = navigationSubscribers.get(base) || new Set()
+  subscribers.add(subscriber)
+  navigationSubscribers.set(base, subscribers)
+  return () => {
+    subscribers.delete(subscriber)
+    if (subscribers.size === 0) navigationSubscribers.delete(base)
+  }
 }
 
 export function createConsoleSectionLoader(base: string): () => Promise<ConsoleSectionId[] | undefined> {
