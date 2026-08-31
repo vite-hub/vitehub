@@ -1592,6 +1592,18 @@ describe("agent channels", () => {
       pullRequest: { trigger: { action: "reopened" } },
     })
 
+    // SAFETY: This test fixture proves lifecycle context replays bypass slash-command declarations.
+    const fromDeclaredLifecycleContext = await trigger.invoke({
+      ...context,
+      agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, { pullRequest: lifecyclePullRequest })
+    if (fromDeclaredLifecycleContext instanceof Response) throw new Error("Expected declared GitHub lifecycle context invocation.")
+    expect(fromDeclaredLifecycleContext.input.context?.github).toMatchObject({
+      action: "reopened",
+      command: "/reconcile",
+      event: "pull_request",
+    })
+
     const { bindAgentInvocations } = await import("../src/invocations.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })

@@ -2602,7 +2602,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (existingPullRequest) {
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
-          if (command && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+          if (command && command.event !== "pull_request" && declaredInputCommand(context, command.command) === false) {
+            return options.ignored?.("not_command") || ignored("not_command")
+          }
           return {
             ...(finishEffects ? { delivery: { finishEffects } } : {}),
             input: {
