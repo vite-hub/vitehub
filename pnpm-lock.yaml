@@ -1245,6 +1245,9 @@ importers:
 
   packages/internal:
     dependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)
@@ -1267,9 +1270,6 @@ importers:
       '@cloudflare/vitest-plugin':
         specifier: 'catalog:'
         version: 1.1.0(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.11)(@voidzero-dev/vite-plus-test@0.1.24(5541e8fbec4ad379e3f0739c0897682a))
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.13.3
       '@types/semver':
         specifier: ^7.7.1
         version: 7.8.0

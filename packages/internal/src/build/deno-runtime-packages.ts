@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import type { Plugin } from "esbuild"
 import { satisfies, validRange } from "semver"
@@ -1505,6 +1506,22 @@ async function finalizeStagedDenoDeploymentOutput(
     runtimeServerDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
   ], options.rootDir, resolvedPackageJsonPaths)
+  const nodeTypesPackageJson = await resolvePackageJson(
+    "@types/node",
+    createRequire(join(options.rootDir, "package.json")),
+    options.rootDir,
+  ) ?? await resolvePackageJson("@types/node", createRequire(import.meta.url), dirname(fileURLToPath(import.meta.url)))
+  const hasNodeTypes = nodeTypesPackageJson !== undefined
+  if (nodeTypesPackageJson && !packages.some(runtimePackage => runtimePackage.name === "@types/node")) {
+    packages.push({
+      includeOptionalDependencies: true,
+      includePeerDependencies: true,
+      name: "@types/node",
+      onlyIfOptionalDependencies: false,
+      optional: false,
+      packageJsonPath: await realpath(nodeTypesPackageJson),
+    })
+  }
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
     packages,
@@ -1528,6 +1545,7 @@ async function finalizeStagedDenoDeploymentOutput(
     nodeModulesDir: "manual",
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
+  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["./node_modules/@types/node/index.d.ts"] }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
     join(serverDir, "index.ts"),

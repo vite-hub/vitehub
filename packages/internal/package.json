@@ -55,6 +55,7 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
+    "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
@@ -64,7 +65,6 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "catalog:",
-    "@types/node": "catalog:tooling",
     "@types/semver": "^7.7.1",
     "exsolve": "catalog:unjs",
     "sharp": "0.34.5",
