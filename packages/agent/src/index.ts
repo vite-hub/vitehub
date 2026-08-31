@@ -5797,7 +5797,10 @@ async function executeAgentInvocationWithCapacityLease<
                     toReadableAsyncIterableStream(renderedStream),
                     async (outcome) => {
                       if (!outcome.failed && !outcome.completed) {
-                        await (rendererSource ?? source).settleCancellation().then(
+                        await Promise.all([
+                          source.settleCancellation(),
+                          ...(rendererSource ? [rendererSource.settleCancellation()] : []),
+                        ]).then(
                           async () => await finishPreserved(outcome),
                           async error => await finishPreserved({ error, failed: true }),
                         )
