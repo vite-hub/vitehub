@@ -2493,8 +2493,9 @@ function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest:
 function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
   const payload = inputPayloadOrBody(input)
   if (payload) return payload
-  if (!isRecord(input) || !isRecord(input.issue) || !isRecord(input.comment)) return
-  // SAFETY: The issue and comment record guards establish the webhook payload shape used downstream.
+  if (!isRecord(input)
+    || (!isRecord(input.pull_request) && (!isRecord(input.issue) || !isRecord(input.comment)))) return
+  // SAFETY: The pull request or issue-comment record guards establish the webhook payload shape used downstream.
   return input as GitHubIssueCommentPayload
 }
 
