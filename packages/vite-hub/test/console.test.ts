@@ -761,6 +761,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
@@ -800,6 +801,7 @@ describe("Agent invocation console", () => {
       } = { root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/api/_vitehub/console/sections",
@@ -1231,6 +1233,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { handlers: Array<{ route: string }>; plugins: string[] }; root: string } = { root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
