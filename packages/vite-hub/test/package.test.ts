@@ -458,6 +458,11 @@ describe("framework package contract", () => {
     expect(consoleBrand).toContain("<RouterLink");
     expect(consoleBrand).toContain("resolveConsoleRouteName(route.name, 'vitehub-console')");
     expect(consoleBrand).toContain("subscribeConsoleNavigation(props.sectionsBase");
+    const consoleHome = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-home.vue`,
+      "utf8",
+    );
+    expect(consoleHome).toContain("loadConsoleNavigation(props.sectionsBase)");
     const consolePrimitiveSwitcher = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-primitive-switcher.vue`,
       "utf8",

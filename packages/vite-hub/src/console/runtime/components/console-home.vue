@@ -6,11 +6,10 @@ import type { ConsoleSectionId } from "../sections";
 import { resolveConsoleRouteName } from "../console-route";
 import {
   consoleSectionDetails,
-  isConsoleSectionId,
   prioritizeConsoleSectionIds,
   readLastConsoleSection,
 } from "../sections";
-import { requestConsole } from "../client/request";
+import { loadConsoleNavigation } from "../client/sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
@@ -31,7 +30,7 @@ const sections = ref<ConsoleSectionId[]>([]);
 const lastSection = ref<ConsoleSectionId>();
 const loading = ref(true);
 const error = ref<unknown>();
-let request: AbortController | undefined;
+let request = 0;
 
 const availableSections = computed(() =>
   prioritizeConsoleSectionIds(sections.value, lastSection.value).map((section) => ({
@@ -43,43 +42,23 @@ const sidebarSections = computed(() =>
   availableSections.value.filter((section) => section.id !== "usage"),
 );
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value instanceof Object && !Array.isArray(value)
-    ? Object.fromEntries(Object.entries(value))
-    : undefined;
-}
-
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "The console could not load its configuration.";
 }
 
 async function loadSections(): Promise<void> {
-  request?.abort();
-  const controller = new AbortController();
-  request = controller;
+  const currentRequest = ++request;
   loading.value = true;
   try {
-    const value = record(await requestConsole(props.sectionsBase, { signal: controller.signal }));
-    const installed = Array.isArray(value?.sections)
-      ? value.sections.filter(isConsoleSectionId)
-      : [];
-    if (request === controller) {
-      sections.value = [...new Set(installed)];
-      error.value = undefined;
-    }
+    const navigation = await loadConsoleNavigation(props.sectionsBase);
+    if (!navigation) throw new Error("The console could not load its configuration.");
+    if (request !== currentRequest) return;
+    sections.value = [...new Set(navigation.sections)];
+    error.value = undefined;
   } catch (requestError) {
-    if (
-      requestError instanceof Object &&
-      "name" in requestError &&
-      requestError.name === "AbortError"
-    )
-      return;
-    if (request === controller) error.value = requestError;
+    if (request === currentRequest) error.value = requestError;
   } finally {
-    if (request === controller) {
-      request = undefined;
-      loading.value = false;
-    }
+    if (request === currentRequest) loading.value = false;
   }
 }
 
@@ -92,7 +71,7 @@ onMounted(() => {
   lastSection.value = readLastConsoleSection();
   void loadSections();
 });
-onBeforeUnmount(() => request?.abort());
+onBeforeUnmount(() => request++);
 </script>
 
 <template>
