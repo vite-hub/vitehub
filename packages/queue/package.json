@@ -61,6 +61,7 @@
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

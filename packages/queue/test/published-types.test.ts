@@ -80,7 +80,12 @@ it("keeps Effect internals out of published Queue artifacts", async () => {
     .filter(path => /\.(?:[cm]?js|d\.ts)$/.test(path))
   const output = (await Promise.all(files.map(path => readFile(join(dist, path), "utf8")))).join("\n")
   const manifest = parse(
-    pipe(string(), parseJson(), record(string(), optional(record(string(), string())))),
+    pipe(string(), parseJson(), object({
+      dependencies: optional(record(string(), string())),
+      devDependencies: optional(record(string(), string())),
+      optionalDependencies: optional(record(string(), string())),
+      peerDependencies: optional(record(string(), string())),
+    })),
     await readFile(join(packageRoot, "package.json"), "utf8"),
   )
 
