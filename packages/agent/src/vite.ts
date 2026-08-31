@@ -1394,11 +1394,19 @@ interface EveExtensionManifest {
   requires?: unknown
 }
 
-const supportedEveExtensionContracts: Record<string, number> = {
-  config: 1,
-  dynamicTool: 8,
-  extension: 1,
-  tool: 5,
+const supportedEveExtensionContracts: Record<number, Record<string, number>> = {
+  1: {
+    config: 1,
+    dynamicTool: 8,
+    extension: 1,
+    tool: 5,
+  },
+  2: {
+    config: 1,
+    dynamicTool: 20,
+    extension: 1,
+    tool: 20,
+  },
 }
 
 async function resolveEveExtensionPackage(
@@ -1414,17 +1422,24 @@ async function resolveEveExtensionPackage(
     const packagePath = join(directory, "package.json")
     if (existsSync(packagePath)) {
       const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the package name must be validated before use.
       if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
         if (!validate) return packageJson.name
         const dist = packageJson.eve?.extension?.dist
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the manifest path must be a string.
         if (typeof dist !== "string") return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
-        if (manifest.kind !== "eve-extension" || manifest.formatVersion !== 1 || !manifest.requires || typeof manifest.requires !== "object") {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The external manifest version selects the supported contract table.
+        const contracts = typeof manifest.formatVersion === "number"
+          ? supportedEveExtensionContracts[manifest.formatVersion]
+          : undefined
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External manifests must supply a contract-version record before enumeration.
+        if (manifest.kind !== "eve-extension" || !contracts || !manifest.requires || typeof manifest.requires !== "object") {
           throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
         }
         for (const [contract, version] of Object.entries(manifest.requires)) {
-          if (supportedEveExtensionContracts[contract] !== version) {
+          if (contracts[contract] !== version) {
             throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
           }
         }
