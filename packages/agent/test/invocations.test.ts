@@ -3378,29 +3378,6 @@ describe("Agent Invocations", () => {
     }
   })
 
-  it("prunes terminal SQLite records written with a stale status column", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-stale-status-"))
-    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
-    const timestamp = new Date().toISOString()
-    try {
-      await unboundedStore.create({ createdAt: timestamp, id: "legacy", observations: [], status: "running", traceId: "legacy-trace", updatedAt: timestamp })
-      await client.execute({
-        args: [JSON.stringify({ createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "legacy-trace", updatedAt: timestamp }), "legacy"],
-        sql: "UPDATE vitehub_agent_invocations SET record = ? WHERE id = ?",
-      })
-      await store.create({ createdAt: timestamp, id: "newer", observations: [], status: "completed", traceId: "newer-trace", updatedAt: timestamp })
-
-      await expect(store.get("legacy")).resolves.toBeUndefined()
-      await expect(store.get("newer")).resolves.toMatchObject({ status: "completed" })
-    }
-    finally {
-      client.close()
-      await rm(directory, { force: true, recursive: true })
-    }
-  })
-
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.
@@ -3440,8 +3417,17 @@ describe("Agent Invocations", () => {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
+        updated_at TEXT,
         record TEXT NOT NULL
       )`)
+      await setupClient.execute(`CREATE TRIGGER vitehub_agent_invocations_legacy_updated_at_update
+        AFTER UPDATE OF record ON vitehub_agent_invocations
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE vitehub_agent_invocations
+          SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`)
       await setupClient.execute(`CREATE TABLE vitehub_agent_invocations_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
@@ -3458,7 +3444,7 @@ describe("Agent Invocations", () => {
           traceId: "legacy-trace",
           updatedAt: "2026-01-01T00:00:00.000Z",
         })],
-        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
+        sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'running', ?)",
       })
       await setupClient.execute(`INSERT INTO vitehub_agent_invocations_claims (id, claim_id, expires_at)
         VALUES ('legacy', 'legacy-worker', 2000000000000)`)
@@ -3494,8 +3480,18 @@ describe("Agent Invocations", () => {
         { invocations: [expect.objectContaining({ id: "legacy" })] },
         { invocations: [expect.objectContaining({ id: "legacy" })] },
       ])
-      const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
+      const migratedAgent = await firstClient.execute("SELECT agent_name, status, updated_at FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
+      expect(migratedAgent.rows[0]?.status).toBe("completed")
+      expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
+      const migratedUpdateTrigger = await firstClient.execute(
+        `SELECT name, sql FROM sqlite_master
+          WHERE type = 'trigger'
+          AND name IN ('vitehub_agent_invocations_legacy_updated_at_update', 'vitehub_agent_invocations_legacy_lifecycle_update_v2')`,
+      )
+      expect(migratedUpdateTrigger.rows).toHaveLength(1)
+      expect(migratedUpdateTrigger.rows[0]?.name).toBe("vitehub_agent_invocations_legacy_lifecycle_update_v2")
+      expect(migratedUpdateTrigger.rows[0]?.sql).toContain("status = COALESCE")
       const migratedClaim = await firstClient.execute(`SELECT claimed_at, claim_token
         FROM vitehub_agent_invocations_claims WHERE id = 'legacy'`)
       expect(Number(migratedClaim.rows[0]?.claimed_at)).toBeGreaterThan(0)
@@ -3510,7 +3506,6 @@ describe("Agent Invocations", () => {
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
-
       const initializedStore = createLibsqlAgentInvocationStore({ client: firstClient })
       await initializedStore.list()
       await setupClient.execute({
@@ -3525,9 +3520,19 @@ describe("Agent Invocations", () => {
         })],
         sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
       })
+      const overlappingInsert = await setupClient.execute(
+        "SELECT updated_at FROM vitehub_agent_invocations WHERE id = 'overlapping-legacy-writer'",
+      )
+      expect(overlappingInsert.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
       await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
       })
+      const completedMigrationPlan = await firstClient.execute(`EXPLAIN QUERY PLAN
+        SELECT sequence FROM vitehub_agent_invocations
+        WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > 0 ORDER BY sequence LIMIT 100`)
+      expect(completedMigrationPlan.rows.map(row => row.detail)).toContainEqual(
+        expect.stringContaining("vitehub_agent_invocations_missing_updated_at_sequence"),
+      )
     }
     finally {
       setupClient.close()
@@ -3590,6 +3595,11 @@ describe("Agent Invocations", () => {
         }), "fresh-overlapping-legacy-writer"],
         sql: "UPDATE vitehub_agent_invocations SET search = ?, record = ? WHERE id = ?",
       })
+      const overlappingUpdate = await client.execute(
+        "SELECT status, updated_at FROM vitehub_agent_invocations WHERE id = 'fresh-overlapping-legacy-writer'",
+      )
+      expect(overlappingUpdate.rows[0]?.status).toBe("completed")
+      expect(overlappingUpdate.rows[0]?.updated_at).toBe("2026-01-01T00:02:00.000Z")
       await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
