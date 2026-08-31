@@ -684,7 +684,7 @@ import "real"
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
-    expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/image-package-linux-x64/package.json"))).toBe(true)
   })
 
   it("stages external application packages and their native optional dependencies", async () => {
@@ -702,7 +702,7 @@ import "real"
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain('from "image-package"')
     expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
-    expect(existsSync(join(root, ".output/node_modules/image-package/node_modules/image-package-linux-x64/package.json"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/image-package-linux-x64/package.json"))).toBe(true)
   })
 
   it("stages literal dynamic application and Schedule imports", async () => {

@@ -1505,23 +1505,6 @@ async function finalizeStagedDenoDeploymentOutput(
     runtimeServerDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
   ], options.rootDir, resolvedPackageJsonPaths)
-  const nodeTypesPackageJson = await resolvePackageJson(
-    "@types/node",
-    createRequire(join(options.rootDir, "package.json")),
-    options.rootDir,
-  )
-  const hasNodeTypes = nodeTypesPackageJson !== undefined
-  if (nodeTypesPackageJson && !packages.some(runtimePackage => runtimePackage.name === "@types/node")) {
-    packages.push({
-      includeOptionalDependencies: true,
-      includePeerDependencies: true,
-      name: "@types/node",
-      onlyIfOptionalDependencies: false,
-      optional: false,
-      packageJsonPath: await realpath(nodeTypesPackageJson),
-    })
-  }
-
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
     packages,
@@ -1529,7 +1512,6 @@ async function finalizeStagedDenoDeploymentOutput(
   })
 
   const denoConfig: {
-    compilerOptions?: { types: string[] }
     deploy: { runtime: { cwd: string, entrypoint: string, mode: string } }
     nodeModulesDir: string
     tasks: { start: string }
@@ -1544,7 +1526,6 @@ async function finalizeStagedDenoDeploymentOutput(
     nodeModulesDir: "manual",
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
-  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["./node_modules/@types/node/index.d.ts"] }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
     join(serverDir, "index.ts"),
