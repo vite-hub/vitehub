@@ -612,7 +612,7 @@ it("skips unrelated nested repositories while retaining requested and imported o
 
   const retained = await retainProviderOutputSources({
     artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
-    paths: [handler, requested],
+    paths: [rootDir, handler, requested],
     roots: [rootDir],
   })
 

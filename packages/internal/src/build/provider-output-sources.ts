@@ -196,7 +196,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const retainedRoots = new Map(roots.map((root, index) => [root, resolve(artifactDir, String(index))]))
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
-    const requested = paths.filter(path => pathContains(root, path))
+    const requested = paths.filter(path => path !== root && pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
