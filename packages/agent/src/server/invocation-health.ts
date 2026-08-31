@@ -15,28 +15,39 @@ export async function failInterruptedAgentInvocations(
   const limit = options.limit ?? 100
   let cursor: string | undefined
   let failed = 0
+  const blocked: AgentInvocationSummary[] = []
+  const fail = async (invocation: AgentInvocationSummary): Promise<boolean> => {
+    const claimId = `recovery_${globalThis.crypto.randomUUID()}`
+    if (!await store.claim(invocation.id, claimId, claimLeaseMs)) return false
+    try {
+      const updated = await store.update(invocation.id, {
+        error: { message: options.message || "The host stopped before this Agent Invocation finished." },
+        status: "failed",
+        timestamp: new Date().toISOString(),
+      }, claimId)
+      return updated?.status === "failed"
+    }
+    finally {
+      await store.release(invocation.id, claimId)
+    }
+  }
   do {
     const records = await store.list({ cursor, limit, status: ["pending", "running"] })
     for (const invocation of records.invocations) {
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
       if (!await options.recover(invocation)) continue
-      const claimId = `recovery_${globalThis.crypto.randomUUID()}`
-      if (!await store.claim(invocation.id, claimId, claimLeaseMs)) continue
-      try {
-        const updated = await store.update(invocation.id, {
-          error: { message: options.message || "The host stopped before this Agent Invocation finished." },
-          status: "failed",
-          timestamp: new Date().toISOString(),
-        }, claimId)
-        if (updated?.status === "failed") failed += 1
-      }
-      finally {
-        await store.release(invocation.id, claimId)
-      }
+      if (await fail(invocation)) failed += 1
+      else blocked.push(invocation)
     }
     cursor = records.cursor
   } while (cursor)
+  if (blocked.length > 0) {
+    await new Promise(resolve => setTimeout(resolve, claimLeaseMs))
+    for (const invocation of blocked) {
+      if (await options.recover(invocation) && await fail(invocation)) failed += 1
+    }
+  }
   return failed
 }
 

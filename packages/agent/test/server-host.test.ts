@@ -704,8 +704,42 @@ describe("GitHub host", () => {
       repository: "vite-hub/vitehub",
     }, async ({ push }) => await push())
 
-    expect(credentials).toHaveBeenCalledTimes(2)
-    await expect(readFile(commandLog, "utf8")).resolves.toContain("push origin|token-2")
+    expect(credentials).toHaveBeenCalledTimes(3)
+    await expect(readFile(commandLog, "utf8")).resolves.toContain("push origin|token-3")
+  })
+
+  it("uses base access for fork checkout and head access for the callback", async () => {
+    await installFakeGitHubCommands()
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+      token: "base-token",
+    }), { status: 201 })))
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    process.env.VITEHUB_TEST_HEAD_SHA = "expected-head"
+    const host = createGitHubHost({
+      credentials: () => ({
+        appId: 123,
+        installationId: 456,
+        owner: "vite-hub",
+        privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+        token: "head-token",
+      }),
+    })
+
+    await host.withPullRequestCheckout({
+      headRef: "feature",
+      headRepository: "contributor/vitehub",
+      headSha: "expected-head",
+      number: 128,
+      repository: "vite-hub/vitehub",
+    }, async ({ token }) => expect(token).toBe("head-token"))
+
+    const log = await readFile(commandLog, "utf8")
+    expect(log).toContain("gh repo clone https://github.com/vite-hub/vitehub.git")
+    expect(log).toContain("base-token|github.com")
   })
 
   it("keeps one access deadline across credential stages", async () => {
@@ -830,11 +864,30 @@ describe("Agent Invocation host recovery", () => {
 
     await expect(failInterruptedAgentInvocations(store, {
       before: Date.parse("2026-08-30T11:00:00.000Z"),
+      claimLeaseMs: 1,
       limit: 25,
       recover: invocation => invocation.id !== "provider-owned",
     })).resolves.toBe(100)
     await expect(Promise.resolve(store.get("old-0"))).resolves.toMatchObject({ status: "failed" })
     await expect(Promise.resolve(store.get("old-100"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("retries recovery after a stopped host claim expires", async () => {
+    vi.useFakeTimers()
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    await store.claim("interrupted", "stopped-host", 20)
+
+    const recovery = failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      claimLeaseMs: 20,
+      recover: () => true,
+    })
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expect(recovery).resolves.toBe(1)
+    await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
   })
 
   it("excludes provider-owned durable work from process recovery", async () => {

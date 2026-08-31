@@ -560,12 +560,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     const operation = controlledOperation(options)
     try {
-      const auth = await access({
+      const baseAuth = await access({
         refresh: true,
-        repository: pullRequest.headRepository || pullRequest.repository,
+        repository: pullRequest.repository,
         signal: operation.signal,
       })
-      const env = { ...process.env, ...auth.env, GH_HOST: "github.com" }
+      const env = { ...process.env, ...baseAuth.env, GH_HOST: "github.com" }
       const commandOptions = { env, maxBuffer, signal: operation.signal }
       await exec("gh", ["repo", "clone", `https://github.com/${pullRequest.repository}.git`, checkout, "--", "--filter=blob:none", "--no-checkout"], commandOptions)
       await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository], { ...commandOptions, cwd: checkout })
@@ -580,6 +580,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
+      const auth = pullRequest.headRepository && pullRequest.headRepository !== pullRequest.repository
+        ? await access({ refresh: true, repository: pullRequest.headRepository, signal: operation.signal })
+        : baseAuth
       operation.signal.throwIfAborted()
       const push = async () => {
         const refreshed = await access({
