@@ -270,6 +270,7 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
+      mkdir(join(root, ".vitehub/sandbox/.runtime-generations/current"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow/sources/0"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
     ])
@@ -279,9 +280,11 @@ describe("framework generated types", () => {
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
       writeFile(join(root, ".vitehub/workflow-generations/one/sources/0/stale.d.ts"), "invalid generation declaration\n"),
-      writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
+      writeFile(join(root, ".vitehub/sandbox/.runtime-generations/current/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
+    await rm(join(root, ".vitehub/sandbox/runtime"), { recursive: true })
+    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox/runtime"), "dir")
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })

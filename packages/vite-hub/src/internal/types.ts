@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
 import {
@@ -48,7 +48,11 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
   const files: string[] = []
   for (const entry of entries) {
     const path = join(directory, entry.name)
-    if (entry.isDirectory() && !(directory === root && entry.name === "data") && !isRetainedSourceDirectory(entry.name)) {
+    const isDirectory = entry.isDirectory() || (entry.isSymbolicLink() && await stat(path).then(value => value.isDirectory()).catch((error) => {
+      if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return false
+      throw error
+    }))
+    if (isDirectory && !(directory === root && entry.name === "data") && !isRetainedSourceDirectory(entry.name)) {
       for (const file of await collectGeneratedTypeFiles(path, root)) files.push(file)
     }
     else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
