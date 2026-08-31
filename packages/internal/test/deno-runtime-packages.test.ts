@@ -302,7 +302,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/registry.mjs"), 'export default { heartbeat: () => import("../../server/schedules/heartbeat.ts") }\n', "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import registry from "./registry.mjs"\nglobalThis.schedule = registry.heartbeat\n', "utf8")
     await mkdir(join(root, "server"), { recursive: true })
-    await writeFile(join(root, "server/instrumentation.ts"), 'globalThis.instrumented = "application-helper"\n', "utf8")
+    await writeFile(join(root, "server/instrumentation.ts"), 'Object.assign(globalThis, { instrumented: "application-helper" })\n', "utf8")
     await writeFile(join(root, "main.ts"), 'import "./server/instrumentation.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
     await finalizeDenoDeploymentOutput({ rootDir: root })
