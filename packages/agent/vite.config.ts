@@ -42,6 +42,7 @@ export default defineConfig({
       "src/runtime/process.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
+      "src/server/github.ts",
       "src/server/internal.ts",
       "src/server/workspace.ts",
       "src/test.ts",

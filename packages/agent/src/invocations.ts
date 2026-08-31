@@ -33,7 +33,6 @@ const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
   "vitehub.payload.visibility",
 ])
 const CLAIM_LEASE_MS = 30_000
-const CLAIM_HEARTBEAT_TIMEOUT_MS = 60 * 60_000
 const CLAIM_RENEW_INTERVAL_MS = 10_000
 const TERMINAL_RETRY_INTERVAL_MS = 1_000
 const TERMINAL_RETRY_TIMEOUT_MS = 60_000
@@ -97,9 +96,13 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
-  claim(id: string, claimId: string, leaseMs: number, force?: boolean): MaybePromise<boolean>
+  claim(id: string, claimId: string, leaseMs: number, options?: {
+    replaceClaimToken?: string
+    replaceExisting?: boolean
+  }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
@@ -642,10 +645,11 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
     || !hasRuntimeType(store.claim, "function")
     || !hasRuntimeType(store.create, "function")
     || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.getClaimToken, "function")
     || !hasRuntimeType(store.list, "function")
     || !hasRuntimeType(store.release, "function")
     || !hasRuntimeType(store.update, "function")) {
-    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
+    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), getClaimToken(), list(), release(), and update().")
   }
 }
 
@@ -792,14 +796,17 @@ export function applyAgentInvocationStoreUpdate(
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
-  const claims = new Map<string, { claimId: string, expiresAt: number }>()
+  const claims = new Map<string, { claimId: string, expiresAt: number, token: string }>()
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
-    claim(id, claimId, leaseMs, force) {
+    claim(id, claimId, leaseMs, options) {
       const claim = claims.get(id)
-      if (!records.has(id) || (!force && claim && claim.claimId !== claimId && claim.expiresAt > Date.now())) return false
-      claims.set(id, { claimId, expiresAt: Date.now() + leaseMs })
+      const now = Date.now()
+      const replace = options?.replaceExisting
+        || (options?.replaceClaimToken !== undefined && claim?.token === options.replaceClaimToken)
+      if (!records.has(id) || (!replace && claim && claim.claimId !== claimId && claim.expiresAt > now)) return false
+      claims.set(id, { claimId, expiresAt: now + leaseMs, token: globalThis.crypto.randomUUID() })
       return true
     },
     create(input) {
@@ -812,6 +819,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id) {
       const record = records.get(id)
       return record ? cloneRecord(record) : undefined
+    },
+    getClaimToken(id) {
+      return claims.get(id)?.token
     },
     list(options = {}) {
       const limit = normalizeLimit(options.limit)
@@ -1043,8 +1053,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let runningRetry: Promise<void> | undefined
       let terminalRetry: Promise<void> | undefined
       let heartbeat: ReturnType<typeof setInterval> | undefined
-      let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined
-      let heartbeatDeadline: number | undefined
       let observationWrite: Promise<void> | undefined
       let activeObservation: TraceEventLogEntry | undefined
       const pendingObservations: TraceEventLogEntry[] = []
@@ -1055,18 +1063,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
         if (heartbeat !== undefined) clearInterval(heartbeat)
-        if (heartbeatTimeout !== undefined) clearTimeout(heartbeatTimeout)
         heartbeat = undefined
-        heartbeatTimeout = undefined
       }
       const startHeartbeat = () => {
         if (finished || !ownsRecord || heartbeat !== undefined) return
-        heartbeatDeadline ??= Date.now() + CLAIM_HEARTBEAT_TIMEOUT_MS
-        if (Date.now() >= heartbeatDeadline) return
         heartbeat = setInterval(() => { void renew() }, CLAIM_RENEW_INTERVAL_MS)
         unrefTimer(heartbeat)
-        heartbeatTimeout = setTimeout(stopHeartbeat, heartbeatDeadline - Date.now())
-        unrefTimer(heartbeatTimeout)
       }
       const ensureCreated = async (): Promise<boolean> => {
         if (created || creationTimedOut) return created
@@ -1102,7 +1104,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const renew = async (force = false): Promise<boolean> => {
         if (!await ensureCreated()) return false
-        const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force))
+        const claim = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, force ? { replaceExisting: true } : undefined))
         ownsRecord = claim === true
         if (ownsRecord && finished) {
           await boundedStoreOperation(() => store.release(recordId, claimId))
@@ -1238,7 +1240,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         while (!persisted && Date.now() < deadline) {
           await write(async () => {
             if (!await ensureCreated()) return
-            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, true))
+            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
             if (claimed !== true) return
             try {
               const timestamp = normalizedTimestamp(observation.timestamp)
