@@ -176,6 +176,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           : generatedOutputIndex
       return [resolve(scopedRoot, ...segments.slice(0, outputRootIndex + 1))]
     })
+    const nestedDependencyRoots = new Map<string, string>()
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")
     try {
@@ -189,7 +190,13 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           const nested = relative(root, resolvedSource)
           if (!nested) return true
           const segments = nested.split(sep)
-          if (segments.includes("node_modules")) return false
+          const dependencyIndex = segments.indexOf("node_modules")
+          if (dependencyIndex !== -1) {
+            if (dependencyIndex === segments.length - 1 && dirname(resolvedSource) !== root) {
+              nestedDependencyRoots.set(resolve(retainedRoot, nested), resolvedSource)
+            }
+            return false
+          }
           const first = segments[0]!
           const containingConfiguredRoot = nestedConfiguredRoots
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
@@ -223,6 +230,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       }
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"))
+      }
+      for (const [target, dependencies] of nestedDependencyRoots) {
+        await linkDependencies(dependencies, target)
       }
     }
     finally {

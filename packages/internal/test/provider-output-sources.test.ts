@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -225,21 +225,28 @@ it("excludes ignored output directories beneath a configured closure root", asyn
   await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
 })
 
-it("excludes dependency trees nested beneath workspace packages", async () => {
+it("relinks dependency trees nested beneath retained workspace packages", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-dependencies-"))
   tempDirs.push(workspace)
   const rootDir = join(workspace, "apps", "web")
-  const handler = join(rootDir, "server", "workflow.ts")
-  const nestedDependency = join(workspace, "packages", "docs", "node_modules", "fixture-dependency", "index.d.ts")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nestedPackage = join(workspace, "packages", "docs")
+  const nestedEntry = join(nestedPackage, "src", "index.mjs")
+  const nestedDependencyRoot = join(nestedPackage, "node_modules", "fixture-dependency")
+  const nestedDependency = join(nestedDependencyRoot, "index.mjs")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(dirname(nestedDependency), { recursive: true }),
+    mkdir(dirname(nestedEntry), { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
-    writeFile(join(rootDir, "package.json"), "{}\n"),
-    writeFile(handler, "export default {}\n"),
-    writeFile(nestedDependency, "export interface StaleDependency {}\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(join(nestedPackage, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(join(nestedDependencyRoot, "package.json"), "{\"exports\":\"./index.mjs\",\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "../../../packages/docs/src/index.mjs"\n'),
+    writeFile(nestedEntry, 'export { value } from "fixture-dependency"\n'),
+    writeFile(nestedDependency, 'export const value = "nested dependency"\n'),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -248,8 +255,8 @@ it("excludes dependency trees nested beneath workspace packages", async () => {
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
-  await expect(readFile(retained.resolve(nestedDependency), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "nested dependency" })
+  expect((await lstat(retained.resolve(nestedDependencyRoot))).isSymbolicLink()).toBe(true)
 })
 
 it("retains relative dependencies beside a requested output entry", async () => {
