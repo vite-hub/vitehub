@@ -513,6 +513,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       if (cached && cached.resetAt > now && (cached.remaining === 0 || now - cached.checkedAt < cacheMs)) return admit(cached)
       const pending = checks.get(key)
       if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
+      const checkVersion = limitVersions.get(key) ?? 0
       const check = (async () => {
         const checkOperation = controlledOperation({ timeout: graphQLCheckTimeout })
         try {
@@ -523,6 +524,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
+          if ((limitVersions.get(key) ?? 0) !== checkVersion) {
+            return limits.get(key) ?? limit
+          }
           const nextVersion = (limitVersions.get(key) ?? 0) + 1
           const observed = observedLimits.get(key)
           observedLimits.set(key, {
