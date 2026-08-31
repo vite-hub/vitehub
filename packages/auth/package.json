@@ -47,11 +47,16 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@cloudflare/workers-types": "^4.20260509.1",
+    "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "better-auth": "catalog:auth"
+    "better-auth": "catalog:auth",
+    "bun-types": "^1.3.10"
   },
   "devDependencies": {
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
@@ -63,6 +68,8 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"

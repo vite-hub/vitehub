@@ -89,7 +89,8 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+  const metaValue: unknown = JSON.parse(await readFile(meta, "utf8"))
+  return parse(workerMetadataSchema, metaValue)
 }
 
 function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {

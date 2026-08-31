@@ -1679,6 +1679,7 @@ function defineBaseAgent<
             providerSettings: driver.providerSettings,
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
+            sessionStorePath: driver.sessionStorePath,
           })))
         : undefined
     if (!resolvedAdapter) {
@@ -2186,6 +2187,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
           providerSettings: driver.providerSettings,
           reasoningEffort: driver.reasoningEffort,
           reasoningSummary: driver.reasoningSummary,
+          sessionStorePath: driver.sessionStorePath,
         },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

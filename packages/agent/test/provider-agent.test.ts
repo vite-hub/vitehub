@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -12,12 +12,49 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const durableProviderSessionCursors = vi.hoisted(() => new Map<string, Map<string, unknown>>())
+interface MockProviderSessionStore {
+  delete: (threadId: string) => Promise<void>
+  get: (threadId: string) => Promise<unknown | undefined>
+  set: (threadId: string, resumeCursor: unknown) => Promise<void>
+}
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, sessionStore?: MockProviderSessionStore, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (path: string) => {
+  let cursors = durableProviderSessionCursors.get(path)
+  if (!cursors) {
+    cursors = new Map()
+    durableProviderSessionCursors.set(path, cursors)
+  }
+  return {
+    close: vi.fn(),
+    delete: vi.fn(async (threadId: string) => {
+      cursors.delete(threadId)
+    }),
+    get: vi.fn(async (threadId: string) => cursors.get(threadId)),
+    path,
+    set: vi.fn(async (threadId: string, resumeCursor: unknown) => {
+      cursors.set(threadId, resumeCursor)
+    }),
+  }
+}))
+
+function lastProviderSessionStore(): MockProviderSessionStore {
+  const store = createProviderRuntime.mock.lastCall?.[0].sessionStore
+  if (!store) throw new Error("Expected the provider runtime to receive a session store.")
+  return store
+}
+
+async function lastDurableProviderSessionStore() {
+  const result = createSqliteProviderRuntimeSessionStore.mock.results.at(-1)
+  if (!result) throw new Error("Expected a durable provider session store.")
+  return await result.value
+}
+
 const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
   ? "/app/node_modules/@openai/codex/bin/codex.js"
   : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
 
-vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
+vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -198,6 +235,235 @@ describe("Provider Agent Driver", () => {
         launchArgs: "--custom-flag",
       },
     }))
+  })
+
+  it.each(["codex", "claude-code"] as const)("passes a durable session store to the %s runtime", async (provider) => {
+    const threadId = `thread-session-store-${provider}`
+    const path = `.vitehub/${threadId}.sqlite`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider, sessionStorePath: path }).generate(context(threadId) as never)
+
+    expect(createSqliteProviderRuntimeSessionStore).toHaveBeenLastCalledWith(resolve(path))
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionStore: expect.objectContaining({ get: expect.any(Function), set: expect.any(Function) }),
+    }))
+    expect(createProviderRuntime.mock.lastCall?.[0].settings).not.toHaveProperty("sessionStorePath")
+  })
+
+  it("partitions durable cursors by the ViteHub session identity", async () => {
+    const threadId = `thread-durable-session-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const sessionContext = (sessionId: string) => {
+      const value = context(threadId)
+      value.context.set("chat.sessionId", `${threadId}:chat-session:${sessionId}`)
+      return value
+    }
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "session-a-cursor",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("a") as never)
+    const sessionAStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("b") as never)
+    const sessionBStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
+
+    expect(sessionAStore).toBeDefined()
+    expect(sessionBStore).toBeDefined()
+    if (!sessionAStore || !sessionBStore) throw new Error("Expected partitioned provider session stores.")
+    expect(await sessionAStore.get(threadId)).toBe("session-a-cursor")
+    expect(await sessionBStore.get(threadId)).toBeUndefined()
+  })
+
+  it("restores a durable cursor without replaying previous messages after an adapter restart", async () => {
+    const threadId = `thread-durable-restart-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "durable-cursor",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context(threadId) as never)
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context(threadId, {
+      messages: [
+        { parts: [{ text: "previous question", type: "text" }], role: "user" },
+        { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)
+
+    expect(resumed.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "durable-cursor" }))
+    expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue" }))
+  })
+
+  it("consumes a durable cursor before starting each resumed invocation", async () => {
+    const threadId = `thread-durable-consume-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "durable-cursor",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const durableStore = await lastDurableProviderSessionStore()
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      value: "durable-cursor",
+    })
+
+    let releaseStart!: () => void
+    const startBlocked = new Promise<void>(resolve => releaseStart = resolve)
+    const resumed = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      onStartSession: () => startBlocked,
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = adapter.generate(context(threadId) as never)
+
+    await vi.waitFor(() => expect(resumed.startSession).toHaveBeenCalledOnce())
+    expect(await durableStore.get(persistedThreadId)).toBeUndefined()
+    releaseStart()
+    await result
+
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      value: "durable-cursor",
+    })
+  })
+
+  it("keeps an aborted durable cursor consumption behind the session lock", async () => {
+    const threadId = `thread-durable-consume-abort-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "durable-cursor",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const durableStore = await lastDurableProviderSessionStore()
+    const storedCursor = await durableStore.get(persistedThreadId)
+    const initialGetCalls = durableStore.get.mock.calls.length
+    let releaseConsume!: () => void
+    const consumeBlocked = new Promise<void>(resolve => releaseConsume = resolve)
+    durableStore.get.mockImplementationOnce(async () => {
+      await consumeBlocked
+      return storedCursor
+    })
+
+    const controller = new AbortController()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const cancelled = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+    await vi.waitFor(() => expect(durableStore.get).toHaveBeenCalledTimes(initialGetCalls + 1))
+    controller.abort("cancelled")
+    await expect(cancelled).rejects.toBe("cancelled")
+
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "recovered-cursor",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const recovery = adapter.generate(context(threadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(recovered.startSession).not.toHaveBeenCalled()
+
+    releaseConsume()
+    await recovery
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      value: "recovered-cursor",
+    })
+  })
+
+  it("does not persist sessions that ViteHub cannot safely resume", async () => {
+    const ephemeralThreadId = `thread-ephemeral-store-${crypto.randomUUID()}`
+    runtime(ephemeralThreadId, [event("turn.completed", ephemeralThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({
+      credentials: () => "{}",
+      provider: "codex",
+      sessionStorePath: `.vitehub/${ephemeralThreadId}.sqlite`,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context(ephemeralThreadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
+
+    const auxiliaryThreadId = `thread-auxiliary-store-${crypto.randomUUID()}`
+    runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({
+      provider: "claude-code",
+      sessionStorePath: `.vitehub/${auxiliaryThreadId}.sqlite`,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(markAuxiliaryMessageChannelInstructionContext(context(auxiliaryThreadId)) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
+  })
+
+  it("reuses one session store concurrently for equivalent paths", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    const runtimes = ["first", "second"].map(suffix => runtime(`thread-session-${suffix}`, [
+      event("turn.completed", `thread-session-${suffix}`, { state: "completed" }, { turnId: "turn-1" }),
+    ]))
+
+    await Promise.all([
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      createProviderAgentAdapter({ provider: "codex", sessionStorePath: resolve(path) }).generate(context("thread-session-second") as never),
+    ])
+
+    expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1)
+    expect(runtimes.every(value => value.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("retries session store creation after a failure", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    createSqliteProviderRuntimeSessionStore.mockRejectedValueOnce(new Error("session store unavailable"))
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(adapter.generate(context("thread-session-failed") as never)).rejects.toThrow("session store unavailable")
+    runtime("thread-session-retried", [event("turn.completed", "thread-session-retried", { state: "completed" }, { turnId: "turn-1" })])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context("thread-session-retried") as never)
+
+    expect(createSqliteProviderRuntimeSessionStore.mock.calls.filter(([value]) => value === resolve(path))).toHaveLength(2)
+  })
+
+  it("cancels while a session store is opening", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const controller = new AbortController()
+    let resolveStore!: (value: Awaited<ReturnType<typeof createSqliteProviderRuntimeSessionStore>>) => void
+    createSqliteProviderRuntimeSessionStore.mockImplementationOnce(() => new Promise(resolve => resolveStore = resolve))
+    const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-cancelled", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1))
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    resolveStore({
+      close: vi.fn(),
+      delete: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      path: resolve(path),
+      set: vi.fn(async () => undefined),
+    })
+  })
+
+  it("rejects an empty session store path", async () => {
+    await expect(createProviderAgentAdapter({
+      provider: "codex",
+      sessionStorePath: " ",
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    }).generate(context("thread-empty-session-store") as never)).rejects.toThrow("driver.sessionStorePath must be a non-empty string")
   })
 
   it("appends ViteHub reasoning flags to explicit Codex launch arguments", async () => {
@@ -1741,6 +2007,7 @@ cli_auth_credentials_store = "keyring"
 
   it("clears a provider cursor when the invocation fails", async () => {
     const threadId = "thread-failed-resume"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: "successful-cursor",
     })
@@ -1748,15 +2015,49 @@ cli_auth_credentials_store = "keyring"
       turnResumeCursor: "failed-cursor",
     })
     const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
+    const sessionStore = lastProviderSessionStore()
+    expect(await sessionStore.get(threadId)).toBe("successful-cursor")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(context(threadId) as never)).rejects.toThrow("provider failed")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
+    expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+  })
+
+  it("keeps a failed provider session invalid after durable deletion rejects", async () => {
+    const threadId = "thread-failed-delete-retry"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "successful-cursor",
+    })
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })])
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const durableStore = await lastDurableProviderSessionStore()
+    durableStore.delete
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("durable deletion failed"))
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(adapter.generate(context(threadId) as never)).rejects.toThrow("provider failed")
+    const restartedStore = await createSqliteProviderRuntimeSessionStore(resolve(path))
+    expect(await restartedStore.get(persistedThreadId)).toEqual({ __vitehubProviderSessionCursor: "invalidated" })
+    vi.resetModules()
+    const { createProviderAgentAdapter: createRestartedProviderAgentAdapter } = await import("../src/provider-agent.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createRestartedProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context(threadId) as never)
+
+    expect(await restartedStore.get(persistedThreadId)).toBeUndefined()
     expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
   })
 
@@ -2707,6 +3008,7 @@ cli_auth_credentials_store = "keyring"
 
   it("clears a provider cursor when Workspace write-back fails", async () => {
     const threadId = "thread-workspace-failed-resume"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: "successful-cursor",
     })
@@ -2737,12 +3039,15 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
       workspaceMode: "write",
     })
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(runContext() as never)
+    const sessionStore = lastProviderSessionStore()
+    expect(await sessionStore.get(threadId)).toBe("successful-cursor")
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(adapter.generate(runContext() as never)).rejects.toThrow("Provider Agent Driver cleanup failed")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
@@ -2910,9 +3215,58 @@ cli_auth_credentials_store = "keyring"
 
   it("cancels when the provider emits no terminal event", async () => {
     const threadId = "thread-cancel-race"
-    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "successful-cursor",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const sessionStore = lastProviderSessionStore()
+    expect(await sessionStore.get(threadId)).toBe("successful-cursor")
+
+    const provider = runtime(threadId, [], {
+      afterEvents: () => new Promise(() => {}),
+      turnResumeCursor: "cancelled-cursor",
+    })
     const controller = new AbortController()
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    const failedSessionStore = lastProviderSessionStore()
+    controller.abort("cancelled")
+
+    await expect(result).rejects.toBe("cancelled")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
+    await failedSessionStore.set(threadId, "late-cursor")
+    expect(await sessionStore.get(threadId)).toBeUndefined()
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+    expect(provider.close).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a cancelled provider session invalid when deferred cleanup deletion rejects", async () => {
+    const threadId = "thread-cancel-delete-retry"
+    const path = `.vitehub/${threadId}-${crypto.randomUUID()}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "successful-cursor",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const durableStore = await lastDurableProviderSessionStore()
+    durableStore.delete
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("durable deletion failed"))
+
+    const provider = runtime(threadId, [], {
+      afterEvents: () => new Promise(() => {}),
+      turnResumeCursor: "cancelled-cursor",
+    })
+    const controller = new AbortController()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
       input: { abortSignal: controller.signal, prompt: "hello" },
@@ -2920,10 +3274,19 @@ cli_auth_credentials_store = "keyring"
 
     await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
     controller.abort("cancelled")
+    await expect(result).rejects.toThrow("[vitehub] Provider Agent Driver cleanup failed.")
 
-    await expect(result).rejects.toBe("cancelled")
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
-    expect(provider.close).toHaveBeenCalledOnce()
+    const restartedStore = await createSqliteProviderRuntimeSessionStore(resolve(path))
+    expect(await restartedStore.get(persistedThreadId)).toEqual({ __vitehubProviderSessionCursor: "invalidated" })
+    vi.resetModules()
+    const { createProviderAgentAdapter: createRestartedProviderAgentAdapter } = await import("../src/provider-agent.ts")
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const recoveredAdapter = createRestartedProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await recoveredAdapter.generate(context(threadId) as never)
+
+    expect(await restartedStore.get(persistedThreadId)).toBeUndefined()
+    expect(recovered.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
   })
 
   it("cancels while the Capability server is starting", async () => {

@@ -45,13 +45,15 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
-    "pathe": "catalog:unjs"
+    "pathe": "catalog:unjs",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -59,6 +61,7 @@
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

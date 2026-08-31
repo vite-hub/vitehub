@@ -11,11 +11,13 @@ describe("provider Agent Driver types", () => {
     const fullAccessCodex = codexDriver({ permissions: "allow-all" })
     const fullAccessClaude = claudeCodeDriver({ permissions: "allow-all" })
     const configuredCodex = codexDriver({
+      credentialProfile: "support",
       credentials: async () => ({ unseal: () => "{}" }),
       model: "gpt-5.6-sol",
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStorePath: ".vitehub/provider-sessions.sqlite",
     })
 
     expectTypeOf(defaultCodex.kind).toEqualTypeOf<"codex">()
@@ -23,6 +25,8 @@ describe("provider Agent Driver types", () => {
     expectTypeOf(fullAccessCodex.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
     expectTypeOf(fullAccessClaude.permissions).toEqualTypeOf<"ask" | "allow-edits" | "allow-all" | undefined>()
     expectTypeOf(configuredCodex.reasoningSummary).toEqualTypeOf<"auto" | "concise" | "detailed" | "none" | undefined>()
+    expectTypeOf(configuredCodex.sessionStorePath).toEqualTypeOf<string | undefined>()
+    claudeCodeDriver({ sessionStorePath: ".vitehub/claude-sessions.sqlite" })
 
     // @ts-expect-error Provider runtime modes are not public permission options.
     codexDriver({ permissions: "full-access" })
@@ -36,6 +40,8 @@ describe("provider Agent Driver types", () => {
     defineAgent({ driver: { model: "openai/gpt-5", reasoningEffort: "high" } })
     // @ts-expect-error Provider settings are not accepted by inline run drivers.
     defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
+    // @ts-expect-error Session stores are not accepted by inline run drivers.
+    defineAgent({ driver: { run: async () => new Response(), sessionStorePath: ".vitehub/sessions.sqlite" } })
   })
 
   it("types Codex credential profiles and invocation-time credential resolvers", () => {

@@ -4,7 +4,12 @@ import { toArray } from "@vite-hub/internal/arrays"
 
 import { blobError, blobResult } from "./errors.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
+
+function setBlobResponseHeader(event: BlobServeEvent, name: string, value: string) {
+  // SAFETY: BlobServeEvent exposes the response headers setHeader mutates and omits only unrelated H3 event fields.
+  setHeader(event as Parameters<typeof setHeader>[0], name, value)
+}
 
 function normalizePathname(pathname: string): string {
   try {
@@ -122,10 +127,10 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
         const meta = await driver.head(normalizedPath)
         const contentType = meta?.contentType || guessContentType(normalizedPath)
 
-        setHeader(event, "Content-Length", String(arrayBuffer.byteLength))
-        setHeader(event, "Content-Type", contentType)
+        setBlobResponseHeader(event, "Content-Length", String(arrayBuffer.byteLength))
+        setBlobResponseHeader(event, "Content-Type", contentType)
         if (meta?.httpEtag) {
-          setHeader(event, "etag", meta.httpEtag)
+          setBlobResponseHeader(event, "etag", meta.httpEtag)
         }
 
         return new ReadableStream({

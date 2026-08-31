@@ -461,7 +461,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       args.push(limit + 1)
       const result = await client.execute({
         args,
-        sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
+        sql: `SELECT sequence, json_set(record, '$.observations', json('[]')) AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
       })
       const records = result.rows
         .map(row => deserialize(row.record, row.sequence))

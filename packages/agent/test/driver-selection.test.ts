@@ -193,17 +193,20 @@ describe("built-in Agent Driver selection", () => {
     const providerSettings = { launchArgs: "--enable responses_websockets_v2" };
     const driver = normalizeAgentDriver({
       driver: {
+        credentialProfile: "support",
         credentials,
         kind: "codex",
         model: "gpt-5.6-sol",
         providerSettings,
         reasoningEffort: "high",
         reasoningSummary: "detailed",
+        sessionStorePath: " .vitehub/provider-sessions.sqlite ",
       },
     });
     providerSettings.launchArgs = "changed";
 
     expect(driver).toMatchObject({
+      credentialProfile: "support",
       credentials,
       kind: "provider",
       model: "gpt-5.6-sol",
@@ -211,16 +214,20 @@ describe("built-in Agent Driver selection", () => {
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStorePath: ".vitehub/provider-sessions.sqlite",
     });
     const agent = defineAgent({ driver: {
+      credentialProfile: "support",
       credentials,
       kind: "codex",
       model: "gpt-5.6-sol",
       providerSettings: { binaryPath: undefined, launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStorePath: ".vitehub/provider-sessions.sqlite",
     } });
     expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
+      credentialProfile: "support",
       credentials: true,
       model: "gpt-5.6-sol",
       permissions: "ask",
@@ -228,6 +235,7 @@ describe("built-in Agent Driver selection", () => {
       providerSettings: ["launchArgs"],
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStore: "sqlite",
     });
   });
 
@@ -248,10 +256,13 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "claude-code", credentials: "{}" }, "does not support Codex option: credentials"],
     [{ kind: "claude-code", model: "claude", reasoningEffort: "high" }, "does not support Codex option: reasoningEffort"],
     [{ kind: "codex", credentials: "{}", providerSettings: { shadowHomePath: "/tmp/codex" } }, "owns the Codex shadow home"],
+    [{ kind: "codex", credentials: "{}", sessionStorePath: ".vitehub/sessions.sqlite" }, "requires driver.credentialProfile when driver.credentials is configured"],
     [{ kind: "codex", reasoningEffort: "high" }, "requires driver.model"],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: { toString: (): string => "auto" } }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
+    [{ kind: "codex", sessionStorePath: "" }, "driver.sessionStorePath }) must be a non-empty string"],
+    [{ kind: "claude-code", sessionStorePath: {} }, "driver.sessionStorePath }) must be a non-empty string"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);

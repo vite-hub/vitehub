@@ -6,7 +6,7 @@ packages:
   - "playground/console"
 catalog:
   '@cloudflare/vitest-plugin': ^1.1.0
-  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
+  '@t3tools/provider-runtime': https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041
   remark-gfm: ^4.0.1
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
@@ -51,6 +51,7 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
+    "@types/mdast": ^4.0.4
     "@comark/html": 0.6.2
     comark: 0.6.2
     comark-content: 0.3.0

@@ -17,6 +17,11 @@ import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
 import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
 
+export interface RealtimeHandler {
+  (event: unknown): Promise<unknown>
+  fetch(input: Request | URL | string): Promise<Response>
+}
+
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
@@ -376,7 +381,7 @@ async function authorize(request: Request, required: boolean | undefined, event:
   return createRealtimeIdentity(session.user)
 }
 
-export function createRealtimeHandler(registry: RealtimeRegistry) {
+export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
@@ -982,11 +987,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     }
   })
 
-  return defineEventHandler(async (event) => {
+  const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
       ? websocketHandler(event)
       : httpHandler(event)
   })
+  // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
+  return handler as RealtimeHandler
 }

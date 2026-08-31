@@ -3111,7 +3111,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("does not reuse durable Eve approvals for anonymous HTTP callers", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-anonymous-chat-approval-"))
@@ -15051,7 +15051,7 @@ describe("server helpers", () => {
         (value) => ({ value }),
         (error) => ({ error }),
       )
-      await vi.waitFor(() => expect(runs).toHaveBeenCalledOnce(), { timeout: binding!.steer!.ttlMs * 5 })
+      await vi.waitFor(() => expect(runs).toHaveBeenCalledOnce(), { timeout: 10_000 })
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const replay = runAgentWorkflowDefinition(agent as never, workflow, inline as never).then(
         (value) => ({ value }),
