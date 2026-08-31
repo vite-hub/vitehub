@@ -350,6 +350,20 @@ describe("GitHub host", () => {
       .resolves.toMatchObject({ remaining: 10 })
   })
 
+  it("preserves a stricter same-window observation during settlement", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "30"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    reservation.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 21 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
   it("keeps submitted GraphQL reservations until settlement", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 10 })
@@ -944,6 +958,30 @@ describe("Agent Invocation host recovery", () => {
   })
 
   it("preserves a claim renewed between the final recovery check and takeover", async () => {
+    vi.useFakeTimers()
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "renewed", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    await store.claim("renewed", "stopped-host", 100)
+    let recoveries = 0
+
+    const recovery = failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      claimLeaseMs: 20,
+      recoveryTimeoutMs: 20,
+      recover: async () => {
+        recoveries += 1
+        if (recoveries === 2) await store.claim("renewed", "live-host", 100, { replaceExisting: true })
+        return true
+      },
+    })
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expect(recovery).resolves.toBe(0)
+    await expect(Promise.resolve(store.get("renewed"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("preserves a claim replaced without advancing the clock", async () => {
     vi.useFakeTimers()
     const store = createMemoryAgentInvocationStore()
     const createdAt = "2026-08-30T10:00:00.000Z"

@@ -2749,6 +2749,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: () => { throw failure },
       get: () => { throw failure },
+      getClaimToken: () => { throw failure },
       list: () => { throw failure },
       release: () => { throw failure },
       update: () => { throw failure },
@@ -2830,6 +2831,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: input => ({ created: true, record: { ...input, cursor: "created/token" } }),
       get: () => undefined,
+      getClaimToken: () => undefined,
       list,
       release: () => {},
       update: () => undefined,
@@ -3661,6 +3663,13 @@ describe("Agent Invocations", () => {
         traceId: "trace-1",
         updatedAt: createdAt,
       })
+      await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
+      const firstClaimToken = await store.getClaimToken("invocation-1")
+      expect(firstClaimToken).toEqual(expect.any(String))
+      await expect(store.claim("invocation-1", "second", 30_000, { replaceClaimToken: "not-first" })).resolves.toBe(false)
+      await expect(store.claim("invocation-1", "second", 30_000, { replaceClaimToken: firstClaimToken })).resolves.toBe(true)
+      await expect(store.getClaimToken("invocation-1")).resolves.not.toBe(firstClaimToken)
+      await store.release("invocation-1", "second")
       await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
       const localNow = Date.now()
       const clock = vi.spyOn(Date, "now").mockReturnValue(localNow + 60_000)

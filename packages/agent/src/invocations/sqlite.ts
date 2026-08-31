@@ -243,11 +243,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
         claimed_at INTEGER NOT NULL,
+        claim_token TEXT NOT NULL,
         expires_at INTEGER NOT NULL
       )`)
       const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
       if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
         await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+      }
+      if (!claimColumns.rows.some(row => row.name === "claim_token")) {
+        await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
       }
     })().catch((error) => {
       initialized = undefined
@@ -303,12 +307,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()
+        const claimToken = globalThis.crypto.randomUUID()
         const result = await client.execute({
-          args: [id, claimId, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimedBefore ?? -1],
-          sql: `INSERT INTO ${table}_claims (id, claim_id, claimed_at, expires_at)
-            SELECT ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
-            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
-            WHERE ? = 1 OR ${table}_claims.claimed_at <= ? OR ${table}_claims.claim_id = excluded.claim_id
+          args: [id, claimId, claimToken, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? ""],
+          sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
+            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
+            WHERE ? = 1 OR ${table}_claims.claim_token = ? OR ${table}_claims.claim_id = excluded.claim_id
               OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
         })
         return result.rowsAffected > 0
@@ -342,6 +347,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
       })
+    },
+    async getClaimToken(id) {
+      await initialize()
+      const result = await client.execute({
+        args: [id],
+        sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
+      })
+      const claimToken = result.rows[0]?.claim_token
+      return typeof claimToken === "string" ? claimToken : undefined
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {

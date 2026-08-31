@@ -17,12 +17,11 @@ export async function failInterruptedAgentInvocations(
   const limit = options.limit ?? 100
   let cursor: string | undefined
   let failed = 0
-  const blocked: AgentInvocationSummary[] = []
-  const recoveryStartedAt = Date.now()
-  const fail = async (invocation: AgentInvocationSummary, replaceClaimedBefore?: number): Promise<boolean> => {
+  const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
+  const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
-      replaceClaimedBefore === undefined ? undefined : { replaceClaimedBefore })) return false
+      replaceClaimToken === undefined ? undefined : { replaceClaimToken })) return false
     try {
       const updated = await store.update(invocation.id, {
         error: { message: options.message || "The host stopped before this Agent Invocation finished." },
@@ -41,8 +40,9 @@ export async function failInterruptedAgentInvocations(
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
       if (!await options.recover(invocation)) continue
+      const blockedClaimToken = await store.getClaimToken(invocation.id)
       if (await fail(invocation)) failed += 1
-      else blocked.push(invocation)
+      else if (blockedClaimToken !== undefined) blocked.push({ ...invocation, blockedClaimToken })
     }
     cursor = records.cursor
   } while (cursor)
@@ -51,7 +51,7 @@ export async function failInterruptedAgentInvocations(
     for (const invocation of blocked) {
       const current = await store.get(invocation.id)
       if (current && (current.status === "pending" || current.status === "running")
-        && await options.recover(current) && await fail(current, recoveryStartedAt)) failed += 1
+        && await options.recover(current) && await fail(current, invocation.blockedClaimToken)) failed += 1
     }
   }
   return failed

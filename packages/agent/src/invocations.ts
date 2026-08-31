@@ -97,11 +97,12 @@ export interface AgentInvocationStoreUpdateInput {
 
 export interface AgentInvocationStore {
   claim(id: string, claimId: string, leaseMs: number, options?: {
-    replaceClaimedBefore?: number
+    replaceClaimToken?: string
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
@@ -644,10 +645,11 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
     || !hasRuntimeType(store.claim, "function")
     || !hasRuntimeType(store.create, "function")
     || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.getClaimToken, "function")
     || !hasRuntimeType(store.list, "function")
     || !hasRuntimeType(store.release, "function")
     || !hasRuntimeType(store.update, "function")) {
-    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), list(), release(), and update().")
+    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), getClaimToken(), list(), release(), and update().")
   }
 }
 
@@ -794,7 +796,7 @@ export function applyAgentInvocationStoreUpdate(
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
-  const claims = new Map<string, { claimedAt: number, claimId: string, expiresAt: number }>()
+  const claims = new Map<string, { claimId: string, expiresAt: number, token: string }>()
   const records = new Map<string, AgentInvocationRecord>()
   let cursor = 0
   return {
@@ -802,9 +804,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const claim = claims.get(id)
       const now = Date.now()
       const replace = options?.replaceExisting
-        || (options?.replaceClaimedBefore !== undefined && claim !== undefined && claim.claimedAt <= options.replaceClaimedBefore)
+        || (options?.replaceClaimToken !== undefined && claim?.token === options.replaceClaimToken)
       if (!records.has(id) || (!replace && claim && claim.claimId !== claimId && claim.expiresAt > now)) return false
-      claims.set(id, { claimedAt: now, claimId, expiresAt: now + leaseMs })
+      claims.set(id, { claimId, expiresAt: now + leaseMs, token: globalThis.crypto.randomUUID() })
       return true
     },
     create(input) {
@@ -817,6 +819,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id) {
       const record = records.get(id)
       return record ? cloneRecord(record) : undefined
+    },
+    getClaimToken(id) {
+      return claims.get(id)?.token
     },
     list(options = {}) {
       const limit = normalizeLimit(options.limit)

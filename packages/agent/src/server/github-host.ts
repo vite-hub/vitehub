@@ -221,6 +221,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
   const limitVersions = new Map<string, number>()
+  const observedLimits = new Map<string, GitHubGraphQLRateLimit>()
   const reservations = new Map<string, Set<{
     points: number
     resetAt: number
@@ -458,7 +459,12 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           const releasedPoints = options.cost - actualCost
           const current = limits.get(key)
           if (current?.resetAt === reservation.resetAt) {
-            limits.set(key, { ...current, remaining: current.remaining + releasedPoints })
+            const observed = observedLimits.get(key)
+            const remaining = current.remaining + releasedPoints
+            limits.set(key, {
+              ...current,
+              remaining: observed?.resetAt === current.resetAt ? Math.min(remaining, observed.remaining) : remaining,
+            })
           }
         }
         return {
@@ -486,6 +492,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
+          observedLimits.set(key, limit)
           const activeReservations = reservations.get(key)
           if (activeReservations) {
             for (const reservation of activeReservations) {
