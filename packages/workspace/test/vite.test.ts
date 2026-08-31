@@ -1738,11 +1738,20 @@ describe("hubWorkspace", () => {
   it("discovers Cloudflare Artifacts definitions created after buildEnd", async () => {
     const root = await createViteRoot()
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } = await import("@vite-hub/internal/build/deployment-output")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
+    const config = { command: "build" as const, root }
 
-    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)(config)
     await prepareWorkspaceProviderOutput(plugin)
+    const catalog = useProviderOutputCatalog(config)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "browser",
+      rootDir: root,
+      write: async () => undefined,
+    })
+    await finalizeProviderDeploymentOutputs(catalog)
     await writeFile(join(root, "src/late.workspace.ts"), [
       `export default {`,
       `  store: { binding: "LATE_WORKSPACE_FILES", namespace: "late", provider: "cloudflare-artifacts" },`,
