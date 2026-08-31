@@ -129,16 +129,36 @@ export type ProviderDeploymentOutputOwner =
   | "vite-hub"
   | "browser"
   | "kv"
+  | "workspace"
 
 export interface ProviderDeploymentOutputWriter {
   (options: ProviderDeploymentOutputOptions): Promise<void>
+}
+
+interface CloudflareProviderDeploymentOutputStateOptions {
+  outputRoot?: string
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
+  wranglerConfigOwnershipFiles?: Record<string, string>
+}
+
+interface CloudflareProviderDeploymentOutputState {
+  wranglerConfig: unknown
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
+}
+
+export interface CloudflareProviderDeploymentOutputStateReader {
+  (options: CloudflareProviderDeploymentOutputStateOptions): Promise<CloudflareProviderDeploymentOutputState>
 }
 
 export interface ProviderDeploymentOutputContribution {
   discard?: () => Promise<void>
   owner: ProviderDeploymentOutputOwner
   rootDir: string
-  write: (context: { signal: AbortSignal; write: ProviderDeploymentOutputWriter }) => Promise<void>
+  write: (context: {
+    readCloudflareState: CloudflareProviderDeploymentOutputStateReader
+    signal: AbortSignal
+    write: ProviderDeploymentOutputWriter
+  }) => Promise<void>
 }
 
 interface FinalizeProviderDeploymentOutputOptions {
@@ -191,6 +211,7 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "vite-hub",
   "browser",
   "kv",
+  "workspace",
 ]
 
 function throwIfProviderOutputAborted(signal: AbortSignal): void {
@@ -240,6 +261,28 @@ async function readProviderOutputOwnershipFile(outputRoot: string, fileName: str
   catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return []
     throw error
+  }
+}
+
+async function readCloudflareProviderDeploymentOutputState(
+  rootDir: string,
+  options: CloudflareProviderDeploymentOutputStateOptions,
+): Promise<CloudflareProviderDeploymentOutputState> {
+  const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
+  let wranglerConfig: unknown = {}
+  try {
+    wranglerConfig = JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return {
+    wranglerConfig,
+    wranglerConfigOwnership: await resolvePersistedProviderOutputOwnership(
+      outputRoot,
+      options.wranglerConfigOwnership,
+      options.wranglerConfigOwnershipFiles,
+    ),
   }
 }
 
@@ -1120,6 +1163,7 @@ export async function finalizeProviderDeploymentOutputs(
                   for (const contribution of rootContributions) {
                     throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({
+                      readCloudflareState: async options => await readCloudflareProviderDeploymentOutputState(rootDir, options),
                       signal: controller.signal,
                       write: async (writeOptions) => {
                         throwIfProviderOutputAborted(controller.signal)
