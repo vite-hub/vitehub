@@ -1742,26 +1742,69 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     const config = { command: "build" as const, root }
+    const browserWrite = vi.fn(async () => undefined)
 
-    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)(config)
+    await testFunction(plugin.configResolved, async (_config: typeof config) => {})(config)
     await prepareWorkspaceProviderOutput(plugin)
     const catalog = useProviderOutputCatalog(config)
     contributeProviderDeploymentOutput(catalog, {
       owner: "browser",
       rootDir: root,
-      write: async () => undefined,
+      write: browserWrite,
     })
     await finalizeProviderDeploymentOutputs(catalog)
+    expect(browserWrite).not.toHaveBeenCalled()
     await writeFile(join(root, "src/late.workspace.ts"), [
       `export default {`,
       `  store: { binding: "LATE_WORKSPACE_FILES", namespace: "late", provider: "cloudflare-artifacts" },`,
       `}`,
       ``,
     ].join("\n"))
-    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+    await testFunction(plugin.closeBundle, async () => {})()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
     expect(wrangler.artifacts).toContainEqual({ binding: "LATE_WORKSPACE_FILES", namespace: "late" })
+    expect(browserWrite).toHaveBeenCalledOnce()
+  })
+
+  it("rolls back earlier owner output when late Workspace discovery fails", async () => {
+    const root = await createViteRoot()
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      assets: false,
+      store: { binding: "WORKSPACE_FILES", namespace: "module", provider: "cloudflare-artifacts" },
+    })
+    const config = { command: "build" as const, root }
+    const outputRoot = createDefaultCloudflareOutputRoot(root)
+    const browserMarker = join(outputRoot, "browser-output.js")
+
+    await testFunction(plugin.configResolved, async (_config: typeof config) => {})(config)
+    await prepareWorkspaceProviderOutput(plugin)
+    const catalog = useProviderOutputCatalog(config)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "browser",
+      rootDir: root,
+      write: async () => {
+        await mkdir(outputRoot, { recursive: true })
+        await writeFile(browserMarker, "browser output\n", "utf8")
+      },
+    })
+    await finalizeProviderDeploymentOutputs(catalog)
+    await expect(readFile(browserMarker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+    await writeFile(join(root, "src/late.workspace.ts"), [
+      `export default {`,
+      `  store: { binding: "WORKSPACE_FILES", namespace: "definition", provider: "cloudflare-artifacts" },`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    await expect(testFunction(plugin.closeBundle, async () => {})()).rejects.toThrow(
+      'Cloudflare Artifacts binding "WORKSPACE_FILES" cannot use both namespace "module" and "definition"',
+    )
+    await expect(readFile(browserMarker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it.each([
@@ -3251,9 +3294,9 @@ describe("hubWorkspace", () => {
     await (second.configResolved as (resolvedConfig: typeof config) => Promise<void>)({ ...config })
     await prepareWorkspaceProviderOutput(first)
     await prepareWorkspaceProviderOutput(second)
-    const firstClose = (first.closeBundle as { handler: () => Promise<void> }).handler()
+    const firstClose = testFunction(first.closeBundle, async () => {})()
     await firstCopyStarted.promise
-    const secondClose = (second.closeBundle as { handler: () => Promise<void> }).handler()
+    const secondClose = testFunction(second.closeBundle, async () => {})()
     await vi.waitFor(() => expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(1))
     firstCopy.resolve()
     await Promise.all([firstClose, secondClose])

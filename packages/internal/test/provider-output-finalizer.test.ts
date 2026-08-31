@@ -58,6 +58,32 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("keeps every owner pending until a deferred contribution is ready", async () => {
+    const catalog = createProviderOutputCatalog()
+    const generations = createProviderDeploymentOutputGenerationState()
+    const context = { environment: {} }
+    const rootDir = await createTempProject()
+    const writes: string[] = []
+    generations.capture(context, catalog)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "browser",
+      rootDir,
+      write: async () => { writes.push("browser") },
+    }, generations.get(context))
+    generations.defer(context, catalog, {
+      owner: "workspace",
+      rootDir,
+      write: async () => { writes.push("workspace") },
+    })
+
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(writes).toEqual([])
+
+    generations.ready(context)
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(writes).toEqual(["browser", "workspace"])
+  })
+
   it("shares one build generation across plain Vite plugin contexts", async () => {
     const catalog = createProviderOutputCatalog()
     const first = createProviderDeploymentOutputGenerationState()

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -1832,7 +1832,35 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async buildEnd(error) {
       if (error) {
         await providerOutputGenerations.reset(this, providerOutput, error)
+        return
       }
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      const roots = {
+        projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+        viteRoot: viteRoot || resolve(resolved.root),
+      }
+      providerOutputGenerations.defer(this, providerOutput, {
+        owner: "workspace",
+        rootDir: roots.projectRoot,
+        write: async ({ readCloudflareState, signal, write }) => {
+          const definitions = discoverDefinitions(roots, serverDirs)
+          await copyVercelFunctionRuntimePackages({
+            packages: vercelFunctionRuntimePackages(),
+            rootDir: roots.projectRoot,
+            signal,
+          })
+          await writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolved!.build?.outDir ?? "dist/client",
+            resolvedOptions,
+            definitions,
+            readCloudflareState,
+            write,
+            resolved!.createResolver?.(),
+            resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
+          )
+        },
+      })
     },
     async renderError(error) {
       await providerOutputGenerations.reset(this, providerOutput, error)
@@ -1842,32 +1870,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        const roots = {
-          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
-          viteRoot: viteRoot || resolve(resolved.root),
-        }
-        contributeProviderDeploymentOutput(providerOutput, {
-          owner: "workspace",
-          rootDir: roots.projectRoot,
-          write: async ({ readCloudflareState, signal, write }) => {
-            const definitions = discoverDefinitions(roots, serverDirs)
-            await copyVercelFunctionRuntimePackages({
-              packages: vercelFunctionRuntimePackages(),
-              rootDir: roots.projectRoot,
-              signal,
-            })
-            await writeCloudflareArtifactsProviderOutput(
-              roots.projectRoot,
-              resolved!.build?.outDir ?? "dist/client",
-              resolvedOptions,
-              definitions,
-              readCloudflareState,
-              write,
-              resolved!.createResolver?.(),
-              resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
-            )
-          },
-        }, providerOutputGenerations.get(this))
+        providerOutputGenerations.ready(this)
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
