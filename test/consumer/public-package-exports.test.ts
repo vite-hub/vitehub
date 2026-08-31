@@ -78,10 +78,16 @@ async function installedVersion(path: string) {
 }
 
 async function requiredPeerSpecs() {
+  const agentCatalog = await catalogDependencySpecs("ai", ["askweb"])
   const browserCatalog = await catalogDependencySpecs("browser", ["@cloudflare/playwright"])
+  const chatCatalog = await catalogDependencySpecs("chat", ["@chat-adapter/discord"])
+  const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...agentCatalog,
     ...browserCatalog,
+    ...chatCatalog,
+    ...vercelCatalog,
     ...workflowCatalog,
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
@@ -693,6 +699,25 @@ describe("published declaration diagnostics", () => {
 
     expect(fixtureSpecs).toMatchObject({ "@cloudflare/playwright": "^1.3.5" })
     expect(fixtureSpecs).not.toHaveProperty("playwright-core")
+  })
+
+  it("provides install specs for Agent's optional runtime peers", async () => {
+    const peerSpecs = await requiredPeerSpecs()
+    const fixtureSpecs = mixedPeerFixtureSpecs(
+      "@vite-hub/agent",
+      "vite",
+      ["@types/json-schema", "@types/mdast"],
+      ["@chat-adapter/discord", "@vercel/functions", "askweb", "evalite", "vite"],
+      {},
+      { ...peerSpecs, evalite: "1.0.0-beta.16", vite: "8.0.8" },
+    )
+
+    expect(fixtureSpecs).toMatchObject({
+      "@chat-adapter/discord": "4.38.0",
+      "@vercel/functions": "^3.7.5",
+      askweb: "^0.2.0",
+    })
+    expect(fixtureSpecs).not.toHaveProperty("vite")
   })
 
   it("keeps browser-only Vue declarations free of Node globals", () => {
