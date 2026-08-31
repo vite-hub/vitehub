@@ -243,8 +243,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
         id TEXT PRIMARY KEY,
         claim_id TEXT NOT NULL,
-        claimed_at INTEGER NOT NULL,
-        claim_token TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL DEFAULT 0,
+        claim_token TEXT NOT NULL DEFAULT '',
         expires_at INTEGER NOT NULL
       )`)
       const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)

@@ -3680,6 +3680,23 @@ describe("Agent Invocations", () => {
         traceId: "trace-1",
         updatedAt: createdAt,
       })
+      await store.create({
+        createdAt,
+        id: "legacy-writer",
+        observations: [],
+        status: "pending",
+        traceId: "legacy-writer-trace",
+        updatedAt: createdAt,
+      })
+      await expect(client.execute({
+        args: ["legacy-writer", "legacy", Date.now() + 30_000],
+        sql: `INSERT INTO vitehub_agent_invocations_claims (id, claim_id, expires_at)
+          VALUES (?, ?, ?)`,
+      })).resolves.toMatchObject({ rowsAffected: 1 })
+      await expect(client.execute({
+        args: ["legacy-writer"],
+        sql: `SELECT claimed_at, claim_token FROM vitehub_agent_invocations_claims WHERE id = ?`,
+      })).resolves.toMatchObject({ rows: [{ claimed_at: 0, claim_token: "" }] })
       await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
       await client.execute({
         args: ["invocation-1"],
