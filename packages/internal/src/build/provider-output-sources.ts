@@ -121,6 +121,18 @@ function sourceClosureRoot(root: string): string {
   }
 }
 
+function commonSourceRoot(root: string, paths: Iterable<string>): string {
+  let common = root
+  for (const path of paths) {
+    while (!pathContains(common, path)) {
+      const parent = dirname(common)
+      if (parent === common) return common
+      common = parent
+    }
+  }
+  return common
+}
+
 const traceableSourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"])
 
 function resolveComputedModuleSource(file: string, specifier: string): string | undefined {
@@ -314,17 +326,24 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   for (const root of configuredRoots) sourceRootByPath.set(root, sourceClosureRoot(root))
 
   const roots = [...new Set(sourceRootByPath.values())]
-  const retainedRoots = new Map(roots.map((root, index) => [root, resolve(artifactDir, String(index))]))
-  await Promise.all(roots.map(async (root) => {
-    const retainedRoot = retainedRoots.get(root)!
+  const retainedRoots = new Map<string, string>()
+  const retainedPaths = new Map<string, string>()
+  await Promise.all(roots.map(async (root, index) => {
     const requested = paths.filter(path => path !== root && pathContains(root, path))
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
     const materializedSourcePaths = [...requested, ...importedSources]
+    const captureRoot = commonSourceRoot(root, importedSources)
+    const retainedContainer = resolve(artifactDir, String(index))
+    const retainedRoot = resolve(retainedContainer, relative(captureRoot, root))
+    retainedRoots.set(root, retainedRoot)
     const materializedSources = [...new Set([
       ...materializedSourcePaths,
-      ...materializedSourcePaths.flatMap(path => packageMetadataSourcesForPath(root, path)),
+      ...materializedSourcePaths.flatMap(path => packageMetadataSourcesForPath(captureRoot, path)),
     ])]
+    for (const source of materializedSources.filter(source => !pathContains(root, source))) {
+      retainedPaths.set(source, resolve(retainedContainer, relative(captureRoot, source)))
+    }
     const requestedSymlinks = [...new Set([root, ...materializedSources].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
       .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
@@ -360,7 +379,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     })
     const nestedDependencyRoots = new Map<string, string>()
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
-    const stagedRoot = resolve(temporaryRoot, "source")
+    const stagedContainer = resolve(temporaryRoot, "source")
+    const stagedRoot = resolve(stagedContainer, relative(captureRoot, root))
     try {
       const shouldCopySource = (resolvedSource: string): boolean => {
         if (pathContains(artifactDir, resolvedSource)) return false
@@ -410,6 +430,16 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         recursive: true,
         filter: source => shouldCopySource(resolve(source)),
       })
+      const escapedMaterializedSources = materializedSources
+        .filter(source => !pathContains(root, source))
+        .filter((source, _, sources) => !sources.some(parent => parent !== source
+          && statSync(parent).isDirectory()
+          && pathContains(parent, source)))
+      for (const source of escapedMaterializedSources) {
+        const retainedSource = resolve(stagedContainer, relative(captureRoot, source))
+        await mkdir(dirname(retainedSource), { recursive: true })
+        await cp(realpathSync(source), retainedSource, { recursive: statSync(source).isDirectory() })
+      }
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
         const sourceTarget = realpathSync(source)
@@ -427,14 +457,14 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           },
         })
       }
-      await mkdir(dirname(retainedRoot), { recursive: true })
+      await mkdir(dirname(retainedContainer), { recursive: true })
       try {
-        await rename(stagedRoot, retainedRoot)
+        await rename(stagedContainer, retainedContainer)
       }
       catch (error) {
         // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error
-        await cp(stagedRoot, retainedRoot, { recursive: true })
+        await cp(stagedContainer, retainedContainer, { recursive: true })
       }
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"))
@@ -452,6 +482,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     resolve(path) {
       if (!isAbsolute(path)) return path
       const resolvedPath = resolve(path)
+      const retainedPath = retainedPaths.get(resolvedPath)
+      if (retainedPath) return retainedPath
       const root = sourceRootByPath.get(resolvedPath)
         ?? roots.filter(candidate => pathContains(candidate, resolvedPath)).sort((left, right) => right.length - left.length)[0]
       return root ? resolve(retainedRoots.get(root)!, relative(root, resolvedPath)) : path

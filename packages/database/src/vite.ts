@@ -230,6 +230,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           rootDir: contributionResolved.root,
           write: async ({ write }) => {
             await generateProviderOutputs({
+              appRootDir: retainedSources.resolve(contributionResolved.root),
               artifacts: contributionArtifacts,
               clientOutDir: contributionResolved.build.outDir,
               generation,

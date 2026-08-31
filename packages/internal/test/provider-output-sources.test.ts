@@ -586,6 +586,31 @@ it("retains relative imports that escape a package-scoped Vite root", async () =
   expect(retained.resolve(rootDir)).toBe(dirname(dirname(dirname(retainedHandler))))
 })
 
+it("retains static imports outside the nearest source closure", async () => {
+  const container = await mkdtemp(join(tmpdir(), "vitehub-provider-escaped-source-"))
+  tempDirs.push(container)
+  const rootDir = join(container, "app")
+  const handler = join(rootDir, "server", "handler.mjs")
+  const shared = join(container, "shared", "value.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(shared), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/app.git\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "../../shared/value.mjs"\n'),
+    writeFile(shared, 'export const value = "captured"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(shared, 'export const value = "changed"\n')
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
+  await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("captured")
+})
+
 it("preserves installed package dependency resolution", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-"))
   tempDirs.push(workspace)
