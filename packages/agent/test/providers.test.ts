@@ -996,6 +996,7 @@ describe("agent Vite plugin", () => {
         mkdir(join(container, "shared"), { recursive: true }),
       ])
       await Promise.all([
+        writeFile(join(container, "package.json"), '{"private":true}\n', "utf8"),
         writeFile(join(agentRoot, "agent.ts"), "export default {}\n", "utf8"),
         writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nHandle support requests.\n`, "utf8"),
         writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
