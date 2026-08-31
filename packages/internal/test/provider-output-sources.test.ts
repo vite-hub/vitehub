@@ -1112,10 +1112,12 @@ it("retains literal member-based require targets", async () => {
   const handler = join(rootDir, "server", "workflow.cjs")
   const moduleRepository = join(rootDir, "module-worktree")
   const createdRepository = join(rootDir, "created-worktree")
+  const dependencyRepository = join(rootDir, "dependency-worktree")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(moduleRepository, { recursive: true }),
     mkdir(createdRepository, { recursive: true }),
+    mkdir(dependencyRepository, { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
@@ -1125,9 +1127,11 @@ it("retains literal member-based require targets", async () => {
       "",
     ].join("\n")),
     writeFile(join(moduleRepository, ".git"), "gitdir: /tmp/module.git\n"),
-    writeFile(join(moduleRepository, "index.js"), "module.exports = { required: 'member' }\n"),
+    writeFile(join(moduleRepository, "index.js"), "module.exports = { nested: require('../dependency-worktree'), required: 'member' }\n"),
     writeFile(join(createdRepository, ".git"), "gitdir: /tmp/created.git\n"),
     writeFile(join(createdRepository, "index.js"), "module.exports = { required: 'created' }\n"),
+    writeFile(join(dependencyRepository, ".git"), "gitdir: /tmp/dependency.git\n"),
+    writeFile(join(dependencyRepository, "index.js"), "module.exports = { required: 'nested' }\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -1138,7 +1142,7 @@ it("retains literal member-based require targets", async () => {
 
   expect(spawnSync(process.execPath, [
     "-e",
-    "const result = require(process.argv[1]).load(); if (result.member.required !== 'member' || result.created.required !== 'created') process.exit(1)",
+    "const result = require(process.argv[1]).load(); if (result.member.required !== 'member' || result.member.nested.required !== 'nested' || result.created.required !== 'created') process.exit(1)",
     retained.resolve(handler),
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
 })

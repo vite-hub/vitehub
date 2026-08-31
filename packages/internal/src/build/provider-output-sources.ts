@@ -200,6 +200,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
   if (!entries.length) return new Set()
   try {
     const importedSources = new Set<string>()
+    const scannedModuleRequestSources = new Set<string>()
     const tracedEntries = new Set<string>()
     let pendingEntries = entries
     while (pendingEntries.length) {
@@ -264,12 +265,19 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
           pendingEntries.push(resourceSource)
         }
       }
-    }
-    const importedSourceContents = await Promise.all([...importedSources]
-      .filter(path => traceableSourceExtensions.has(extname(path)))
-      .map(async path => [path, await readFile(path, "utf8")] as const))
-    for (const [file, source] of importedSourceContents) {
-      for (const imported of traceComputedModuleSources(file, source)) importedSources.add(imported)
+      const moduleRequestSources = [...importedSources]
+        .filter(path => traceableSourceExtensions.has(extname(path)) && !scannedModuleRequestSources.has(path))
+      const moduleRequestSourceContents = await Promise.all(moduleRequestSources
+        .map(async path => [path, await readFile(path, "utf8")] as const))
+      for (const [file, source] of moduleRequestSourceContents) {
+        scannedModuleRequestSources.add(file)
+        for (const imported of traceComputedModuleSources(file, source)) {
+          importedSources.add(imported)
+          if (traceableSourceExtensions.has(extname(imported))
+            && !tracedEntries.has(imported)
+            && !pendingEntries.includes(imported)) pendingEntries.push(imported)
+        }
+      }
     }
     return importedSources
   }

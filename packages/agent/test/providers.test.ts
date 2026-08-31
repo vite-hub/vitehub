@@ -1015,7 +1015,11 @@ describe("agent Vite plugin", () => {
         build: { outDir: "dist/client" },
         command: "build",
         plugins: [schedulePlugin],
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: {
+          alias: agentProviderOutputAliases([
+            { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
+          ]),
+        },
         root,
       })
 
