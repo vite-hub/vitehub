@@ -1871,13 +1871,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await Promise.all(definitions.map(async (definition) => {
           definition.source = await readFile(definition.path, "utf8")
         }))
-        await Promise.all([
-          copyVercelFunctionRuntimePackages({
-            packages: vercelFunctionRuntimePackages(),
-            rootDir: roots.projectRoot,
-          }),
-          finalizeProviderDeploymentOutputs(providerOutput),
-        ])
+        await copyVercelFunctionRuntimePackages({
+          packages: vercelFunctionRuntimePackages(),
+          rootDir: roots.projectRoot,
+        })
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
     async configureServer(devServer) {

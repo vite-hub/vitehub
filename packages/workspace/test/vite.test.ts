@@ -1553,6 +1553,34 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("finishes Vercel runtime package copying before finalizing provider output", async () => {
+    const root = await createViteRoot()
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    let finishCopy: (() => void) | undefined
+    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => await new Promise<void>((resolve) => {
+      finishCopy = resolve
+    }))
+    const plugin = hubWorkspace({
+      store: {
+        binding: "WORKSPACES",
+        namespace: "workspaces",
+        provider: "cloudflare-artifacts",
+      },
+    })
+
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
+    const close = (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+    const wranglerPath = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+
+    await expect(readFile(wranglerPath, "utf8")).rejects.toThrow()
+    finishCopy?.()
+    await close
+    await expect(readFile(wranglerPath, "utf8")).resolves.toContain('"binding": "WORKSPACES"')
+  })
+
   it("ships Vercel Blob inside Workspace build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
