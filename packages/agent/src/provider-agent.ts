@@ -1571,6 +1571,7 @@ async function* runProvider<
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
+  let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
   let deferredRuntimeFailure: unknown
@@ -1600,6 +1601,10 @@ async function* runProvider<
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
+    observeLateCleanup(cleanup)
+  }
+  const deferSessionConsume = (cleanup: Promise<void>) => {
+    deferredSessionConsume = cleanup
     observeLateCleanup(cleanup)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
@@ -1740,7 +1745,12 @@ async function* runProvider<
         )
       : undefined
     const durableResumeCursor = sessionStore
-      ? await waitForProviderOperation(sessionStore.consume(), effectiveSignal)
+      ? await waitForProviderOperation(
+          sessionStore.consume(),
+          effectiveSignal,
+          () => undefined,
+          deferSessionConsume,
+        )
       : undefined
     const resumeCursor = pendingResumeCursor ?? durableResumeCursor
     if (pendingResumeCursor === undefined && durableResumeCursor !== undefined) {
@@ -2048,7 +2058,10 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
+    const deferredResourceCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
+    const deferredCleanup = deferredSessionConsume && deferredResourceCleanup
+      ? Promise.allSettled([deferredSessionConsume, deferredResourceCleanup]).then(() => undefined)
+      : deferredSessionConsume || deferredResourceCleanup
     if (preservesProviderSession && sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
         try {

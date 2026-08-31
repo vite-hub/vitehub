@@ -337,6 +337,51 @@ describe("Provider Agent Driver", () => {
     })
   })
 
+  it("keeps an aborted durable cursor consumption behind the session lock", async () => {
+    const threadId = `thread-durable-consume-abort-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "durable-cursor",
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const durableStore = await lastDurableProviderSessionStore()
+    const storedCursor = await durableStore.get(persistedThreadId)
+    const initialGetCalls = durableStore.get.mock.calls.length
+    let releaseConsume!: () => void
+    const consumeBlocked = new Promise<void>(resolve => releaseConsume = resolve)
+    durableStore.get.mockImplementationOnce(async () => {
+      await consumeBlocked
+      return storedCursor
+    })
+
+    const controller = new AbortController()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const cancelled = adapter.generate(context(threadId, {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+    await vi.waitFor(() => expect(durableStore.get).toHaveBeenCalledTimes(initialGetCalls + 1))
+    controller.abort("cancelled")
+    await expect(cancelled).rejects.toBe("cancelled")
+
+    const recovered = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: "recovered-cursor",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const recovery = adapter.generate(context(threadId) as never)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(recovered.startSession).not.toHaveBeenCalled()
+
+    releaseConsume()
+    await recovery
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      value: "recovered-cursor",
+    })
+  })
+
   it("does not persist sessions that ViteHub cannot safely resume", async () => {
     const ephemeralThreadId = `thread-ephemeral-store-${crypto.randomUUID()}`
     runtime(ephemeralThreadId, [event("turn.completed", ephemeralThreadId, { state: "completed" }, { turnId: "turn-1" })])
