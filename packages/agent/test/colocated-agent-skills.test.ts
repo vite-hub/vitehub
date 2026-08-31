@@ -44,7 +44,7 @@ describe("colocated Agent Skills", () => {
   })
 
   it("attaches discovered sources without changing agents when no skills exist", () => {
-    const agent = { name: "review" } as { name: string, settings?: string }
+    const agent: { name: string, settings?: string } = { name: "review" }
     Object.defineProperty(agent, "settings", { value: "preserved" })
     const sources = {
       review: { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" },
@@ -52,7 +52,7 @@ describe("colocated Agent Skills", () => {
 
     expect(withColocatedAgentSkills(agent, undefined)).toBe(agent)
     const resolved = withColocatedAgentSkills(agent, sources)
-    expect((resolved as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]).toBe(sources)
+    expect(Object.getOwnPropertyDescriptor(resolved, colocatedAgentSkillsSymbol)?.value).toBe(sources)
     expect(resolved.settings).toBe("preserved")
     expect(Object.getOwnPropertyDescriptor(resolved, "settings")?.enumerable).toBe(false)
   })
