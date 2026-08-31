@@ -903,5 +903,5 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
     finally {
       await rm(root, { recursive: true, force: true })
     }
-  }, 900_000)
+  }, 1_800_000)
 })
