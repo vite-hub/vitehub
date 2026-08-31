@@ -48,6 +48,13 @@ function configuredProjectRoot(root: string, value: unknown): string | undefined
     : undefined
 }
 
+function configuredProjectRootOption(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
+  return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
+    ? value.projectRoot
+    : undefined
+}
+
 function configuredScanDirs(value: unknown): string[] | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading scan directories.
   return value && typeof value === "object" && "scanDirs" in value && Array.isArray(value.scanDirs)
@@ -861,24 +868,26 @@ async function applyNitroConfig(
   for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
-      const previousDatabaseDiscoveryRoot = configuredProjectRoot(config.root || projectRoot, config.database)
+      const previousDatabaseProjectRoot = configuredProjectRootOption(config.database)
       const result = await handler.call({} as never, config, environment)
       let returnedDatabase: Parameters<typeof vitehub>[0]["database"] | undefined
       if (result) {
+        // SAFETY: Vite config hooks return Vite's UserConfig shape extended by ViteHub's documented service keys.
         const { nitro, ...viteConfig } = result as UserConfig & {
           database?: Parameters<typeof vitehub>[0]["database"]
           nitro?: Record<string, unknown>
         }
         if (Object.hasOwn(viteConfig, "database")) returnedDatabase = viteConfig.database
         config = mergeConfig(config, viteConfig)
+        // SAFETY: The ViteHub replay boundary accepts Nitro's open configuration object under the `nitro` key.
         if (nitro) config.nitro = nitro as Record<string, unknown>
       }
       if (plugin.name !== "@vite-hub/database/vite") {
-        const currentDatabaseDiscoveryRoot = configuredProjectRoot(config.root || projectRoot, config.database)
-        if (returnedDatabase !== undefined || currentDatabaseDiscoveryRoot !== previousDatabaseDiscoveryRoot) {
+        const currentDatabaseProjectRoot = configuredProjectRootOption(config.database)
+        if (returnedDatabase !== undefined || currentDatabaseProjectRoot !== previousDatabaseProjectRoot) {
           replayedDatabaseDiscoveryRoot = returnedDatabase !== undefined
             ? configuredProjectRoot(config.root || projectRoot, returnedDatabase)
-            : currentDatabaseDiscoveryRoot
+            : configuredProjectRoot(config.root || projectRoot, config.database)
         }
       }
       restoreReplayOwnership()
@@ -1305,7 +1314,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
         rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
         sections: consoleSections,
-        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.schedule ?? nuxt.options.vite?.schedule ?? options.schedule),
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
         serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
         workflowDiscoveryRoot: rootDir,
@@ -1389,7 +1398,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),
         rateLimitScanDirs: configuredScanDirs(nuxt.options.vite.rateLimit ?? options.rateLimit),
-        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.schedule ?? options.schedule),
+        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
       },
     )

@@ -840,7 +840,7 @@ describe("ViteHub Nuxt integration", () => {
     const development = createNuxt(true, [{
       name: "vite-hub/database-replay",
       config(config: UserConfig & { database?: { projectRoot?: string } }) {
-        if (config.database && typeof config.database === "object") config.database.projectRoot = "."
+        if (config.database) config.database.projectRoot = "."
       },
     }])
 
@@ -1246,6 +1246,7 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "node", workspace: true }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
@@ -1317,6 +1318,7 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
@@ -1354,6 +1356,7 @@ describe("ViteHub Nuxt integration", () => {
 
     try {
       await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
 
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain('"file":"email.queue.ts"')
@@ -1423,6 +1426,7 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "node", schedule: true }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
@@ -1451,6 +1455,38 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("keeps Schedule inspection on the runtime root when replay changes config", async () => {
+    const runtimeDefinition = "/tmp/vitehub-nuxt/custom-server/schedules/runtime.ts"
+    const replayedDefinition = "/tmp/vitehub-nuxt/replayed/schedules/inactive.ts"
+    await mkdir(resolve(runtimeDefinition, ".."), { recursive: true })
+    await mkdir(resolve(replayedDefinition, ".."), { recursive: true })
+    await writeFile(runtimeDefinition, `export default defineSchedule({ cron: "0 9 * * *", handler() {} })\n`)
+    await writeFile(replayedDefinition, `export default defineSchedule({ cron: "0 10 * * *", handler() {} })\n`)
+    const development = createNuxt(true, [{
+      name: "vite-hub/schedule-replay",
+      config(config: UserConfig & { schedule?: { projectRoot?: string } }) {
+        config.schedule = { projectRoot: "replayed" }
+      },
+    }])
+
+    try {
+      await viteHubNuxtModule({
+        console: true,
+        preset: "node",
+        schedule: { projectRoot: "custom-server" },
+      }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+
+      const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+      expect(generated).toContain(`"file":"custom-server/schedules/runtime.ts"`)
+      expect(generated).not.toContain(`"file":"replayed/schedules/inactive.ts"`)
+    }
+    finally {
+      await rm(resolve(runtimeDefinition, "../.."), { force: true, recursive: true })
+      await rm(resolve(replayedDefinition, "../.."), { force: true, recursive: true })
+    }
+  })
+
   it("installs discovered Sandbox metadata for a Sandbox-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/preview.sandbox.ts"
     await writeFile(definition, `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
@@ -1458,6 +1494,7 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "cloudflare", sandbox: true }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
