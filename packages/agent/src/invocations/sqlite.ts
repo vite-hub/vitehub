@@ -162,21 +162,27 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (!missingSearch.rows.length) break
       const searchUpdates = missingSearch.rows.flatMap((row) => {
         backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-        const record = deserialize(row.record, row.sequence)
-        return record
-          ? [{
-              args: [searchableAgentInvocationText(storedRecord(record)), searchVersion, numberValue(row.sequence)],
-              sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
-            }]
-          : []
+          const record = deserialize(row.record, row.sequence)
+          return record
+            ? [{
+                args: [
+                  searchableAgentInvocationText(storedRecord(record)),
+                  searchVersion,
+                  numberValue(row.sequence),
+                  searchVersion,
+                  String(row.record),
+                ],
+                sql: `UPDATE ${table} SET search = ?, search_version = ?
+                  WHERE sequence = ? AND search_version < ? AND record = ?`,
+              }]
+            : []
       })
       if (searchUpdates.length) await client.batch(searchUpdates, "write")
     }
   }
   const ensureSearchBackfill = () => {
-    if (!searchBackfill) searchBackfill = backfillSearch().catch((error) => {
+    if (!searchBackfill) searchBackfill = backfillSearch().finally(() => {
       searchBackfill = undefined
-      throw error
     })
     return searchBackfill
   }

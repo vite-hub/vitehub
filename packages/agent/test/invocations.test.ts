@@ -3992,7 +3992,9 @@ describe("Agent Invocations", () => {
       await expect(store.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })
-      await expect(store.list({ search: "fresh observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "fresh observation-only" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "fresh observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
 
@@ -4023,7 +4025,9 @@ describe("Agent Invocations", () => {
       )
       expect(overlappingUpdate.rows[0]?.status).toBe("completed")
       expect(overlappingUpdate.rows[0]?.updated_at).toBe("2026-01-01T00:02:00.000Z")
-      await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "updated observation-only" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
     }
