@@ -1556,6 +1556,34 @@ describe("agent channels", () => {
       "github.url",
     ])
 
+    const lifecyclePullRequest = {
+      ...pullRequest,
+      trigger: { ...pullRequest.trigger, action: "reopened", args: "reopened", command: "/reconcile", event: "pull_request" },
+    }
+    // SAFETY: This test fixture intentionally round-trips the complete public GitHub command context.
+    const fromLifecycleContext = await trigger.invoke(context as never, {
+      github: {
+        action: "reopened",
+        actor: { login: "mona" },
+        args: "reopened",
+        body: "Reconcile this pull request.",
+        command: "/reconcile",
+        commentId: 99,
+        event: "pull_request",
+        issueNumber: 42,
+        owner: "acme",
+        pullRequestUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        repo: "app",
+        repository: "acme/app",
+      },
+      pullRequest: lifecyclePullRequest,
+    })
+    if (fromLifecycleContext instanceof Response) throw new Error("Expected GitHub lifecycle context invocation.")
+    expect(fromLifecycleContext.input.context).toMatchObject({
+      github: { action: "reopened" },
+      pullRequest: { trigger: { action: "reopened" } },
+    })
+
     const { bindAgentInvocations } = await import("../src/invocations.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })

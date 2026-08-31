@@ -994,6 +994,7 @@ function githubPullRequestRunMetadata(
 
 function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | undefined {
   if (!isRecord(value)) return
+  const action = maybeString(value.action)
   const owner = maybeString(value.owner)
   const repo = maybeString(value.repo)
   const repository = maybeString(value.repository) || (owner && repo ? `${owner}/${repo}` : undefined)
@@ -1002,7 +1003,7 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
   const pullRequestUrl = maybeString(value.pullRequestUrl)
   if (!owner || !repo || !repository || !issueNumber || !commentId || !pullRequestUrl) return
   return {
-    action: "created",
+    action: action || "created",
     actor: isRecord(value.actor) && maybeString(value.actor.login)
       ? {
           ...(maybeString(value.actor.association) ? { association: maybeString(value.actor.association) } : {}),
