@@ -266,15 +266,15 @@ export function indexTraceLifecycles<Observation extends TraceObservationIdentit
   }
 
   const startsBySequence = new Map<number, MutableTraceLifecycle<Observation>[]>();
-  const finishesBySequence = new Map<number, MutableTraceLifecycle<Observation>[]>();
+  const finishesByObservation = new WeakMap<Observation, MutableTraceLifecycle<Observation>[]>();
   for (const lifecycle of lifecycles) {
     const sequenceStarts = startsBySequence.get(lifecycle.start.sequence) ?? [];
     sequenceStarts.push(lifecycle);
     startsBySequence.set(lifecycle.start.sequence, sequenceStarts);
     if (!lifecycle.finish) continue;
-    const sequenceFinishes = finishesBySequence.get(lifecycle.finish.sequence) ?? [];
-    sequenceFinishes.push(lifecycle);
-    finishesBySequence.set(lifecycle.finish.sequence, sequenceFinishes);
+    const observationFinishes = finishesByObservation.get(lifecycle.finish) ?? [];
+    observationFinishes.push(lifecycle);
+    finishesByObservation.set(lifecycle.finish, observationFinishes);
   }
 
   const activeByIdentity = new Map<string, Set<MutableTraceLifecycle<Observation>>>();
@@ -295,10 +295,7 @@ export function indexTraceLifecycles<Observation extends TraceObservationIdentit
   for (const observation of observations) {
     const identity = identityOf(observation);
     const sequenceStarts = startsBySequence.get(observation.sequence) ?? [];
-    const sequenceFinishes = finishesBySequence.get(observation.sequence) ?? [];
-    const identityFinishes = sequenceFinishes.filter(
-      (lifecycle) => identityOf(lifecycle.start) === identity,
-    );
+    const observationFinishes = finishesByObservation.get(observation) ?? [];
     if (isLifecycleStartObservation(observation.name)) {
       for (const lifecycle of sequenceStarts) {
         if (identityOf(lifecycle.start) !== identity) continue;
@@ -307,11 +304,13 @@ export function indexTraceLifecycles<Observation extends TraceObservationIdentit
       }
       continue;
     }
-    if (isLifecycleTerminalObservation(observation.name)) {
-      for (const lifecycle of identityFinishes) appendLifecycleObservation(lifecycle, observation);
-      for (const lifecycle of identityFinishes) deactivate(lifecycle);
+    if (observationFinishes.length > 0) {
+      for (const lifecycle of observationFinishes)
+        appendLifecycleObservation(lifecycle, observation);
+      for (const lifecycle of observationFinishes) deactivate(lifecycle);
       continue;
     }
+    if (isLifecycleTerminalObservation(observation.name)) continue;
 
     for (const lifecycle of activeByIdentity.get(identity) ?? [])
       appendLifecycleObservation(lifecycle, observation);
@@ -320,7 +319,6 @@ export function indexTraceLifecycles<Observation extends TraceObservationIdentit
       appendLifecycleObservation(lifecycle, observation);
       activate(lifecycle);
     }
-    for (const lifecycle of identityFinishes) deactivate(lifecycle);
   }
 
   return lifecycles;

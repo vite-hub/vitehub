@@ -111,6 +111,41 @@ describe("Console session trace model", () => {
     ]);
   });
 
+  it("keeps same-sequence terminals scoped to their exact overlapping lifecycle", () => {
+    const observations = [
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.output", sequence: 3 },
+      {
+        attributes: { "model.call.id": "shared", result: "first" },
+        name: "agent.model.finish",
+        sequence: 4,
+      },
+      {
+        attributes: { "model.call.id": "shared", result: "second" },
+        name: "agent.model.finish",
+        sequence: 4,
+      },
+    ];
+    const starts = [observations[0]!, observations[1]!];
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(
+      lifecycles.map(({ finish, observations: events }) => ({
+        finish: finish?.attributes?.result,
+        terminalResults: events.flatMap((event) =>
+          event.name === "agent.model.finish" ? [event.attributes?.result] : [],
+        ),
+      })),
+    ).toEqual([
+      { finish: "first", terminalResults: ["first"] },
+      { finish: "second", terminalResults: ["second"] },
+    ]);
+  });
+
   it("does not correlate later observations into an unpaired lifecycle", () => {
     const observations = [
       { attributes: { "step.id": "step" }, name: "agent.task.started", sequence: 1 },
