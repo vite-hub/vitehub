@@ -11,6 +11,7 @@ describe("provider Agent Driver types", () => {
     const fullAccessCodex = codexDriver({ permissions: "allow-all" })
     const fullAccessClaude = claudeCodeDriver({ permissions: "allow-all" })
     const configuredCodex = codexDriver({
+      credentialProfile: "support",
       credentials: async () => ({ unseal: () => "{}" }),
       model: "gpt-5.6-sol",
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },

@@ -193,6 +193,7 @@ describe("built-in Agent Driver selection", () => {
     const providerSettings = { launchArgs: "--enable responses_websockets_v2" };
     const driver = normalizeAgentDriver({
       driver: {
+        credentialProfile: "support",
         credentials,
         kind: "codex",
         model: "gpt-5.6-sol",
@@ -205,6 +206,7 @@ describe("built-in Agent Driver selection", () => {
     providerSettings.launchArgs = "changed";
 
     expect(driver).toMatchObject({
+      credentialProfile: "support",
       credentials,
       kind: "provider",
       model: "gpt-5.6-sol",
@@ -215,6 +217,7 @@ describe("built-in Agent Driver selection", () => {
       sessionStorePath: ".vitehub/provider-sessions.sqlite",
     });
     const agent = defineAgent({ driver: {
+      credentialProfile: "support",
       credentials,
       kind: "codex",
       model: "gpt-5.6-sol",
@@ -224,6 +227,7 @@ describe("built-in Agent Driver selection", () => {
       sessionStorePath: ".vitehub/provider-sessions.sqlite",
     } });
     expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
+      credentialProfile: "support",
       credentials: true,
       model: "gpt-5.6-sol",
       permissions: "ask",
@@ -252,6 +256,7 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "claude-code", credentials: "{}" }, "does not support Codex option: credentials"],
     [{ kind: "claude-code", model: "claude", reasoningEffort: "high" }, "does not support Codex option: reasoningEffort"],
     [{ kind: "codex", credentials: "{}", providerSettings: { shadowHomePath: "/tmp/codex" } }, "owns the Codex shadow home"],
+    [{ kind: "codex", credentials: "{}", sessionStorePath: ".vitehub/sessions.sqlite" }, "requires driver.credentialProfile when driver.credentials is configured"],
     [{ kind: "codex", reasoningEffort: "high" }, "requires driver.model"],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: { toString: (): string => "auto" } }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],

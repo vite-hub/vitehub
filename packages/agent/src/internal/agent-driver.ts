@@ -216,6 +216,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.credentialProfile !== undefined && value.credentials === undefined) {
     throw new TypeError("[vitehub] defineAgent({ driver.credentialProfile }) requires driver.credentials.")
   }
+  if (value.credentials !== undefined && value.credentialProfile === undefined && value.sessionStorePath !== undefined) {
+    throw new TypeError("[vitehub] defineAgent({ driver.sessionStorePath }) requires driver.credentialProfile when driver.credentials is configured.")
+  }
   if (value.reasoningEffort !== undefined
     && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
     throw new TypeError("[vitehub] defineAgent({ driver.reasoningEffort }) must be a non-empty model-advertised value.")
