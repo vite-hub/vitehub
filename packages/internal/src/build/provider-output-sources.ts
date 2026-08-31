@@ -159,6 +159,27 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     }
   }
 
+  const literalRequests = [
+    {
+      pattern: /\bmodule\s*\.\s*require\s*\(\s*(["'])(.*?)\1/gi,
+      prefix: /\bmodule\s*\.\s*require\s*\(\s*$/i,
+    },
+    {
+      pattern: /\bcreateRequire\s*\([^)]*\)\s*\(\s*(["'])(.*?)\1/gi,
+      prefix: /\bcreateRequire\s*\([^)]*\)\s*\(\s*$/i,
+    },
+  ]
+  for (const request of literalRequests) {
+    for (const match of source.matchAll(request.pattern)) {
+      const quoteOffset = match[0].indexOf(match[1]!)
+      if (!request.prefix.test(masked.slice(match.index, match.index + quoteOffset))) continue
+      const specifier = match[2]!
+      if (!specifier.startsWith(".") && !isAbsolute(specifier)) continue
+      const imported = resolveComputedModuleSource(file, specifier)
+      if (imported) paths.push(imported)
+    }
+  }
+
   return paths
 }
 

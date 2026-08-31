@@ -425,7 +425,7 @@ async function transformScheduleRegistry(
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
     const agentIdentity = { name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) }
     const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
-    const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
+    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
     return [
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,

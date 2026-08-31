@@ -1036,6 +1036,43 @@ it("retains nested repositories when createRequire may load a runtime target", a
   await expect(retainedHandler.load()).toMatchObject({ required: true })
 })
 
+it("retains literal member-based require targets", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-literal-member-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const moduleRepository = join(rootDir, "module-worktree")
+  const createdRepository = join(rootDir, "created-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(moduleRepository, { recursive: true }),
+    mkdir(createdRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const { createRequire } = require("node:module")',
+      'exports.load = () => ({ created: createRequire(__filename)("../created-worktree"), member: module.require("../module-worktree") })',
+      "",
+    ].join("\n")),
+    writeFile(join(moduleRepository, ".git"), "gitdir: /tmp/module.git\n"),
+    writeFile(join(moduleRepository, "index.js"), "module.exports = { required: 'member' }\n"),
+    writeFile(join(createdRepository, ".git"), "gitdir: /tmp/created.git\n"),
+    writeFile(join(createdRepository, "index.js"), "module.exports = { required: 'created' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const result = require(process.argv[1]).load(); if (result.member.required !== 'member' || result.created.required !== 'created') process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
 it("preserves dependency resolution for a workspace-linked package", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
   tempDirs.push(workspace)

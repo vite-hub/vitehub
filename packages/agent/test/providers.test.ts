@@ -983,6 +983,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("carries resolved parent instruction imports into Netlify provider output", async () => {
+    const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
@@ -1002,15 +1003,18 @@ describe("agent Vite plugin", () => {
         writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
       ])
       const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const schedulePlugin = hubSchedule({ providerOutput: false })
       const configResolved = plugin.configResolved as (config: {
         build: { outDir: string }
         command: "build"
+        plugins: unknown[]
         resolve: { alias: Array<{ find: string; replacement: string }> }
         root: string
       }) => Promise<void>
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
+        plugins: [schedulePlugin],
         resolve: { alias: agentProviderOutputAliases() },
         root,
       })
@@ -1018,8 +1022,11 @@ describe("agent Vite plugin", () => {
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(wrapper).toContain("Follow the shared parent policy.")
       expect(wrapper).toContain("Handle support requests.")
+      expect(scheduleRegistry).toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).toContain("Handle support requests.")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
