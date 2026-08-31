@@ -1559,6 +1559,7 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
+      signal: expect.any(AbortSignal),
     })
   })
 
@@ -1594,6 +1595,31 @@ describe("hubWorkspace", () => {
     await expect(readFile(wranglerPath, "utf8")).resolves.toContain('"binding": "WORKSPACES"')
   })
 
+  it("cancels Vercel runtime package copying when provider output resets", async () => {
+    const root = await createViteRoot()
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const copyStarted = createDeferred()
+    let copySignal: AbortSignal | undefined
+    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async ({ signal }) => {
+      copySignal = signal
+      copyStarted.resolve()
+      await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }))
+      signal?.throwIfAborted()
+    })
+    const plugin = hubWorkspace()
+
+    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
+    const close = testFunction(plugin.closeBundle, async () => {})()
+    await copyStarted.promise
+
+    await testFunction(plugin.renderError, async (_error: Error) => {})(new Error("build failed"))
+
+    expect(copySignal?.aborted).toBe(true)
+    await expect(close).rejects.toThrow("Provider Output finalization reset")
+  })
+
   it("ships Vercel Blob inside Workspace build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
@@ -1614,6 +1640,7 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
+      signal: expect.any(AbortSignal),
     })
   })
 
@@ -1639,6 +1666,7 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
+      signal: expect.any(AbortSignal),
     })
   })
 

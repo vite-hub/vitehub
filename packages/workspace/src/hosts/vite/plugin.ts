@@ -1843,10 +1843,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       contributeProviderDeploymentOutput(providerOutput, {
         owner: "workspace",
         rootDir: roots.projectRoot,
-        write: async ({ readCloudflareState, write }) => {
+        write: async ({ readCloudflareState, signal, write }) => {
           await copyVercelFunctionRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
+            signal,
           })
           await writeCloudflareArtifactsProviderOutput(
             roots.projectRoot,
