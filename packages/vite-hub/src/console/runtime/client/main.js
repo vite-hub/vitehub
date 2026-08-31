@@ -26,6 +26,7 @@ const router = createRouter({
       path: "/",
       props: {
         agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
@@ -40,6 +41,8 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
@@ -54,6 +57,8 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
@@ -68,9 +73,12 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
+        usageBase: "/api/_vitehub/console/usage",
       },
     },
     {
@@ -80,6 +88,7 @@ const router = createRouter({
       meta: { consoleSection: "kv", title: "KV · ViteHub Console" },
       props: {
         agentsBase: "/api/_vitehub/console/agents",
+        definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
@@ -93,6 +102,8 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         hostBase,
         searchBase: "/api/_vitehub/console/search",
         sectionsBase,
@@ -107,6 +118,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "workflows",
         sectionsBase,
@@ -120,6 +132,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",
         section: "queues",
         sectionsBase,

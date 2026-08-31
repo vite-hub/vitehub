@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { appendUniqueConsoleKeys, requestConsole } from "../src/console/runtime/client/request.ts"
-import { createConsoleSectionLoader } from "../src/console/runtime/client/sections.ts"
+import { appendUniqueConsoleKeys, loadConsoleKVPages, requestConsole } from "../src/console/runtime/client/request.ts"
+import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -41,6 +41,63 @@ describe("Console requests", () => {
     })
   })
 
+  it("loads every KV page using the configured base and stops repeated cursors", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["second"] }), ok: true })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages("/host/api/_vitehub/console/kv", "cache", new AbortController().signal))
+      .resolves.toEqual({
+        pages: [
+          { cursor: "next", keys: ["first"] },
+          { cursor: "next", keys: ["second"] },
+        ],
+        truncated: true,
+      })
+    expect(fetch).toHaveBeenNthCalledWith(1, "/host/api/_vitehub/console/kv?store=cache", expect.any(Object))
+    expect(fetch).toHaveBeenNthCalledWith(2, "/host/api/_vitehub/console/kv?cursor=next&store=cache", expect.any(Object))
+  })
+
+  it("continues through empty KV pages within a bounded search budget", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: [] }), ok: true })
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "last", keys: ["matching"] }), ok: true })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages(
+      "/api/_vitehub/console/kv",
+      "cache",
+      new AbortController().signal,
+      undefined,
+      { limit: 50, maxPages: 2, prefix: "match" },
+    )).resolves.toEqual({
+      pages: [
+        { cursor: "next", keys: [] },
+        { cursor: "last", keys: ["matching"] },
+      ],
+      truncated: true,
+    })
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/_vitehub/console/kv?cursor=next&limit=50&prefix=match&store=cache",
+      expect.any(Object),
+    )
+  })
+
+  it("rejects a KV page that reports a provider error", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
+      .mockResolvedValueOnce({
+        json: () => Promise.resolve({ error: "KV unavailable", errorCode: "provider_failed", keys: [] }),
+        ok: true,
+      })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleKVPages("/api/_vitehub/console/kv", "cache", new AbortController().signal))
+      .rejects.toMatchObject({ code: "provider_failed", message: "KV unavailable" })
+  })
+
   it("retries section discovery after a failed request and caches a successful response", async () => {
     const fetch = vi.fn()
       .mockRejectedValueOnce(new Error("temporary failure"))
@@ -55,5 +112,19 @@ describe("Console requests", () => {
     await expect(loadSections()).resolves.toEqual(["kv"])
     await expect(loadSections()).resolves.toEqual(["kv"])
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("loads the project name and enabled sections as one navigation response", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ projectName: " console-host ", sections: ["kv", "unknown"] }),
+      ok: true,
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(loadConsoleNavigation("/api/_vitehub/console/navigation-test")).resolves.toEqual({
+      projectName: "console-host",
+      sections: ["kv"],
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,0 +1,125 @@
+export const consoleAppConfig = {
+  colors: {
+    error: "red",
+    info: "sky",
+    neutral: "zinc",
+    primary: "blue",
+    success: "emerald",
+    warning: "amber",
+  },
+  icons: {
+    arrowDown: "i-ph-arrow-down-light",
+    arrowLeft: "i-ph-arrow-left-light",
+    arrowRight: "i-ph-arrow-right-light",
+    arrowUp: "i-ph-arrow-up-light",
+    caution: "i-ph-warning-light",
+    check: "i-ph-check-light",
+    chevronDown: "i-ph-caret-down-light",
+    chevronLeft: "i-ph-caret-left-light",
+    chevronRight: "i-ph-caret-right-light",
+    chevronUp: "i-ph-caret-up-light",
+    close: "i-ph-x-light",
+    copy: "i-ph-copy-light",
+    copyCheck: "i-ph-check-light",
+    dark: "i-ph-moon-light",
+    drag: "i-ph-dots-six-vertical-light",
+    ellipsis: "i-ph-dots-three-light",
+    error: "i-ph-warning-circle-light",
+    external: "i-ph-arrow-square-out-light",
+    eye: "i-ph-eye-light",
+    eyeOff: "i-ph-eye-slash-light",
+    file: "i-ph-file-light",
+    folder: "i-ph-folder-light",
+    folderOpen: "i-ph-folder-open-light",
+    hash: "i-ph-hash-light",
+    info: "i-ph-info-light",
+    light: "i-ph-sun-light",
+    loading: "i-ph-circle-notch-light",
+    menu: "i-ph-list-light",
+    minus: "i-ph-minus-light",
+    panelClose: "i-ph-sidebar-simple-light",
+    panelOpen: "i-ph-sidebar-simple-light",
+    plus: "i-ph-plus-light",
+    reload: "i-ph-arrows-clockwise-light",
+    search: "i-ph-magnifying-glass-light",
+    stop: "i-ph-stop-light",
+    star: "i-ph-star-light",
+    success: "i-ph-check-circle-light",
+    system: "i-ph-desktop-light",
+    tip: "i-ph-lightbulb-light",
+    upload: "i-ph-upload-simple-light",
+    warning: "i-ph-warning-light",
+  },
+  button: {
+    defaultVariants: {
+      size: "sm",
+    },
+    slots: {
+      base: "rounded-md font-normal",
+      leadingIcon: "size-4 opacity-70",
+      trailingIcon: "size-3.5 opacity-60",
+    },
+  },
+  dashboardNavbar: {
+    slots: {
+      root: "h-11 px-3 sm:px-4",
+      title: "text-sm font-medium",
+      icon: "size-4 opacity-70",
+      left: "gap-1.5",
+      right: "gap-1.5",
+    },
+  },
+  dashboardSearchButton: {
+    defaultVariants: {
+      size: "sm",
+    },
+    slots: {
+      base: "h-9 rounded-md px-2.5 text-sm",
+      leadingIcon: "size-4 opacity-65",
+      trailing: "text-[11px] opacity-60",
+    },
+  },
+  empty: {
+    slots: {
+      root: "gap-3 p-5",
+      title: "text-sm font-medium",
+      description: "text-xs leading-5",
+      actions: "mt-1",
+    },
+  },
+  input: {
+    defaultVariants: {
+      size: "sm",
+    },
+    slots: {
+      leadingIcon: "size-4 opacity-65",
+      trailingIcon: "size-3.5 opacity-60",
+    },
+  },
+  pageCard: {
+    slots: {
+      container: "gap-0 p-4",
+      leading: "mb-3 size-8 rounded-md bg-elevated/60",
+      leadingIcon: "size-4 text-muted opacity-70",
+      title: "text-sm font-medium",
+      description: "mt-1 text-xs/5 text-muted",
+    },
+  },
+  select: {
+    defaultVariants: {
+      size: "sm",
+    },
+    slots: {
+      leadingIcon: "size-4 opacity-65",
+      trailingIcon: "size-3.5 opacity-60",
+      itemLeadingIcon: "size-4 opacity-65",
+      itemTrailingIcon: "size-3.5 opacity-60",
+    },
+  },
+  table: {
+    slots: {
+      th: "h-9 px-3 py-2 text-[10px] font-medium uppercase tracking-[.08em] text-muted",
+      td: "px-3 py-2.5 text-xs text-toned",
+    },
+  },
+};
