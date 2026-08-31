@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -65,16 +64,7 @@ async function run(command: string, args: string[], cwd = repoRoot, env: NodeJS.
 }
 
 async function expectDenoLauncherToStart(appRoot: string) {
-  const server = createServer()
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(0, "127.0.0.1", resolve)
-  })
-  // SAFETY: this TCP server listens on an IP address, so Node returns AddressInfo rather than a pipe name.
-  const address = server.address() as import("node:net").AddressInfo | null
-  if (!address) throw new Error("Could not allocate a port for the Deno launcher.")
-  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-  const port = address.port
+  const port = 8000
   const child = spawn("deno", [
     "run",
     "--cached-only",
