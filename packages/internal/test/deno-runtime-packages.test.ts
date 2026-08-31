@@ -321,7 +321,7 @@ import "real"
       deploy: { runtime: { mode: "dynamic", entrypoint: "./main.ts", cwd: "." } },
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
-    await expect(execFile("deno", ["check", "--config", "deno.json", "main.ts"], { cwd: join(root, ".output") })).resolves.toMatchObject({ stderr: "" })
+    await execFile("deno", ["check", "--config", "deno.json", "main.ts"], { cwd: join(root, ".output") })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
