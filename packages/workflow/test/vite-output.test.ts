@@ -12,7 +12,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -107,6 +107,17 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   const artifacts = await writeProviderEntries(projectRoot, false, {}, undefined, false, undefined, viteRoot)
 
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
+})
+
+it("seeds provider source retention with Workflow Definition handlers and steps", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-provider-sources-")
+  const handler = join(rootDir, "server", "workflows", "welcome.ts")
+  const step = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
+  await mkdir(join(rootDir, "server", "workflows", "cleanup"), { recursive: true })
+  await writeFile(handler, "export default async function welcome() {}\n")
+  await writeFile(step, "export default async function cleanup() {}\n")
+
+  expect(discoverWorkflowProviderSourcePaths(rootDir)).toEqual([step, handler])
 })
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {

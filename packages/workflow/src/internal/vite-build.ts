@@ -1124,6 +1124,11 @@ export async function writeProviderEntries(
   }
 }
 
+export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
+  return discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
+    .flatMap(definition => [definition.handler, ...(definition.steps ?? [])])
+}
+
 function createCloudflareOutput(
   rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,

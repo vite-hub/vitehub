@@ -10,7 +10,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEn
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSourcePaths, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -108,7 +108,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
-          paths: [...Object.keys(aliases), ...Object.values(aliases)],
+          paths: [
+            ...Object.keys(aliases),
+            ...Object.values(aliases),
+            ...discoverWorkflowProviderSourcePaths(resolved.root, serverDirs),
+          ],
           roots: [resolved.root],
         })
       : undefined
@@ -227,6 +231,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             ...Object.values(runtimeImportAliases.cloudflare),
             ...Object.keys(runtimeImportAliases.vercel),
             ...Object.values(runtimeImportAliases.vercel),
+            ...discoverWorkflowProviderSourcePaths(config.root, workflowServerDirs),
           ],
           roots: [config.root],
         })

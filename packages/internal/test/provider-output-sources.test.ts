@@ -669,7 +669,7 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
-it("does not cross repository boundaries for unresolved computed imports", async () => {
+it("retains nested repositories for unresolved computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
@@ -688,7 +688,57 @@ it("does not cross repository boundaries for unresolved computed imports", async
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).resolves.toContain("runtime = true")
+})
+
+it("retains nested repositories for computed CommonJS requires", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-computed-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "workflow.cjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'const module = "../required-worktree/workflow.cjs"\nexports.load = () => require(module)\n'),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { default: { load: () => { required: boolean } } }
+  await expect(retainedHandler.default.load()).toMatchObject({ required: true })
+})
+
+it("retains nested repositories when createRequire may load a runtime target", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "workflow.cjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'import { createRequire } from "node:module"\nconst module = "../required-worktree/workflow.cjs"\nexport const load = () => createRequire(import.meta.url)(module)\n'),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: () => { required: boolean } }
+  await expect(retainedHandler.load()).toMatchObject({ required: true })
 })
 
 it("preserves dependency resolution for a workspace-linked package", async () => {
