@@ -2602,7 +2602,8 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (existingPullRequest) {
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
-          if (command && command.event !== "pull_request" && declaredInputCommand(context, command.command) === false) {
+          const lifecycleReplay = existingPullRequest.trigger.event === "pull_request"
+          if (command && !lifecycleReplay && declaredInputCommand(context, command.command) === false) {
             return options.ignored?.("not_command") || ignored("not_command")
           }
           return {

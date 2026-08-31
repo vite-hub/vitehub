@@ -1604,6 +1604,30 @@ describe("agent channels", () => {
       event: "pull_request",
     })
 
+    // SAFETY: A caller-supplied GitHub view must not override the owning pull request trigger when enforcing commands.
+    const fromMismatchedContext = await trigger.invoke({
+      ...context,
+      agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, {
+      github: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "docs",
+        body: "/review docs",
+        command: "/review",
+        commentId: 99,
+        event: "pull_request",
+        issueNumber: 42,
+        owner: "acme",
+        pullRequestUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        repo: "app",
+        repository: "acme/app",
+      },
+      pullRequest,
+    })
+    if (!(fromMismatchedContext instanceof Response)) throw new Error("Expected mismatched GitHub context to be ignored.")
+    await expect(fromMismatchedContext.json()).resolves.toMatchObject({ reason: "not_command" })
+
     const { bindAgentInvocations } = await import("../src/invocations.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
