@@ -853,7 +853,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
   const targetDir = join(outputNodeModules, ...name.split("/"))
-  if (!options.ownsTarget && ownedTargets.has(targetDir)) return
+  if (ownedTargets.has(targetDir)) return
   if (options.ownsTarget) ownedTargets.add(targetDir)
   const stagedKey = packageKey + "\0" + targetDir
   if (staged.has(stagedKey)) return
@@ -1542,7 +1542,7 @@ async function finalizeStagedDenoDeploymentOutput(
     nodeModulesDir: "manual",
     tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
-  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["npm:@types/node"] }
+  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["./node_modules/@types/node/index.d.ts"] }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
     join(serverDir, "index.ts"),
