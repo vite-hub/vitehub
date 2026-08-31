@@ -46,6 +46,11 @@ import type {
   AgentAdapterRunContext,
   AgentProviderCredentialContext,
   AgentProviderCredentialResolver,
+  AgentProviderEnvironment,
+  AgentProviderEnvironmentResolver,
+  AgentProviderLaunchCommand,
+  AgentProviderLaunchContext,
+  AgentProviderLaunchResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
   CodexReasoningEffort,
@@ -71,9 +76,10 @@ export interface ProviderAgentAdapterOptions<
 > {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
-  env?: Record<string, string | undefined>
+  env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
@@ -276,6 +282,42 @@ const providerHostEnvironmentKeys = [
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+}
+
+function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
+  if (!isRuntimeRecord(value) || Array.isArray(value)) {
+    throw new TypeError("[vitehub] driver.env must resolve to an object containing only string or undefined values.")
+  }
+  const entries = Object.entries(value)
+  if (entries.some(([, item]) => item !== undefined && !hasRuntimeType(item, "string"))) {
+    throw new TypeError("[vitehub] driver.env must resolve to an object containing only string or undefined values.")
+  }
+  // SAFETY: Every resolved entry was validated as string or undefined above.
+  return Object.fromEntries(entries) as AgentProviderEnvironment
+}
+
+function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
+  if (!isRuntimeRecord(value) || !hasRuntimeType(value.command, "string") || !value.command.trim()) {
+    throw new TypeError("[vitehub] driver.launch must resolve to a non-empty command.")
+  }
+  if (value.args !== undefined && (!Array.isArray(value.args) || value.args.some(item => !hasRuntimeType(item, "string")))) {
+    throw new TypeError("[vitehub] driver.launch args must contain only strings.")
+  }
+  return { command: value.command.trim(), ...(value.args ? { args: [...value.args] as string[] } : {}) }
+}
+
+function providerLauncherSource(launch: AgentProviderLaunchCommand): string {
+  return `#!/usr/bin/env node\nimport { spawn } from "node:child_process"\n\nconst child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {\n  cwd: process.cwd(),\n  env: process.env,\n  stdio: "inherit",\n})\n\nconst signals = ["SIGINT", "SIGTERM", "SIGHUP"]\nconst handlers = new Map(signals.map(signal => [signal, () => child.kill(signal)]))\nfor (const signal of signals) process.on(signal, handlers.get(signal))\n\nchild.once("error", (error) => {\n  console.error(error)\n  process.exit(1)\n})\nchild.once("exit", (code, signal) => {\n  for (const name of signals) process.off(name, handlers.get(name))\n  if (signal) process.kill(process.pid, signal)\n  else process.exit(code ?? 1)\n})\n`
+}
+
+async function materializeProviderLauncher(root: string, launch: AgentProviderLaunchCommand): Promise<string> {
+  if (process.platform === "win32") {
+    throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
+  }
+  const path = join(root, "provider-launcher.mjs")
+  await writeFile(path, providerLauncherSource(launch), { mode: 0o700 })
+  await chmod(path, 0o700)
+  return path
 }
 
 interface CodexCredentialHome {
@@ -1539,10 +1581,18 @@ async function* runProvider<
     ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal)
     : undefined
   let root: string
-  const providerEnvironmentOverrides = options.env
+  let launchRoot: string | undefined
   try {
     effectiveSignal?.throwIfAborted()
-    root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
+    const providerRoot = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
+    try {
+      launchRoot = options.launch === undefined ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
+    }
+    catch (error) {
+      await removeProviderRoot(providerRoot).catch(() => undefined)
+      throw error
+    }
+    root = providerRoot
   }
   catch (error) {
     releaseSessionLock?.()
@@ -1580,7 +1630,12 @@ async function* runProvider<
     releaseDeferredRuntimeStopped = resolve
   })
   let rootCleanup: Promise<void> | undefined
-  const cleanupRoot = () => rootCleanup ??= removeProviderRoot(root)
+  const cleanupRoot = () => rootCleanup ??= launchRoot
+    ? Promise.all([
+        removeProviderRoot(root),
+        rm(launchRoot, { force: true, recursive: true }),
+      ]).then(() => undefined)
+    : removeProviderRoot(root)
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1726,6 +1781,23 @@ async function* runProvider<
       },
       observeLateCleanup,
     )
+    const resolverContext: AgentProviderCredentialContext<TRuntimeConfig> = {
+      ...providerMetadataContext(context),
+      abortSignal: effectiveSignal,
+    }
+    const providerEnvironmentOverrides = options.env === undefined
+      ? undefined
+      : normalizedProviderEnvironment(await waitForProviderOperation(
+          Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
+          effectiveSignal,
+        ))
+    if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
+      throw new TypeError("[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME.")
+    }
+    if ((options.reasoningEffort !== undefined || options.reasoningSummary !== undefined)
+      && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
+      throw new TypeError("[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS.")
+    }
     const { createProviderRuntime, createSqliteProviderRuntimeSessionStore } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
@@ -1757,6 +1829,28 @@ async function* runProvider<
       pendingResumeCursor = durableResumeCursor
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
+    const providerRuntimeEnvironment = providerEnvironment({
+      ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      ...providerEnvironmentOverrides,
+    })
+    let providerLauncher: string | undefined
+    if (options.launch !== undefined) {
+      if (!hasRuntimeType(providerExecutable, "string") || !providerExecutable.trim()) {
+        throw new TypeError("[vitehub] driver.launch requires the provider executable to resolve to a non-empty path.")
+      }
+      const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
+        ...resolverContext,
+        command: providerExecutable,
+        cwd: root,
+        environment: Object.freeze({ ...providerRuntimeEnvironment }),
+      }
+      const launch = normalizedProviderLaunch(await waitForProviderOperation(
+        Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
+        effectiveSignal,
+      ))
+      if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
+      providerLauncher = await waitForProviderOperation(materializeProviderLauncher(launchRoot, launch), effectiveSignal)
+    }
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
@@ -1765,16 +1859,13 @@ async function* runProvider<
     ].filter(Boolean).join(" ") || undefined
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
-      binaryPath: providerExecutable,
+      binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: root,
-      environment: providerEnvironment({
-        ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
-        ...providerEnvironmentOverrides,
-      }),
+      environment: providerRuntimeEnvironment,
       provider: options.provider,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
       ...(Object.keys(settings).length ? { settings } : {}),

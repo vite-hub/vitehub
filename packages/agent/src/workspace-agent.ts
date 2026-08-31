@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
@@ -738,9 +738,18 @@ function capabilityInspectionMetadataProjection(
   return metadata.length ? { capabilities: metadata } : {}
 }
 
+function providerResolverKind(value: unknown): "dynamic" | "static" {
+  return hasRuntimeType(value, "function")
+    || isRuntimeRecord(value) && hasRuntimeType(value.resolve, "function")
+    ? "dynamic"
+    : "static"
+}
+
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
+  env?: unknown
+  launch?: unknown
   model?: string
   permissions: AgentInspectionProviderMetadata["permissions"]
   provider: string
@@ -756,6 +765,8 @@ function providerMetadata(driver: {
   return {
     ...(driver.credentialProfile ? { credentialProfile: driver.credentialProfile } : {}),
     ...(driver.credentials !== undefined ? { credentials: true } : {}),
+    ...(driver.env !== undefined ? { environment: providerResolverKind(driver.env) } : {}),
+    ...(driver.launch !== undefined ? { launch: providerResolverKind(driver.launch) } : {}),
     ...(driver.model ? { model: driver.model } : {}),
     permissions: driver.permissions,
     provider: driver.provider,

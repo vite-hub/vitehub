@@ -197,6 +197,97 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("resolves provider environment once and launches through an isolated executable", async () => {
+    const threadId = "thread-dynamic-launch"
+    const outputRoot = await mkdtemp(join(tmpdir(), "vitehub-launch-test-"))
+    const outputPath = join(outputRoot, "args.json")
+    let launcherPath: string | undefined
+    const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }))
+    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>> }) => {
+      expect(launchContext).toMatchObject({
+        command: "/app/node_modules/@openai/codex/bin/codex.js",
+        environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
+      })
+      expect(launchContext.cwd).toContain("vitehub-provider-")
+      expect(Object.isFrozen(launchContext.environment)).toBe(true)
+      return {
+        args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
+        command: process.execPath,
+      }
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        launcherPath = options?.settings?.binaryPath as string | undefined
+        if (!launcherPath) throw new Error("Expected generated provider launcher.")
+        expect((await stat(launcherPath)).mode & 0o777).toBe(0o700)
+        const launched = spawnSync(launcherPath, ["app-server", "--flag"], { env: options?.environment, encoding: "utf8" })
+        expect(launched.status, launched.stderr).toBe(0)
+      },
+    })
+    try {
+      await createProviderAgentAdapter({ env, launch, provider: "codex" }).generate(context(threadId) as never)
+      expect(env).toHaveBeenCalledOnce()
+      expect(launch).toHaveBeenCalledOnce()
+      expect(JSON.parse(await readFile(outputPath, "utf8"))).toEqual(["app-server", "--flag"])
+      await expect(access(launcherPath!)).rejects.toThrow()
+    }
+    finally {
+      await rm(outputRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("resolves object-form provider environments", async () => {
+    const threadId = "thread-object-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const resolve = vi.fn(() => ({ PROVIDER_SELECTED: "object" }))
+
+    await createProviderAgentAdapter({ env: { resolve }, provider: "codex" }).generate(context(threadId) as never)
+
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "object" }),
+    }))
+  })
+
+  it("removes a provider launcher when runtime cleanup fails", async () => {
+    const threadId = "thread-launch-cleanup-failure"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(new Error("close failed"))
+
+    await expect(createProviderAgentAdapter({
+      launch: { command: process.execPath },
+      provider: "codex",
+    }).generate(context(threadId) as never)).rejects.toThrow("cleanup failed")
+
+    const launcherPath = createProviderRuntime.mock.lastCall?.[0].settings?.binaryPath
+    expect(launcherPath).toEqual(expect.any(String))
+    await expect(access(String(launcherPath))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("validates invocation-resolved provider settings after resolution", async () => {
+    await expect(createProviderAgentAdapter({
+      // SAFETY: This invalid fixture exercises the runtime resolver boundary.
+      env: (() => []) as never,
+      provider: "codex",
+    }).generate(context("thread-invalid-dynamic-env") as never)).rejects.toThrow("driver.env must resolve to an object")
+    await expect(createProviderAgentAdapter({
+      credentials: "{}",
+      env: () => ({ CODEX_HOME: "/tmp/conflict" }),
+      provider: "codex",
+    }).generate(context("thread-dynamic-codex-home") as never)).rejects.toThrow("resolved driver.env.CODEX_HOME")
+    await expect(createProviderAgentAdapter({
+      env: () => ({ T3CODE_CODEX_LAUNCH_ARGS: "--conflict" }),
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      reasoningEffort: "high",
+    }).generate(context("thread-dynamic-launch-args") as never)).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
+    await expect(createProviderAgentAdapter({
+      launch: () => ({ args: [1], command: "wrapper" } as never),
+      provider: "codex",
+    }).generate(context("thread-invalid-dynamic-launch") as never)).rejects.toThrow("driver.launch args must contain only strings")
+  })
+
   it("preserves ambient CODEX_HOME for unprovisioned Codex runs", async () => {
     const threadId = "thread-ambient-codex-home"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

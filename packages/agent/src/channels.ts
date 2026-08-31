@@ -182,6 +182,18 @@ export type GitHubIssueCommentPayload = {
     name?: unknown
     owner?: { login?: unknown }
   }
+  number?: unknown
+  pull_request?: {
+    author_association?: unknown
+    body?: unknown
+    html_url?: unknown
+    id?: unknown
+    labels?: unknown
+    number?: unknown
+    title?: unknown
+    url?: unknown
+    user?: { id?: unknown, login?: unknown, type?: unknown }
+  }
   sender?: { id?: unknown, login?: unknown, type?: unknown }
 }
 
@@ -199,6 +211,7 @@ export interface GitHubPullRequestCommand {
   commentId: number
   commentNodeId?: string
   deliveryId?: string
+  event: "issue_comment" | "pull_request"
   installationId?: number
   issueNumber: number
   owner: string
@@ -291,7 +304,7 @@ export interface GitHubPullRequestRunContext {
       updatedAt?: string
     }
     deliveryId?: string
-    event: "issue_comment"
+    event: GitHubPullRequestCommand["event"]
     installationId?: number
     sender?: {
       id?: number
@@ -363,6 +376,11 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   maxComments?: number
   maxFiles?: number
   origin?: string
+  reconcile?: boolean | {
+    events?: readonly ("opened" | "ready_for_review" | "reopened" | "synchronize" | (string & {}))[]
+    mentions?: readonly string[]
+    prompt?: string
+  }
   reply?: boolean | AgentChannelDeliveryFinishEffect
   sourceMount?: string
   threadId?: string
@@ -668,12 +686,145 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
     commentId,
     ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
     ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
+    event: "issue_comment",
     ...(installationId ? { installationId } : {}),
     issueNumber,
     owner,
     pullRequestUrl,
     repo,
     repository,
+  }
+}
+
+interface GitHubPullRequestReconcileInput {
+  command: GitHubPullRequestCommand
+  payload: GitHubIssueCommentPayload
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function githubMentionCommand(body: string, mentions: readonly string[] | undefined): { args: string, command: string } | undefined {
+  for (const configured of Array.isArray(mentions) ? mentions : []) {
+    if (!hasRuntimeType(configured, "string")) continue
+    const mention = configured.trim()
+    if (!mention) continue
+    const expression = new RegExp(`(^|\\s)(${escapedRegExp(mention)})(?=\\s|[.,!?;:]|$)`, "i")
+    const match = expression.exec(body)
+    if (!match) continue
+    const start = match.index + match[1].length
+    return {
+      args: `${body.slice(0, start)}${body.slice(start + match[2].length)}`.replace(/\s+([.,!?;:])/g, "$1").trim(),
+      command: match[2],
+    }
+  }
+}
+
+function githubPullRequestReconcileFromInput(
+  input: unknown,
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+): GitHubPullRequestReconcileInput | undefined {
+  if (!reconcile) return
+  const options = reconcile === true ? {} : reconcile
+  const payload = inputPayload(input)
+  const facts = inputGithubFacts(input)
+  const event = maybeString(facts?.event)
+  if (!payload) return
+  const repository = maybeString(payload.repository?.full_name)
+  const [owner, repo] = repository?.split("/") || []
+  const installationId = maybeNumber(facts?.installationId) ?? maybeNumber(payload.installation?.id)
+  const deliveryId = maybeString(facts?.deliveryId)
+  if (!repository || !owner || !repo) return
+
+  if (!event || event === "issue_comment") {
+    if (payload.action !== "created" || !payload.issue?.pull_request) return
+    const body = maybeString(payload.comment?.body)
+    const parsed = body ? githubMentionCommand(body, options.mentions) : undefined
+    const login = maybeString(payload.comment?.user?.login)
+    const issueNumber = maybeNumber(payload.issue?.number)
+    const commentId = maybeNumber(payload.comment?.id)
+    const pullRequestUrl = maybeString(payload.issue.pull_request.url)
+    if (!body || !parsed || !login || !issueNumber || !commentId || !pullRequestUrl) return
+    const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+    return {
+      command: {
+        action: "created",
+        actor: {
+          ...(association ? { association } : {}),
+          ...(maybeNumber(payload.comment?.user?.id) ? { id: maybeNumber(payload.comment?.user?.id) } : {}),
+          login,
+          ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
+        },
+        args: parsed.args,
+        body,
+        command: parsed.command,
+        commentId,
+        ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
+        ...(deliveryId ? { deliveryId } : {}),
+        event: "issue_comment",
+        ...(installationId ? { installationId } : {}),
+        issueNumber,
+        owner,
+        pullRequestUrl,
+        repo,
+        repository,
+      },
+      payload,
+    }
+  }
+
+  if (event !== "pull_request" || !isRecord(payload.pull_request)) return
+  const action = maybeString(payload.action)
+  const events = Array.isArray(options.events) && options.events.length
+    ? options.events.filter(event => hasRuntimeType(event, "string"))
+    : ["opened", "reopened", "ready_for_review", "synchronize"]
+  if (!action || !events.includes(action)) return
+  if (action === "synchronize" && maybeString(payload.sender?.type)?.toLowerCase() === "bot") return
+  const value = payload.pull_request
+  const issueNumber = maybeNumber(payload.number) ?? maybeNumber(value.number)
+  const commentId = maybeNumber(value.id) ?? issueNumber
+  const pullRequestUrl = maybeString(value.url)
+  const actor = payload.sender || value.user
+  const login = maybeString(actor?.login)
+  if (!issueNumber || !commentId || !pullRequestUrl || !login) return
+  const prompt = maybeString(options.prompt)
+    || `Reconcile pull request #${issueNumber} after GitHub reported ${action}. Review the request, make any needed changes, verify them, and update the pull request.`
+  const normalizedPayload: GitHubIssueCommentPayload = {
+    ...payload,
+    comment: { body: prompt, id: commentId, user: actor },
+    issue: {
+      author_association: value.author_association,
+      body: value.body,
+      html_url: value.html_url,
+      labels: value.labels,
+      number: issueNumber,
+      pull_request: { html_url: value.html_url, url: pullRequestUrl },
+      title: value.title,
+    },
+  }
+  return {
+    command: {
+      action: "created",
+      actor: {
+        ...(maybeNumber(actor?.id) ? { id: maybeNumber(actor?.id) } : {}),
+        login,
+        ...(maybeString(actor?.type) ? { type: maybeString(actor?.type) } : {}),
+      },
+      args: action,
+      body: prompt,
+      command: "/reconcile",
+      commentId,
+      ...(deliveryId ? { deliveryId } : {}),
+      event: "pull_request",
+      ...(installationId ? { installationId } : {}),
+      issueNumber,
+      owner,
+      pullRequestUrl,
+      repo,
+      repository,
+    },
+    payload: normalizedPayload,
   }
 }
 
@@ -773,7 +924,7 @@ function githubPullRequestRunContext(
     },
     run: {
       messageId: String(command.commentId),
-      origin: options.origin || "github-pull-request-comment",
+      origin: options.origin || (command.event === "pull_request" ? "github-pull-request" : "github-pull-request-comment"),
       runId,
       threadId: options.threadId || command.pullRequestUrl,
     },
@@ -792,7 +943,7 @@ function githubPullRequestRunContext(
         ...(maybeString(payload?.comment?.updated_at) ? { updatedAt: maybeString(payload?.comment?.updated_at) } : {}),
       },
       ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
-      event: "issue_comment",
+      event: command.event,
       ...(command.installationId ? { installationId: command.installationId } : {}),
       ...(payload?.sender
         ? {
@@ -866,6 +1017,7 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
     commentId,
     ...(maybeString(value.commentNodeId) ? { commentNodeId: maybeString(value.commentNodeId) } : {}),
     ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
+    event: maybeString(value.event) === "pull_request" ? "pull_request" : "issue_comment",
     ...(maybeNumber(value.installationId) ? { installationId: maybeNumber(value.installationId) } : {}),
     issueNumber,
     owner,
@@ -1175,6 +1327,7 @@ const githubActivityActiveRuns = new Map<string, Set<string>>()
 const githubActivityUpdates = new Map<string, Promise<void>>()
 
 interface GitHubActivityTarget {
+  deliveryId?: string
   installationId?: number
   issue: number
   repository: string
@@ -2047,7 +2200,9 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       if (!command) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
-      const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}/reactions`
+      const url = command.event === "pull_request"
+        ? `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/reactions`
+        : `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}/reactions`
       const key = transientReactionKey(context)
       if (reactionAction(context) === "remove") {
         const id = key ? transientReactionStore(context.input)[key]?.id : undefined
@@ -2314,6 +2469,7 @@ function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHub
     commentId,
     ...(maybeString(value.trigger.comment.nodeId) ? { commentNodeId: maybeString(value.trigger.comment.nodeId) } : {}),
     ...(maybeString(value.trigger.deliveryId) ? { deliveryId: maybeString(value.trigger.deliveryId) } : {}),
+    event: value.trigger.event,
     ...(maybeNumber(value.trigger.installationId) ? { installationId: maybeNumber(value.trigger.installationId) } : {}),
     issueNumber,
     owner,
@@ -2344,10 +2500,11 @@ function githubOpenedPullRequestActivityTarget(input: unknown, payload: unknown)
   if (event && event !== "pull_request") return
   const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
   const issue = maybeNumber(payload.number) ?? maybeNumber(payload.pull_request.number)
+  const deliveryId = maybeString(facts?.deliveryId)
   const installationId = maybeNumber(facts?.installationId)
     ?? (isRecord(payload.installation) ? maybeNumber(payload.installation.id) : undefined)
   if (!repository || !issue) return
-  return { repository, issue, ...(installationId ? { installationId } : {}) }
+  return { repository, issue, ...(deliveryId ? { deliveryId } : {}), ...(installationId ? { installationId } : {}) }
 }
 
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2360,7 +2517,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   return {
     webhook: {
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
-        const payload = inputPayloadOrBody(input)
+        let payload = inputPayloadOrBody(input)
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
           const update = Promise.resolve(activity.update({
@@ -2368,33 +2525,60 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             activity: {
               ...(context.agentIdentity?.name ? { agentName: context.agentIdentity.name } : {}),
               links: [],
-              runId: `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
+              runId: activityTarget.deliveryId || `github:pull_request.opened:${activityTarget.repository}#${activityTarget.issue}`,
               status: "queued",
               tasks: [],
             },
-            target: { ...activityTarget },
+            target: {
+              issue: activityTarget.issue,
+              repository: activityTarget.repository,
+              ...(activityTarget.installationId ? { installationId: activityTarget.installationId } : {}),
+            },
           }))
           context.waitUntil(update.catch(error => console.error(new Error(
             "[vitehub] GitHub pull request activity initialization failed.",
             { cause: error },
           ))))
-          return ignored("activity_queued")
+          if (!options.reconcile) return ignored("activity_queued")
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
-        const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
+        const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
+        const reconciled = githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile)
+        const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
+        if (reconciled) payload = reconciled.payload
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
-        if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+        if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload)
         const pullRequestContext = githubPullRequestRunContext(command, {
           ...options,
           threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
         }, payload, metadata)
         const finishEffects = githubPullRequestCommentFinishEffects(options)
+        const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
+        if (activity) {
+          run.activity = {
+            links: [],
+            target: {
+              issue: command.issueNumber,
+              repository: command.repository,
+              ...(command.installationId ? { installationId: command.installationId } : {}),
+            },
+          }
+        }
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: pullRequestCommandInput(command, pullRequestContext),
-          run: githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId),
+          run,
+          ...(reconciled && command.deliveryId
+            ? {
+                webhook: {
+                  concurrencyKey: `${command.repository}#${command.issueNumber}`,
+                  concurrencyLimit: 1,
+                  deliveryId: command.deliveryId,
+                },
+              }
+            : {}),
         }
       },
     },

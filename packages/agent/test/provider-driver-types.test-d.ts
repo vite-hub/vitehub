@@ -13,6 +13,16 @@ describe("provider Agent Driver types", () => {
     const configuredCodex = codexDriver({
       credentialProfile: "support",
       credentials: async () => ({ unseal: () => "{}" }),
+      env(context) {
+        expectTypeOf(context.abortSignal).toEqualTypeOf<AbortSignal | undefined>()
+        return { CRABBOX_TOKEN: "secret" }
+      },
+      launch(context) {
+        expectTypeOf(context.command).toEqualTypeOf<string>()
+        expectTypeOf(context.cwd).toEqualTypeOf<string>()
+        expectTypeOf(context.environment).toEqualTypeOf<Readonly<Record<string, string | undefined>>>()
+        return { args: ["codex"], command: "crabbox" }
+      },
       model: "gpt-5.6-sol",
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
@@ -40,6 +50,8 @@ describe("provider Agent Driver types", () => {
     defineAgent({ driver: { model: "openai/gpt-5", reasoningEffort: "high" } })
     // @ts-expect-error Provider settings are not accepted by inline run drivers.
     defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
+    // @ts-expect-error Provider launchers are not accepted by inline run drivers.
+    defineAgent({ driver: { launch: { command: "wrapper" }, run: async () => new Response() } })
     // @ts-expect-error Session stores are not accepted by inline run drivers.
     defineAgent({ driver: { run: async () => new Response(), sessionStorePath: ".vitehub/sessions.sqlite" } })
   })
