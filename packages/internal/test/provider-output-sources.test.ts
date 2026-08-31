@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
+import { bundleEsmEntry } from "../src/build/esbuild.ts"
 import { retainProviderOutputAliases, retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
@@ -699,8 +700,13 @@ it("snapshots a symlinked configured root", async () => {
   const rootDir = join(rootContainer, "project")
   const sourceHandler = join(projectSource, "server", "agent.ts")
   const handler = join(rootDir, "server", "agent.ts")
+  const sourceValue = join(projectSource, "value.mjs")
   await mkdir(dirname(sourceHandler), { recursive: true })
-  await writeFile(sourceHandler, 'export const value = "captured"\n')
+  await Promise.all([
+    writeFile(join(projectSource, "package.json"), '{"imports":{"#value":"./value.mjs"},"type":"module"}\n'),
+    writeFile(sourceHandler, 'export { value } from "#value"\n'),
+    writeFile(sourceValue, 'export const value = "captured"\n'),
+  ])
   await symlink(projectSource, rootDir, process.platform === "win32" ? "junction" : "dir")
 
   const retained = await retainProviderOutputSources({
@@ -708,10 +714,46 @@ it("snapshots a symlinked configured root", async () => {
     paths: [handler],
     roots: [rootDir],
   })
-  await writeFile(sourceHandler, 'export const value = "changed"\n')
+  await Promise.all([
+    writeFile(join(projectSource, "package.json"), '{}\n'),
+    writeFile(sourceValue, 'export const value = "changed"\n'),
+  ])
 
   expect((await lstat(retained.resolve(rootDir))).isSymbolicLink()).toBe(false)
-  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+  await expect(readFile(join(retained.resolve(rootDir), "package.json"), "utf8")).resolves.toContain('"#value"')
+  const execution = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `import(${JSON.stringify(pathToFileURL(retained.resolve(handler)).href)}).then(module => process.stdout.write(module.value))`,
+  ], { encoding: "utf8" })
+  expect(execution.stderr).toBe("")
+  expect(execution.stdout).toBe("captured")
+  expect(execution.status).toBe(0)
+})
+
+it("snapshots symlinks discovered through imported sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-source-"))
+  const linkedSource = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-target-"))
+  tempDirs.push(rootDir, linkedSource)
+  const handler = join(rootDir, "server", "agent.mjs")
+  const config = join(rootDir, "server", "config.mjs")
+  const configTarget = join(linkedSource, "config.mjs")
+  await mkdir(dirname(handler), { recursive: true })
+  await Promise.all([
+    writeFile(handler, 'export { value } from "./config.mjs"\n'),
+    writeFile(configTarget, 'export const value = "captured"\n'),
+  ])
+  await symlink(configTarget, config)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(configTarget, 'export const value = "changed"\n')
+
+  expect((await lstat(retained.resolve(config))).isSymbolicLink()).toBe(false)
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
 })
 
 it("retains queried resources and their imports inside nested repositories", async () => {
@@ -761,6 +803,7 @@ it("resolves Vite-root queried resources from the configured project root", asyn
   const handler = join(rootDir, "server", "agent.ts")
   const resourceRepository = join(rootDir, "prompt-worktree")
   const publicRepository = join(rootDir, "public")
+  const bundleFile = join(workspace, "provider-output.mjs")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(resourceRepository, { recursive: true }),
@@ -781,8 +824,22 @@ it("resolves Vite-root queried resources from the configured project root", asyn
     roots: [rootDir],
   })
 
+  await Promise.all([
+    writeFile(join(resourceRepository, "prompt.md"), "Changed project prompt\n"),
+    writeFile(join(publicRepository, "public-prompt.md"), "Changed public prompt\n"),
+  ])
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, {
+    format: "esm",
+    platform: "node",
+    rootDir: retained.resolve(rootDir),
+  })
+
   await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Project prompt\n")
   await expect(readFile(retained.resolve(join(publicRepository, "public-prompt.md")), "utf8")).resolves.toBe("Public prompt\n")
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({
+    prompt: "Project prompt\n",
+    publicPrompt: "Public prompt\n",
+  })
 })
 
 it("skips unrelated nested repositories while retaining requested and imported ones", async () => {

@@ -697,6 +697,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
               runtimeImport: internalOptions.runtimeImport,
               signal,
               source: standaloneProviderSource,
+              sourceRootDir: retainedSources.resolve(rootDir),
               workflow,
             })
           },

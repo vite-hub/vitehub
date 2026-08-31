@@ -174,6 +174,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       pendingEntries = []
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
+      const importedSourceHints = new Set<string>()
       const result = await build({
         absWorkingDir: root,
         bundle: true,
@@ -187,6 +188,17 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         plugins: [{
           name: "vitehub-provider-vite-resource-query",
           setup(traceBuild) {
+            traceBuild.onResolve({ filter: /^\.\.?\// }, (request) => {
+              const source = request.resolveDir && resolve(request.resolveDir, request.path.split(/[?#]/, 1)[0]!)
+              if (source && existsSync(source)) importedSourceHints.add(source)
+              return undefined
+            })
+            traceBuild.onResolve({ filter: /^#/ }, (request) => {
+              if (!request.importer) return undefined
+              const source = resolveComputedModuleSource(request.importer, request.path)
+              if (source) importedSourceHints.add(source)
+              return undefined
+            })
             traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
               const resourcePath = request.path.split(/[?#]/, 1)[0]!
               let resourceSource: string | undefined
@@ -209,6 +221,10 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         write: false,
       })
       for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
+      for (const path of importedSourceHints) {
+        importedSources.add(path)
+        if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path)
+      }
       for (const resourceSource of queriedResourceSources) {
         importedSources.add(resourceSource)
         if (traceableSourceExtensions.has(extname(resourceSource)) && !tracedEntries.has(resourceSource)) {
@@ -241,6 +257,18 @@ function symlinkSourcesForRequestedPath(root: string, path: string): string[] {
   return sources.reverse()
 }
 
+function packageMetadataSourcesForPath(root: string, path: string): string[] {
+  const sources: string[] = []
+  let current = statSync(path).isDirectory() ? path : dirname(path)
+  while (pathContains(root, current)) {
+    const packageJson = resolve(current, "package.json")
+    if (existsSync(packageJson)) sources.push(packageJson)
+    if (current === root) break
+    current = dirname(current)
+  }
+  return sources
+}
+
 /** Retains one build generation's source trees while preserving every module's import base. */
 export async function retainProviderOutputSources(options: RetainProviderOutputSourcesOptions): Promise<{
   resolve: (path: string) => string
@@ -269,10 +297,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => path !== root && pathContains(root, path))
-    const requestedSymlinks = [...new Set([root, ...requested].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
-      .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
+    const materializedSourcePaths = [...requested, ...importedSources]
+    const materializedSources = [...new Set([
+      ...materializedSourcePaths,
+      ...materializedSourcePaths.flatMap(path => packageMetadataSourcesForPath(root, path)),
+    ])]
+    const requestedSymlinks = [...new Set([root, ...materializedSources].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
+      .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
       const segments = relative(root, configuredRoot).split(sep)
       const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
@@ -356,7 +389,6 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         recursive: true,
         filter: source => shouldCopySource(resolve(source)),
       })
-      const materializedSources = [...requested, ...importedSources]
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
         const sourceTarget = realpathSync(source)

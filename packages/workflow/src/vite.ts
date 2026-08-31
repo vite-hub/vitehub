@@ -275,6 +275,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               definitionRootDir: retainedDefinitionRoot,
               serverDirs: retainedServerDirs,
               serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+              sourceRootDir: retainedSources.resolve(rootDir),
               includeUserAppEntry: internalOptions?.includeUserAppEntry,
               workflow: workflowOptions,
               workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,

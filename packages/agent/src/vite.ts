@@ -2386,7 +2386,7 @@ function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false
 async function writeNetlifyAgentProviderOutput(
   config: ResolvedConfig,
   options: ResolvedAgentModuleOptions,
-  generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
+  generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", sourceRootDir?: string } = {},
   serverDirs?: string[],
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
   retainedDefinitions?: DiscoveredAgentDefinition[],
@@ -2421,6 +2421,7 @@ async function writeNetlifyAgentProviderOutput(
       }],
     },
     rootDir: config.root,
+    sourceRootDir: generatedOptions.sourceRootDir,
   })
 }
 
@@ -2883,6 +2884,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               runtimeCapabilities: standaloneRuntimeCapabilities,
               schedule: hasScheduleVitePlugin(config),
               scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+              sourceRootDir: retainedSources?.resolve(config.root),
               workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),

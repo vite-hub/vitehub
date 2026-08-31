@@ -533,6 +533,7 @@ async function writeVercelQueueFunctions(
   artifacts: GeneratedQueueArtifacts,
   providerRuntimeAliases: Record<string, string>,
   vercelRuntimePackages: VercelFunctionRuntimePackage[],
+  sourceRootDir?: string,
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted()
@@ -568,7 +569,7 @@ async function writeVercelQueueFunctions(
       alias: providerRuntimeAliases,
       format: "esm",
       platform: "node",
-      rootDir,
+      rootDir: sourceRootDir ?? rootDir,
       signal,
     })
     signal?.throwIfAborted()
@@ -693,6 +694,7 @@ export async function generateProviderOutputs(
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts, providerRuntimeInputs.aliases.cloudflare, cloudflareNamePrefix) : undefined,
     rootDir: options.rootDir,
+    sourceRootDir: options.sourceRootDir,
     vercel: createVercel ? createVercelOutput(artifacts, providerRuntimeInputs.aliases.vercel, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
@@ -705,7 +707,7 @@ export async function generateProviderOutputs(
     options.signal?.throwIfAborted()
     await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
   }
-  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.signal)
+  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts, providerRuntimeInputs.aliases.vercel, providerRuntimeInputs.vercelPackages, options.sourceRootDir, options.signal)
   if (createVercel) {
     options.signal?.throwIfAborted()
     await copyVercelRuntimePackages({

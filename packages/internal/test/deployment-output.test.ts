@@ -52,6 +52,33 @@ afterEach(async () => {
 })
 
 describe("provider deployment outputs", () => {
+  it("bundles retained sources against their captured project root", async () => {
+    const rootDir = await createTempProject()
+    const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "cloudflare.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {},
+      },
+      netlify: {
+        functions: [{ bundleEntry: join(rootDir, "netlify.mjs"), bundleOptions: {}, functionName: "agent" }],
+      },
+      rootDir,
+      sourceRootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "vercel.mjs"),
+        bundleOptions: {},
+      },
+    })
+
+    expect(vi.mocked(bundleEsmEntry).mock.calls).toHaveLength(3)
+    expect(vi.mocked(bundleEsmEntry).mock.calls.every(([, , options]) => options?.rootDir === sourceRootDir)).toBe(true)
+  })
+
   it("preserves default output roots for omitted providers", async () => {
     const rootDir = await createTempProject()
     const {

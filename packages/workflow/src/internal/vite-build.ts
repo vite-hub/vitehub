@@ -585,6 +585,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  sourceRootDir?: string
   includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -1544,6 +1545,7 @@ async function generateProviderOutputsWithinLock(
           signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
+        sourceRootDir: options.sourceRootDir,
       }
       if (vercelOutput) deploymentOutput.vercel = vercelOutput
       await writeProviderDeploymentOutputs(deploymentOutput)

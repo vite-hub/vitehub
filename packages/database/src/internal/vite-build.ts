@@ -336,6 +336,7 @@ export async function generateProviderOutputs(
       },
     },
     rootDir: options.rootDir,
+    sourceRootDir: options.appRootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
   })
   return artifacts

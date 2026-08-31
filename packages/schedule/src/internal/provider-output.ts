@@ -64,6 +64,7 @@ interface GenerateProviderOutputsOptions {
   runtimeImport?: string
   signal?: AbortSignal
   source?: DiscoveredScheduleDefinition["source"]
+  sourceRootDir?: string
   workflow?: ScheduleWorkflowRuntime
 }
 
@@ -346,6 +347,7 @@ export async function writeVercelScheduleFunctions(options: {
   registryFile: string
   rootDir: string
   signal?: AbortSignal
+  sourceRootDir?: string
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   options.signal?.throwIfAborted()
@@ -380,9 +382,9 @@ export async function writeVercelScheduleFunctions(options: {
       format: "esm",
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
-      rootDir: options.rootDir,
+      rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
-      workingDir: options.rootDir,
+      workingDir: options.sourceRootDir ?? options.rootDir,
     })
     options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
@@ -584,6 +586,7 @@ async function writeCloudflareScheduleOutput(options: {
   rootDir: string
   stateFile: string
   signal?: AbortSignal
+  sourceRootDir?: string
 }) {
   options.signal?.throwIfAborted()
   const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
@@ -629,7 +632,7 @@ async function writeCloudflareScheduleOutput(options: {
       format: "esm",
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
-      rootDir: options.rootDir,
+      rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
     }),
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
@@ -723,7 +726,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         packages: "external",
         platform: "neutral",
         plugins: [createScheduleDefinitionAliasPlugin()],
-        rootDir: options.rootDir,
+        rootDir: options.sourceRootDir ?? options.rootDir,
         signal: options.signal,
       })
       await rename(stagedDenoCronFile, artifacts.denoCronFile)
@@ -740,6 +743,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       bundleEntry: artifacts.cloudflareWorkerFile,
       crons: [...new Set(crons.values())],
       rootDir: options.rootDir,
+      sourceRootDir: options.sourceRootDir,
       stateFile: cloudflareStateFile,
       signal: options.signal,
     })
@@ -763,6 +767,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
     signal: options.signal,
+    sourceRootDir: options.sourceRootDir,
     workflow: options.workflow,
   }, crons)
   options.signal?.throwIfAborted()
