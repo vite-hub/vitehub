@@ -662,7 +662,19 @@ it("snapshots requested files beneath symlinked directories", async () => {
   tempDirs.push(rootDir, handlerSource)
   const handlers = join(rootDir, "server", "agents")
   const handler = join(handlers, "review.ts")
-  await Promise.all([mkdir(dirname(handlers), { recursive: true }), writeFile(join(handlerSource, "review.ts"), 'export const value = "captured"\n')])
+  await Promise.all([
+    mkdir(dirname(handlers), { recursive: true }),
+    mkdir(join(handlerSource, ".git"), { recursive: true }),
+    mkdir(join(handlerSource, "node_modules", "ignored"), { recursive: true }),
+    mkdir(join(handlerSource, ".vitehub"), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(handlerSource, "review.ts"), 'export const value = "captured"\n'),
+    writeFile(join(handlerSource, "unrelated.ts"), "export const unrelated = true\n"),
+    writeFile(join(handlerSource, ".git", "config"), "ignored\n"),
+    writeFile(join(handlerSource, "node_modules", "ignored", "index.js"), "ignored\n"),
+    writeFile(join(handlerSource, ".vitehub", "generated.ts"), "ignored\n"),
+  ])
   await symlink(handlerSource, handlers)
 
   const retained = await retainProviderOutputSources({
@@ -674,6 +686,10 @@ it("snapshots requested files beneath symlinked directories", async () => {
 
   expect((await lstat(dirname(retained.resolve(handler)))).isSymbolicLink()).toBe(false)
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+  await expect(readFile(join(dirname(retained.resolve(handler)), "unrelated.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), ".git", "config"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), "node_modules", "ignored", "index.js"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), ".vitehub", "generated.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("snapshots a symlinked configured root", async () => {
@@ -736,6 +752,37 @@ it("retains queried resources and their imports inside nested repositories", asy
   await expect(readFile(retained.resolve(join(workerRepository, "worker.ts")), "utf8")).resolves.toContain("../imported-worktree/value.mjs")
   await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
   await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("resolves Vite-root queried resources from the configured project root", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-root-import-trace-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const publicRepository = join(rootDir, "public")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(resourceRepository, { recursive: true }),
+    mkdir(publicRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n"),
+    writeFile(handler, 'import prompt from "/prompt-worktree/prompt.md?raw"\nimport publicPrompt from "/public-prompt.md?raw"\nexport { prompt, publicPrompt }\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
+    writeFile(join(resourceRepository, "prompt.md"), "Project prompt\n"),
+    writeFile(join(publicRepository, ".git"), "gitdir: /tmp/public.git\n"),
+    writeFile(join(publicRepository, "public-prompt.md"), "Public prompt\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Project prompt\n")
+  await expect(readFile(retained.resolve(join(publicRepository, "public-prompt.md")), "utf8")).resolves.toBe("Public prompt\n")
 })
 
 it("skips unrelated nested repositories while retaining requested and imported ones", async () => {

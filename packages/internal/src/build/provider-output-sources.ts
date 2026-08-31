@@ -162,7 +162,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   return paths
 }
 
-async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
+async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
   try {
@@ -189,10 +189,19 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
           setup(traceBuild) {
             traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
               const resourcePath = request.path.split(/[?#]/, 1)[0]!
+              let resourceSource: string | undefined
               if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
-                const resourceSource = resolve(request.resolveDir, resourcePath)
-                if (existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
+                resourceSource = resolve(request.resolveDir, resourcePath)
               }
+              else if (request.resolveDir && resourcePath.startsWith("/")) {
+                const projectRoot = configuredRoots
+                  .filter(configuredRoot => pathContains(configuredRoot, request.resolveDir))
+                  .sort((left, right) => right.length - left.length)[0] ?? root
+                const rootRelativePath = resourcePath.slice(1)
+                const publicSource = resolve(projectRoot, "public", rootRelativePath)
+                resourceSource = existsSync(publicSource) ? publicSource : resolve(projectRoot, rootRelativePath)
+              }
+              if (resourceSource && existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
               return { external: true, path: request.path }
             })
           },
@@ -262,8 +271,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const requested = paths.filter(path => path !== root && pathContains(root, path))
     const requestedSymlinks = [...new Set([root, ...requested].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
       .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
-    const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
+    const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
       const segments = relative(root, configuredRoot).split(sep)
       const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
@@ -299,58 +308,71 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedRoot = resolve(temporaryRoot, "source")
     try {
+      const shouldCopySource = (resolvedSource: string): boolean => {
+        if (pathContains(artifactDir, resolvedSource)) return false
+        if (isTransientSourceDirectory(resolvedSource)
+          && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
+        if (resolvedSource !== root
+          && existsSync(resolve(resolvedSource, ".git"))
+          && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+          && ![...importedSources].some(path => pathContains(resolvedSource, path))
+          && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
+          && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
+        const nested = relative(root, resolvedSource)
+        if (!nested) return true
+        const segments = nested.split(sep)
+        const dependencyIndex = segments.indexOf("node_modules")
+        if (dependencyIndex !== -1) {
+          if (dependencyIndex === segments.length - 1 && dirname(resolvedSource) !== root) {
+            nestedDependencyRoots.set(resolve(retainedRoot, nested), resolvedSource)
+          }
+          return false
+        }
+        const first = segments[0]!
+        const containingConfiguredRoot = nestedConfiguredRoots
+          .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
+          .sort((left, right) => right.length - left.length)[0]
+        const scopedSegments = relative(containingConfiguredRoot ?? root, resolvedSource).split(sep)
+        const scopedFirst = containingConfiguredRoot ? scopedSegments[0] : first
+        if (scopedFirst === ".nuxt") {
+          return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            || scopedSegments.length === 1
+            || (scopedSegments.length === 2 && /^tsconfig(?:\.[^.]+)?\.json$/i.test(scopedSegments[1]!))
+        }
+        const nestedGeneratedOutput = scopedSegments
+          .some(segment => ignoredGeneratedDirectories.has(segment))
+        if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
+          && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
+          return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
+            || configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource)
+              && !relative(outputRoot, resolvedSource).split(sep).some(segment => ignoredSourceDirectories.has(segment)))
+              && !nestedConfiguredRoots.some(configuredRoot => pathContains(configuredRoot, resolvedSource))
+            || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
+        }
+        return true
+      }
       await cp(root, stagedRoot, {
         recursive: true,
-        filter(source) {
-          const resolvedSource = resolve(source)
-          if (pathContains(artifactDir, resolvedSource)) return false
-          if (isTransientSourceDirectory(resolvedSource)
-            && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
-          if (resolvedSource !== root
-            && existsSync(resolve(resolvedSource, ".git"))
-            && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-            && ![...importedSources].some(path => pathContains(resolvedSource, path))
-            && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
-            && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
-          const nested = relative(root, resolvedSource)
-          if (!nested) return true
-          const segments = nested.split(sep)
-          const dependencyIndex = segments.indexOf("node_modules")
-          if (dependencyIndex !== -1) {
-            if (dependencyIndex === segments.length - 1 && dirname(resolvedSource) !== root) {
-              nestedDependencyRoots.set(resolve(retainedRoot, nested), resolvedSource)
-            }
-            return false
-          }
-          const first = segments[0]!
-          const containingConfiguredRoot = nestedConfiguredRoots
-            .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
-            .sort((left, right) => right.length - left.length)[0]
-          const scopedSegments = relative(containingConfiguredRoot ?? root, resolvedSource).split(sep)
-          const scopedFirst = containingConfiguredRoot ? scopedSegments[0] : first
-          if (scopedFirst === ".nuxt") {
-            return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-              || scopedSegments.length === 1
-              || (scopedSegments.length === 2 && /^tsconfig(?:\.[^.]+)?\.json$/i.test(scopedSegments[1]!))
-          }
-          const nestedGeneratedOutput = scopedSegments
-            .some(segment => ignoredGeneratedDirectories.has(segment))
-          if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
-            && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
-            return requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-              || requestedOutputRoots.some(outputRoot => pathContains(outputRoot, resolvedSource))
-              || configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource)
-                && !relative(outputRoot, resolvedSource).split(sep).some(segment => ignoredSourceDirectories.has(segment)))
-                && !nestedConfiguredRoots.some(configuredRoot => pathContains(configuredRoot, resolvedSource))
-              || nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
-          }
-          return true
-        },
+        filter: source => shouldCopySource(resolve(source)),
       })
+      const materializedSources = [...requested, ...importedSources]
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
+        const sourceTarget = realpathSync(source)
         await rm(retainedSource, { force: true, recursive: true })
-        await cp(realpathSync(source), retainedSource, { recursive: statSync(source).isDirectory() })
+        await cp(sourceTarget, retainedSource, {
+          recursive: statSync(source).isDirectory(),
+          filter(candidate) {
+            const physicalCandidate = resolve(candidate)
+            const logicalCandidate = resolve(source, relative(sourceTarget, physicalCandidate))
+            const retained = materializedSources.some(path => pathContains(logicalCandidate, path)
+              || pathContains(path, logicalCandidate)
+              || pathContains(physicalCandidate, path)
+              || pathContains(path, physicalCandidate))
+            return retained && shouldCopySource(logicalCandidate)
+          },
+        })
       }
       await mkdir(dirname(retainedRoot), { recursive: true })
       try {
