@@ -1155,6 +1155,10 @@ export async function finalizeProviderDeploymentOutputs(
         if (!contributions.length) return
         try {
           if (contributions.some(contribution => contribution.ready?.() === false)) {
+            if (controller.signal.aborted) {
+              await catalog.completeDeploymentContributions(contributions)
+              throwIfProviderOutputAborted(controller.signal)
+            }
             catalog.rollbackDeploymentContributions(contributions)
             return
           }

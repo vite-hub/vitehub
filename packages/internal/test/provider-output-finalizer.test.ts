@@ -1165,6 +1165,28 @@ describe("Provider Output finalizer", () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it("clears deferred work when finalization is aborted", async () => {
+    const catalog = createProviderOutputCatalog()
+    const rootDir = await createTempProject()
+    const controller = new AbortController()
+    const write = vi.fn(async () => undefined)
+    const discard = vi.fn(async () => undefined)
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workspace",
+      rootDir,
+      ready: () => false,
+      write,
+      discard,
+    })
+    controller.abort(new Error("build aborted"))
+
+    await expect(finalizeProviderDeploymentOutputs(catalog, { signal: controller.signal })).rejects.toThrow("build aborted")
+    expect(write).not.toHaveBeenCalled()
+    expect(discard).toHaveBeenCalledOnce()
+    await finalizeProviderDeploymentOutputs(catalog)
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("aborts and settles active finalization when reset", async () => {
     const catalog = createProviderOutputCatalog()
     const rootDir = await createTempProject()
