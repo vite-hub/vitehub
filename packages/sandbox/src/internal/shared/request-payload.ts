@@ -1,11 +1,12 @@
-import { readBody, type H3Event } from 'h3'
+export interface RequestPayloadEvent {
+  req: {
+    json: () => Promise<unknown>
+  }
+}
 
-export async function readRequestPayload<TPayload = Record<string, never>>(
-  event: H3Event,
-  fallback = {} as TPayload,
-): Promise<TPayload | unknown> {
-  if (typeof event.req?.json === 'function')
-    return await event.req.json().catch(() => fallback)
-
-  return await readBody(event).catch(() => fallback)
+export async function readRequestPayload(
+  event: RequestPayloadEvent,
+  fallback: unknown = {},
+): Promise<unknown> {
+  return await event.req.json().catch(() => fallback)
 }

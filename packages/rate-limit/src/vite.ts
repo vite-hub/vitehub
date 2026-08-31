@@ -4,7 +4,10 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
   composeNitroCloudflareProviderOutput,
   contributeCloudflareProviderOutput,
+  contributeProviderDeploymentOutput,
   contributeProviderRuntime,
+  createProviderDeploymentOutputGenerationState,
+  finalizeProviderDeploymentOutputs,
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
@@ -18,8 +21,10 @@ import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRateLimitProviderOutput } from "./internal/provider-output.ts"
 
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
+
+export { discoverRateLimitDeclarations } from "./discovery.ts"
 
 const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
@@ -33,13 +38,14 @@ interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
 
 export type RateLimitVitePluginOptions = RateLimitModuleOptions
 export type RateLimitVitePlugin = Plugin
+type RateLimitConfig = UserConfig | ResolvedConfig
 
 function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
 function mergeNitroConfig(
-  config: object,
+  config: RateLimitConfig,
   value: unknown,
   declarations: RateLimitDeclaration[],
   namespace: string | undefined,
@@ -110,6 +116,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
   let composedOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let declarations: RateLimitDeclaration[] = []
   let declarationFiles = new Set<string>()
   let cloudflareOwnedByNitro = false
@@ -194,30 +201,64 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
       return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
     },
-    async closeBundle() {
+    buildStart() {
+      providerOutputGenerations.capture(this, composedOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, composedOutput, error)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      if (cloudflareOwnedByNitro && provider === "cloudflare") {
-        const configuredDeclarations = declarations
-        collectDeclarations()
-        if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
-          throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+      try {
+        if (cloudflareOwnedByNitro && provider === "cloudflare") {
+          const configuredDeclarations = declarations
+          collectDeclarations()
+          if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
+            throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+          }
         }
-        await writeRateLimitManifest(resolved.root, declarations, provider)
+        else {
+          collectDeclarations()
+        }
+        const namespace = resolveRateLimitNamespace(rateLimit.namespace)
+        const config = resolved
+        const contributionDeclarations = declarations
+        const contributionPreviousDeclarations = previousDeclarations
+        contributeProviderDeploymentOutput(composedOutput, {
+          owner: "rate-limit",
+          rootDir: config.root,
+          write: async ({ signal, write }) => {
+            await writeRateLimitProviderOutput({
+              clientOutDir: config.build.outDir,
+              cloudflareOwnedByNitro,
+              declarations: contributionDeclarations,
+              namespace,
+              previousDeclarations: contributionPreviousDeclarations,
+              provider,
+              rootDir: config.root,
+              signal,
+            }, write)
+            signal.throwIfAborted()
+            previousDeclarations = contributionDeclarations
+          },
+        }, providerOutputGenerations.get(this))
       }
-      else {
-        await refreshDeclarations()
+      catch (error) {
+        await providerOutputGenerations.reset(this, composedOutput, error)
+        throw error
       }
-      const namespace = resolveRateLimitNamespace(rateLimit.namespace)
-      await writeRateLimitProviderOutput({
-        clientOutDir: resolved.build.outDir,
-        cloudflareOwnedByNitro,
-        declarations,
-        namespace,
-        previousDeclarations,
-        provider,
-        rootDir: resolved.root,
-      })
-      previousDeclarations = declarations
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, composedOutput, error)
+    },
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(composedOutput)
+      },
     },
   }
 }

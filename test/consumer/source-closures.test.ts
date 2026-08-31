@@ -5,9 +5,10 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
-import { array, boolean, object, optional, parse, record, string, unknown } from "valibot"
+import { array, boolean, instance, object, optional, parse, record, safeParse, string, union, unknown } from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -18,26 +19,35 @@ const workerMetadataSchema = object({
     imports: optional(array(object({ external: optional(boolean()), path: string() }))),
   })),
 })
+const commandErrorSchema = object({
+  stderr: optional(union([string(), instance(Buffer)])),
+  stdout: optional(union([string(), instance(Buffer)])),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    // SAFETY: execFile rejects with the documented Error shape carrying optional output streams.
-    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
-    throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
+    const failed = safeParse(commandErrorSchema, error)
+    const output = failed.success ? `${failed.output.stdout || ""}${failed.output.stderr || ""}` : ""
+    throw new Error(`${command} ${args.join(" ")} failed\n${output}`, { cause: error })
   }
 }
 
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
-  for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
+  const infos = listWorkspacePackageInfos(repoRoot).filter(info => !info.private)
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
+  for (const info of infos) {
     const manifest = parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
-    overrides[manifest.name] = `file:${join(packDir, tarball)}`
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)
+    })
+    overrides[manifest.name] = `file:${tarball}`
   }
+  if (releaseTarballs && releaseTarballs.size !== infos.length) throw new Error("Release manifest package count does not match consumer inventory")
   return overrides
 }
 
@@ -49,6 +59,7 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "overrides:",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
@@ -78,7 +89,8 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return parse(workerMetadataSchema, JSON.parse(await readFile(meta, "utf8")))
+  const metaValue: unknown = JSON.parse(await readFile(meta, "utf8"))
+  return parse(workerMetadataSchema, metaValue)
 }
 
 function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {

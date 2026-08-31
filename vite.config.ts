@@ -10,6 +10,10 @@ export default defineConfig({
         command: "node packages/blob/test/e2e.mjs",
         dependsOn: ["@vite-hub/blob#build"],
       },
+      "console:dev": {
+        cache: false,
+        command: "vp dev --config playground/console/vite.config.ts",
+      },
       build: {
         cache: false,
         command: "node test/run-package-task.mjs build",

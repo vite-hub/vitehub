@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -71,6 +71,7 @@ interface ViteE2EComposerOptions {
   db?: ResolvedDBViteConfig
   hosting: HostedProvider
   kv?: false | ResolvedKVModuleOptions
+  providerImportAliases?: Record<string, string>
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
@@ -192,7 +193,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   ].join("\n")
 }
 
-function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModuleOptions | undefined) {
+function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModuleOptions | undefined, hosting: HostedProvider) {
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "ensure")))}`,
     `import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "storage")))}`,
@@ -200,17 +201,15 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   ]
 
   if (config?.store.driver === "cloudflare-r2") {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/cloudflare")))}`)
+    const driver = hosting === "cloudflare" ? "drivers/cloudflare-native" : "drivers/cloudflare"
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, driver)))}`)
   }
   else if (config?.store.driver === "vercel-blob") {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
     imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
-  else if (config?.store.driver === "fs") {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
-  }
   else if (config) {
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/files")))}`)
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, `drivers/${config.store.driver}`)))}`)
   }
 
   const storageExpression = !config
@@ -742,14 +741,23 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
     alias["@vite-hub/blob"] = blobRuntimeFile
-    runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
+    runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob, options.hosting), "utf8"))
   }
 
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
+    const kvViteRuntimeGuardFile = resolve(generatedDir, "kv-vite-runtime-guard.mjs")
+    const canonicalKvPackageDir = await realpath(kvPackageDir)
+    alias["@vite-hub/kv/runtime/cloudflare-kv"] = resolve(kvPackageDir, "src/runtime/cloudflare-kv.ts")
+    alias["@vite-hub/kv/vite"] = kvViteRuntimeGuardFile
+    alias[resolvePackageRuntime(kvPackageDir, "vite")] = kvViteRuntimeGuardFile
+    alias[resolve(canonicalKvPackageDir, "dist/vite.js")] = kvViteRuntimeGuardFile
     alias["@vite-hub/kv"] = kvRuntimeFile
-    runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
+    runtimeWrites.push(
+      writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),
+      writeFile(kvViteRuntimeGuardFile, "export const hubKv = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
+    )
   }
 
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The compatibility composer distinguishes omitted provider configuration.
@@ -1329,7 +1337,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   const wranglerConfig: CloudflareWranglerConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
-    compatibility_flags: ["nodejs_compat"],
+    compatibility_flags: ["global_fetch_strictly_public", "nodejs_compat"],
     ...(d1Databases ? { d1_databases: d1Databases } : {}),
     main: "index.js",
     name: workerName,
@@ -1522,13 +1530,20 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
     async config() {
       const artifacts = await prepareFeatureArtifacts(options)
       resolvedAlias = artifacts.alias
+      if (options.providerImportAliases) Object.assign(options.providerImportAliases, resolvedAlias)
       return {
         resolve: {
-          alias: resolvedAlias,
+          alias: Object.entries(resolvedAlias)
+            .filter(([find]) => find !== "@vite-hub/kv/vite")
+            .map(([find, replacement]) => ({
+              find: find === "@vite-hub/kv" ? /^@vite-hub\/kv$/ : find,
+              replacement,
+            })),
         },
       }
     },
     resolveId(id) {
+      if (id === "@vite-hub/kv/vite") return
       return resolvedAlias?.[id]
     },
     async closeBundle() {

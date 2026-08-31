@@ -1,10 +1,11 @@
-import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
@@ -21,7 +22,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolveRuntimeContext, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -46,12 +47,15 @@ import {
   http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
+  messageChannelDeliveredReplyBody,
+  messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
   slack as builtInSlack,
   teams as builtInTeams,
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
+import { registerMessageChannelDeferredReplyTrace, setChatFinishDirectReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
@@ -102,6 +106,7 @@ import {
   agentInvocationJournalContentTraceLogSymbol,
   agentInvocationJournalTraceLogSymbol,
   agentInvocationTraceIdContextKey,
+  traceAgentInvocationCancelled,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
@@ -127,6 +132,9 @@ import {
 } from "./workspace-agent.ts"
 
 import type {
+  AgentActivityStatus,
+  AgentActivityTask,
+  AgentActivityUpdate,
   AgentAdapter,
   AgentAdapterFactory,
   AgentAdapterRunContext,
@@ -182,6 +190,7 @@ import type {
   AgentTelemetryConfiguration,
   AgentToolSet,
   AgentToolStepItem,
+  AgentUsage,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   MaybePromise,
@@ -191,6 +200,7 @@ import type {
 import type {
   AgentInvocationController,
   AgentInvocationSnapshot,
+  BackedAgentInvocationOptions,
 } from "./agent-invocation.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
@@ -206,7 +216,9 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceEventLogEntry } from "@vite-hub/runtime"
+import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
+
+export { agentInvocationId } from "./invocations.ts"
 
 export type {
   AgentInvocationAnnotationValue,
@@ -253,6 +265,7 @@ export type {
   AgentCapabilitiesList,
   AgentCapabilitiesResolver,
   AgentCapabilitiesResolverContext,
+  AgentCallbackContext,
   AgentChannelDelivery,
   AgentChannelDeliveryEvent,
   AgentChannelDeliveryEventInput,
@@ -448,8 +461,14 @@ export type {
   AgentToolSet,
   AgentToolStep,
   AgentWaitUntil,
+  AgentProviderCredentialContext,
+  AgentProviderCredentialResolver,
+  AgentProviderCredentialValue,
+  AgentProviderSealedCredential,
   ClaudeCodeDriverOptions,
   CodexDriverOptions,
+  CodexReasoningEffort,
+  CodexReasoningSummary,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -686,9 +705,11 @@ interface AgentWorkflowRun<TOutput = unknown> {
 }
 type AgentWorkflowOutput<TOutput> = TOutput extends Response ? AgentRunResult : TOutput | AgentRunResult
 interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
+  activity?: ActiveAgentActivity
   handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, TOutput>
   invocationJournal?: AgentInvocationJournal
   run: AgentWorkflowRun<TOutput>
+  settled?: Promise<void>
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -890,7 +911,16 @@ async function runAgentAsWorkflow<
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
-  const workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+  const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
+  let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
+  try {
+    workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+  }
+  catch (error) {
+    await activity?.update("queued")
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {
@@ -901,9 +931,16 @@ async function runAgentAsWorkflow<
   if ("discoveryDefault" in binding && workflowConfig === false) return undefined
   if (input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare") {
     if (!cloudflareEnv) return undefined
-    const workflowName = resolveAgentWorkflowName(agent, binding, context)
-    const workflowBindingName = workflowConfig.binding || (await loadAgentWorkflowModule()).getCloudflareWorkflowBindingName(workflowName)
-    if (!cloudflareEnv[workflowBindingName]) return undefined
+    await activity?.update("queued")
+    try {
+      const workflowName = resolveAgentWorkflowName(agent, binding, context)
+      const workflowBindingName = workflowConfig.binding || (await loadAgentWorkflowModule()).getCloudflareWorkflowBindingName(workflowName)
+      if (!cloudflareEnv[workflowBindingName]) return undefined
+    }
+    catch (error) {
+      await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      throw error
+    }
   }
   if (activateCloudflareWorkflow) {
     workflowRuntimeState.setWorkflowRuntimeConfig(workflowConfig)
@@ -921,14 +958,27 @@ async function runAgentAsWorkflow<
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
 
-  const workflowName = resolveAgentWorkflowName(agent, binding, context)
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+  if (!(input.context?.[requireAgentWorkflowContextKey] === true && workflowConfig && workflowConfig.provider === "cloudflare")) {
+    await activity?.update("queued")
+  }
+  let workflowName: string
+  let handle: WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
+  let parsedInput: AgentRunInput<CALL_OPTIONS>
+  let workflowInput: AgentRunInput<CALL_OPTIONS>
+  try {
+    workflowName = resolveAgentWorkflowName(agent, binding, context)
+    handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, Boolean(context.agentIdentity))
+    // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
+    parsedInput = hasAgentDefinition(agent)
+      ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
+      : input
+    workflowInput = await portableAgentWorkflowInput(parsedInput)
+  }
+  catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
   const resolvedContext = createResolvedRuntimeContext(context)
-  // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
-  const parsedInput = hasAgentDefinition(agent)
-    ? await withParsedAgentMessageMeta(agent, input, context.run)
-    : input
-  const workflowInput = await portableAgentWorkflowInput(parsedInput)
   const channelDeliveryBinding = input.context?.[agentChannelDeliveryWorkflowContextKey]
   const durableChannelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
   const inheritedRun = options.fresh && context.run && !durableChannelDelivery
@@ -950,12 +1000,23 @@ async function runAgentAsWorkflow<
     ...(inheritedRun ? { run: inheritedRun } : {}),
     ...(context.trace ? { trace: context.trace } : {}),
   }
+  const workflowSettlementTasks: Promise<unknown>[] = []
+  const observeSettlement = (promise: PromiseLike<unknown>) => {
+    workflowSettlementTasks.push(Promise.resolve(promise))
+  }
+  const waitUntil = (promise: PromiseLike<unknown>) => {
+    const task = Promise.resolve(promise)
+    workflowSettlementTasks.push(task)
+    context.waitUntil?.(task)
+  }
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
-    waitUntil: context.waitUntil,
+    settled: observeSettlement,
+    waitUntil,
     context: {
       ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
-      waitUntil: context.waitUntil,
+      settled: observeSettlement,
+      waitUntil,
     },
   }
   // Durable Channel recovery may be a fresh provider start while still owning
@@ -1003,6 +1064,7 @@ async function runAgentAsWorkflow<
     )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   }
   catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     const ambiguous = isAmbiguousWorkflowStartFailure(error)
     const failedRunId = !options.fresh && context.run?.runId
       ? context.run.runId
@@ -1021,6 +1083,20 @@ async function runAgentAsWorkflow<
     }
     throw error
   }
+  if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
+    await activity?.update(
+      run.status,
+      run.status === "failed" ? run.metadata : undefined,
+      run.status === "completed" ? finalTextFromAgentOutput(run.result) : undefined,
+    )
+  }
+  const settled = run.status === "cancelled" || run.status === "completed" || run.status === "failed"
+    ? Promise.resolve()
+    : workflowSettlementTasks.length
+      ? Promise.allSettled(workflowSettlementTasks).then(() => undefined)
+      : undefined
+  const started: StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> = { activity, handle, run }
+  if (settled) started.settled = settled
   // Vercel's native Workflow owns durable suspension, but arbitrary Agent Definitions cannot
   // be compiled into that deterministic bundle. Its journal begins in the Agent worker instead.
   let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
@@ -1028,7 +1104,7 @@ async function runAgentAsWorkflow<
     const snapshot = agentInvocationSnapshotFromWorkflow(run)
     if (!snapshot || (snapshot.status !== "cancelled" && snapshot.status !== "completed" && snapshot.status !== "failed")) {
       const sourceRunId = options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id
-      if (!await deferRecovery(run.id, sourceRunId)) return { handle, run }
+      if (!await deferRecovery(run.id, sourceRunId)) return started
     }
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
@@ -1038,7 +1114,8 @@ async function runAgentAsWorkflow<
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
   }
-  return { handle, ...(invocationJournal ? { invocationJournal } : {}), run }
+  if (invocationJournal) started.invocationJournal = invocationJournal
+  return started
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -1055,7 +1132,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+  return createExecutionContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
 function createTraceId(run?: AgentRunMetadata): string {
@@ -1087,6 +1164,122 @@ function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+type ActiveAgentActivity = {
+  event(event: StreamEvent): Promise<void>
+  update(status: AgentActivityStatus, error?: unknown, summary?: string): Promise<void>
+}
+
+function agentActivityTasks(value: unknown): AgentActivityTask[] | undefined {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.plan)) return
+  return value.plan.flatMap((item) => {
+    if (!isRuntimeRecord(item)) return []
+    const title = [item.step, item.title, item.description].find(value => hasRuntimeType(value, "string") && value.trim())
+    if (!hasRuntimeType(title, "string")) return []
+    const rawStatus = hasRuntimeType(item.status, "string") ? item.status.replaceAll(/[^a-z]/gi, "").toLowerCase() : "pending"
+    const status = rawStatus === "completed" || rawStatus === "complete" || rawStatus === "done"
+      ? "completed"
+      : rawStatus === "inprogress" || rawStatus === "running" || rawStatus === "active"
+        ? "in-progress"
+        : "pending"
+    return [{ status, title: title.trim() } satisfies AgentActivityTask]
+  })
+}
+
+function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
+  definition: AgentDefinition<TRuntimeConfig> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): ActiveAgentActivity | undefined {
+  const run = context.run
+  const channel = run?.channelId ? definition?.channels?.[run.channelId] : undefined
+  if (!run?.activity || !channel?.activity) return
+  const initialStatus: AgentActivityStatus = "queued"
+  const initialTasks: AgentActivityTask[] = []
+  let state: {
+    agentName?: string
+    links: AgentActivityUpdate["links"]
+    runId: string
+    status: AgentActivityStatus
+    summary: string
+    tasks: AgentActivityTask[]
+  } = {
+    agentName: definition?.name || context.agentIdentity?.name,
+    links: [...run.activity.links || []],
+    runId: run.activity.runId || run.runId,
+    status: initialStatus,
+    summary: "",
+    tasks: initialTasks,
+  }
+  let delivery = Promise.resolve()
+  let lastSnapshot: string | undefined
+  const pendingInputRequests = new Set<string>()
+  const publish = async (status: AgentActivityStatus, error?: unknown, summary?: string) => {
+    if (!state.summary && summary) state.summary = summary.slice(-12_000)
+    state = { ...state, status }
+    const snapshot = {
+      ...state,
+      ...(error === undefined ? {} : { error: agentErrorMessage(error) }),
+      ...(state.summary ? { summary: state.summary } : {}),
+      tasks: [...state.tasks],
+    }
+    const fingerprint = JSON.stringify(snapshot)
+    if (fingerprint === lastSnapshot) return
+    lastSnapshot = fingerprint
+    delivery = delivery.catch(() => {}).then(async () => {
+      try {
+        await channel.activity!.update({
+          ...createAgentCallbackContext(context),
+          activity: snapshot,
+          channel,
+          target: run.activity!.target,
+        })
+      }
+      catch (deliveryError) {
+        if (lastSnapshot === fingerprint) lastSnapshot = undefined
+        console.error(new Error("[vitehub] Agent activity delivery failed.", { cause: deliveryError }))
+      }
+    })
+    try {
+      context.waitUntil?.(delivery)
+    }
+    catch (waitUntilError) {
+      console.error(new Error("[vitehub] Agent activity delivery could not be retained.", { cause: waitUntilError }))
+    }
+  }
+  return {
+    async event(event) {
+      if (event.type === "text-delta" && event.phase !== "commentary" && event.role !== "user") {
+        state.summary = `${state.summary}${event.text}`.slice(-12_000)
+        return
+      }
+      if (event.type === "data-agent-plan") {
+        const tasks = agentActivityTasks(event.data)
+        if (tasks) state.tasks = tasks
+        await publish(state.status === "waiting" ? "waiting" : "running")
+        return
+      }
+      if (event.type === "approval-request") {
+        pendingInputRequests.add(`approval:${event.id}`)
+        await publish("waiting")
+      }
+      else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "requested") {
+        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
+        if (requestId) pendingInputRequests.add(`input:${requestId}`)
+        await publish("waiting")
+      }
+      else if (event.type === "approval-decision") {
+        pendingInputRequests.delete(`approval:${event.id}`)
+        await publish(pendingInputRequests.size ? "waiting" : "running")
+      }
+      else if (event.type === "data-agent-input" && isRuntimeRecord(event.data) && event.data.status === "resolved") {
+        const requestId = hasRuntimeType(event.data.requestId, "string") ? event.data.requestId : undefined
+        if (requestId) pendingInputRequests.delete(`input:${requestId}`)
+        await publish(pendingInputRequests.size ? "waiting" : "running")
+      }
+    },
+    update: publish,
+  }
 }
 
 async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -1183,7 +1376,58 @@ async function applyChannelDeliveryEffectIntents<
 
     let delivered = true
     for (const handler of handlers) {
+      let streamedReplyContent = ""
+      let streamedReplyContentTruncated = false
+      const deliveredIntent = intent.kind === "reply" && isAsyncIterable(intent.payload)
+        ? {
+            ...intent,
+            payload: {
+              [Symbol.asyncIterator]() {
+                // SAFETY: isAsyncIterable establishes the asserted stream contract above.
+                const iterator = (intent.payload as AsyncIterable<string>)[Symbol.asyncIterator]()
+                return {
+                  async next() {
+                    const result = await iterator.next()
+                    if (result.done) return result
+                    const chunk = result.value
+                    if (streamedReplyContent.length < 16 * 1024) {
+                      const remaining = 16 * 1024 - streamedReplyContent.length
+                      streamedReplyContent += chunk.slice(0, remaining)
+                      if (chunk.length > remaining) streamedReplyContentTruncated = true
+                    }
+                    else if (chunk.length > 0) streamedReplyContentTruncated = true
+                    return result
+                  },
+                  async return() {
+                    return await iterator.return?.() ?? { done: true, value: undefined }
+                  },
+                  async throw(error?: unknown) {
+                    if (iterator.throw) return await iterator.throw(error)
+                    throw error
+                  },
+                }
+              },
+            } satisfies AsyncIterable<string>,
+          }
+        : intent
       let handlerCompleted = false
+      const deliveryEffectContext = {
+        ...context.runtimeContext,
+        channel: active.channel,
+        context: context.context,
+        effect: deliveredIntent,
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        ...(finish ? { finish: finish as never } : {}),
+        input: context.input,
+        request: context.runtimeContext.request,
+        run: context.run,
+        trigger: {
+          channelId: active.channelId,
+          ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+          ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+        },
+        workspace: context.workspace,
+      }
       try {
         await verifyOwnership?.()
         try {
@@ -1198,24 +1442,27 @@ async function applyChannelDeliveryEffectIntents<
           phase: "effect",
         }, async () => {
           await verifyOwnership?.()
-          await handler({
-            ...context.runtimeContext,
-            channel: active.channel,
-            context: context.context,
-            effect: intent,
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ...(finish ? { finish: finish as never } : {}),
-            input: context.input,
-            request: context.runtimeContext.request,
-            run: context.run,
-            trigger: {
-              channelId: active.channelId,
-              ...(active.trigger?.id ? { id: active.trigger.id } : {}),
-              ...(active.trigger?.name ? { name: active.trigger.name } : {}),
-            },
-            workspace: context.workspace,
+          await handler(deliveryEffectContext)
+          const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+            ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
+          const deliveredContentTruncated = streamedReplyContentTruncated
+            || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
+          const deferredTrace = intent.kind === "reply" && registerMessageChannelDeferredReplyTrace(deliveryEffectContext, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              "channel.effect.content": capture.content,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
           })
-          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+          if (!deferredTrace) {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
+              ...metadata,
+              ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+              ...(deliveredContentTruncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          }
         })
         handlerCompleted = true
       }
@@ -1237,9 +1484,15 @@ async function applyChannelDeliveryEffectIntents<
           await delivery?.event({ error: agentErrorMessage(error), type: "outbound.failed", runId: context.run?.runId })
         }
         catch {}
-        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+        const deliveredContent = messageChannelDeliveredReplyBody(deliveryEffectContext)
+          ?? (intent.kind === "reply" ? streamedReplyContent || messageChannelReplyBody({ effect: deliveredIntent }) : undefined)
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), deliveredIntent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
+          ...(deliveredContent !== undefined ? { "channel.effect.content": deliveredContent.slice(0, 16 * 1024) } : {}),
+          ...(streamedReplyContentTruncated || (deliveredContent !== undefined && deliveredContent.length > 16 * 1024)
+            ? { "vitehub.observation.truncated": true }
+            : {}),
         })
       }
       if (handlerCompleted) {
@@ -1414,13 +1667,19 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-        ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+          ? await (providerAdapter ??= import("./provider-agent.ts").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+            credentialProfile: driver.credentialProfile,
+            credentials: driver.credentials,
             env: driver.env,
             execution: driver.execution,
             instructions: driver.instructions,
             model: driver.model,
             permissions: driver.permissions,
             provider: driver.provider,
+            providerSettings: driver.providerSettings,
+            reasoningEffort: driver.reasoningEffort,
+            reasoningSummary: driver.reasoningSummary,
+            sessionStorePath: driver.sessionStorePath,
           })))
         : undefined
     if (!resolvedAdapter) {
@@ -1916,6 +2175,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
       ? { ...(settings.driver as AgentModelDriver), instructions }
       : {
           capacity: driver.capacity,
+          credentialProfile: driver.credentialProfile,
+          credentials: driver.credentials,
           env: driver.env,
           execution: driver.execution,
           instructions,
@@ -1923,6 +2184,10 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
           model: driver.model,
           output: driver.output,
           permissions: driver.permissions,
+          providerSettings: driver.providerSettings,
+          reasoningEffort: driver.reasoningEffort,
+          reasoningSummary: driver.reasoningSummary,
+          sessionStorePath: driver.sessionStorePath,
         },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2066,6 +2331,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -2332,7 +2598,7 @@ function agentContentTraceLog(
       else tailEntries[(count - maxEntries / 2) % tailEntries.length] = entry
       const isFailure = entry.name === "run.error" || (entry.name === "agent.stream.error" && entry.attributes?.["error.recoverable"] !== true)
       if (isFailure) failure = entry
-      if (entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
+      if (entry.name === "agent.invocation.cancelled" || entry.name === "agent.invocation.finish" || entry.name === "run.finish" || entry.name === "agent.invocation.error" || isFailure) terminal = entry
       count += 1
       await destination?.append(correlated)
       return entry
@@ -2391,7 +2657,7 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
-  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "vitehub.activity.body") return content.outputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
 
@@ -2561,6 +2827,8 @@ function agentTelemetryConfigurationLogRecord(
   return {
     attributes: {
       "agent.invocation.id": invocationId,
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
       "vitehub.agent.configuration": configuration,
       "vitehub.event.sequence": 0,
       "vitehub.event.type": "capability",
@@ -2656,6 +2924,8 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
             events: [
               {
                 attributes: {
+                  "vitehub.activity.owner": "vitehub",
+                  "vitehub.activity.phase": "setup",
                   "vitehub.agent.configuration": configurationValue,
                 },
                 name: "vitehub.agent.configured",
@@ -3026,6 +3296,8 @@ async function createAgentInvocationContext<
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
   let failureTelemetry = initialTelemetry
+  let failureActivity: TraceActivityContext = { owner: "vitehub", phase: "setup" }
+  let failureTraced = false
   const telemetryContentTraceLogWrapped = initialTelemetryUsesContent || mayResolveContentTelemetry
   try {
     const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
@@ -3186,10 +3458,21 @@ async function createAgentInvocationContext<
         }))
       }
       catch (error) {
+        failureActivity = { owner: "agent", phase: "execution" }
         try {
           await capabilities.close()
         }
         catch (closeError) {
+          const traceContext = {
+            context: invocationContext,
+            input,
+            invoker,
+            run: context.run,
+            runtime: runtimeContext,
+          }
+          await traceAgentInvocationError(traceContext, error, failureActivity)
+          await traceAgentInvocationError(traceContext, closeError, { owner: "vitehub", phase: "teardown" })
+          failureTraced = true
           throw new AggregateError([error, closeError], "[vitehub] Agent input hook failed and cleanup also failed.")
         }
         throw error
@@ -3335,6 +3618,7 @@ async function createAgentInvocationContext<
           ? configuration
           : agentTelemetryConfigurationForContent(configuration, {})
         await runtimeContext.traceLog?.append({
+          activity: { owner: "vitehub", phase: "setup" },
           attributes: { "vitehub.agent.configuration": persistedConfiguration },
           name: "vitehub.agent.configured",
           ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
@@ -3345,7 +3629,13 @@ async function createAgentInvocationContext<
       await traceConfiguration()
     }
     await traceAgentInvocationStart(toTraceContext(invocation))
-    await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
+    try {
+      await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
+    }
+    catch (error) {
+      failureActivity = { owner: "agent", phase: "delivery" }
+      throw error
+    }
     const startCapabilities = capabilities.start
     if (!invocation.handledResponse && startCapabilities) {
       try {
@@ -3353,24 +3643,32 @@ async function createAgentInvocationContext<
           await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
         }
         invocation.startTask = (async () => {
-          await applyChannelDeliveryEffectIntents(invocation, await startCapabilities())
-        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))
+          const deliveryEffectIntents = await startCapabilities()
+          try {
+            await applyChannelDeliveryEffectIntents(invocation, deliveryEffectIntents)
+          }
+          catch (error) {
+            await traceAgentInvocationError(toTraceContext(invocation), error, { owner: "agent", phase: "delivery" })
+          }
+        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error, { owner: "vitehub", phase: "setup" }))
         runtimeContext.waitUntil?.(invocation.startTask)
       }
       catch (error) {
-        await traceAgentInvocationError(toTraceContext(invocation), error)
+        await traceAgentInvocationError(toTraceContext(invocation), error, { owner: "vitehub", phase: "setup" })
       }
     }
     return invocation
   }
   catch (error) {
-    await traceAgentInvocationError({
-      context: invocationContext,
-      input,
-      invoker,
-      run: context.run,
-      runtime: runtimeContext,
-    }, error)
+    if (!failureTraced) {
+      await traceAgentInvocationError({
+        context: invocationContext,
+        input,
+        invoker,
+        run: context.run,
+        runtime: runtimeContext,
+      }, error, failureActivity)
+    }
     scheduleAgentTelemetry(failureTelemetry, runtimeContext, invocationContext, { name: definition?.name, version: definition?.version }, telemetryInvocationId)
     throw error
   }
@@ -3401,6 +3699,7 @@ type InvocationRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = {
+  activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   context: AgentInvocationContextStore
@@ -3455,21 +3754,24 @@ function maybeTraceAgentStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
-  if (!context.runtimeContext.traceLog) return stream
+  if (!context.runtimeContext.traceLog && !context.activity) return stream
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-  const tracer = createAgentStreamEventTracer(toTraceContext(context))
+  const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   return (async function* () {
     try {
       for await (const event of stream) {
         const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
-        if (normalized) await tracer.write(normalized)
+        if (normalized) {
+          await tracer?.write(normalized)
+          await context.activity?.event(normalized)
+        }
         yield event
       }
     }
     finally {
-      await tracer.flush()
+      await tracer?.flush()
     }
   })()
 }
@@ -3581,8 +3883,22 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const current = descriptor && "value" in descriptor ? descriptor.value : undefined
     if (hasRuntimeType(current, "string") && current) return result
-    const prototype = Object.getPrototypeOf(result)
-    if (prototype !== Object.prototype && prototype !== null && !Object.isExtensible(result)) return result
+    if (!Object.isExtensible(result)) {
+      return { ...toAgentRunResultWithInheritedProperties(result), raw: result, text }
+    }
+    if (isAsyncIterable(result)) {
+      try {
+        Object.defineProperty(result, "text", {
+          configurable: true,
+          enumerable: true,
+          value: text,
+        })
+        return result
+      }
+      catch {
+        return { ...toAgentRunResultWithInheritedProperties(result), raw: result, text }
+      }
+    }
     return resultWithPreservedProperties(result, {
       text: {
         configurable: true,
@@ -3592,6 +3908,31 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     })
   }
   return { raw: result, text }
+}
+
+function toAgentRunResultWithInheritedProperties(result: unknown): AgentRunResult {
+  if (!result || !hasRuntimeType(result, "object")) return toAgentRunResult(result)
+  let normalized: AgentRunResult
+  try {
+    normalized = toAgentRunResult(result)
+  }
+  catch {
+    normalized = { raw: result }
+  }
+  for (const key of ["artifacts", "finishReason", "text", "usage", "usageRecord", "warnings"] as const) {
+    if (normalized[key] !== undefined) continue
+    try {
+      if (!Reflect.has(result, key)) continue
+      const value = Reflect.get(result, key)
+      if (key === "text" && !hasRuntimeType(value, "string")) continue
+      // SAFETY: The key list is limited to writable AgentRunResult properties.
+      normalized[key] = value as never
+    }
+    catch {
+      // Ignore provider getters that cannot be read during result normalization.
+    }
+  }
+  return normalized
 }
 
 function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
@@ -3604,11 +3945,111 @@ function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent
       usageRecord,
     }
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  const record = result as { usage?: unknown, usageRecord?: unknown }
-  record.usageRecord ??= usageRecord
-  record.usage ??= usageRecord.usage
-  return result
+  if (Object.isExtensible(result)) {
+    try {
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      const record = result as { usage?: unknown, usageRecord?: unknown }
+      record.usageRecord ??= usageRecord
+      if (usageRecord.usage !== undefined) record.usage ??= usageRecord.usage
+      return result
+    }
+    catch {
+      // Fall through to a wrapper when an existing property cannot be assigned.
+    }
+  }
+  const normalized = toAgentRunResultWithInheritedProperties(result)
+  return {
+    ...normalized,
+    raw: result,
+    usage: normalized.usage ?? usageRecord.usage,
+    usageRecord: normalized.usageRecord ?? usageRecord,
+  }
+}
+
+function assignResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): void {
+  if (!usageRecord || !result || !hasRuntimeType(result, "object") || result instanceof Response || !Object.isExtensible(result)) return
+  try {
+    const assignable = (property: "usage" | "usageRecord") => {
+      const descriptor = Object.getOwnPropertyDescriptor(result, property)
+      return !descriptor || ("value" in descriptor ? descriptor.writable === true : hasRuntimeType(descriptor.set, "function"))
+    }
+    if (!assignable("usage") || !assignable("usageRecord")) return
+    Reflect.set(result, "usageRecord", usageRecord)
+    const currentUsage = Reflect.get(result, "usage")
+    const replaceUsage = currentUsage === undefined
+      || (hasRuntimeType(currentUsage, "object") && currentUsage !== null && hasRuntimeType(Reflect.get(currentUsage, "then"), "function"))
+    if (replaceUsage && usageRecord.usage) Reflect.set(result, "usage", usageRecord.usage)
+  }
+  catch {
+    // The finish result still carries merged usage when the preserved result cannot be updated.
+  }
+}
+
+function nonBlockingPendingAsyncIterableSource(stream: AsyncIterable<unknown>): ReturnType<typeof cancellableAsyncIterableSource> & {
+  settleCancellation: (reason?: unknown) => Promise<void>
+} {
+  let readableCancelTask: Promise<void> | undefined
+  const readableReader = isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+    // SAFETY: The runtime guard establishes the ReadableStream reader contract used below.
+    ? stream.getReader() as ReadableStreamDefaultReader<unknown>
+    : undefined
+  const iterator: AsyncIterator<unknown> = readableReader
+    ? {
+        next: () => readableReader.read(),
+        return(reason) {
+          readableCancelTask ||= Promise.resolve(readableReader.cancel(reason))
+            .finally(() => readableReader.releaseLock())
+          void readableCancelTask.catch(() => {})
+          return Promise.resolve({ done: true, value: undefined })
+        },
+      }
+    : stream[Symbol.asyncIterator]()
+  let cancelTask: Promise<void> | undefined
+  let completed = false
+  const cancel = (reason?: unknown): Promise<void> => {
+    if (completed) return Promise.resolve()
+    if (!cancelTask) {
+      try {
+        cancelTask = Promise.resolve(iterator.return?.(reason)).then(() => {})
+      }
+      catch (error) {
+        cancelTask = Promise.reject(error)
+      }
+    }
+    void cancelTask.catch(() => {})
+    return Promise.resolve()
+  }
+  const settleCancellation = async (reason?: unknown) => {
+    await cancel(reason)
+    await cancelTask
+    await readableCancelTask
+  }
+  return {
+    cancel,
+    get completed() {
+      return completed
+    },
+    stream: {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            const chunk = await iterator.next()
+            if (chunk.done) {
+              completed = true
+              readableReader?.releaseLock()
+              return { done: true, value: undefined }
+            }
+            return { done: false, value: chunk.value }
+          },
+          return(reason?: unknown) {
+            void cancel(reason)
+            return Promise.resolve({ done: true, value: undefined })
+          },
+        }
+      },
+    },
+    settleCancellation,
+  }
 }
 
 function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageRecord | undefined): unknown {
@@ -3684,19 +4125,319 @@ function resultWithPreservedProperties(result: unknown, descriptors: PropertyDes
   return cloneWithPropertyDescriptors(result, descriptors)
 }
 
-function resultWithStreamedTextAndUsage(
+function definedObjectProperties(value: unknown): Record<string, unknown> {
+  if (!value || !hasRuntimeType(value, "object")) return {}
+  try {
+    return Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value))
+      .filter(([, descriptor]) => descriptor.enumerable && "value" in descriptor && descriptor.value !== undefined)
+      .map(([key, descriptor]) => [key, descriptor.value]))
+  }
+  catch {
+    return {}
+  }
+}
+
+function definedObjectPropertiesWithInherited(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const properties = definedObjectProperties(value)
+  if (!value || !hasRuntimeType(value, "object")) return properties
+  for (const key of keys) {
+    if (properties[key] !== undefined) continue
+    try {
+      if (!Reflect.has(value, key)) continue
+      const property = Reflect.get(value, key)
+      if (property !== undefined) properties[key] = property
+    }
+    catch {
+      // Ignore provider getters that cannot be read during metadata normalization.
+    }
+  }
+  return properties
+}
+
+function normalizedAgentUsage(value: unknown): AgentUsage | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return undefined
+  try {
+    if (hasRuntimeType(Reflect.get(value, "then"), "function")) return undefined
+  }
+  catch {
+    // Ignore provider then getters that cannot be read during usage normalization.
+  }
+  const usage: Record<string, unknown> = { ...definedObjectProperties(value) }
+  for (const key of [
+    "completion_token_details",
+    "completion_tokens",
+    "completionTokenDetails",
+    "completionTokens",
+    "details",
+    "input_token_details",
+    "input_tokens",
+    "inputTokenDetails",
+    "inputTokens",
+    "output_token_details",
+    "output_tokens",
+    "outputTokenDetails",
+    "outputTokens",
+    "prompt_token_details",
+    "prompt_tokens",
+    "promptTokenDetails",
+    "promptTokens",
+    "raw",
+    "tokens",
+    "total_tokens",
+    "totalTokens",
+  ] as const) {
+    if (usage[key] !== undefined) continue
+    try {
+      if (!Reflect.has(value, key)) continue
+      const property = Reflect.get(value, key)
+      if (property !== undefined) usage[key] = property
+    }
+    catch {
+      // Ignore provider getters that cannot be read during usage normalization.
+    }
+  }
+  // SAFETY: The canonical keys above construct the AgentUsage contract while omitting unreadable metadata.
+  return usage as AgentUsage
+}
+
+function mergedAgentUsageScalars(...values: (AgentUsage | undefined)[]): AgentUsage {
+  const usage: AgentUsage = {}
+  let latestComponentIndex = -1
+  let latestTotalIndex = -1
+  for (const [index, value] of values.entries()) {
+    if (!value) continue
+    for (const key of ["inputTokens", "outputTokens", "totalTokens"] as const) {
+      const tokens = value[key]
+      if (!hasRuntimeType(tokens, "number") || !Number.isFinite(tokens)) continue
+      usage[key] = tokens
+      if (key === "totalTokens") latestTotalIndex = index
+      else latestComponentIndex = index
+    }
+    if (value.raw !== undefined) usage.raw = value.raw
+  }
+  if (latestComponentIndex > latestTotalIndex) {
+    if (usage.inputTokens !== undefined && usage.outputTokens !== undefined) {
+      usage.totalTokens = usage.inputTokens + usage.outputTokens
+    }
+    else {
+      delete usage.totalTokens
+    }
+  }
+  return usage
+}
+
+function mergedFiniteNumberObjects(...values: unknown[]): Record<string, number> {
+  const merged: Record<string, number> = {}
+  for (const value of values) {
+    for (const [key, item] of Object.entries(mergedReadableObjects(value))) {
+      if (hasRuntimeType(item, "number") && Number.isFinite(item)) merged[key] = item
+    }
+  }
+  return merged
+}
+
+function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
+  return Object.assign({}, ...values.map((value) => {
+    const properties = definedObjectProperties(value)
+    if (!value || !hasRuntimeType(value, "object")) return properties
+    let source: object | null = value
+    while (source && source !== Object.prototype) {
+      let descriptors: PropertyDescriptorMap
+      try {
+        descriptors = Object.getOwnPropertyDescriptors(source)
+      }
+      catch {
+        descriptors = {}
+      }
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (key === "constructor" || properties[key] !== undefined) continue
+        if (!("get" in descriptor) && !(descriptor.enumerable && "value" in descriptor)) continue
+        try {
+          const property = Reflect.get(value, key)
+          if (property !== undefined) properties[key] = property
+        }
+        catch {
+          // Ignore provider detail getters that cannot be read during usage normalization.
+        }
+      }
+      try {
+        source = Object.getPrototypeOf(source)
+      }
+      catch {
+        source = null
+      }
+    }
+    return properties
+  }))
+}
+
+function mergedUsageRecords(...values: unknown[]): Record<string, unknown> {
+  const keys = ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"] as const
+  return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
+}
+
+function mergedUsageRecordMetadata(key: "credentialSource" | "latency" | "response" | "run", ...values: unknown[]): Record<string, unknown> {
+  const keys = key === "credentialSource"
+    ? ["label", "source"]
+    : key === "latency"
+      ? ["durationMs", "timeToFirstTokenMs", "tokensPerSecond"]
+      : key === "response"
+        ? ["finishReason", "id", "timestamp"]
+        : ["annotations", "channelId", "messageId", "origin", "runId", "threadId"]
+  const merged = Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
+  if (key === "run") {
+    const annotations = values.map(value => definedObjectPropertiesWithInherited(value, ["annotations"]).annotations)
+    if (annotations.some(Boolean)) merged.annotations = mergedReadableObjects(...annotations)
+  }
+  return merged
+}
+
+async function resultWithStreamedTextAndUsage(
   result: unknown,
   text: string,
   usageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
-): unknown {
-  return resultWithUsageRecord(resultWithStreamedText(result, text), usageRecord ?? fallbackUsageRecord)
+  resolveUsage = true,
+): Promise<unknown> {
+  if (result instanceof Response) return result
+  const streamedUsageRecord = usageRecord ?? fallbackUsageRecord
+  const hasDeferredUsage = hasRuntimeType(result, "object") && result !== null && ["usage", "totalUsage"].some((property) => {
+    try {
+      const value = Reflect.get(result, property)
+      if (!isRuntimeObject(value) || !hasRuntimeType(Reflect.get(value, "then"), "function")) return false
+      void Promise.resolve(value).catch(() => {})
+      return true
+    }
+    catch {
+      return false
+    }
+  })
+  if (hasRuntimeType(result, "object") && result !== null && (isAsyncIterable(result)
+    || hasTraceableStreamResult(result)
+    || ((streamedUsageRecord !== undefined || hasDeferredUsage) && isUIMessageStreamResult(result)))) {
+    const normalized = toAgentRunResultWithInheritedProperties(result)
+    const sourceUsageRecord = definedObjectPropertiesWithInherited(result, ["usageRecord"]).usageRecord
+    const sourceUsageRecordProperties = mergedUsageRecords(sourceUsageRecord)
+    const fallbackUsageRecordProperties = mergedUsageRecords(fallbackUsageRecord)
+    const streamedUsageRecordProperties = mergedUsageRecords(usageRecord)
+    const normalizedUsageRecordProperties = mergedUsageRecords(normalized.usageRecord)
+    const hasSourceUsageRecord = Object.keys(sourceUsageRecordProperties).length > 0
+    const sourceUsage = normalizedAgentUsage(sourceUsageRecordProperties.usage)
+    let resolvedUsage = normalized.usage
+    if (resolvedUsage === undefined) {
+      try {
+        if (Reflect.has(result, "totalUsage")) resolvedUsage = Reflect.get(result, "totalUsage")
+      }
+      catch {
+        // Ignore provider totalUsage getters that cannot be read during finalization.
+      }
+    }
+    if (resolvedUsage && hasRuntimeType(resolvedUsage, "object")) {
+      let then: unknown
+      try {
+        then = Reflect.get(resolvedUsage, "then")
+      }
+      catch {
+        // Keep normalizing readable usage fields when a provider exposes an unreadable then getter.
+      }
+      if (hasRuntimeType(then, "function")) {
+        const pendingUsage = Symbol("pending usage")
+        try {
+          resolvedUsage = await Promise.race([
+            Promise.resolve(resolvedUsage),
+            resolveUsage
+              ? new Promise(resolve => setTimeout(resolve, 0, pendingUsage))
+              : Promise.resolve(pendingUsage),
+          ])
+          if (resolvedUsage === pendingUsage) resolvedUsage = undefined
+        }
+        catch {
+          // Ignore provider thenables that reject while being observed during finalization.
+          resolvedUsage = undefined
+        }
+      }
+    }
+    const normalizedUsage = normalizedAgentUsage(resolvedUsage)
+    let canonicalUsageRecord: AgentUsageRecord | undefined
+    if (normalizedUsage) {
+      try {
+        const metadataSource = Object.create(result)
+        Object.defineProperty(metadataSource, "usage", {
+          configurable: true,
+          enumerable: true,
+          value: normalizedUsage,
+        })
+        canonicalUsageRecord = await resolveAgentUsageRecord(metadataSource)
+      }
+      catch {
+        canonicalUsageRecord = await resolveAgentUsageRecord({ usage: normalizedUsage })
+      }
+    }
+    const canonicalUsage = canonicalUsageRecord?.usage
+    let canonicalResolvedUsage: AgentUsage | undefined
+    if (canonicalUsage) {
+      canonicalResolvedUsage = { ...canonicalUsage }
+      if (normalizedUsage?.details) canonicalResolvedUsage.details = normalizedUsage.details
+      if (normalizedUsage?.inputTokenDetails) canonicalResolvedUsage.inputTokenDetails = normalizedUsage.inputTokenDetails
+      if (normalizedUsage?.outputTokenDetails) canonicalResolvedUsage.outputTokenDetails = normalizedUsage.outputTokenDetails
+      if (normalizedUsage?.raw !== undefined) canonicalResolvedUsage.raw = normalizedUsage.raw
+    }
+    const fallbackUsage = normalizedAgentUsage(fallbackUsageRecordProperties.usage)
+    const streamedUsage = normalizedAgentUsage(streamedUsageRecordProperties.usage)
+    const normalizedRecordUsage = normalizedAgentUsage(normalizedUsageRecordProperties.usage)
+    const usageValues = [fallbackUsage, sourceUsage, normalizedRecordUsage, canonicalResolvedUsage, streamedUsage]
+    const inputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.inputTokenDetails))
+    const outputTokenDetails = mergedFiniteNumberObjects(...usageValues.map(value => value?.outputTokenDetails))
+    let mergedUsage: AgentUsage | undefined
+    if (usageValues.some(Boolean)) {
+      mergedUsage = mergedAgentUsageScalars(...usageValues)
+      if (usageValues.some(value => value?.details)) {
+        mergedUsage.details = mergedReadableObjects(...usageValues.map(value => value?.details))
+      }
+      if (Object.keys(inputTokenDetails).length) mergedUsage.inputTokenDetails = inputTokenDetails
+      if (Object.keys(outputTokenDetails).length) mergedUsage.outputTokenDetails = outputTokenDetails
+    }
+    const canonicalUsageRecordProperties = mergedUsageRecords(canonicalUsageRecord)
+    const usageRecordValues = [fallbackUsageRecordProperties, sourceUsageRecordProperties, normalizedUsageRecordProperties, canonicalUsageRecordProperties, streamedUsageRecordProperties]
+    let mergedUsageRecord: AgentUsageRecord | undefined
+    if (mergedUsage || usageRecordValues.some(value => Object.keys(value).length > 0) || hasSourceUsageRecord) {
+      mergedUsageRecord = {
+        ...mergedUsageRecords(...usageRecordValues),
+        ...(["credentialSource", "latency", "response", "run"] as const).reduce<Record<string, unknown>>((properties, key) => {
+          const values = usageRecordValues.map(value => value[key])
+          if (values.some(Boolean)) {
+            properties[key] = mergedUsageRecordMetadata(key, ...values)
+          }
+          return properties
+        }, {}),
+      }
+      if (mergedUsage) mergedUsageRecord.usage = mergedUsage
+    }
+    const normalizedWithoutUsage = { ...normalized }
+    delete normalizedWithoutUsage.usage
+    const finishResult = {
+      ...normalizedWithoutUsage,
+      raw: result,
+      ...(text ? { text: normalized.text || text } : {}),
+      ...(mergedUsage ? { usage: mergedUsage } : {}),
+      ...(mergedUsageRecord ? { usageRecord: mergedUsageRecord } : {}),
+    }
+    if (isAsyncIterable(result)) {
+      Object.defineProperty(finishResult, Symbol.asyncIterator, {
+        configurable: true,
+        value: () => result[Symbol.asyncIterator](),
+      })
+    }
+    return finishResult
+  }
+  return resultWithUsageRecord(resultWithStreamedText(result, text), streamedUsageRecord)
 }
 
 function withStreamedResult(
   stream: AsyncIterable<unknown>,
   result: unknown,
-  fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
+  fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"]
+    | ((resolveUsage: boolean) => MaybePromise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined>),
   toolResults?: AgentToolStepItem[],
   tools?: AgentToolSet,
 ) {
@@ -3707,12 +4448,20 @@ function withStreamedResult(
   let finalText = ""
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+  let finalizedUsageRecord: AgentUsageRecord | undefined
   return {
-    finishResult(resultOverride: unknown = result) {
-      return resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
+    async finishResult(resultOverride: unknown = result, resolveUsage = true) {
+      const resolvedFallbackUsageRecord = hasRuntimeType(fallbackUsageRecord, "function")
+        ? await fallbackUsageRecord(resolveUsage)
+        : fallbackUsageRecord
+      const finishResult = await resultWithStreamedTextAndUsage(resultOverride, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, resolvedFallbackUsageRecord, resolveUsage)
+      finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+        ? toAgentRunResult(finishResult).usageRecord
+        : undefined
+      return finishResult
     },
     finishUsage() {
-      return usageRecord ?? fallbackUsageRecord
+      return finalizedUsageRecord
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -3761,16 +4510,18 @@ async function finishStreamAgentInvocation<
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
 ): Promise<void> {
-  if (outcome.status === "error") {
+  if (outcome.status !== "success") {
     await lifecycle.finish(outcome)
     return
   }
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
-    const usageRecord = await resolveFinishUsageRecord(context, result)
+    const usageRecord = outcome.usageResolved
+      ? outcome.usage && await resolveAgentUsageRecord({ usageRecord: outcome.usage }, context.run)
+      : await resolveFinishUsageRecord(context, result)
     finishUsage = usageRecord
-    const resolvedResult = resultWithResolvedUsageRecord(result, usageRecord)
+    const resolvedResult = context.output ? result : resultWithResolvedUsageRecord(result, usageRecord)
     if (usageRecord && resolvedResult !== result && result && hasRuntimeType(result, "object") && Object.isExtensible(result)) {
       try {
         Object.defineProperty(result, "usageRecord", {
@@ -3792,7 +4543,20 @@ async function finishStreamAgentInvocation<
   catch (finishError) {
     await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
   }
-  await lifecycle.finish({ result: finishResult, status: "success", usage: finishUsage })
+  const finishOutcome: Parameters<typeof lifecycle.finish>[0] = {
+    result: finishResult,
+    status: "success",
+    usage: finishUsage,
+  }
+  if (outcome.usageResolved) finishOutcome.usageResolved = true
+  await lifecycle.finish(finishOutcome)
+  assignResolvedUsageRecord(result, finishUsage)
+  const rawDescriptor = result && hasRuntimeType(result, "object")
+    ? Object.getOwnPropertyDescriptor(result, "raw")
+    : undefined
+  if (rawDescriptor && "value" in rawDescriptor && rawDescriptor.value !== result) {
+    assignResolvedUsageRecord(rawDescriptor.value, finishUsage)
+  }
 }
 
 function traceUiMessageStream<
@@ -3803,7 +4567,7 @@ function traceUiMessageStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-  const tracer = createAgentStreamEventTracer(toTraceContext(context))
+  const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   let finished = false
   let released = false
   const release = () => {
@@ -3816,8 +4580,8 @@ function traceUiMessageStream<
       try {
         const result = await reader.read()
         if (result.done) {
-          if (!finished) await tracer.write({ type: "finish" })
-          await tracer.flush()
+          if (!finished) await tracer?.write({ type: "finish" })
+          await tracer?.flush()
           release()
           controller.close()
           return
@@ -3825,12 +4589,13 @@ function traceUiMessageStream<
         const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
         if (event) {
           if (event.type === "finish") finished = true
-          await tracer.write(event)
+          await tracer?.write(event)
+          await context.activity?.event(event)
         }
         controller.enqueue(result.value)
       }
       catch (error) {
-        await tracer.flush()
+        await tracer?.flush()
         release()
         controller.error(error)
       }
@@ -3840,7 +4605,7 @@ function traceUiMessageStream<
         await reader.cancel(reason)
       }
       finally {
-        await tracer.flush()
+        await tracer?.flush()
         release()
       }
     },
@@ -3866,7 +4631,7 @@ function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
-  if (context.runtimeContext.traceLog) {
+  if (context.runtimeContext.traceLog || context.activity) {
     if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
@@ -3910,11 +4675,17 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
+  | { result?: unknown, status: "cancelled", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { result?: unknown, status: "success", usage?: AgentUsageRecord, usageResolved?: boolean }
   | { error: unknown, status: "error" }
 
-function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
-  return outcome.failed ? { error: outcome.error, status: "error" } : { result, status: "success" }
+function finishOutcomeFromCleanup(outcome: { completed?: boolean, failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
+  if (outcome.failed) return { error: outcome.error, status: "error" }
+  if (outcome.completed !== false) return { result, status: "success" }
+  const usage = result && hasRuntimeType(result, "object")
+    ? toAgentRunResult(result).usageRecord
+    : undefined
+  return { result, status: "cancelled", usage, usageResolved: true }
 }
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
@@ -3940,7 +4711,7 @@ function shouldWrapInvocationOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
-  return shouldDeferFinish(context) || Boolean(context.runtimeContext.traceLog)
+  return shouldDeferFinish(context) || Boolean(context.runtimeContext.traceLog) || Boolean(context.activity)
 }
 
 async function commitWorkspaceChanges<
@@ -4234,14 +5005,39 @@ async function finishAgentInvocation<
   outcome: AgentInvocationFinishOutcome,
 ): Promise<void> {
   const durationMs = Date.now() - context.startedAt
-  let failed = outcome.status === "error"
+  let outcomeCancelled = outcome.status === "cancelled"
+  const outcomeFailed = outcome.status === "error"
+  let failed = outcomeFailed
   let error = outcome.status === "error" ? outcome.error : undefined
-  let result = outcome.status === "success" ? outcome.result : undefined
-  let usage = outcome.status === "success" ? outcome.usage : undefined
-  const usageResolved = outcome.status === "success" && outcome.usageResolved
+  let result = outcome.status === "error" ? undefined : outcome.result
+  let usage = outcome.status === "error" ? undefined : outcome.usage
+  const usageResolved = outcome.status !== "error" && outcome.usageResolved
   let runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   let text = runResult?.text
   let closeError: unknown
+  let finishFailureActivity: TraceActivityContext | undefined
+  let throwingCloseError = false
+  const tracedFailureStages = new Set<"finish" | "outcome" | "teardown">()
+  const traceFinishError = async (
+    failure: unknown,
+    stage: "finish" | "outcome" | "teardown",
+    activity?: TraceActivityContext,
+  ) => {
+    if (tracedFailureStages.has(stage)) return
+    tracedFailureStages.add(stage)
+    await traceAgentInvocationError(toTraceContext(context), failure, activity)
+  }
+  const runFinishActivity = async <T>(activity: TraceActivityContext, operation: () => MaybePromise<T>): Promise<T> => {
+    try {
+      return await operation()
+    }
+    catch (failure) {
+      finishFailureActivity = activity
+      throw failure
+    }
+  }
+  const deliveryActivity = { owner: "agent", phase: "delivery" } as const
+  const teardownActivity = { owner: "vitehub", phase: "teardown" } as const
   try {
     await context.startTask
     try {
@@ -4250,6 +5046,7 @@ async function finishAgentInvocation<
     catch (cleanupError) {
       closeError = cleanupError
       if (!failed) {
+        outcomeCancelled = false
         failed = true
         result = undefined
         runResult = undefined
@@ -4288,7 +5085,10 @@ async function finishAgentInvocation<
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalEvent = provisionalFinishEvent(context, eventBase)
-      const provisionallyActiveDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalEvent)
+      const provisionallyActiveDeliveryProviders = await runFinishActivity(
+        deliveryActivity,
+        () => activeFinishDeliveryEffectProviders(context, provisionalEvent),
+      )
       const hasDurableFailureDelivery = failed
         && context.durableErrorFallbackTimeout !== undefined
         && provisionallyActiveDeliveryProviders.some(isDurableChatErrorFallbackEffect)
@@ -4297,7 +5097,7 @@ async function finishAgentInvocation<
         : undefined
       const provisionalActiveDeliveryProviders = hasDurableFailureDelivery
         ? provisionallyActiveDeliveryProviders
-        : await prepareProvisionalTitleDeliverySupport(context, eventBase)
+        : await runFinishActivity(deliveryActivity, async () => await prepareProvisionalTitleDeliverySupport(context, eventBase))
       const cleanupOnlyFailure = outcome.status === "success" && closeError !== undefined
       const outcomeHook = failed
         ? cleanupOnlyFailure ? undefined : context.errorHook
@@ -4309,30 +5109,72 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
+          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
-          const fallbackProviders = activeFinishDeliveryEffectProviders(context, fallbackEvent)
-            .filter(isDurableChatErrorFallbackEffect)
-          await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline!)
+          const fallbackProviders = await runFinishActivity(
+            deliveryActivity,
+            () => activeFinishDeliveryEffectProviders(context, fallbackEvent).filter(isDurableChatErrorFallbackEffect),
+          )
+          await runFinishActivity(
+            deliveryActivity,
+            async () => {
+              await applyDurableFailureDeliveryEffects(fallbackProviders, fallbackEvent, context, durableFailureDeadline)
+            },
+          )
         }
         const extensions = hasDurableFailureDelivery
-          ? await resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!)
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          : await createAgentInvocationExtensions(eventBase as never, finishExtensionProviders)
+          ? await runFinishActivity(
+              teardownActivity,
+              () => resolveDurableFailureFinishExtensions(eventBase, finishExtensionProviders, durableFailureDeadline!),
+            )
+          : await runFinishActivity(
+              teardownActivity,
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              () => createAgentInvocationExtensions(eventBase as never, finishExtensionProviders),
+            )
         const finishEvent = { ...eventBase, extensions }
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
-          .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+        const chatFinish = extensions.get("chat")
+        if (chatFinish && isRuntimeObject(chatFinish)) {
+          setChatFinishDirectReplyTrace(chatFinish, message => async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: message,
+            }, {
+              "channel.effect.content": capture.content,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          })
+        }
+        const activeDeliveryProviders = await runFinishActivity(
+          deliveryActivity,
+          () => {
+            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+            return activeFinishDeliveryEffectProviders(context, finishEvent as never)
+              .filter(provider => !hasDurableFailureDelivery || !isDurableChatErrorFallbackEffect(provider))
+          },
+        )
         if (hasDurableFailureDelivery) {
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline!)
+          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          await runFinishActivity(
+            deliveryActivity,
+            async () => {
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              await applyDurableFailureDeliveryEffects(activeDeliveryProviders, finishEvent as never, context, durableFailureDeadline)
+            },
+          )
         }
         else {
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
-          for (const intent of finishIntents) {
+          await runFinishActivity(deliveryActivity, async () => {
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
-          }
+            const finishIntents = await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context)
+            for (const intent of finishIntents) {
+              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+              await applyChannelDeliveryEffectIntents(context, [intent], finishEvent as never)
+            }
+          })
         }
         const runOutcomeHook = async (hookContext: typeof context) => {
           const hookFinishEvent = { ...finishEvent, input: hookContext.input }
@@ -4352,7 +5194,10 @@ async function finishAgentInvocation<
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
             appendDeliveryEffectIntent(outcomeHookIntents, outcomeHookResult)
-            await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent)
+            await runFinishActivity(
+              deliveryActivity,
+              async () => await applyChannelDeliveryEffectIntents(hookContext, outcomeHookIntents, hookFinishEvent),
+            )
           }
         }
         if (durableFailureDeadline) {
@@ -4365,8 +5210,13 @@ async function finishAgentInvocation<
         }
       }
     }
-    if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {
+      await runFinishActivity(teardownActivity, async () => await commitWorkspaceChanges(context))
+    }
+    if (outcomeCancelled) {
+      await traceAgentInvocationCancelled(toTraceContext(context))
+    }
+    else if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
@@ -4376,21 +5226,25 @@ async function finishAgentInvocation<
       })
     }
     else {
-      await traceAgentInvocationError(toTraceContext(context), error)
+      if (outcomeFailed) await traceFinishError(error, "outcome")
+      if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : failed ? "failed" : "completed",
-      error,
-    )
-    if (closeError !== undefined) throw closeError
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
+    await context.activity?.update(status, error, text)
+    await context.invocationJournal?.finish(status, error)
+    if (closeError !== undefined) {
+      throwingCloseError = true
+      throw closeError
+    }
   }
   catch (finishError) {
-    await traceAgentInvocationError(toTraceContext(context), failed ? error : finishError)
-    await context.invocationJournal?.finish(
-      failed && context.input.abortSignal?.aborted ? "cancelled" : "failed",
-      failed ? error : finishError,
-    )
-    if (closeError !== undefined && finishError !== closeError) {
+    if (outcomeFailed) await traceFinishError(error, "outcome")
+    if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
+    if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
+    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : "failed"
+    await context.activity?.update(status, failed ? error : finishError)
+    await context.invocationJournal?.finish(status, failed ? error : finishError)
+    if (closeError !== undefined && !throwingCloseError) {
       throw new AggregateError([closeError, finishError], "[vitehub] Capability cleanup and Agent finish lifecycle both failed.")
     }
     throw finishError
@@ -4411,6 +5265,7 @@ async function finalizeAgentInvocationResult<
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
+    fallbackUsageRecord?: AgentUsageRecord | ((resolveUsage: boolean) => MaybePromise<AgentUsageRecord | undefined>)
     finalizeResponse?: (response: Response) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: Response | TResult } | undefined>
     finalizeRawStreams?: boolean
     holdOutput?: boolean
@@ -4434,24 +5289,21 @@ async function finalizeAgentInvocationResult<
         || responseMediaType?.endsWith("+json")
         || responseMediaType === "application/xml"
         || responseMediaType?.endsWith("+xml"))
-      const responseDecoder = context.context.get(responseTitleFallbackContextKey) === true && responseIsText
+      const responseDecoder = (context.context.get(responseTitleFallbackContextKey) === true || Boolean(context.activity)) && responseIsText
         ? new TextDecoder()
         : undefined
-      let responseText = ""
+      const responseTextLimit = context.context.get(responseTitleFallbackContextKey) === true ? Number.POSITIVE_INFINITY : 12_000
+      const responseText = createBoundedTextAccumulator(responseTextLimit)
       const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
-        responseText += responseDecoder?.decode() ?? ""
-        const finishResult = responseText && !outcome.failed
-          ? { raw: result, text: responseText }
+        responseText.append(responseDecoder?.decode() ?? "")
+        const retainedResponseText = responseText.value()
+        const finishResult = retainedResponseText && !outcome.failed
+          ? { raw: result, text: retainedResponseText }
           : result
-        if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish({ result: finishResult, status: "success", usageResolved: true })
-        }
-        else {
-          await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
-        }
+        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
       }, {
         abortSignal: context.input.abortSignal,
-        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
+        onChunk: chunk => responseText.append(responseDecoder?.decode(chunk, { stream: true }) ?? ""),
       }) : result
       return response
     }
@@ -4464,21 +5316,18 @@ async function finalizeAgentInvocationResult<
       const enrichedStream = withEagerStreamUsageExtensions(source.stream, context, result)
       const stream = options.wrapStream?.(enrichedStream) || enrichedStream
       if (shouldWrapOutput) {
-        const streamed = withStreamedResult(stream, result, undefined, context.toolResults, context.tools)
+        const streamed = withStreamedResult(stream, result, options.fallbackUsageRecord, context.toolResults, context.tools)
         if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+            const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
+            const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
             const usage = streamed.finishUsage()
-            if (!outcome.failed && !outcome.completed) {
-              return lifecycle.finish({
-                result,
-                status: "success",
-                ...(usage ? { usage: await resolveAgentUsageRecord({ usageRecord: usage }, context.run) } : {}),
-                usageResolved: true,
-              })
-            }
             return lifecycle.finish(finishOutcome.status === "success"
-              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+              ? {
+                  ...finishOutcome,
+                  usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined,
+                  usageResolved: true,
+                }
               : finishOutcome)
           }, {
             abortSignal: context.input.abortSignal,
@@ -4489,7 +5338,13 @@ async function finalizeAgentInvocationResult<
             ? toReadableAsyncIterableStream(value)
             : value
         }
-        const value = withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), {
+        const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          const finishResult = await streamed.finishResult(result, !outcome.failed && outcome.completed === true)
+          const finishOutcome = finishOutcomeFromCleanup(outcome, finishResult)
+          return finishStreamAgentInvocation(context, lifecycle, finishResult, finishOutcome.status === "success"
+            ? { ...finishOutcome, usage: streamed.finishUsage(), usageResolved: true }
+            : finishOutcome, failureMessage, options.outputExtensions)
+        }, {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
@@ -4692,6 +5547,7 @@ async function executeAgentInvocationWithCapacityLease<
   options: AgentInvocationExecutionOptions,
   preparedInvocation?: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
+  activity?: ActiveAgentActivity,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
   const definition = hasAgentDefinition(agent)
@@ -4700,6 +5556,7 @@ async function executeAgentInvocationWithCapacityLease<
     : undefined
   const invocation = preparedInvocation
     ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal)
+  invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
@@ -4773,40 +5630,80 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   const outputExtensions = new Map<string, unknown>()
+  const rawDriverResult = result
+  const rawDriverUsageObserved = isAsyncIterable(result)
+  const rawDriverHasDeferredUsage = rawDriverUsageObserved && hasRuntimeType(rawDriverResult, "object") && rawDriverResult !== null && ["usage", "totalUsage"].some((property) => {
+    try {
+      const usage = Reflect.get(rawDriverResult, property)
+      if (!isRuntimeObject(usage)) return false
+      if (!hasRuntimeType(Reflect.get(usage, "then"), "function")) return false
+      void Promise.resolve(usage).catch(() => {})
+      return true
+    }
+    catch {
+      return false
+    }
+  })
+  let rawDriverUsageRecord = rawDriverUsageObserved
+    ? toAgentRunResult(await resultWithStreamedTextAndUsage(result, "")).usageRecord
+    : undefined
   let renderedResult = false
-  let rendererSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
+  let rendererSource: ReturnType<typeof nonBlockingPendingAsyncIterableSource> | undefined
+  const resolveRawDriverUsageRecord = async (resolveUsage: boolean) => {
+    rawDriverUsageRecord = toAgentRunResult(await resultWithStreamedTextAndUsage(
+      rawDriverResult,
+      "",
+      undefined,
+      rawDriverUsageRecord,
+      resolveUsage,
+    )).usageRecord
+    return rawDriverUsageRecord
+  }
   try {
     const shouldRenderStream = options.kind === "run"
       ? customRun && options.renderOutput && isAsyncIterable(result)
-      : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
+      : isAsyncIterable(result) && !invocation.finalOutputRenderers.length
     if (shouldRenderStream) {
-      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length
+      rendererSource = shouldHoldInvocationOutput() && invocation.outputRenderers.length && !isUIMessageStreamResult(result)
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? cancellableAsyncIterableSource(result as AsyncIterable<unknown>)
+        ? nonBlockingPendingAsyncIterableSource(result as AsyncIterable<unknown>)
         : undefined
       result = await applyOutputRenderers(rendererSource?.stream ?? result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
       if (rendererSource && !isAsyncIterable(result) && !hasTraceableStreamResult(result) && !isUIMessageStreamResult(result)) {
-        await rendererSource.cancel()
+        await rendererSource.settleCancellation()
       }
       renderedResult = true
+      if (rendererSource?.completed) {
+        await resolveRawDriverUsageRecord(true)
+      }
     }
   }
   catch (error) {
-    await Promise.allSettled(rendererSource ? [rendererSource.cancel(error)] : [])
+    await Promise.allSettled(rendererSource ? [rendererSource.settleCancellation(error)] : [])
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
   if (options.kind === "run") {
     return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-      const driverUsageRecord = hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+      const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
         ? undefined
         : await resolveFinishUsageRecord(invocation, result)
+      )
+      const driverUsageFallback = rawDriverUsageObserved ? resolveRawDriverUsageRecord : driverUsageRecord
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
       const shouldPreserveStreamResult = (hasTraceableStreamResult(rendered) || isUIMessageStreamResult(rendered))
         && !(options.renderOutput && invocation.output)
-        && (options.holdCapacity === true || invocation.finishExtensionProviders.some(provider => provider.eager))
+        && (options.holdCapacity === true
+          || (hasFinishConsumer(invocation)
+            && rendered !== rawDriverResult
+            && (rawDriverHasDeferredUsage || isUIMessageStreamResult(rendered)))
+          || (invocation.finishHook
+            && !invocation.finishDeliveryEffectProviders.length
+            && !invocation.finishExtensionProviders.length
+            && rendered === rawDriverResult)
+          || invocation.finishExtensionProviders.some(provider => provider.eager))
         && shouldHoldInvocationOutput()
       if (shouldPreserveStreamResult || (options.renderOutput
         && !invocation.output
@@ -4844,26 +5741,34 @@ async function executeAgentInvocationWithCapacityLease<
           const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             if (finishTask) return await finishTask
-            const finishResult = resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, driverUsageRecord)
             finishTask = (async () => {
+              const resolveUsage = !outcome.failed && outcome.completed === true
+              const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
+                ? await driverUsageFallback(resolveUsage)
+                : driverUsageFallback
+              const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
+              const finishUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
+                : undefined
               if (!outcome.failed && !outcome.completed) {
-                await lifecycle.finish({
+                const lifecycleOutcome: Parameters<typeof lifecycle.finish>[0] = {
                   result: finishResult,
-                  status: "success",
-                  ...(streamedUsageRecord
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                    : {}),
+                  status: "cancelled",
                   usageResolved: true,
-                })
+                }
+                if (finishUsageRecord) {
+                  lifecycleOutcome.usage = await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                }
+                await lifecycle.finish(lifecycleOutcome)
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
               }
-              const usageRecord = finishResult && hasRuntimeType(finishResult, "object")
-                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                : undefined
-              if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
+              const finalizedUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
+                ? toAgentRunResult(finishResult).usageRecord
+                : finishUsageRecord
+              assignResolvedUsageRecord(preserved, finalizedUsageRecord)
             })()
             return await finishTask
           }
@@ -4880,24 +5785,49 @@ async function executeAgentInvocationWithCapacityLease<
                 if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
                 uiMessageStreamCreated = true
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
-                let source: ReturnType<typeof cancellableAsyncIterableSource>
+                let source: ReturnType<typeof nonBlockingPendingAsyncIterableSource>
                 try {
-                  source = cancellableAsyncIterableSource(toUIMessageStream.apply(rendered, args))
+                  source = nonBlockingPendingAsyncIterableSource(toUIMessageStream.apply(rendered, args))
                   const normalizedStream = normalizeUiMessageStream(toReadableAsyncIterableStream(source.stream))
                   const enrichedStream = withEagerStreamUsageExtensions(
                     toReadableAsyncIterableStream(normalizedStream),
                     invocation,
                     rendered,
                   )
-                  const renderedStream = invocation.runtimeContext.traceLog
+                  const renderedStream = invocation.runtimeContext.traceLog || invocation.activity
                     ? traceUiMessageStream(toReadableAsyncIterableStream(enrichedStream), invocation)
                     : enrichedStream
                   return withReadableStreamCleanup(
                     toReadableAsyncIterableStream(renderedStream),
-                    finishPreserved,
+                    async (outcome) => {
+                      if (!outcome.failed && !outcome.completed) {
+                        const cancellationTask = Promise.all([
+                          source.settleCancellation(),
+                          ...(rendererSource ? [rendererSource.settleCancellation()] : []),
+                        ]).then(
+                          async () => await finishPreserved(outcome),
+                          async error => await finishPreserved({ error, failed: true }),
+                        )
+                        const settled = await Promise.race([
+                          cancellationTask.then(() => true, () => true),
+                          new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+                        ])
+                        if (settled) await cancellationTask
+                        else void cancellationTask.catch(() => {})
+                        return
+                      }
+                      if (outcome.failed) await source.settleCancellation(outcome.error)
+                      await finishPreserved(outcome)
+                    },
                     {
                       abortSignal: invocation.input.abortSignal,
-                      cancelOnAbort: source.cancel,
+                      detachPendingReaderCancellation: true,
+                      cancelOnAbort: async reason => {
+                        await Promise.allSettled([
+                          source.cancel(reason),
+                          ...(rendererSource ? [rendererSource.cancel(reason)] : []),
+                        ])
+                      },
                       onChunk(chunk) {
                         collectToolResult(chunk)
                         streamedText += uiMessageTextDelta(chunk) || ""
@@ -4924,7 +5854,7 @@ async function executeAgentInvocationWithCapacityLease<
         const streamPropertyValues = new Map<"fullStream" | "stream", AsyncIterable<unknown>>()
         const lazyPrimaryDescriptors = new Map<"fullStream" | "stream", PropertyDescriptor>()
         const resolvedPrimaryProperties = new Map<"fullStream" | "stream", unknown>()
-        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+        const preservedSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource> | undefined>()
         try {
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           for (const property of ["stream", "fullStream"] as const) {
@@ -4941,69 +5871,93 @@ async function executeAgentInvocationWithCapacityLease<
             resolvedPrimaryProperties.set(property, value)
             if (isAsyncIterable(value)) {
               streamPropertyValues.set(property, value)
-              preservedSources.set(value, preservedSources.get(value) ?? cancellableAsyncIterableSource(value))
             }
           }
         }
         catch (error) {
           await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(error)),
+            [...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []),
           )
           throw error
+        }
+        if (streamPropertyValues.size) {
+          try {
+            for (const stream of new Set(streamPropertyValues.values())) {
+              preservedSources.set(stream, textStreamDescriptor || isUIMessageStreamResult(rendered)
+                ? undefined
+                : cancellableAsyncIterableSource(stream))
+            }
+          }
+          catch (error) {
+            await Promise.allSettled(
+              [...preservedSources.values()].flatMap(source => source ? [source.cancel(error)] : []),
+            )
+            throw error
+          }
         }
         const streamProperties = [...streamPropertyValues.keys()]
         let finishTask: Promise<void> | undefined
         let finishing = false
         let preserved: object
         const preservedStreams = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
+        const preservedSource = (stream: AsyncIterable<unknown>) => {
+          const existing = preservedSources.get(stream)
+          if (existing) return existing
+          const source = cancellableAsyncIterableSource(stream)
+          preservedSources.set(stream, source)
+          return source
+        }
         const cancelPreservedSources = async (outcome: CapabilityCleanupOutcome): Promise<CapabilityCleanupOutcome> => {
-          if (options.holdCapacity !== true) return outcome
-          const cancellations = await Promise.allSettled(
-            [...preservedSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)),
-          )
+          const reason = outcome.failed ? outcome.error : undefined
+          const cancellations = await Promise.allSettled(options.holdCapacity === true
+            ? [...preservedSources.keys()].map(async stream => await preservedSource(stream).cancel(reason))
+            : [...preservedSources.values()].flatMap(source => source ? [source.cancel(reason)] : []))
+          if (!cancellations.length) return outcome
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           return rejected ? { error: rejected.reason, failed: true } : outcome
         }
         const onAbort = () => {
-          if (preservedSources.size) return
           const reason = invocation.input.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
-          finishTask ||= finishStreamAgentInvocation(invocation, lifecycle, preserved, { error: reason, status: "error" }, runFailureMessage, outputExtensions)
+          finishing = true
+          finishTask ||= (async () => {
+            const outcome = await cancelPreservedSources({ error: reason, failed: true })
+            await finishStreamAgentInvocation(invocation, lifecycle, preserved, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          })()
           void finishTask.catch(() => {})
         }
         const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(renderedStream)
           if (existing) return existing
-          const source = preservedSources.get(renderedStream) ?? cancellableAsyncIterableSource(renderedStream)
-          preservedSources.set(renderedStream, source)
+          const source = preservedSource(renderedStream)
           const enrichedStream = withEagerStreamUsageExtensions(source.stream, invocation, rendered)
-          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+          const streamed = withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
           const value = withCapabilityCleanup(tracedStream, async (outcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             finishing = true
             const finalOutcome = await cancelPreservedSources(outcome)
+            const cancellationFailed = finalOutcome.failed && !outcome.failed
             if (finishTask) return await finishTask
-            const finishResult = streamed.finishResult(preserved)
+            const finishResult = await streamed.finishResult(preserved, !finalOutcome.failed && finalOutcome.completed === true)
             finishTask = (async () => {
+              const finishUsageRecord = streamed.finishUsage()
               if (!finalOutcome.failed && !finalOutcome.completed) {
-                await lifecycle.finish({
+                const lifecycleOutcome: AgentInvocationFinishOutcome = {
                   result: finishResult,
-                  status: "success",
-                  ...(streamed.finishUsage()
-                    ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
-                    : {}),
+                  status: "cancelled",
                   usageResolved: true,
-                })
+                }
+                if (finishUsageRecord) {
+                  lifecycleOutcome.usage = await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                }
+                await finishStreamAgentInvocation(invocation, lifecycle, finishResult, lifecycleOutcome, runFailureMessage, outputExtensions)
               }
               else {
                 await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
-                const usageRecord = finishResult && hasRuntimeType(finishResult, "object")
-                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                  ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
-                  : undefined
-                if (usageRecord) resultWithUsageRecord(preserved, usageRecord)
               }
+              assignResolvedUsageRecord(preserved, finishUsageRecord)
+              if (cancellationFailed) throw finalOutcome.error
             })()
             return await finishTask
           }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source.cancel })
@@ -5017,11 +5971,14 @@ async function executeAgentInvocationWithCapacityLease<
         const descriptors: PropertyDescriptorMap = {}
         try {
           for (const property of streamProperties) {
+            let preservedStream: AsyncIterable<unknown> | undefined
             descriptors[property] = {
               configurable: true,
               enumerable: true,
-              value: preserveStream(streamPropertyValues.get(property)!),
-              writable: true,
+              get: () => {
+                preservedStream ??= preserveStream(streamPropertyValues.get(property)!)
+                return preservedStream
+              },
             }
           }
         }
@@ -5111,14 +6068,20 @@ async function executeAgentInvocationWithCapacityLease<
                   : withEagerStreamUsageExtensions(normalizedStream, invocation, rendered)
                 const streamed = existingStream
                   ? undefined
-                  : withStreamedResult(enrichedStream, rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+                  : withStreamedResult(enrichedStream, rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
                 const tracedStream = existingStream
                   ? enrichedStream
-                  : invocation.runtimeContext.traceLog
+                  : invocation.runtimeContext.traceLog || invocation.activity
                   ? traceUiMessageStream(toReadableAsyncIterableStream(streamed!.stream), invocation)
                   : streamed!.stream
                 const source = existingSource
-                  ? { cancel: existingSource.cancel, stream: tracedStream }
+                  ? {
+                      cancel: existingSource.cancel,
+                      get completed() {
+                        return existingSource.completed
+                      },
+                      stream: tracedStream,
+                    }
                   : cancellableAsyncIterableSource(tracedStream)
                 if (!existingSource) preservedSources.set(renderedStream, source)
                 const stream = withReadableStreamCleanup(
@@ -5127,7 +6090,7 @@ async function executeAgentInvocationWithCapacityLease<
                     finishing = true
                     const finalOutcome = await cancelPreservedSources(outcome)
                     if (finishTask) return await finishTask
-                    let finishResult = streamed?.finishResult(preserved) ?? preserved
+                    let finishResult = streamed ? await streamed.finishResult(preserved, !finalOutcome.failed && finalOutcome.completed === true) : preserved
                     if (finishResult !== preserved && Object.isExtensible(preserved)) {
                       const collectedDescriptors: PropertyDescriptorMap = {}
                       for (const key of ["text", "usage", "usageRecord"]) {
@@ -5138,14 +6101,14 @@ async function executeAgentInvocationWithCapacityLease<
                       finishResult = preserved
                     }
                     finishTask = !finalOutcome.failed && !finalOutcome.completed
-                      ? lifecycle.finish({
+                      ? finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
                           result: finishResult,
-                          status: "success",
+                          status: "cancelled",
                           ...(streamed?.finishUsage()
                             ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
                             : {}),
                           usageResolved: true,
-                        })
+                        }, runFailureMessage, outputExtensions)
                       : finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(finalOutcome), runFailureMessage, outputExtensions)
                     return await finishTask
                   },
@@ -5221,10 +6184,8 @@ async function executeAgentInvocationWithCapacityLease<
             value: preserved,
           }
         }
-        if (!streamProperties.length) {
-          if (invocation.input.abortSignal?.aborted) onAbort()
-          else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
-        }
+        if (invocation.input.abortSignal?.aborted) onAbort()
+        else invocation.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
         return {
           deferFinish: true,
           finishResult: preserved,
@@ -5270,6 +6231,7 @@ async function executeAgentInvocationWithCapacityLease<
       finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
       holdOutput: options.holdCapacity,
       outputExtensions,
+      fallbackUsageRecord: rawDriverUsageObserved ? resolveRawDriverUsageRecord : undefined,
       ...(customRun
         ? {
             // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -5280,18 +6242,17 @@ async function executeAgentInvocationWithCapacityLease<
   }
 
   return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
-    const hasEagerFinishExtension = invocation.finishExtensionProviders.some(provider => provider.eager)
-    const driverUsageRecord = hasEagerFinishExtension
-      && (hasTraceableStreamResult(result) || isUIMessageStreamResult(result))
-      ? undefined
-      : await resolveFinishUsageRecord(invocation, result)
+    const driverUsageRecord = rawDriverUsageObserved ? rawDriverUsageRecord : (hasTraceableStreamResult(result) || isUIMessageStreamResult(result)
+        ? undefined
+        : await resolveFinishUsageRecord(invocation, result))
+    const driverUsageFallback = rawDriverUsageObserved ? resolveRawDriverUsageRecord : driverUsageRecord
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       const projection = hasRuntimeType(definition?.uiMessageStream, "function")
         ? await definition.uiMessageStream(invocation)
         : definition?.uiMessageStream
-      let uiMessageSource: ReturnType<typeof cancellableAsyncIterableSource> | undefined
-      const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof cancellableAsyncIterableSource>>()
+      let uiMessageSource: ReturnType<typeof nonBlockingPendingAsyncIterableSource> | undefined
+      const uiMessageSources = new Map<AsyncIterable<unknown>, ReturnType<typeof nonBlockingPendingAsyncIterableSource>>()
       let capacityRendered = rendered
       if (options.holdCapacity === true) {
         if (isUIMessageStreamResult(rendered)) {
@@ -5307,7 +6268,7 @@ async function executeAgentInvocationWithCapacityLease<
               if ("get" in descriptor) continue
               const candidate = descriptor.value
               if (!isAsyncIterable(candidate)) continue
-              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? cancellableAsyncIterableSource(candidate))
+              uiMessageSources.set(candidate, uiMessageSources.get(candidate) ?? nonBlockingPendingAsyncIterableSource(candidate))
             }
           }
           catch (error) {
@@ -5321,7 +6282,7 @@ async function executeAgentInvocationWithCapacityLease<
               value: (...args: unknown[]) => {
                 try {
                   const stream = toUIMessageStream.apply(rendered, args)
-                  uiMessageSource = uiMessageSources.get(stream) ?? cancellableAsyncIterableSource(stream)
+                  uiMessageSource = uiMessageSources.get(stream) ?? nonBlockingPendingAsyncIterableSource(stream)
                   uiMessageSources.set(stream, uiMessageSource)
                   return toReadableAsyncIterableStream(uiMessageSource.stream)
                 }
@@ -5338,10 +6299,26 @@ async function executeAgentInvocationWithCapacityLease<
           })
         }
         else if (isAsyncIterable(rendered)) {
-          uiMessageSource = cancellableAsyncIterableSource(rendered)
+          uiMessageSource = nonBlockingPendingAsyncIterableSource(rendered)
           uiMessageSources.set(rendered, uiMessageSource)
           capacityRendered = uiMessageSource.stream
         }
+      }
+      else if (isUIMessageStreamResult(rendered)) {
+        // SAFETY: Agent definition normalization establishes the asserted UI-message stream result contract.
+        const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+        capacityRendered = cloneWithPropertyDescriptors(rendered, {
+          toUIMessageStream: {
+            configurable: true,
+            enumerable: false,
+            value: (...args: unknown[]) => {
+              const stream = toUIMessageStream.apply(rendered, args)
+              uiMessageSource = uiMessageSources.get(stream) ?? nonBlockingPendingAsyncIterableSource(stream)
+              uiMessageSources.set(stream, uiMessageSource)
+              return toReadableAsyncIterableStream(uiMessageSource.stream)
+            },
+          },
+        })
       }
       const enrichedRendered = isUIMessageStreamResult(capacityRendered)
         ? withEagerUiMessageStreamUsageExtensions(capacityRendered, invocation)
@@ -5350,32 +6327,72 @@ async function executeAgentInvocationWithCapacityLease<
           : capacityRendered
       const shouldWrapOutput = shouldHoldInvocationOutput()
       const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        const cancellations = await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
+      const finishUiMessageStream = async (outcome: CapabilityCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => {
+        const reason = outcome.failed ? outcome.error : undefined
+        const uiSources = [...uiMessageSources.values()]
+        await Promise.allSettled(uiSources.map(source => source.cancel(reason)))
+        const settleUiSources = outcome.failed || outcome.completed || options.holdCapacity === true || !rendererSource
+        const cancellations = await Promise.allSettled([
+          ...(rendererSource ? [rendererSource.settleCancellation(reason)] : []),
+          ...(settleUiSources ? uiSources.map(source => source.settleCancellation(reason)) : []),
+        ])
         const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
         if (rejected) outcome = { error: rejected.reason, failed: true }
-        const finishResult = resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord)
+        const resolveUsage = !outcome.failed && outcome.completed === true
+        const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
+          ? await driverUsageFallback(resolveUsage)
+          : driverUsageFallback
+        const finishResult = await resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
         if (!outcome.failed && !outcome.completed) {
-          await lifecycle.finish({
+          const usage = finishResult && hasRuntimeType(finishResult, "object")
+            ? toAgentRunResult(finishResult).usageRecord
+            : undefined
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
             result: finishResult,
-            status: "success",
-            ...(streamedUsageRecord
-              ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-              : {}),
+            status: "cancelled",
+            usage,
             usageResolved: true,
-          })
+          }, streamFailureMessage, outputExtensions)
         }
         else {
-          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          const finishOutcome = finishOutcomeFromCleanup(outcome)
+          const usage = finishResult && hasRuntimeType(finishResult, "object")
+            ? toAgentRunResult(finishResult).usageRecord
+            : undefined
+          await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcome.status === "success"
+            ? { ...finishOutcome, usage, usageResolved: true }
+            : finishOutcome, streamFailureMessage, outputExtensions)
         }
-      }, {
+      }
+      const finalizationOptions: NonNullable<Parameters<typeof finalizeUiMessageStreamOutput>[3]> = {
         abortSignal: invocation.input.abortSignal,
-        cancelOnAbort: options.holdCapacity === true
-          ? async reason => { await Promise.allSettled([...uiMessageSources.values()].map(({ cancel }) => cancel(reason))) }
+        detachPendingReaderCancellation: options.holdCapacity !== true,
+        cancelOnAbort: options.holdCapacity === true || rendererSource
+          ? async reason => {
+              await Promise.allSettled([
+                ...(options.holdCapacity === true
+                  ? [...uiMessageSources.values()].map(({ cancel }) => cancel(reason))
+                  : []),
+                ...(rendererSource ? [rendererSource.cancel(reason)] : []),
+              ])
+            }
           : undefined,
-        ...(collectToolResult ? { onNormalizedChunk: collectToolResult } : {}),
         projection,
-      })
+      }
+      if (collectToolResult) finalizationOptions.onNormalizedChunk = collectToolResult
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
+        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
+        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
+          const settled = await Promise.race([
+            finishTask.then(() => true, () => true),
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await finishTask
+          else void finishTask.catch(() => {})
+          return
+        }
+        await finishTask
+      }, finalizationOptions)
     }
 
     let isStreamResult = hasTraceableStreamResult(rendered)
@@ -5430,7 +6447,7 @@ async function executeAgentInvocationWithCapacityLease<
       : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
     const shouldWrapOutput = shouldHoldInvocationOutput()
     const source = shouldWrapOutput ? cancellableAsyncIterableSource(stream) : undefined
-    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageRecord, invocation.toolResults, invocation.tools)
+    const streamed = withStreamedResult(withEagerStreamUsageExtensions(source?.stream ?? stream, invocation, rendered), rendered, driverUsageFallback, invocation.toolResults, invocation.tools)
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
     const value = shouldWrapOutput
@@ -5439,19 +6456,37 @@ async function executeAgentInvocationWithCapacityLease<
           const cancellations = await Promise.allSettled([...eagerStreamSources.values()].map(({ cancel }) => cancel(outcome.failed ? outcome.error : undefined)))
           const rejected = cancellations.find((result): result is PromiseRejectedResult => result.status === "rejected")
           if (rejected) outcome = { error: rejected.reason, failed: true }
-          const finishResult = streamed.finishResult()
+          const finishResult = await streamed.finishResult(rendered, !outcome.failed && outcome.completed === true)
+          const finishUsageRecord = streamed.finishUsage()
           if (!outcome.failed && !outcome.completed) {
-            await lifecycle.finish({
+            const usage = finishUsageRecord
+              ? await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+              : undefined
+            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, {
               result: finishResult,
-              status: "success",
-              ...(streamed.finishUsage()
-                ? { usage: await resolveAgentUsageRecord({ usageRecord: streamed.finishUsage() }, invocation.run) }
-                : {}),
+              status: "cancelled",
+              usage,
               usageResolved: true,
-            })
+            }, streamFailureMessage, outputExtensions)
           }
           else {
-            await finishStreamAgentInvocation(invocation, lifecycle, finishResult, finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+            const finishOutcome = finishOutcomeFromCleanup(outcome)
+            await finishStreamAgentInvocation(
+              invocation,
+              lifecycle,
+              finishResult,
+              finishOutcome.status === "success"
+                ? {
+                    ...finishOutcome,
+                    usage: finishUsageRecord
+                      ? await resolveAgentUsageRecord({ usageRecord: finishUsageRecord }, invocation.run)
+                      : undefined,
+                    usageResolved: true,
+                  }
+                : finishOutcome,
+              streamFailureMessage,
+              outputExtensions,
+            )
           }
         }, { abortSignal: invocation.input.abortSignal, cancelOnAbort: source?.cancel }) as AsyncIterable<StreamEvent>
       : tracedStream
@@ -5476,18 +6511,31 @@ async function executeAgentInvocationWithCapacityLease<
           const collectToolResult = shouldWrapOutput ? agentToolResultStreamCollector(invocation.toolResults) : undefined
           const finalized = await finalizeUiMessageStreamOutput(tracedResponseStream, shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
             if (!outcome.failed && !outcome.completed) {
-              await lifecycle.finish({
-                result: resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord),
-                status: "success",
-                ...(streamedUsageRecord
-                  ? { usage: await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run) }
-                  : {}),
+              const usage = streamedUsageRecord
+                ? await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run)
+                : undefined
+              await finishStreamAgentInvocation(invocation, lifecycle, response, {
+                result: response,
+                status: "cancelled",
+                usage,
                 usageResolved: true,
-              })
+              }, streamFailureMessage, outputExtensions)
             }
             else {
-              const driverUsageRecord = await resolveFinishUsageRecord(invocation, response)
-              await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(response, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+              const finishOutcome = finishOutcomeFromCleanup(outcome)
+              const usage = streamedUsageRecord
+                ? await resolveAgentUsageRecord({ usageRecord: streamedUsageRecord }, invocation.run)
+                : undefined
+              await finishStreamAgentInvocation(
+                invocation,
+                lifecycle,
+                response,
+                finishOutcome.status === "success"
+                  ? { ...finishOutcome, usage, usageResolved: true }
+                  : finishOutcome,
+                streamFailureMessage,
+                outputExtensions,
+              )
             }
           }, {
             abortSignal: invocation.input.abortSignal,
@@ -5512,6 +6560,7 @@ async function executeAgentInvocationWithCapacityLease<
     finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
     holdOutput: options.holdCapacity,
     outputExtensions,
+    fallbackUsageRecord: rawDriverUsageObserved ? resolveRawDriverUsageRecord : undefined,
     ...(customRun
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
@@ -5531,18 +6580,28 @@ async function executeAgentInvocation<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
-  const invocationJournal = definition
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
-      ...context,
+  // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
+  const activity = createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
+  await activity?.update("queued")
+  let invocationJournal: AgentInvocationJournal<TRuntimeConfig> | undefined
+  try {
+    invocationJournal = definition
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+      ? await bindAgentInvocations((definition as AgentDefinition).invocations, {
+        ...context,
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
-        : {}),
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
-    : undefined
+        ...((context as AgentRuntimeContext & { [agentInvocationRunId]?: string })[agentInvocationRunId]
+          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+          ? { run: { ...context.run, runId: (context as AgentRuntimeContext & { [agentInvocationRunId]: string })[agentInvocationRunId] } }
+          : {}),
+      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+      }, { agentName: (definition as AgentDefinition).name || context.agentIdentity?.name })
+      : undefined
+  }
+  catch (error) {
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
+  }
   if (invocationJournal) context = invocationJournal.context
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
@@ -5559,7 +6618,8 @@ async function executeAgentInvocation<
     }
     if (preparedInvocation?.handledResponse) {
       await invocationJournal?.running()
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+      await activity?.update("running")
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
     }
     release = definition
       ? await acquireAgentCapacity(definition, input.abortSignal)
@@ -5572,15 +6632,18 @@ async function executeAgentInvocation<
       await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
     }
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     throw error
   }
   if (!release) {
     await invocationJournal?.running()
+    await activity?.update("running")
     try {
-      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal)
+      return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
     }
     catch (error) {
       await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
       throw error
     }
   }
@@ -5593,6 +6656,7 @@ async function executeAgentInvocation<
   }
   try {
     await invocationJournal?.running()
+    await activity?.update("running")
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
       holdCapacity: true,
@@ -5605,10 +6669,11 @@ async function executeAgentInvocation<
           releaseOnce()
         }
       },
-    }, preparedInvocation, invocationJournal)
+    }, preparedInvocation, invocationJournal, activity)
   }
   catch (error) {
     await invocationJournal?.finish(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
     releaseOnce()
     throw error
   }
@@ -5683,14 +6748,19 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   started: StartedAgentWorkflow<CALL_OPTIONS, TOutput>,
   parentAbortSignal?: AbortSignal,
 ): AgentInvocationController<TOutput | Response, CALL_OPTIONS> {
-  const { handle, invocationJournal, run } = started
+  const { activity, handle, invocationJournal, run, settled } = started
   const reconcileJournal = async (snapshot: AgentInvocationSnapshot<TOutput> | undefined) => {
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
+      await activity?.update(
+        snapshot.status,
+        snapshot.status === "failed" ? snapshot.error : undefined,
+        snapshot.status === "completed" ? finalTextFromAgentOutput(snapshot.output) : undefined,
+      )
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
     return snapshot
   }
-  return createBackedAgentInvocationController<TOutput | Response, CALL_OPTIONS>({
+  const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
@@ -5702,9 +6772,13 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
     )),
-    parentAbortSignal,
     result: Promise.resolve(run),
-  })
+  }
+  if (settled) {
+    controllerOptions.settled = settled
+    if (parentAbortSignal) controllerOptions.parentAbortSignal = parentAbortSignal
+  }
+  return createBackedAgentInvocationController(controllerOptions)
 }
 
 function createInlineAgentInvocationController<
@@ -5726,10 +6800,12 @@ function createInlineAgentInvocationController<
     }, { ...input, abortSignal }, {
       kind: "run",
       onFinish(outcome) {
-        onFinish(outcome.status === "success"
+        onFinish(outcome.status === "cancelled"
+          ? { status: "cancelled" }
+          : outcome.status === "success"
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
-          : { error: outcome.error, status: "failed" })
+            ? { ...(outcome.result !== undefined ? { output: outcome.result as TOutput | Response } : {}), status: "completed" }
+            : { error: outcome.error, status: "failed" })
       },
       renderOutput: true,
     }),
@@ -5748,9 +6824,18 @@ export async function startAgentInvocation<
   options: { runId?: string } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
+  const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
+    ? {
+        ...invocationContext,
+        run: {
+          ...invocationContext.run,
+          activity: { ...invocationContext.run.activity, runId: invocationContext.run.runId },
+        },
+      }
+    : invocationContext
   const workflow = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(
     agent,
-    invocationContext,
+    workflowContext,
     input,
     { fresh: true },
   )
@@ -5775,7 +6860,11 @@ export async function runAgent<
     return workflow.run
   }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
-    throw new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    const error = new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, invocationContext) : undefined
+    await activity?.update("queued")
+    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    throw error
   }
   return await runAgentInline(agent, invocationContext, input)
 }

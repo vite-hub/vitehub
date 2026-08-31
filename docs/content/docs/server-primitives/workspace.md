@@ -53,7 +53,7 @@ export default defineWorkspace({
 | `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Workspace Source Bindings. |
 | `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools from Workspace access. |
-| Source resolution and request helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources into runtime facades. |
+| Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or create test Workspaces. |
@@ -179,11 +179,28 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | Option | Type | Description |
 | --- | --- | --- |
 | `mount` | `WorkspaceSourceMount` | Where retrieved items appear in the Workspace file tree. Accepts a path string or Mount options. |
-| `materialize` | `WorkspaceMaterializeMode` | Build-time, lazy, or disabled materialization. Values: `build`, `lazy`, `none`. |
+| `materialize` | `WorkspaceMaterializeMode` | Build-time, process-startup, lazy, or disabled materialization. Values: `build`, `startup`, `lazy`, `none`. Startup Sources remain available through lazy reads and can be prepared with `createWorkspacePreparation()`. |
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
 | `probeKeys` | `string[]` | Known Source item keys used to check bundled-source completeness and intersect path-scoped access without enumerating the whole Source. File-shaped helpers infer this when possible. |
+
+### Prepare startup Sources
+
+Use `createWorkspacePreparation()` when a process must materialize required Sources before reporting readiness:
+
+```ts
+import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+
+export const preparation = createWorkspacePreparation({
+  retryDelayMs: 10_000,
+  workspace: 'docs',
+})
+
+await preparation.start()
+```
+
+With no explicit `sources`, the controller selects every Source whose `materialize` mode is `startup`. Failed attempts become inspectable error state and retry in the background. `response()` returns a non-cacheable JSON readiness response without exposing internal errors, and `stop()` cancels an active attempt and its retry timer. The state is process-local readiness, not a continuous upstream health or liveness signal.
 
 ### Fetch Sources
 
@@ -269,8 +286,10 @@ export default defineEventHandler(async (event) => {
 | `snapshot(options?)` | `name?: string` | Captures the current Workspace tree with an optional snapshot name. |
 | `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store while preserving staged paths. A listed path takes its remote version only when both sides changed; any other overlapping change remains a conflict. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
-| `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
+| `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
+
+Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 
 ## Resolve custom Sources
 

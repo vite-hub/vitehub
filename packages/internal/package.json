@@ -37,6 +37,7 @@
     "./build/mode": "./dist/build/mode.js",
     "./build/paths": "./dist/build/paths.js",
     "./build/esbuild": "./dist/build/esbuild.js",
+    "./build/provider-output-sources": "./dist/build/provider-output-sources.js",
     "./build/client-output": "./dist/build/client-output.js",
     "./build/colocated-agent-files": "./dist/build/colocated-agent-files.js",
     "./build/vercel-config": "./dist/build/vercel-config.js",
@@ -54,15 +55,17 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
+    "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
-    "pathe": "catalog:unjs"
+    "pathe": "catalog:unjs",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "catalog:",
-    "@types/node": "catalog:tooling",
+    "@types/semver": "^7.7.1",
     "exsolve": "catalog:unjs",
     "sharp": "0.34.5",
     "typescript": "catalog:tooling",

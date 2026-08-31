@@ -54,8 +54,6 @@ The `vitehub()` preset installs the template module integration. Modular Vite co
 
 Imported fragments can remain ordinary `.md` files.
 
-`repositoryHostContext({ materialize })` uses the same path convention. Pass a caller-relative `.template.md` path; ViteHub bundles its renderer and derives the generated `.md` path by removing only the final `.template`, preserving directories and case.
-
 ## Render a template string
 
 Pass the template string and the complete data available to it. Scalar bindings are escaped as Markdown text, while triple bindings insert an intentional Markdown fragment.

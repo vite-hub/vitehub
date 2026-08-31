@@ -3,6 +3,8 @@ import vue from "@vitejs/plugin-vue";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
+import { consoleAppConfig } from "./src/console/app.config";
+
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
 
 export default defineConfig({
@@ -11,6 +13,7 @@ export default defineConfig({
     alias: {
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
       "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
+      "vue-router": resolve(import.meta.dirname, "node_modules/vue-router"),
     },
     dedupe: ["vue", "vue-router"],
   },
@@ -20,16 +23,7 @@ export default defineConfig({
       comark: false,
       nuxtUI: {
         dts: false,
-        ui: {
-          colors: {
-            error: "red",
-            info: "sky",
-            neutral: "zinc",
-            primary: "blue",
-            success: "emerald",
-            warning: "amber",
-          },
-        },
+        ui: consoleAppConfig,
       },
     }),
   ],

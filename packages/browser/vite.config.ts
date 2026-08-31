@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "playwright-core", "vite"],
+      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "esbuild", "playwright-core", "vite"],
       onlyBundle: false,
     },
     entry: [

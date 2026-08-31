@@ -55,14 +55,15 @@
   },
   "dependencies": {
     "@comark/vue": "0.6.2",
-    "@nuxt/kit": "4.4.8"
+    "@iconify-json/ph": "catalog:ui",
+    "@nuxt/kit": "4.4.8",
+    "@types/node": "catalog:tooling"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.3.5",
     "@pierre/theme": "1.1.0",
     "@pierre/trees": "1.0.0-beta.6",
-    "@types/node": "catalog:tooling",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "^3.5.0",

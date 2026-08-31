@@ -137,6 +137,6 @@ The Trigger translates the event and attaches trusted context. Keep model select
 | A server route already owns validation and input | `runAgent()` or `streamAgent()` |
 | A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
 | A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
-| A model delegates to another Agent | [Subagents Capability](/docs/capabilities/subagents) |
+| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations), handling its runtime-specific return value |
 
 Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.

@@ -4,6 +4,7 @@ import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
+  capabilities: {},
   memo: vi.fn(),
   runtime: "unknown" as const,
   runtimeConfig: {},

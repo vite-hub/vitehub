@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
+import { defaultServerConditions } from "vite"
+
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
-import { hubBlob } from "@vite-hub/blob/vite"
+import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -19,16 +21,18 @@ import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
+import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
+import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -40,6 +44,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -48,11 +53,27 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 export type { ConsoleOptions } from "./console/vite.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
+type DeploymentServicesManifest = Record<DeploymentService, object>
+
+function resolveServerOptions(config: ResolvedConfig) {
+  // SAFETY: Resolved environment configs use Vite's complete resolved resolve-options shape, matching the root fallback.
+  const serverResolve = (config.environments?.nitro?.resolve
+    ?? config.environments?.ssr?.resolve
+    ?? config.resolve) as typeof config.resolve | undefined
+  const conditions = serverResolve?.conditions ?? defaultServerConditions
+  return {
+    alias: serverResolve?.alias,
+    conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
+    extensions: serverResolve?.extensions ?? [],
+    mainFields: serverResolve?.mainFields ?? [],
+    preserveSymlinks: serverResolve?.preserveSymlinks ?? false,
+  }
+}
 
 const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
@@ -83,6 +104,28 @@ const generatedOwnerPackageAccess = {
 const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
   .filter(([, allowed]) => allowed)
   .map(([name]) => name)
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
+  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (!isRecord(manifest) || !("exports" in manifest)) return []
+  const packageExports = manifest.exports
+  if (!isRecord(packageExports)) return []
+  return Object.keys(packageExports).flatMap((subpath) => {
+    if (subpath !== "." && !subpath.startsWith("./")) return []
+    const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
+    try {
+      return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
+    }
+    catch {
+      return []
+    }
+  })
+}))
 
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
@@ -143,9 +186,14 @@ function frameworkDependencyResolver(
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
-): Plugin {
+): Plugin & ViteHubProviderImportContributor {
   return {
     name: "vite-hub/dependencies",
+    vitehub: {
+      providerOutput: {
+        getImportAliases: () => generatedOwnerProviderImportAliases,
+      },
+    },
     enforce: "pre",
     config() {
       const aliases = { ...frameworkProviderImportAliases }
@@ -196,7 +244,7 @@ export interface ViteHubOptions {
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean
-  rateLimit?: boolean
+  rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   sandbox?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
@@ -349,10 +397,11 @@ function shellQuote(value: string): string {
 
 function deploymentNitroModule(
   plan: DeploymentPlan,
-  services: object,
+  services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxRequested: boolean,
   isDeployCommandOwned: () => boolean,
+  resolvedBuildConfig: () => { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean },
 ) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
@@ -370,7 +419,7 @@ function deploymentNitroModule(
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
       if (plan.output.packaging === "deno-node-modules") {
-        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir })
+        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
     })
@@ -381,11 +430,21 @@ function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
   blobEnabled: boolean,
-  services: object,
+  services: DeploymentServicesManifest,
   options: ViteHubOptions,
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  let resolvedBuildConfig: { alias: ViteAlias[], conditions: string[], extensions: string[], hasScheduleIntegration: boolean, mainFields: string[], preserveSymlinks: boolean } = {
+    alias: [],
+    conditions: [],
+    extensions: [],
+    hasScheduleIntegration: false,
+    mainFields: [],
+    preserveSymlinks: false,
+  }
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
@@ -437,6 +496,7 @@ function deploymentPlugins(
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
           ;(config as { rateLimit?: unknown }).rateLimit = {
+            ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
             provider: plan.services.rateLimit.adapter,
@@ -507,7 +567,7 @@ function deploymentPlugins(
             }
           }
           nitro.modules = [
-            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned),
+            deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => resolvedBuildConfig),
             ...(Array.isArray(nitro.modules) ? nitro.modules : []),
           ]
           if (plan.output.packaging === "deno-node-modules") {
@@ -559,6 +619,20 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const serverResolve = resolveServerOptions(config)
+        resolvedBuildConfig = {
+          alias: (serverResolve.alias ?? []).map(alias => ({
+            customResolver: alias.customResolver !== undefined,
+            find: alias.find,
+            replacement: alias.replacement,
+          })),
+          conditions: serverResolve.conditions,
+          extensions: serverResolve.extensions,
+          hasScheduleIntegration: config.plugins?.some(plugin => plugin.name === "@vite-hub/schedule/vite") ?? false,
+          mainFields: serverResolve.mainFields,
+          preserveSymlinks: serverResolve.preserveSymlinks,
+        }
+        providerOutput = useProviderOutputCatalog(config)
         if (plan.preset === "cloudflare") {
           deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
           if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
@@ -570,6 +644,22 @@ function deploymentPlugins(
         if (config.command === "build" && nitro.preset !== nitroPreset) {
           throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
         }
+      },
+      buildStart() {
+        providerOutputGenerations.capture(this, providerOutput)
+      },
+      async buildEnd(error) {
+        if (error) await providerOutputGenerations.reset(this, providerOutput, error)
+      },
+      async renderError(error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+      },
+      closeBundle: {
+        order: "post",
+        sequential: true,
+        async handler() {
+          await finalizeProviderDeploymentOutputs(providerOutput)
+        },
       },
     } as Plugin,
   ]
@@ -616,7 +706,15 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
+  const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
+  const resolvedConsoleBlob = configuredBlob
+    ? resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
+    : false
+  const consoleBlobStores = resolvedConsoleBlob
+    ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
+    : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
+  const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
   const plugins: unknown[] = []
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
@@ -650,9 +748,15 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
 
   if (options.console) {
+    const invocationRootState = {}
     plugins.push(consoleVitePlugin({
+      blobStores: consoleBlobStores,
       console: options.console === true ? true : options.console,
+      databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
+      kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
+      rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
+      rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
       resolveAuthConfig: options.auth
         ? (root, serverDirs, auth) => resolveAuthViteConfig(
             auth ?? (options.auth === true ? undefined : options.auth),
@@ -660,7 +764,32 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
             { serverDirs },
           )
         : undefined,
-    }), consoleInvocationRootPlugin())
+      resolveBlobStores: (blob) => {
+        if (blob === false) return false
+        if (blob === undefined && !options.blob) return false
+        const resolved = resolveBlobViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `blob` config extension.
+          (blob ?? configuredBlob) as BlobModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).blob
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
+      resolveKVStores: (kv) => {
+        if (kv === false) return false
+        if (kv === undefined && !options.kv) return false
+        const resolved = resolveKVViteConfig(
+          // SAFETY: The Console plugin passes ViteHub's documented top-level `kv` config extension.
+          (kv ?? configuredKV) as KVModuleOptions | undefined,
+          { hosting: plan.nitroPreset },
+        ).kv
+        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+      },
+      scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
+      workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
+      invocationRootState,
+      sections: consoleSections,
+    }))
+    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
   if (options.auth) {
@@ -704,7 +833,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(hubBlob(
-      presetBlobOptions(plan, options.blob),
+      configuredBlob,
       {
       importBase: `${generatedImportBase}/blob`,
       nitroOwned: true,
@@ -735,7 +864,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
+    // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
     plugins.push(hubRateLimit({
+      ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
@@ -771,13 +902,17 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (options.workspace) {
+    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
     plugins.push(hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
-  plugins.push(viteHubTypesPlugin())
+  const sourcePlugin = hubSource({ importBase: "vite-hub/source" })
+  plugins.push(sourcePlugin)
+  plugins.push(viteHubTypesPlugin({ prepareSources: sourcePlugin.api.prepareSources }))
+  // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
 }
 

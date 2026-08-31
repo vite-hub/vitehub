@@ -6,6 +6,10 @@ import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
 import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubWorkflow().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("infers cloudflare from hosting", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "cloudflare-module" })).toEqual({
       provider: "cloudflare",

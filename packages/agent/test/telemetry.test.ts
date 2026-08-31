@@ -25,6 +25,7 @@ describe("Agent telemetry", () => {
       resource: { "deployment.environment.name": "production" },
     })
     const runtime = {
+      capabilities: {},
       memo: vi.fn(),
       runtime: "vercel" as const,
       runtimeConfig: {},
@@ -39,7 +40,7 @@ describe("Agent telemetry", () => {
       spans: [{
         attributes: { "usage.record": { usage: { totalTokens: 12 } } },
         endTime: "2026-01-01T00:00:00.010Z",
-        events: [{ attributes: { state: "ready" }, name: "agent.ready", time: "2026-01-01T00:00:00.001Z" }],
+        events: [{ attributes: { "vitehub.payload.value": -0, state: "ready" }, name: "agent.ready", time: "2026-01-01T00:00:00.001Z" }],
         name: "vitehub.run",
         spanId: "0123456789abcdef",
         startTime: "2026-01-01T00:00:00.000Z",
@@ -71,7 +72,10 @@ describe("Agent telemetry", () => {
       traceId: "0123456789abcdef0123456789abcdef",
     })
     expect(span.events).toEqual([{
-      attributes: [{ key: "state", value: { stringValue: "ready" } }],
+      attributes: [
+        { key: "vitehub.payload.value", value: { stringValue: "-0" } },
+        { key: "state", value: { stringValue: "ready" } },
+      ],
       name: "agent.ready",
       timeUnixNano: String(BigInt(Date.parse("2026-01-01T00:00:00.001Z")) * 1_000_000n),
     }])
@@ -83,7 +87,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{
         name: "vitehub.run",
@@ -116,7 +120,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })
 
@@ -131,6 +135,294 @@ describe("Agent telemetry", () => {
       spanId: "0123456789abcdef",
       traceId: "0123456789abcdef0123456789abcdef",
     })
+  })
+
+  it("safely encodes structured public payload values as OTLP/HTTP JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+    const pattern = /token/gi
+    pattern.lastIndex = 4
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: {
+          "vitehub.payload.value": {
+            arrayBuffer: new Uint8Array([1, 2]).buffer,
+            boxedBigInt: Object(9n),
+            boxedBoolean: new Boolean(false),
+            boxedNumber: new Number(5),
+            boxedString: new String("one"),
+            blob: new Blob([new Uint8Array([1, 2])], { type: "application/octet-stream" }),
+            cyclic,
+            date: new Date("2026-01-01T00:00:00.000Z"),
+            domException: new DOMException("stopped", "AbortError"),
+            error: new Error("outer", { cause: { code: "inner" } }),
+            file: new File([new Uint8Array([3, 4])], "report.txt", { lastModified: 1_768_435_200_000, type: "text/plain" }),
+            fractionalFile: new File([], "fractional.txt", { lastModified: 1.5 }),
+            invalidDate: new Date(Number.NaN),
+            map: new Map<unknown, string>([[1, "number"], ["1", "string"]]),
+            negativeZero: -0,
+            nonFiniteFile: new File([], "non-finite.txt", { lastModified: Number.POSITIVE_INFINITY }),
+            pattern,
+            set: new Set(["first", "second"]),
+            spoofedBigInt: { label: "spoofed", [Symbol.toStringTag]: "BigInt" },
+            uint8Array: new Uint8Array([1, 2]),
+            undefined,
+          },
+        },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    const payload = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes
+      .find((attribute: { key: string }) => attribute.key === "vitehub.payload.value").value
+    expect(payload).toMatchObject({
+      kvlistValue: {
+        values: [
+          { key: "arrayBuffer", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "ArrayBuffer" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
+          ] } } },
+          { key: "boxedBigInt", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "BigInt" } },
+            { key: "value", value: { intValue: "9" } },
+          ] } } },
+          { key: "boxedBoolean", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Boolean" } },
+            { key: "value", value: { boolValue: false } },
+          ] } } },
+          { key: "boxedNumber", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Number" } },
+            { key: "value", value: { intValue: "5" } },
+          ] } } },
+          { key: "boxedString", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "String" } },
+            { key: "value", value: { stringValue: "one" } },
+          ] } } },
+          { key: "blob", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "application/octet-stream" } },
+            { key: "size", value: { intValue: "2" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
+          ] } } },
+          { key: "cyclic", value: { kvlistValue: { values: [{ key: "self", value: { stringValue: "[Circular]" } }] } } },
+          { key: "date", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Date" } },
+            { key: "value", value: { stringValue: "2026-01-01T00:00:00.000Z" } },
+          ] } } },
+          {
+            key: "domException",
+            value: { kvlistValue: { values: [
+              { key: "type", value: { stringValue: "DOMException" } },
+              { key: "name", value: { stringValue: "AbortError" } },
+              { key: "message", value: { stringValue: "stopped" } },
+              { key: "code", value: { intValue: "20" } },
+            ] } },
+          },
+          {
+            key: "error",
+            value: { kvlistValue: { values: [
+              { key: "type", value: { stringValue: "Error" } },
+              { key: "name", value: { stringValue: "Error" } },
+              { key: "message", value: { stringValue: "outer" } },
+              { key: "cause", value: { kvlistValue: { values: [{ key: "code", value: { stringValue: "inner" } }] } } },
+            ] } },
+          },
+          { key: "file", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "File" } },
+            { key: "name", value: { stringValue: "report.txt" } },
+            { key: "lastModified", value: { intValue: "1768435200000" } },
+            { key: "mediaType", value: { stringValue: "text/plain" } },
+            { key: "size", value: { intValue: "2" } },
+            { key: "bytes", value: { bytesValue: "AwQ=" } },
+          ] } } },
+          { key: "fractionalFile", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "File" } },
+            { key: "name", value: { stringValue: "fractional.txt" } },
+            { key: "lastModified", value: { doubleValue: 1.5 } },
+            { key: "mediaType", value: { stringValue: "" } },
+            { key: "size", value: { intValue: "0" } },
+            { key: "bytes", value: { bytesValue: "" } },
+          ] } } },
+          { key: "invalidDate", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Date" } },
+            { key: "value", value: { stringValue: "Invalid Date" } },
+          ] } } },
+          {
+            key: "map",
+            value: {
+              kvlistValue: {
+                values: [
+                  { key: "type", value: { stringValue: "Map" } },
+                  { key: "entries", value: { arrayValue: { values: [
+                    { kvlistValue: { values: [{ key: "key", value: { intValue: "1" } }, { key: "value", value: { stringValue: "number" } }] } },
+                    { kvlistValue: { values: [{ key: "key", value: { stringValue: "1" } }, { key: "value", value: { stringValue: "string" } }] } },
+                  ] } } },
+                ],
+              },
+            },
+          },
+          { key: "negativeZero", value: { stringValue: "-0" } },
+          { key: "nonFiniteFile", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "File" } },
+            { key: "name", value: { stringValue: "non-finite.txt" } },
+            { key: "lastModified", value: { stringValue: "Infinity" } },
+            { key: "mediaType", value: { stringValue: "" } },
+            { key: "size", value: { intValue: "0" } },
+            { key: "bytes", value: { bytesValue: "" } },
+          ] } } },
+          { key: "pattern", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "RegExp" } },
+            { key: "source", value: { stringValue: "token" } },
+            { key: "flags", value: { stringValue: "gi" } },
+            { key: "lastIndex", value: { intValue: "4" } },
+          ] } } },
+          { key: "set", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Set" } },
+            { key: "values", value: { arrayValue: { values: [{ stringValue: "first" }, { stringValue: "second" }] } } },
+          ] } } },
+          { key: "spoofedBigInt", value: { kvlistValue: { values: [{ key: "label", value: { stringValue: "spoofed" } }] } } },
+          { key: "uint8Array", value: { kvlistValue: { values: [
+            { key: "type", value: { stringValue: "Uint8Array" } },
+            { key: "bytes", value: { bytesValue: "AQI=" } },
+          ] } } },
+          { key: "undefined", value: { stringValue: "undefined" } },
+        ],
+      },
+    })
+  })
+
+  it("preserves undefined public payload values in OTLP/HTTP JSON", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: {
+          "ordinary.undefined": undefined,
+          "vitehub.payload.value": undefined,
+          "vitehub.payload.visibility": "public",
+        },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    const attributes = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes
+    expect(attributes).not.toContainEqual(expect.objectContaining({ key: "ordinary.undefined" }))
+    expect(attributes).toContainEqual({ key: "vitehub.payload.value", value: { stringValue: "undefined" } })
+  })
+
+  it("rejects oversized Blob payloads before reading their bytes", async () => {
+    const blob = new Blob([new Uint8Array(3 * 1024 * 1024)])
+    const arrayBuffer = vi.spyOn(blob, "arrayBuffer")
+
+    await expect(otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: { "vitehub.payload.value": blob },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })).rejects.toThrow("bounded binary budget")
+    expect(arrayBuffer).not.toHaveBeenCalled()
+  })
+
+  it("bounds Blob bytes across the complete OTLP batch", async () => {
+    const first = new Blob([new Uint8Array(2 * 1024 * 1024)])
+    const second = new Blob([new Uint8Array(2 * 1024 * 1024)])
+
+    await expect(otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [first, second].map((value, index) => ({
+        attributes: { "vitehub.payload.value": value },
+        eventName: `workspace.materialized.${index}`,
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      })),
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })).rejects.toThrow("batch exceeds the bounded binary budget")
+  })
+
+  it("does not encode inherited sparse-array values as public OTLP data", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const inherited = "prototype secret"
+    Object.defineProperty(Array.prototype, 0, { configurable: true, value: inherited, writable: true })
+
+    try {
+      await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+        agent: {},
+        records: [{
+          attributes: { "vitehub.payload.value": Array(1) },
+          eventName: "workspace.materialized",
+          spanId: "0123456789abcdef",
+          time: "2026-01-01T00:00:00.001Z",
+          traceId: "0123456789abcdef0123456789abcdef",
+        }],
+        runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+        signal: "logs",
+      })
+    }
+    finally {
+      delete Array.prototype[0]
+    }
+
+    const body = String(fetch.mock.calls[0]![1]?.body)
+    expect(body).not.toContain(inherited)
+    expect(JSON.parse(body).resourceLogs[0].scopeLogs[0].logRecords[0].attributes[0].value)
+      .toEqual({ arrayValue: { values: [{ stringValue: "[Array hole]" }] } })
+  })
+
+  it("distinguishes sparse holes from explicit undefined array entries", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    const value = Array(2)
+    value[0] = undefined
+
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: { "vitehub.payload.value": value },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+      .resourceLogs[0].scopeLogs[0].logRecords[0].attributes[0].value)
+      .toEqual({
+        arrayValue: {
+          values: [
+            { stringValue: "undefined" },
+            { stringValue: "[Array hole]" },
+          ],
+        },
+      })
   })
 
   it("treats partially accepted OTLP logs as failed delivery", async () => {
@@ -149,7 +441,7 @@ describe("Agent telemetry", () => {
         time: "2026-01-01T00:00:00.001Z",
         traceId: "0123456789abcdef0123456789abcdef",
       }],
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "logs",
     })).rejects.toThrow("partially rejected")
   })
@@ -196,6 +488,10 @@ describe("Agent telemetry", () => {
 
     const root = telemetry.mock.calls[0]![0].spans[0]
     const configured = root.events.find((event: { name: string }) => event.name === "vitehub.agent.configured")
+    expect(configured.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+    })
     expect(configured.attributes["vitehub.agent.configuration"]).toMatchObject({
       agent: { name: "support" },
       capabilities: expect.arrayContaining([{
@@ -304,7 +600,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{ name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
@@ -318,7 +614,7 @@ describe("Agent telemetry", () => {
 
     await otlpHttpJson({ endpoint: "https://telemetry.example/otlp", resource: { build: 1e21 } })({
       agent: {},
-      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
       signal: "traces",
       spans: [{ attributes: { count: 12 }, name: "vitehub.run", spanId: "0123456789abcdef", startTime: "2026-01-01T00:00:00.000Z", status: { code: "OK" }, traceId: "0123456789abcdef0123456789abcdef" }],
     })
@@ -495,6 +791,10 @@ describe("Agent telemetry", () => {
       .flatMap(exported => exported.records)
       .filter(record => record.eventName === "vitehub.agent.configured")
     expect(configurationRecords).toHaveLength(1)
+    expect(configurationRecords[0]?.attributes).toMatchObject({
+      "vitehub.activity.owner": "vitehub",
+      "vitehub.activity.phase": "setup",
+    })
     expect(configurationRecords[0]?.attributes["vitehub.agent.configuration"]).toMatchObject({
       driver: { model: { id: "late-model", provider: "late-provider" } },
     })
@@ -1110,6 +1410,7 @@ describe("Agent telemetry", () => {
     const telemetry = vi.fn()
     const traceLog = createTraceEventLog()
     const runtime = {
+      capabilities: {},
       memo: vi.fn(),
       runtime: "unknown" as const,
       trace: { id: "host-trace" },

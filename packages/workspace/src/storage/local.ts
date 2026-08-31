@@ -252,11 +252,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
   }
 
-  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     return await withWorkspacePathLock(this.root, path, () => this.#writeFileStream(path, file))
   }
 
-  async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+  async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)

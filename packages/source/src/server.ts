@@ -5,6 +5,15 @@ import { CollectionCursorError } from "./core/collection.ts"
 import type { H3Event } from "h3"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 
+export interface CollectionHandler {
+  (event: unknown): Promise<unknown>
+  fetch(input: Request | URL | string): Promise<Response>
+}
+
+export interface CollectionHandlerEvent {
+  req: { signal: AbortSignal }
+}
+
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
   const value = query[key]
   if (Array.isArray(value)) {
@@ -69,8 +78,9 @@ function assertCollection(value: unknown): asserts value is Collection<unknown, 
 
 export function defineCollectionHandler<TItem, TQuery extends object, TQueryInput extends object>(
   collection: Collection<TItem, TQuery, TQueryInput>,
-): ReturnType<typeof defineEventHandler> {
+): CollectionHandler {
   assertCollection(collection)
+  // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
     const requestQuery = getQuery(event)
     let cursor: string | undefined
@@ -90,5 +100,5 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
       if (cause instanceof CollectionCursorError) invalidRequest(cause)
       throw cause
     }
-  })
+  }) as CollectionHandler
 }

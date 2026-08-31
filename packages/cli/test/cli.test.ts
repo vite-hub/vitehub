@@ -1,12 +1,17 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 
 const directories: string[] = []
+const execFileAsync = promisify(execFile)
 
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -45,6 +50,35 @@ function stream() {
 }
 
 describe("ViteHub CLI", () => {
+  it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn()
+
+    const exitCode = await runViteHubCli({ args: [flag], loadConfig, stderr, stdout })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe(`${cliPackageManifest.version}\n`)
+    expect(stderr.output()).toBe("")
+    expect(loadConfig).not.toHaveBeenCalled()
+  })
+
+  it("prints the installed manifest version through the built binary outside a project", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "package")
+    await mkdir(packageDir, { recursive: true })
+    await cp(resolve(import.meta.dirname, "../dist"), join(packageDir, "dist"), { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(packageDir, "node_modules"), "dir")
+
+    const { stderr, stdout } = await execFileAsync(process.execPath, [join(packageDir, "dist/index.js"), "--version"], {
+      cwd: rootDir,
+    })
+
+    expect(stdout).toBe("0.0.0-preview.1174\n")
+    expect(stderr).toBe("")
+  })
+
   it("flushes configured entrypoint streams before exiting", async () => {
     const callbacks: Array<() => void> = []
     const createStream = () => ({
@@ -416,20 +450,88 @@ describe("ViteHub CLI", () => {
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
 
-  it("keeps explicit Vite config ownership in the standalone loader", async () => {
+  it("loads Nuxt plugins when a Nuxt app also has a Vite config", async () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "vite.config.ts"), "export default {}\n")
     await writeFile(join(rootDir, "nuxt.config.ts"), "export default {}\n")
-    const loadNuxtViteConfig = vi.fn()
+    const stdout = stream()
+    const namespacePlugin = (name: string) => ({
+      vitehub: { cli: { namespaces: [{ features: [], name }] } },
+    })
+    const loadNuxtViteConfig = vi.fn(async () => ({
+      plugins: [namespacePlugin("nuxt-only")],
+      root: join(rootDir, "app"),
+    }))
 
     await runViteHubCli({
       args: ["--help"],
       cwd: rootDir,
+      loadConfig: async () => ({ plugins: [namespacePlugin("vite-only")], root: rootDir }),
       loadNuxtViteConfig,
-      stdout: stream(),
+      stdout,
     })
 
-    expect(loadNuxtViteConfig).not.toHaveBeenCalled()
+    expect(loadNuxtViteConfig).toHaveBeenCalledOnce()
+    expect(stdout.output()).toContain("nuxt-only")
+    expect(stdout.output()).not.toContain("vite-only")
+  })
+
+  it("marks standalone Vite config loading as CLI discovery", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.ts"), `
+export default {
+  plugins: [{
+    config(config) {
+      if (config.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+    },
+    name: "fixture-discovery-test",
+    vitehub: {
+      cli: {
+        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+      },
+    },
+  }],
+}
+`)
+
+    await expect(runViteHubCli({
+      args: ["test", "run"],
+      cwd: rootDir,
+      stdout: stream(),
+    })).resolves.toBe(0)
+  })
+
+  it("loads development-only Nuxt contributors during CLI discovery", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), `
+export default {
+  modules: ["./discovery-module.ts"],
+}
+`)
+    await writeFile(join(rootDir, "discovery-module.ts"), `
+export default function (_options, nuxt) {
+  if (nuxt.options.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+  if (!nuxt.options.dev) return
+  nuxt.options.vite.plugins ||= []
+  nuxt.options.vite.plugins.push({
+    name: "fixture-discovery-test",
+    vitehub: {
+      cli: {
+        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+      },
+    },
+  })
+}
+`)
+
+    await expect(runViteHubCli({
+      args: ["test", "run"],
+      cwd: rootDir,
+      stdout: stream(),
+    })).resolves.toBe(0)
   })
 
   it("fails closed when provision credentials are missing", async () => {

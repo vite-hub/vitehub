@@ -3,6 +3,12 @@ export {
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
+export {
+  failInterruptedAgentInvocations,
+  readAgentInvocationWorkload,
+  summarizeAgentInvocationWorkload,
+} from "./server/invocation-health.ts"
+
 export { defineAgentRunEvents } from "./run-events.ts"
 export {
   AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE,

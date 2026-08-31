@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
@@ -25,6 +26,7 @@ const optionalPackages = [
   "@vercel/sandbox",
   "askweb",
   "evalite",
+  "files-sdk",
   "openworkflow",
   "vitest",
 ]
@@ -201,7 +203,7 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   })
 
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
-    if (name.startsWith("@vite-hub/")) {
+    if (name.startsWith("@vite-hub/") && !spec.startsWith("npm:")) {
       expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
     }
   }
@@ -222,21 +224,29 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
   const specs: Record<string, string> = {}
   const infos = listWorkspacePackageInfos(repoRoot)
     .filter(info => !info.private && (!packageNames || packageNames.has(info.packageName)))
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
 
   for (const info of infos) {
     const source = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as PackageManifest
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = join(packDir, packageTarballName(info.packageName, source.version))
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, packageTarballName(info.packageName, source.version))
+    })
     expect(existsSync(tarball), `Missing tarball for ${info.packageName}`).toBe(true)
     await assertPackedPackage(tarball, info.packageName === "vite-hub")
     specs[info.packageName] = `file:${tarball}`
   }
 
+  if (releaseTarballs && !packageNames) expect(releaseTarballs.size).toBe(infos.length)
+
   return specs
 }
 
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
-  const overrides = Object.entries({ ...specs, ...additionalOverrides })
+  const overrides = Object.entries({
+    ...specs,
+    ...additionalOverrides,
+  })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
 
@@ -341,10 +351,10 @@ async function assertProviderRuntimeLoads(appDir: string) {
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
 
-async function assertBlobDriverPackagesOwned(appDir: string) {
+async function assertBlobProviderPackagesOwned(appDir: string) {
   const script = [
     "const viteHub = import.meta.resolve(\"vite-hub/package.json\")",
-    "for (const specifier of [\"files-sdk\", \"@google-cloud/storage\"]) import.meta.resolve(specifier, viteHub)",
+    "import.meta.resolve(\"@google-cloud/storage\", viteHub)",
   ].join("\n")
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
@@ -455,6 +465,55 @@ async function assertVercelRuntimeImportsResolveInside(
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("stages Node declarations for Deno from the packed facade", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-deno-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(appDir, { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            nitro: "3.0.260603-beta",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "vite.config.mjs"), `
+          import { nitro } from "nitro/vite"
+          import { defineConfig } from "vite"
+          import { vitehub } from "vite-hub"
+
+          export default defineConfig({
+            plugins: [vitehub({ preset: "deno" }), nitro()],
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "nitro>h3": "2.0.1-rc.25",
+        }), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      expect(existsSync(join(appDir, "node_modules/@types/node")), "the app must not own Node declarations").toBe(false)
+
+      await run("pnpm", ["exec", "vite", "build"], appDir)
+
+      await expect(readFile(join(appDir, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+        compilerOptions: { types: ["./node_modules/@types/node/index.d.ts"] },
+      })
+      expect(existsSync(join(appDir, ".output/node_modules/@types/node/index.d.ts"))).toBe(true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
   it("preserves Agent chat data through a packed Nuxt route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-agent-consumer-"))
     const appDir = join(root, "app")
@@ -896,7 +955,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
-      await assertBlobDriverPackagesOwned(appDir)
+      await assertBlobProviderPackagesOwned(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 
@@ -1021,7 +1080,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
-        file.endsWith(".d.ts")
+        file.endsWith(".d.ts") || file.includes("/.runtime-generations/")
           ? []
           : source.split("\n")
               .map((line, index) => ({ file, line: index + 1, source: line.trim() }))

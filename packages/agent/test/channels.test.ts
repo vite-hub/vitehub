@@ -5,6 +5,8 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+
 function githubIssueCommentPayload(body = "/review please") {
   return {
     action: "created",
@@ -30,13 +32,629 @@ function githubIssueCommentPayload(body = "/review please") {
   }
 }
 
+function githubPullRequestOpenedPayload() {
+  return {
+    action: "opened",
+    installation: { id: 123 },
+    number: 42,
+    pull_request: { number: 42 },
+    repository: { full_name: "acme/app" },
+  }
+}
+
 describe("agent channels", () => {
+  it("creates and updates one GitHub Agent activity comment with session history", async () => {
+    const { github } = await import("../src/channels.ts")
+    let stored: { body: string, id: number } | undefined
+    const deleteStored = () => { stored = undefined }
+    let failNextCommentsGet = false
+    let hideStoredFromList = false
+    const methods: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
+      if (url.pathname === "/user") return new Response(JSON.stringify({ login: "vitehub-bot" }), { headers: { "content-type": "application/json" } })
+      if (method === "GET") {
+        if (failNextCommentsGet) {
+          failNextCommentsGet = false
+          throw new Error("GitHub unavailable")
+        }
+        if (url.pathname === "/repos/acme/app/issues/comments/7") {
+          return stored
+            ? Response.json({ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } })
+            : Response.json({ message: "Not Found" }, { status: 404 })
+        }
+        const comments = url.searchParams.get("page") === "2" || !stored || hideStoredFromList
+          ? []
+          : [{ body: stored.body, id: stored.id, user: { login: "vitehub-bot" } }]
+        return new Response(JSON.stringify(comments), { headers: { "content-type": "application/json" } })
+      }
+      const parsedBody: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(parsedBody) || !hasRuntimeType(parsedBody.body, "string")) throw new Error("Invalid comment body.")
+      const body = parsedBody.body
+      stored = { body, id: 7 }
+      return new Response(JSON.stringify(stored), { headers: { "content-type": "application/json" }, status: method === "POST" ? 201 : 200 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const update = channel.activity?.update
+      if (!update) throw new Error("Missing GitHub Agent activity updater.")
+      const context = (runId: string, status: "completed" | "running", agentName = "reviewer") => ({
+        activity: {
+          agentName,
+          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }],
+          runId,
+          status,
+          ...(status === "completed" ? { summary: "Review complete." } : {}),
+          tasks: [
+            { status: status === "completed" ? "completed" : "in-progress", title: "Review changes" },
+            { status: "pending", title: "Untrusted\n# [link](https://example.com) *text*" },
+          ],
+        },
+        channel,
+        memo: vi.fn(),
+        run: { runId },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      })
+
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "running") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "completed") as never)
+      expect(stored?.body).not.toContain("Review complete.")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "running") as never)
+
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
+      expect(stored?.body).toContain("agent-running-0969da")
+      expect(stored?.body).toContain("- [ ] ⏳ Review changes")
+      expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com\\) \\*text\\*")
+      expect(stored?.body).not.toContain("\n# [link]")
+      expect(stored?.body).toContain("https://console.test/invocations/run-2")
+      expect(stored?.body).toContain("<summary>Previous sessions</summary>")
+      expect(stored?.body).toContain("https://console.test/invocations/run-1")
+      expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
+
+      // Agent identity keeps equal provider run IDs as separate activity sessions.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "completed") as never)
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-2", "running", "writer") as never)
+      expect(stored?.body).toContain("agent-running-0969da")
+
+      // A failed initial projection must not mark the run stale for its retry.
+      failNextCommentsGet = true
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await expect(update(context("retry-run", "running") as never)).rejects.toThrow("GitHub unavailable")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("retry-run", "running") as never)
+      expect(stored?.body).toContain("https://console.test/invocations/retry-run")
+
+      // A cached managed comment remains reusable after newer replies push it outside the listing window.
+      hideStoredFromList = true
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("cached-run", "running") as never)
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(stored?.body).toContain("https://console.test/invocations/cached-run")
+      hideStoredFromList = false
+
+      // A deleted cached comment must be rediscovered as missing and recreated.
+      deleteStored()
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("replacement-run", "running") as never)
+      expect(methods.filter(method => method === "POST")).toHaveLength(2)
+      expect(stored?.body).toContain("https://console.test/invocations/replacement-run")
+
+      // Rebuild the stale-run history after deleting the comment that stored it.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "running") as never)
+
+      const largeActivity = context("run-3", "running")
+      largeActivity.activity.tasks = Array.from({ length: 100 }, (_, index) => ({ status: "pending", title: `${index}: ${"x".repeat(1_000)}` }))
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(largeActivity as never)
+      expect(stored?.body.length).toBeLessThan(65_536)
+      expect(stored?.body).toContain("24:")
+      expect(stored?.body).not.toContain("25:")
+
+      for (let index = 4; index <= 14; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await update(context(`run-${index}`, "running") as never)
+      }
+      const currentBody = stored?.body
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("run-1", "completed") as never)
+      expect(stored?.body).toBe(currentBody)
+      expect(stored?.body).toContain("https://console.test/invocations/run-14")
+
+      // Keep an active run stale even after bounded serialized tombstones evict it.
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("long-running", "running") as never)
+      for (let index = 0; index <= 100; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await update(context(`newer-${index}`, "completed") as never)
+      }
+      const newestBody = stored?.body
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await update(context("long-running", "completed") as never)
+      expect(stored?.body).toBe(newestBody)
+      expect(stored?.body).toContain("https://console.test/invocations/newer-100")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("creates queued GitHub activity when a pull request opens", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    let releaseIdentity: (() => void) | undefined
+    let identityBlocked = true
+    const background: Promise<unknown>[] = []
+    const methods: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
+      if (url.pathname === "/user") {
+        if (identityBlocked) {
+          await new Promise<void>((resolve) => {
+            releaseIdentity = () => {
+              identityBlocked = false
+              resolve()
+            }
+          })
+        }
+        return Response.json({ login: "vitehub-bot" })
+      }
+      if (method === "GET") {
+        return Response.json(url.searchParams.get("page") === "2" || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      return Response.json({ id: 7 }, { status: method === "POST" ? 201 : 200 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      // SAFETY: This fixture supplies the callback fields consumed by GitHub activity initialization.
+      const triggerContext = {
+        agentCapabilities: [],
+        agentIdentity: { name: "reviewer" },
+        channel,
+        trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+        waitUntil: (task: Promise<unknown>) => background.push(task),
+      } as never
+      const opened = { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() }
+      const result = await trigger.invoke(triggerContext, opened)
+
+      expect(result).toBeInstanceOf(Response)
+      expect(background).toHaveLength(1)
+      expect(storedBody).toBe("")
+      await vi.waitFor(() => expect(releaseIdentity).toBeTypeOf("function"))
+      releaseIdentity!()
+      await background[0]
+      expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
+      expect(storedBody).toContain("agent-queued-6e7781")
+
+      // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "real-run", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "real-run" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+      const runningBody = storedBody
+      await trigger.invoke(triggerContext, opened)
+      await background[1]
+
+      expect(methods.filter(method => method === "POST")).toHaveLength(1)
+      expect(methods.filter(method => method === "PATCH")).toHaveLength(1)
+      expect(storedBody).toBe(runningBody)
+      expect(storedBody).toContain("agent-running-0969da")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("resolves GitHub App activity ownership with app JWT metadata", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/app/installations/987/access_tokens") {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (url.pathname === "/user") return Response.json({ message: "Requires authentication" }, { status: 401 })
+      if (url.pathname === "/app") return Response.json({ id: 2468, slug: "vitehub-app" })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, performed_via_github_app: { id: 2468 } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "POST") return Response.json({ id: 7 }, { status: 201 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    const channel = github({
+      activity: true,
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "activity-app",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        fetch: fetcher as typeof fetch,
+        installationId: 987,
+        privateKey: privateKeyPem,
+      },
+    })
+    const update = channel.activity?.update
+    if (!update) throw new Error("Missing GitHub Agent activity updater.")
+    // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+    await update({
+      activity: { links: [], runId: "run-app", status: "running", tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId: "run-app" },
+      runtime: "unknown",
+      target: { installationId: 987, issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    } as never)
+
+    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/app", expect.objectContaining({
+      headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer .+\..+\..+$/) }),
+      method: "GET",
+    }))
+    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+  })
+
+  it("does not reuse owned replies that only quote the activity marker", async () => {
+    const { github } = await import("../src/channels.ts")
+    const methods: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      const method = init?.method || "GET"
+      methods.push(method)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (method === "GET") {
+        return Response.json(url.searchParams.has("page")
+          ? []
+          : [{ body: "Quoted source: <!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } }])
+      }
+      return Response.json({ id: 8 }, { status: 201 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-quoted", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-quoted" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(methods).toContain("POST")
+      expect(methods).not.toContain("PATCH")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("orders GitHub activity separately for each authenticated identity", async () => {
+    const { github } = await import("../src/channels.ts")
+    const posts: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      // SAFETY: The fixture controls the request headers and supplies a string-keyed header record.
+      const authorization = String((init?.headers as Record<string, string> | undefined)?.authorization || "")
+      if (url.pathname === "/user") return Response.json({ login: authorization.endsWith("token-a") ? "bot-a" : "bot-b" })
+      if (init?.method === "GET") return Response.json([])
+      posts.push(authorization)
+      return Response.json({ id: posts.length }, { status: 201 })
+    })
+    const context = (channel: ReturnType<typeof github>) => ({
+      activity: { links: [], runId: "shared-run", status: "running", tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId: "shared-run" },
+      runtime: "unknown",
+      target: { issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    })
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channelA = github({ activity: true })
+      const channelB = github({ activity: true })
+      vi.stubEnv("GITHUB_TOKEN", "token-a")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channelA.activity?.update(context(channelA) as never)
+      vi.stubEnv("GITHUB_TOKEN", "token-b")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channelB.activity?.update(context(channelB) as never)
+
+      expect(posts).toEqual(["Bearer token-a", "Bearer token-b"])
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("orders GitHub activity before resolving authenticated identity", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    let identityCalls = 0
+    let releaseFirstIdentity!: () => void
+    const firstIdentityPending = new Promise<void>(resolve => { releaseFirstIdentity = resolve })
+    const writes: string[] = []
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") {
+        identityCalls++
+        if (identityCalls === 1) await firstIdentityPending
+        return Response.json({ login: "vitehub-bot" })
+      }
+      if (init?.method === "GET") {
+        return Response.json(url.searchParams.has("page") || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      writes.push(storedBody)
+      return Response.json({ id: 7 }, { status: init?.method === "POST" ? 201 : 200 })
+    })
+    const context = (channel: ReturnType<typeof github>, runId: string) => ({
+      activity: { links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }], runId, status: "running" as const, tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId },
+      runtime: "unknown",
+      target: { issue: 42, repository: "acme/app" },
+      waitUntil: vi.fn(),
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const firstContext = context(channel, "run-first")
+      const secondContext = context(channel, "run-second")
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      const first = channel.activity?.update(firstContext as never)
+      await vi.waitFor(() => expect(identityCalls).toBe(1))
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      const second = channel.activity?.update(secondContext as never)
+
+      await Promise.resolve()
+      expect(identityCalls).toBe(1)
+      releaseFirstIdentity()
+      await Promise.all([first, second])
+
+      expect(identityCalls).toBe(2)
+      expect(writes).toHaveLength(2)
+      expect(writes[0]).toContain("run-first")
+      expect(writes[1]).toContain("run-second")
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("reuses GitHub Actions bot activity for the built-in Actions token", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/app/installations/123/access_tokens") return Response.json({ message: "Not Found" }, { status: 404 })
+      if (url.pathname === "/user") return Response.json({ message: "Resource not accessible by integration" }, { status: 403 })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "github-actions[bot]" } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({
+        activity: true,
+        app: { appId: "1", fetch: fetcher, installationId: 123, privateKey: privateKeyPem },
+      })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-actions", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-actions" },
+        runtime: "unknown",
+        target: { installationId: 123, issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("does not treat an unresolved GH_TOKEN as the GitHub Actions bot", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ message: "Forbidden" }, { status: 403 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GH_TOKEN", "user-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await expect(channel.activity?.update({
+        activity: { links: [], runId: "run-user-token", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-user-token" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never))
+        .rejects.toThrow("could not resolve the authenticated identity")
+      expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining("/comments"), expect.anything())
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("finds an owned activity comment beyond the first restart lookup page", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        const page = url.searchParams.get("page")
+        if (page === null) {
+          return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: id + 1 })), {
+            headers: { link: `<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=6>; rel="last"` },
+          })
+        }
+        if (page === "6") return Response.json([{ body: "ordinary", id: 501 }])
+        if (page === "2") return Response.json([
+          { body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "vitehub-bot" } },
+          ...Array.from({ length: 99 }, (_, id) => ({ body: "ordinary", id: id + 101 })),
+        ])
+        if (page && Number(page) >= 3 && Number(page) <= 5) {
+          return Response.json(Array.from({ length: 100 }, (_, id) => ({ body: "ordinary", id: Number(page) * 100 + id })))
+        }
+        throw new Error(`Unexpected comments page: ${page}`)
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-restarted", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-restarted" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("bounds the complete serialized GitHub activity comment", async () => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({ login: "vitehub-bot" })
+      if (init?.method === "GET") {
+        return Response.json(url.searchParams.get("page") === "2" || !storedBody
+          ? []
+          : [{ body: storedBody, id: 7, user: { login: "vitehub-bot" } }])
+      }
+      const payload: unknown = JSON.parse(String(init?.body))
+      if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body.")
+      storedBody = payload.body
+      return Response.json({ id: 7 }, { status: 201 })
+    })
+    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      const links = Array.from({ length: 3 }, (_, index) => ({ label: `link-${index}-${"l".repeat(80)}`, url: `https://example.test/${"u".repeat(800)}` }))
+      for (let index = 0; index < 101; index++) {
+        // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+        await channel.activity?.update({
+          activity: { links, runId: `prior-${index}`, status: "completed", tasks: [] },
+          channel,
+          memo: vi.fn(),
+          run: { runId: `prior-${index}` },
+          runtime: "unknown",
+          target: { issue: 42, repository: "acme/app" },
+          waitUntil: vi.fn(),
+        } as never)
+      }
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: {
+          error: "failure\n\n## Deployment succeeded\n[Open report](https://example.test) @team",
+          links,
+          runId: "x".repeat(50_000),
+          status: "failed",
+          summary: "s".repeat(12_000),
+          tasks: Array.from({ length: 25 }, (_, index) => ({ status: "pending" as const, title: `task-${index}-${"t".repeat(300)}` })),
+        },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "x".repeat(50_000) },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+      expect(Buffer.byteLength(storedBody)).toBeLessThan(65_536)
+      expect(storedBody).toMatch(/^<!-- vitehub-agent-activity:[A-Za-z0-9_-]+ -->/)
+      expect(storedBody).not.toContain("x".repeat(1_000))
+      expect(storedBody).toContain("Agent stopped:")
+      expect(storedBody).toContain("Agent stopped: failure \\#\\# Deployment succeeded \\[Open report\\]\\(https://example.test\\) \\@team")
+      expect(storedBody).not.toContain("\n\n## Deployment succeeded")
+      expect(storedBody).toContain(links[0]!.url)
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("uses normalized finish context text for default GitHub PR replies", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({ pullRequest: true })
     const trigger = channel.triggers?.dev
     if (!trigger) throw new Error("Missing GitHub dev trigger.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke({
       capabilities: [],
       channel,
@@ -68,8 +686,9 @@ describe("agent channels", () => {
     })
     if (result instanceof Response) throw new Error("Expected GitHub context invocation.")
     const finishEffect = result.delivery?.finishEffects
-    if (typeof finishEffect !== "function") throw new Error("Missing GitHub finish effect.")
+    if (!hasRuntimeType(finishEffect, "function")) throw new Error("Missing GitHub finish effect.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(Promise.resolve(finishEffect({
       extensions: { get: () => undefined },
       reply: (input: string) => ({ kind: "reply", payload: input }),
@@ -105,8 +724,10 @@ describe("agent channels", () => {
       },
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     expect(pullRequest.read({
       context: {
+        // SAFETY: This test fixture intentionally indexes its exact local context shape.
         get: key => context[key as keyof typeof context],
       },
     })).toMatchObject({
@@ -151,7 +772,8 @@ describe("agent channels", () => {
 
     const defaultChannel = github({ pullRequest: true })
     const defaultWorkspace = defaultChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof defaultWorkspace !== "function") throw new Error("Missing default pull request Workspace contribution.")
+    if (!hasRuntimeType(defaultWorkspace, "function")) throw new Error("Missing default pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const contribution = await defaultWorkspace(context as never)
     if (!contribution) throw new Error("Missing default pull request Workspace source.")
     expect(contribution.sources?.vitehubGitHubPullRequest).toMatchObject({
@@ -161,21 +783,24 @@ describe("agent channels", () => {
     expect(contribution.sources).not.toHaveProperty("github")
     const rootChannel = github({ pullRequest: { workspace: true } })
     const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof rootWorkspace !== "function") throw new Error("Missing root pull request Workspace contribution.")
+    if (!hasRuntimeType(rootWorkspace, "function")) throw new Error("Missing root pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(rootWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
     })
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
     const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof customWorkspace !== "function") throw new Error("Missing custom pull request Workspace contribution.")
+    if (!hasRuntimeType(customWorkspace, "function")) throw new Error("Missing custom pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(customWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "repository" } } },
     })
 
     const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
     const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (typeof sourceMountWorkspace !== "function") throw new Error("Missing source-mount pull request Workspace contribution.")
+    if (!hasRuntimeType(sourceMountWorkspace, "function")) throw new Error("Missing source-mount pull request Workspace contribution.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "legacy-repository" } } },
     })
@@ -211,7 +836,8 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(channel.adapter({} as never)).resolves.toEqual({ name: "discord" })
       expect(createDiscordAdapter).toHaveBeenCalledWith({
         applicationId: "app-id",
@@ -241,7 +867,8 @@ describe("agent channels", () => {
         webhookSecret: () => ({ unseal: () => "webhook-secret" }),
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(channel.adapter({} as never)).resolves.toEqual({ name: "telegram" })
       expect(createTelegramAdapter).toHaveBeenCalledWith({
         allowedUserIds: ["123"],
@@ -252,11 +879,12 @@ describe("agent channels", () => {
       })
 
       const webhooks = channel.webhooks
-      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+      if (!webhooks || !hasRuntimeType(webhooks, "object") || Array.isArray(webhooks)) {
         throw new Error("Expected Telegram webhook registration.")
       }
       expect(webhooks.secretHeader).toBe("x-telegram-bot-api-secret-token")
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (!hasRuntimeType(webhooks.secretToken, "function")) throw new Error("Expected webhook secret resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(Promise.resolve(webhooks.secretToken({} as never))).resolves.toBe("webhook-secret")
     }
     finally {
@@ -272,6 +900,7 @@ describe("agent channels", () => {
     try {
       const { telegram } = await import("../src/channels.ts")
       const channel = telegram()
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const context = {
         cloudflare: {
           env: {
@@ -281,7 +910,7 @@ describe("agent channels", () => {
         },
       } as never
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Telegram adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
       await expect(channel.adapter(context)).resolves.toEqual({ name: "telegram" })
       expect(createTelegramAdapter).toHaveBeenCalledWith({
         botToken: "bot-token",
@@ -289,14 +918,17 @@ describe("agent channels", () => {
       })
 
       const webhooks = channel.webhooks
-      if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
+      if (!webhooks || !hasRuntimeType(webhooks, "object") || Array.isArray(webhooks)) {
         throw new Error("Expected Telegram webhook registration.")
       }
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (!hasRuntimeType(webhooks.secretToken, "function")) throw new Error("Expected webhook secret resolver.")
+      vi.stubGlobal("process", undefined)
       await expect(Promise.resolve(webhooks.secretToken(context))).resolves.toBe("webhook-secret")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
     }
     finally {
+      vi.unstubAllGlobals()
       vi.doUnmock("@chat-adapter/telegram")
       vi.resetModules()
     }
@@ -329,11 +961,12 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const resolved = await channel.adapter({} as never)
       expect(resolved).toBe(adapter)
       expect(createDiscordAdapter).toHaveBeenCalledWith({ botToken: "bot-token" })
-      expect((resolved as unknown as { [key: symbol]: unknown })[Symbol.for("vitehub.discord.longContent.mode")]).toBe("split")
+      expect(Reflect.get(resolved, Symbol.for("vitehub.discord.longContent.mode"))).toBe("split")
     }
     finally {
       vi.doUnmock("@chat-adapter/discord")
@@ -359,10 +992,11 @@ describe("agent channels", () => {
         },
       })
 
-      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Discord adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const resolved = await channel.adapter({} as never) as { setThreadTitle?: (threadId: string, title: string) => Promise<void> }
       expect(resolved).toBe(adapter)
-      expect(typeof resolved.setThreadTitle).toBe("function")
+      expect(hasRuntimeType(resolved.setThreadTitle, "function")).toBe(true)
 
       await resolved.setThreadTitle?.("discord:guild:channel:thread-1", "  New   Thread   Title  ")
       const longTitle = `ERROR: ${"x".repeat(120)}`
@@ -399,7 +1033,9 @@ describe("agent channels", () => {
     const stat = vi.fn(async () => ({ mediaType: "image/png", path: "screenshots/login.png", type: "file" as const }))
     const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/login.png" }))
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(publishWorkspaceArtifacts({
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       workspace: {
         fs: { readFile, stat },
       } as never,
@@ -437,6 +1073,7 @@ describe("agent channels", () => {
     const publish = vi.fn()
 
     await expect(publishWorkspaceArtifacts({
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       workspace: {
         fs: {
           readFile: vi.fn(),
@@ -521,6 +1158,7 @@ describe("agent channels", () => {
       trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
     }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke(context as never, { payload: githubIssueCommentPayload() })
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
 
@@ -534,7 +1172,14 @@ describe("agent channels", () => {
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
     })
+    expect(result.run?.annotations).toEqual({
+      "github.pullRequest": 42,
+      "github.repository": "acme/app",
+      "github.title": "Improve app",
+      "github.url": "https://github.test/acme/app/pull/42",
+    })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const withEmptyFacts = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review generated route"), github: {} })
     if (withEmptyFacts instanceof Response) throw new Error("Expected GitHub webhook invocation with empty facts.")
     expect(withEmptyFacts.input.context?.github).toMatchObject({
@@ -559,12 +1204,14 @@ describe("agent channels", () => {
         })
       })
       const channel = github({
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         app: { fetch: fetcher as typeof fetch },
         pullRequest: { reply: false },
       })
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const result = await trigger.invoke({
         capabilities: [],
         channel,
@@ -617,6 +1264,7 @@ describe("agent channels", () => {
       const channel = github({
         app: {
           apiBaseUrl: "https://api.github.test",
+          // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
           fetch: fetcher as typeof fetch,
         },
         pullRequest: { reply: false },
@@ -624,6 +1272,7 @@ describe("agent channels", () => {
       const trigger = channel.triggers?.webhook
       if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       const result = await trigger.invoke({
         capabilities: [],
         channel,
@@ -654,6 +1303,7 @@ describe("agent channels", () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({
       app: {
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: (async () => Response.json({
           base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
           head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
@@ -664,6 +1314,7 @@ describe("agent channels", () => {
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const result = await trigger.invoke({
       capabilities: [],
       channel,
@@ -695,11 +1346,25 @@ describe("agent channels", () => {
     const pullRequest = {
       pullRequest: {
         apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        htmlUrl: "https://github.test/acme/app/pull/42",
         number: 42,
         source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+        title: "Improve app",
       },
       repository: { fullName: "acme/app", name: "app", owner: "acme" },
-      run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+      run: {
+        annotations: {
+          ...Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`custom.${index}`, `value-${index}`])),
+          "github.pullRequest": 999,
+          "github.repository": "spoofed/repository",
+          "github.title": "Spoofed title",
+          "github.url": "https://example.test/spoofed",
+        },
+        messageId: "99",
+        origin: "github-pull-request-comment",
+        runId: "github:acme/app#42:comment:99",
+        threadId: "pr-42",
+      },
       trigger: {
         action: "created",
         actor: { login: "mona" },
@@ -712,8 +1377,10 @@ describe("agent channels", () => {
     }
     const devRun = { origin: "dev", runId: "dev:from-loop", threadId: "dev:agent" }
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromContext = await trigger.invoke(context as never, { pullRequest, run: devRun })
     if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
+    if (!fromContext.run) throw new Error("Expected GitHub run metadata.")
     expect(fromContext.input).toMatchObject({
       context: {
         github: {
@@ -728,12 +1395,52 @@ describe("agent channels", () => {
       prompt: "/review docs",
     })
     expect(fromContext.run).toMatchObject({
+      annotations: {
+        "custom.0": "value-0",
+        "github.pullRequest": 42,
+        "github.repository": "acme/app",
+        "github.title": "Improve app",
+        "github.url": "https://github.test/acme/app/pull/42",
+      },
       channelId: "github",
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
       threadId: "pr-42",
     })
+    expect(Object.keys(fromContext.run.annotations ?? {}).slice(0, 4)).toEqual([
+      "github.pullRequest",
+      "github.repository",
+      "github.title",
+      "github.url",
+    ])
 
+    const { bindAgentInvocations } = await import("../src/invocations.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, {
+      memo: vi.fn(),
+      run: fromContext.run,
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    })
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.finish("completed")
+    const annotations = (await invocations.getByRunId(fromContext.run.runId))?.annotations
+    expect(Object.keys(annotations ?? {})).toHaveLength(32)
+    expect(Object.keys(annotations ?? {}).slice(0, 4)).toEqual([
+      "github.pullRequest",
+      "github.repository",
+      "github.title",
+      "github.url",
+    ])
+    expect(annotations).toMatchObject({
+      "github.pullRequest": 42,
+      "github.repository": "acme/app",
+      "github.title": "Improve app",
+      "github.url": "https://github.test/acme/app/pull/42",
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const blocked = await trigger.invoke({
       ...context,
       agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
@@ -741,6 +1448,7 @@ describe("agent channels", () => {
     if (!(blocked instanceof Response)) throw new Error("Expected blocked GitHub context response.")
     await expect(blocked.json()).resolves.toMatchObject({ reason: "not_command" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const fromPayload = await trigger.invoke(context as never, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
     if (fromPayload instanceof Response) throw new Error("Expected GitHub payload invocation.")
     expect(fromPayload.input.context?.github).toMatchObject({
@@ -754,6 +1462,12 @@ describe("agent channels", () => {
       repository: { fullName: "acme/app" },
     })
     expect(fromPayload.run).toMatchObject({
+      annotations: {
+        "github.pullRequest": 42,
+        "github.repository": "acme/app",
+        "github.title": "Improve app",
+        "github.url": "https://github.test/acme/app/pull/42",
+      },
       channelId: "github",
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
@@ -761,11 +1475,11 @@ describe("agent channels", () => {
     })
   })
 
-  it("rewrites published image references in GitHub PR reviews", async () => {
-    const { github } = await import("../src/channels.ts")
+  it("captures rewritten image references in GitHub PR reviews and updates", async () => {
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
-    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
       if (String(url).endsWith("/app/installations/123/access_tokens")) {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
@@ -775,15 +1489,19 @@ describe("agent channels", () => {
       app: {
         apiBaseUrl: "https://api.github.test",
         appId: "1",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: fetcher as typeof fetch,
         installationId: 123,
         privateKey: privateKeyPem,
       },
     })
     const reviewEffect = channel.effects?.review
-    if (typeof reviewEffect !== "function") throw new Error("Missing GitHub review effect.")
+    if (!hasRuntimeType(reviewEffect, "function")) throw new Error("Missing GitHub review effect.")
+    const updateEffect = channel.effects?.update
+    if (!hasRuntimeType(updateEffect, "function")) throw new Error("Missing GitHub update effect.")
 
-    await reviewEffect({
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const reviewContext = {
       channel,
       effect: {
         artifacts: [{
@@ -818,7 +1536,14 @@ describe("agent channels", () => {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    } as never)
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    await reviewEffect(reviewContext as never)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    expect(messageChannelDeliveredReplyBody(reviewContext as never)).toBe(
+      "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+    )
 
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/pulls/42/reviews",
@@ -831,10 +1556,118 @@ describe("agent channels", () => {
         method: "POST",
       }),
     )
+
+    const updateContext = {
+      ...reviewContext,
+      effect: {
+        ...reviewContext.effect,
+        kind: "update",
+        payload: { body: "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
+      },
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    await updateEffect(updateContext as never)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    expect(messageChannelDeliveredReplyBody(updateContext as never)).toBe(
+      "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+    )
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99",
+      expect.objectContaining({
+        body: JSON.stringify({
+          body: "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        }),
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "PATCH",
+      }),
+    )
+  })
+
+  it("traces rewritten GitHub review and failed update bodies through delivery", async () => {
+    const { createTraceEventLog } = await import("@vite-hub/runtime")
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) {
+        return Response.json({
+          base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+          head: { ref: "feature", repo: { full_name: "acme/app" }, sha: "head-sha" },
+        })
+      }
+      if (href.includes("/issues/42/comments") || href.includes("/pulls/42/files")) return Response.json([])
+      if (href.endsWith("/pulls/42/reviews")) return Response.json({ ok: true }, { status: 201 })
+      if (href.endsWith("/issues/comments/99")) return Response.json({ message: "update rejected" }, { status: 500 })
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "1",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        fetch: fetcher as typeof fetch,
+        installationId: 123,
+        privateKey: privateKeyPem,
+      },
+      pullRequest: { reply: false, workspace: false },
+    })
+    const reviewBody = "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
+    const updateBody = "Updated body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)"
+    const artifact = {
+      alt: "Login badge",
+      mediaType: "image/png",
+      path: "screenshots/login.png",
+      placement: "inline" as const,
+      url: "https://assets.example/review/screenshots/login.png",
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "github-deliveries",
+        prepare(context) {
+          context.delivery.effect({ artifacts: [artifact], kind: "review", payload: { body: reviewBody } })
+          context.delivery.effect({ artifacts: [artifact], kind: "update", payload: { body: updateBody } })
+        },
+      })],
+      channels: { github: channel },
+      driver: { run: () => "ok" },
+    })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    try {
+      await expect(runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "unknown" as const,
+        traceLog,
+        waitUntil: vi.fn(),
+      }, "github.webhook", { payload: githubIssueCommentPayload() })).resolves.toBe("ok")
+    }
+    finally {
+      error.mockRestore()
+    }
+
+    const deliveries = traceLog.entries().filter(event => event.name === "agent.channel.delivery.effect")
+    expect(deliveries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attributes: expect.objectContaining({
+        "channel.effect.content": "Review body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        "channel.effect.kind": "review",
+      }) }),
+      expect.objectContaining({ attributes: expect.objectContaining({
+        "channel.effect.content": "Updated body\n\n![Login badge](<https://assets.example/review/screenshots/login.png>)",
+        "channel.effect.kind": "update",
+        "error.message": expect.stringContaining("GitHub delivery effect failed with 500"),
+      }) }),
+    ]))
   })
 
   it("publishes Workspace image paths before posting GitHub PR replies", async () => {
-    const { github } = await import("../src/channels.ts")
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const postedBodies: string[] = []
@@ -868,20 +1701,23 @@ describe("agent channels", () => {
         apiBaseUrl: "https://api.github.test",
         appId: "2",
         artifacts: { branch: "review-assets", pathPrefix: "review-output" },
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: fetcher as typeof fetch,
         installationId: 456,
         privateKey: privateKeyPem,
       },
     })
     const replyEffect = channel.effects?.reply
-    if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
+    if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
 
-    await replyEffect({
+    const effect = {
+      kind: "reply" as const,
+      payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
+    }
+    // SAFETY: The fixture supplies the complete delivery context consumed by the GitHub reply effect.
+    const deliveryContext = {
       channel,
-      effect: {
-        kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
-      },
+      effect,
       input: {
         context: {
           github: {
@@ -911,7 +1747,8 @@ describe("agent channels", () => {
           stat: vi.fn(async (path: string) => ({ mediaType: "image/png", path, type: "file" as const })),
         },
       },
-    } as never)
+    } as never
+    await replyEffect(deliveryContext)
 
     expect(createdRefs).toEqual([{
       ref: "refs/heads/review-assets",
@@ -940,6 +1777,103 @@ describe("agent channels", () => {
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
     expect(postedBodies[0]).not.toContain("Root: result.png")
     expect(postedBodies[0]).not.toContain("[result](![")
+    expect(messageChannelDeliveredReplyBody(deliveryContext)).toBe(postedBodies[0])
+  })
+
+  it("isolates rewritten GitHub reply bodies for overlapping delivery contexts", async () => {
+    const { github, messageChannelDeliveredReplyBody } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const postedBodies: string[] = []
+    let releaseFirstPost!: () => void
+    const firstPostReleased = new Promise<void>(resolve => { releaseFirstPost = resolve })
+    let firstPostStarted!: () => void
+    const firstPostPending = new Promise<void>(resolve => { firstPostStarted = resolve })
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/457/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/git/ref/heads/review-assets")) return Response.json({ object: { sha: "branch-sha" } })
+      if (href.includes("/contents/")) return Response.json({ content: { sha: "content-sha" } }, { status: 201 })
+      if (href.endsWith("/issues/42/comments")) {
+        // SAFETY: This mocked GitHub endpoint receives the JSON comment body created by the reply effect.
+        const body = JSON.parse(String(init?.body)).body as string
+        postedBodies.push(body)
+        if (postedBodies.length === 1) {
+          firstPostStarted()
+          await firstPostReleased
+        }
+        return Response.json({ ok: true }, { status: 201 })
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "2",
+        artifacts: { branch: "review-assets", pathPrefix: "review-output" },
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        fetch: fetcher as typeof fetch,
+        installationId: 457,
+        privateKey: privateKeyPem,
+      },
+    })
+    const replyEffect = channel.effects?.reply
+    if (!hasRuntimeType(replyEffect, "function")) throw new Error("Missing GitHub reply effect.")
+
+    const effect = {
+      kind: "reply" as const,
+      payload: { body: "Result: result.png" },
+    }
+    // SAFETY: The fixture supplies the complete delivery context consumed by the GitHub reply effect.
+    const deliveryContext = (runId: string) => ({
+      channel,
+      effect,
+      input: {
+        context: {
+          github: {
+            action: "created",
+            actor: { login: "onmax" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 457,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
+        prompt: "/review",
+      },
+      memo: vi.fn(),
+      run: { runId },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+      workspace: {
+        fs: {
+          readFile: vi.fn(async () => new Uint8Array([1, 2, 3])),
+          stat: vi.fn(async (path: string) => ({ mediaType: "image/png", path, type: "file" as const })),
+        },
+      },
+    }) as never
+    const firstContext = deliveryContext("run-first")
+    const secondContext = deliveryContext("run-second")
+
+    const firstDelivery = replyEffect(firstContext)
+    await firstPostPending
+    await replyEffect(secondContext)
+    releaseFirstPost()
+    await firstDelivery
+
+    expect(postedBodies).toHaveLength(2)
+    expect(postedBodies[0]).toContain("/run-first/")
+    expect(postedBodies[1]).toContain("/run-second/")
+    expect(messageChannelDeliveredReplyBody(firstContext)).toBe(postedBodies[0])
+    expect(messageChannelDeliveredReplyBody(secondContext)).toBe(postedBodies[1])
   })
 
   it("normalizes hand-written GitHub PR status string payloads", async () => {
@@ -967,6 +1901,7 @@ describe("agent channels", () => {
         app: {
           apiBaseUrl: "https://api.github.test",
           appId: "4",
+          // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
           fetch: fetcher as typeof fetch,
           installationId: 789,
           privateKeyPath,
@@ -974,8 +1909,9 @@ describe("agent channels", () => {
         },
       })
       const statusEffect = channel.effects?.status
-      if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
+      if (!hasRuntimeType(statusEffect, "function")) throw new Error("Missing GitHub status effect.")
 
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await statusEffect({
         channel,
         effect: {
@@ -1021,13 +1957,15 @@ describe("agent channels", () => {
     const channel = github({
       app: {
         appId: "3",
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
         fetch: vi.fn() as typeof fetch,
       },
     })
 
     for (const kind of ["reply", "update", "review"] as const) {
       const effect = channel.effects?.[kind]
-      if (typeof effect !== "function") throw new Error(`Missing GitHub ${kind} effect.`)
+      if (!hasRuntimeType(effect, "function")) throw new Error(`Missing GitHub ${kind} effect.`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
       await expect(effect({
         channel,
         effect: { kind, payload: { body: "No GitHub context" } },

@@ -75,6 +75,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain(
       '`vitehub({ preset: "deno", schedule: true })` rejects Schedule',
     );
+    expect(matrix).toContain("A production build stages the Nitro application and package-owned standalone Schedule output under `.output`");
     expect(matrix).toContain("**Available**");
     expect(matrix).toContain("**Package-specific**");
     expect(matrix).toContain("**Local-only**");

@@ -14,6 +14,7 @@ Most applications install `vite-hub` and enable Env through the framework preset
 
 ```sh
 pnpm add @vite-hub/env
+pnpm add -D vite
 ```
 
 ## Choose an Env section
@@ -87,6 +88,56 @@ export async function sync(event: unknown) {
 }
 ```
 
+## External runtime values
+
+Use a read-only Env provider when application credentials live outside the host environment. Keep the provider's bootstrap credential in Kubernetes, Cloudflare, or the current host, then load the external values as one operation-scoped snapshot.
+
+```ts
+// vite.config.ts
+import { env, hubEnv } from "@vite-hub/env/vite"
+
+export default {
+  plugins: [hubEnv({
+    providers: { credentials: "./server/env/credentials.ts" },
+  })],
+  env: {
+    server: {
+      gatewayKey: env({ secret: true }),
+      githubToken: env({
+        secret: true,
+        source: env.provider("credentials", "github/token"),
+      }),
+    },
+  },
+}
+```
+
+```ts
+// server/env/credentials.ts
+import { defineEnvProvider } from "@vite-hub/env/provider"
+import type { SecretEnv } from "@vite-hub/env/secret"
+
+export default defineEnvProvider<{ gatewayKey: SecretEnv<string> }>({
+  async read({ env, keys, signal }) {
+    const response = await fetch("https://credentials.internal/env", {
+      headers: { authorization: `Bearer ${env.gatewayKey.unseal()}` },
+      signal,
+    })
+    const values = await response.json() as Record<string, string | undefined>
+    return Object.fromEntries(keys.map(key => [key, values[key]]))
+  },
+})
+```
+
+```ts
+import { loadServerEnv } from "#vitehub/env/server"
+
+const snapshot = await loadServerEnv()
+const githubToken = snapshot.githubToken.unseal()
+```
+
+Each `loadServerEnv()` call batches requested keys once per provider and returns a fresh frozen snapshot. ViteHub does not cache across loads, so rotation appears on the next load. `useServerEnv()` stays synchronous for host-backed and literal values; provider-backed values require `loadServerEnv()` or `runWithServerEnv()`.
+
 The generated `#vitehub/env/server` module is not blocked from client builds. Keep its imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
 `SecretEnv` renders as `<redacted>` in string conversion, JSON, and Node inspection. Call `unseal()` only at the provider boundary that needs the raw value. Redaction is type friction, not complete leak prevention: never return, log, trace, or place an unsealed value in Agent input.
@@ -94,6 +145,12 @@ The generated `#vitehub/env/server` module is not blocked from client builds. Ke
 ## Structured errors
 
 ViteHub-owned Env resolution failures use the shared `ViteHubError` contract with Env-specific codes. Custom source resolvers keep application-owned errors unchanged, so callers can preserve their own error contract without translating it through ViteHub.
+
+Install the shared runtime package before inspecting structured errors:
+
+```sh
+pnpm add @vite-hub/runtime
+```
 
 ```ts
 import { getViteHubErrorShape } from "@vite-hub/runtime";

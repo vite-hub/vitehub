@@ -1,0 +1,19 @@
+{
+  "name": "playground-console",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nuxt/ui": "catalog:nuxt",
+    "@vite-hub/ui": "workspace:*",
+    "vue": "catalog:ui",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@iconify-json/ph": "catalog:ui",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "catalog:vite"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

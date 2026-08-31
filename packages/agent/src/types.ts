@@ -74,7 +74,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
+  AgentRuntimeContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
+    runtimeConfig: TRuntimeConfig
+  }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
@@ -217,7 +220,36 @@ export interface AgentScheduleInvocationInput {
   target?: string
 }
 
+export interface AgentActivityLink {
+  label: string
+  url: string
+}
+
+export type AgentActivityStatus = "cancelled" | "completed" | "failed" | "queued" | "running" | "waiting"
+
+export type AgentActivityTaskStatus = "completed" | "in-progress" | "pending"
+
+export type AgentActivityTarget =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly AgentActivityTarget[]
+  | { readonly [key: string]: AgentActivityTarget }
+
+export interface AgentActivityTask {
+  status: AgentActivityTaskStatus
+  title: string
+}
+
+export interface AgentRunActivity {
+  links?: readonly AgentActivityLink[]
+  runId?: string
+  target: AgentActivityTarget
+}
+
 export interface AgentRunMetadata<TOrigin extends string = string> {
+  activity?: AgentRunActivity
   annotations?: Record<string, AgentInvocationAnnotationValue>
   channelId?: string
   messageId?: string
@@ -1202,9 +1234,40 @@ export interface AgentProviderDriverOptions<
   output?: AgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
+  providerSettings?: Record<string, unknown>
+  /** SQLite file used to persist provider session cursors across process restarts. */
+  sessionStorePath?: string
 }
 
-export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface AgentProviderSealedCredential {
+  unseal(): string
+}
+
+export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
+
+export interface AgentProviderCredentialContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentAdapterMetadataContext<TRuntimeConfig> {
+  abortSignal?: AbortSignal
+}
+
+export type AgentProviderCredentialResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
+
+type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+/** A non-empty reasoning effort advertised by the selected Codex model. */
+export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
+export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
+
+export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentialProfile?: string
+  credentials?: AgentProviderCredentialResolver
+  /** Advanced Codex runtime settings passed to the provider runtime. */
+  providerSettings?: Record<string, unknown>
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+}
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
@@ -1235,6 +1298,10 @@ export interface AgentModelDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -1256,6 +1323,10 @@ export interface AgentRunDriver<
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -1502,7 +1573,7 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxMessages?: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -1648,7 +1719,29 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   [key: string]: unknown
 }
 
+export interface AgentActivityUpdate {
+  agentName?: string
+  error?: string
+  links: readonly AgentActivityLink[]
+  runId: string
+  status: AgentActivityStatus
+  summary?: string
+  tasks: readonly AgentActivityTask[]
+}
+
+export interface AgentChannelActivityContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  activity: AgentActivityUpdate
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  target: AgentActivityTarget
+}
+
+export interface AgentChannelActivityDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  update(context: AgentChannelActivityContext<TRuntimeConfig>): MaybePromise<void>
+}
+
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  activity?: AgentChannelActivityDefinition<TRuntimeConfig>
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
@@ -1766,7 +1859,7 @@ export interface AgentInspectionFileTreeItem {
   children?: AgentInspectionFileTreeItem[]
   kind: "directory" | "file"
   label?: string
-  materialize?: "build" | "lazy"
+  materialize?: "build" | "startup" | "lazy"
   materialized?: boolean
   materializedAt?: string
   path: string
@@ -1813,9 +1906,15 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentialProfile?: string
+  credentials?: true
   model?: string
   permissions: AgentProviderPermissions
   provider?: string
+  providerSettings?: string[]
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+  sessionStore?: "sqlite"
 }
 
 export interface AgentInspectionDriverMetadata {

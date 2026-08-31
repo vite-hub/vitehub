@@ -18,6 +18,7 @@ import {
   walkFiles,
   type PackageName,
 } from "./utils/repo"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "./utils/release-artifacts"
 
 const ignoredGeneratedDirs = new Set([
   ".nuxt",
@@ -138,24 +139,27 @@ describe("package manifest contracts", () => {
   it("includes the repository license in every packed public package", () => {
     const packDir = mkdtempSync(join(tmpdir(), "vitehub-license-pack-"))
     const license = readFileSync(join(repoRoot, "LICENSE"), "utf8")
+    const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
 
     try {
       for (const info of packageInfos) {
-        const before = new Set(readdirSync(packDir))
-        execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
-          cwd: repoRoot,
-          encoding: "utf8",
-          stdio: "pipe",
+        const tarball = resolveReleaseArtifactTarball(releaseTarballs, info.packageName, () => {
+          const before = new Set(readdirSync(packDir))
+          execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            stdio: "pipe",
+          })
+          const tarballs = readdirSync(packDir).filter(file => !before.has(file))
+          expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
+          return join(packDir, tarballs[0]!)
         })
-        const tarballs = readdirSync(packDir).filter(file => !before.has(file))
-        expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
-
-        const tarball = join(packDir, tarballs[0]!)
         const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n")
         expect(listing, `${info.packageName} should include the root license`).toContain("package/LICENSE")
         expect(execFileSync("tar", ["-xOf", tarball, "package/LICENSE"], { encoding: "utf8" }))
           .toBe(license)
       }
+      if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
     }
     finally {
       rmSync(packDir, { recursive: true })
@@ -179,7 +183,7 @@ describe("package manifest contracts", () => {
   })
 
   it("publishes required package dependencies before their consumers", () => {
-    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/package-release-order.mjs")], {
+    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/release-packages.mjs"), "order", "--workspace", repoRoot], {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim().split("\n")
@@ -215,8 +219,10 @@ describe("package manifest contracts", () => {
           continue
         }
 
-        if (packageName === "vite-hub" && subpath === "./tsconfig") {
-          expect(target).toBe("./tsconfig.json")
+        if (subpath === "./tsconfig") {
+          expect(target, `${packageName} ${subpath} should expose a root TypeScript config`).toMatch(
+            /^\.\/tsconfig(?:\.[^.]+)?\.json$/,
+          )
           expect(existsSync(exportTargetPath(packageName, target))).toBe(true)
           continue
         }
@@ -235,14 +241,24 @@ describe("package manifest contracts", () => {
   it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
     const frameworkManifest = readPackageManifest("vite-hub")
+    const kvManifest = readPackageManifest("kv")
+    const workspaceManifest = readPackageManifest("workspace")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
-    expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
+    expect(manifest.peerDependencies?.["files-sdk"]).toBeUndefined()
+    expect(manifest.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
-    expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(frameworkManifest.dependencies?.["@netlify/blobs"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(manifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["files-sdk"]).toBeUndefined()
+    expect(frameworkManifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toBeUndefined()
+    expect(manifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toBeUndefined()
+    expect(manifest.devDependencies?.["@vite-hub/netlify-blobs-runtime"]).toMatch(/^npm:@netlify\/blobs@/)
+    expect(kvManifest.dependencies?.unstorage).toEqual(expect.any(String))
+    expect(kvManifest.devDependencies?.unstorage).toBeUndefined()
+    expect(workspaceManifest.dependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.peerDependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
   })
 })
 

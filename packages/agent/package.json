@@ -105,6 +105,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./server/github": {
+      "types": "./dist/server/github.d.ts",
+      "import": "./dist/server/github.js"
+    },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
       "import": "./dist/server/internal.js"
@@ -145,7 +149,6 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@types/json-schema": "catalog:ai",
     "@vercel/connect": "0.6.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
@@ -163,13 +166,16 @@
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.3.0",
+    "@github-tools/eve-extension": "0.5.0",
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
+    "eve": "0.46.1",
     "evalite": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -190,7 +196,10 @@
     "@vite-hub/email": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "askweb": "catalog:ai",
+    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
@@ -218,6 +227,9 @@
       "optional": true
     },
     "askweb": {
+      "optional": true
+    },
+    "evalite": {
       "optional": true
     },
     "vite": {
