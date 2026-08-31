@@ -1318,7 +1318,8 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "node", queue: true }, development.nuxt)
-      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+      const nitroConfig = nitroOptions(development.nuxt)
+      await development.runNitroConfigHook(nitroConfig)
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
@@ -1326,7 +1327,7 @@ describe("ViteHub Nuxt integration", () => {
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
         expect.objectContaining({ name: "vitehub-console-queues", path: "/_vitehub/queues" }),
       ])
-      expect(development.nuxt.options.nitro).toMatchObject({
+      expect(nitroConfig).toMatchObject({
         handlers: [
           { route: "/api/_vitehub/console/sections" },
           { route: "/api/_vitehub/console/definitions" },
@@ -1426,7 +1427,8 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: true, preset: "node", schedule: true }, development.nuxt)
-      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+      const nitroConfig = nitroOptions(development.nuxt)
+      await development.runNitroConfigHook(nitroConfig)
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
 
@@ -1434,7 +1436,7 @@ describe("ViteHub Nuxt integration", () => {
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
         expect.objectContaining({ name: "vitehub-console-schedules", path: "/_vitehub/schedules" }),
       ])
-      expect(development.nuxt.options.nitro).toMatchObject({
+      expect(nitroConfig).toMatchObject({
         handlers: [
           { route: "/api/_vitehub/console/sections" },
           { route: "/api/_vitehub/console/definitions" },
