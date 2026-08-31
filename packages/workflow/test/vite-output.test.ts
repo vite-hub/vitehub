@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -112,12 +112,20 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
 it("seeds provider source retention with Workflow Definition handlers and steps", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-provider-sources-")
   const handler = join(rootDir, "server", "workflows", "welcome.ts")
+  const workflowDirectory = join(rootDir, "server", "workflows", "cleanup")
   const step = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
-  await mkdir(join(rootDir, "server", "workflows", "cleanup"), { recursive: true })
+  const agentHandler = join(rootDir, "server", "agents", "review", "agent.ts")
+  const skillsRoot = join(dirname(agentHandler), "skills")
+  await Promise.all([mkdir(workflowDirectory, { recursive: true }), mkdir(join(skillsRoot, "review"), { recursive: true })])
   await writeFile(handler, "export default async function welcome() {}\n")
   await writeFile(step, "export default async function cleanup() {}\n")
+  await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
+  await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
+  await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
 
-  expect(discoverWorkflowProviderSourcePaths(rootDir)).toEqual([join(rootDir, "server", "workflows", "cleanup"), step, handler])
+  const sources = discoverWorkflowProviderSourcePaths(rootDir)
+  expect(sources.sort()).toEqual([agentHandler, skillsRoot, step, handler].sort())
+  expect(sources).not.toContain(workflowDirectory)
 })
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {

@@ -611,6 +611,31 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("snapshots requested symlinked directories inside the retained generation", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-source-"))
+  const skillSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-target-"))
+  tempDirs.push(rootDir, skillSource)
+  const handler = join(rootDir, "server", "agents", "review", "agent.ts")
+  const skills = join(dirname(handler), "skills")
+  const skill = join(skillSource, "review", "SKILL.md")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(skill), { recursive: true })])
+  await Promise.all([
+    writeFile(handler, "export default {}\n"),
+    writeFile(skill, "# Captured\n"),
+  ])
+  await symlink(skillSource, skills)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler, skills],
+    roots: [rootDir],
+  })
+  await writeFile(skill, "# Changed\n")
+
+  expect((await lstat(retained.resolve(skills))).isSymbolicLink()).toBe(false)
+  await expect(readFile(join(retained.resolve(skills), "review", "SKILL.md"), "utf8")).resolves.toBe("# Captured\n")
+})
+
 it("skips unrelated nested repositories while retaining requested and imported ones", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-repositories-"))
   tempDirs.push(rootDir)

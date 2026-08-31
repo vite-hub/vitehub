@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
-import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
+import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
@@ -1126,7 +1126,13 @@ export async function writeProviderEntries(
 
 export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
   return discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
-    .flatMap(definition => [definition.handler, ...(definition.steps ?? [])])
+    .flatMap((definition) => {
+      const executableSources = definition.steps?.length ? definition.steps : [definition.handler]
+      const skillsRoot = definition.source === "agent-workflow"
+        ? resolveColocatedAgentFilesRoot(definition.handler, "skills")
+        : undefined
+      return skillsRoot ? [...executableSources, skillsRoot] : executableSources
+    })
 }
 
 function createCloudflareOutput(

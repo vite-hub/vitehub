@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from "node:fs"
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
@@ -210,6 +210,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => path !== root && pathContains(root, path))
+    const requestedSymlinkDirectories = requested.filter(path => lstatSync(path).isSymbolicLink() && statSync(path).isDirectory())
     const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
@@ -295,6 +296,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           return true
         },
       })
+      for (const source of requestedSymlinkDirectories) {
+        const retainedSource = resolve(stagedRoot, relative(root, source))
+        await rm(retainedSource, { force: true, recursive: true })
+        await cp(realpathSync(source), retainedSource, { recursive: true })
+      }
       await mkdir(dirname(retainedRoot), { recursive: true })
       try {
         await rename(stagedRoot, retainedRoot)
