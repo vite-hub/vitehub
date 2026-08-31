@@ -202,12 +202,13 @@ describe("Provider Agent Driver", () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vitehub-launch-test-"))
     const outputPath = join(outputRoot, "args.json")
     let launcherPath: string | undefined
-    const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }))
+    const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PATH: undefined, PROVIDER_SELECTED: "selected" }))
     const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>> }) => {
       expect(launchContext).toMatchObject({
         command: "/app/node_modules/@openai/codex/bin/codex.js",
         environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
       })
+      expect(launchContext.environment).not.toHaveProperty("PATH")
       expect(launchContext.cwd).toContain("vitehub-provider-")
       expect(Object.isFrozen(launchContext.environment)).toBe(true)
       return {
@@ -240,7 +241,7 @@ describe("Provider Agent Driver", () => {
     }
   })
 
-  it("reaps signal-ignoring descendants before a provider launcher exits", async () => {
+  it("stops signal-ignoring descendants before a provider launcher exits", async () => {
     const threadId = "thread-launch-process-group"
     const heartbeatPath = join(tmpdir(), `vitehub-launch-heartbeat-${crypto.randomUUID()}`)
     const wrapperPidPath = join(tmpdir(), `vitehub-launch-wrapper-${crypto.randomUUID()}`)

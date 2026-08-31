@@ -309,8 +309,7 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
 }
 
 function providerLauncherSource(launch: AgentProviderLaunchCommand): string {
-  return `#!/usr/bin/env node
-import { spawn } from "node:child_process"
+  return `import { spawn } from "node:child_process"
 import { setTimeout as delay } from "node:timers/promises"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
@@ -344,7 +343,7 @@ function terminateProcessGroup(signal = "SIGTERM") {
     if (!signalProcessGroup(signal) || !processGroupExists()) return
     await delay(250)
     if (processGroupExists()) signalProcessGroup("SIGKILL")
-    while (processGroupExists()) await delay(10)
+    for (let elapsed = 0; elapsed < 250 && processGroupExists(); elapsed += 10) await delay(10)
   })()
 }
 
@@ -377,9 +376,11 @@ async function materializeProviderLauncher(root: string, launch: AgentProviderLa
   if (process.platform === "win32") {
     throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
   }
-  const path = join(root, "provider-launcher.mjs")
-  await writeFile(path, providerLauncherSource(launch), { mode: 0o700 })
-  await chmod(path, 0o700)
+  const sourcePath = join(root, "provider-launcher.mjs")
+  const path = join(root, "provider-launcher")
+  const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
+  await writeFile(sourcePath, providerLauncherSource(launch), { mode: 0o600 })
+  await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return path
 }
 
