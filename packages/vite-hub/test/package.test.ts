@@ -408,6 +408,11 @@ describe("framework package contract", () => {
     expect(consoleKVRoute).toContain(`v-if="available"`);
     expect(consoleKVRoute).toContain("Try again");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
+    const consoleKV = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-kv.vue`,
+      "utf8",
+    );
+    expect(consoleKV).toContain("loadedStore.value === store");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/workflows.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/queues.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/rate-limits.vue`)).toBe(true);
@@ -438,6 +443,41 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'label: debouncedSearchTerm.value ? "Sessions" : "Recent sessions"',
     );
+    expect(consoleSearch).not.toContain("prefix: debouncedSearchTerm.value");
+    expect(consoleSearch).not.toContain("watch(debouncedSearchTerm");
+    expect(consoleSearch).toContain("if (discoverContent) {");
+    expect(consoleSearch).toContain("discoveredAgentNames.value = []");
+    expect(consoleSearch).toContain("definitionItems.value = []");
+    expect(consoleSearch).toContain("kvItems.value = []");
+    expect(consoleSearch).toContain("kvSearchTruncated.value = false");
+    expect(consoleSearch).toContain(`if (!value) {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = undefined
+    navigationRequest?.abort()
+    sessionRequest?.abort()
+    return
+  }`);
+    expect(consoleSearch).toContain("if (!open.value) return");
+    expect(consoleSearch).toContain("if (open.value) debouncedSearchTerm.value = value.trim()");
+    expect(consoleSearch).toContain("debouncedSearchTerm.value = nextSearchTerm");
+    const consoleBrand = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-brand.vue`,
+      "utf8",
+    );
+    expect(consoleBrand).toContain("<RouterLink");
+    expect(consoleBrand).toContain("resolveConsoleRouteName(route.name, 'vitehub-console')");
+    expect(consoleBrand).toContain("subscribeConsoleNavigation(props.sectionsBase");
+    const consoleHome = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-home.vue`,
+      "utf8",
+    );
+    expect(consoleHome).toContain("loadConsoleNavigation(props.sectionsBase)");
+    const consolePrimitiveSwitcher = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-primitive-switcher.vue`,
+      "utf8",
+    );
+    expect(consolePrimitiveSwitcher).toContain("navigationFailed.value = true");
+    expect(consolePrimitiveSwitcher).toContain('aria-label="Retry loading primitives"');
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );

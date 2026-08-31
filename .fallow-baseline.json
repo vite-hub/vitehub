@@ -7,7 +7,9 @@
     "backend_family": "",
     "completeness": "complete"
   },
-  "unused_files": [],
+  "unused_files": [
+    "packages/vite-hub/src/console/runtime/components/console-mark.vue"
+  ],
   "unused_exports": [
     "packages/blob/src/internal/vercel-fetch.ts:fetch",
     "packages/blob/src/internal/vercel-oidc.ts:getVercelOidcToken"

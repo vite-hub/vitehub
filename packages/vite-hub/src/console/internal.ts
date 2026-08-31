@@ -26,6 +26,7 @@ export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.f
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
+export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
 export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
 
@@ -77,10 +78,16 @@ type ConsoleInvocationIdentitiesByRoot = {
   values(): IterableIterator<string>
 }
 
+interface ConsoleSectionRegistration {
+  projectName?: string
+  sections: readonly ConsoleSectionId[]
+}
+
 type ConsoleSectionsByRoot = {
-  get(key: string): readonly ConsoleSectionId[] | undefined
-  set(key: string, value: readonly ConsoleSectionId[]): unknown
+  get(key: string): ConsoleSectionRegistration | undefined
+  set(key: string, value: ConsoleSectionRegistration): unknown
   readonly size: number
+  values(): IterableIterator<ConsoleSectionRegistration>
 }
 
 export type ConsoleInvocationScope = {
@@ -103,6 +110,7 @@ export type ConsoleInvocationScope = {
   [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
+  [consoleProjectNameKey]?: string
   [consoleSectionsRootKey]?: string
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
 }
@@ -453,22 +461,48 @@ export function installConsoleSectionScope(
   scope[consoleSectionsKey] = installed
   const registry = processRegistry(scope)
   if (registry) {
-    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, readonly ConsoleSectionId[]>()
-    sectionsRegistry.set(projectRoot, installed)
+    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
+    const projectName = sectionsRegistry.get(projectRoot)?.projectName
+    sectionsRegistry.set(projectRoot, { ...(projectName ? { projectName } : {}), sections: installed })
     registry[consoleSectionsRegistryKey] = sectionsRegistry
     registry[consoleSectionsKey] = installed
   }
   return installed
 }
 
+export function installConsoleProjectNameScope(
+  projectRoot: string,
+  projectName: string,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): string {
+  scope[consoleSectionsRootKey] = projectRoot
+  scope[consoleProjectNameKey] = projectName
+  const registry = processRegistry(scope)
+  if (registry) {
+    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
+    const sections = sectionsRegistry.get(projectRoot)?.sections ?? scope[consoleSectionsKey] ?? []
+    sectionsRegistry.set(projectRoot, { projectName, sections })
+    registry[consoleSectionsRegistryKey] = sectionsRegistry
+  }
+  return projectName
+}
+
 export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): readonly ConsoleSectionId[] {
   const root = scope[consoleSectionsRootKey]
   const registry = processRegistry(scope)
   const registered = sectionsByRoot(registry?.[consoleSectionsRegistryKey])
-  if (root) return registered?.get(root) ?? scope[consoleSectionsKey] ?? []
+  if (root) return registered?.get(root)?.sections ?? scope[consoleSectionsKey] ?? []
   if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
   // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
   return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
+}
+
+export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  const root = scope[consoleSectionsRootKey]
+  const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
+  if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
+  if (registered && registered.size > 1) return scope[consoleProjectNameKey]
+  return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
 }
 
 export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

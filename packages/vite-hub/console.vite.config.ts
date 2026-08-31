@@ -3,6 +3,8 @@ import vue from "@vitejs/plugin-vue";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
+import { consoleAppConfig } from "./src/console/app.config";
+
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
 
 export default defineConfig({
@@ -21,16 +23,7 @@ export default defineConfig({
       comark: false,
       nuxtUI: {
         dts: false,
-        ui: {
-          colors: {
-            error: "red",
-            info: "sky",
-            neutral: "zinc",
-            primary: "blue",
-            success: "emerald",
-            warning: "amber",
-          },
-        },
+        ui: consoleAppConfig,
       },
     }),
   ],

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@source "../components";
 
 :root {
   background: var(--ui-bg);

@@ -14,6 +14,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog, type ConsoleAgentEntry, type ConsoleBuildCatalog } from "./build.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
+import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
@@ -179,7 +180,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { installConsoleSections } from "vite-hub/console/sections"`,
+    `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...(blobEnabled
       ? [
           `import { installConsoleBlob } from "vite-hub/console/blob"`,
@@ -201,6 +202,7 @@ function renderConsoleNitroPlugin(
     ...(blobEnabled
       ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
       : []),
+    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
       ? [

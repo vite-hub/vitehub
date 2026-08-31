@@ -1083,9 +1083,9 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-event__icon svg {
   height: 0.875rem;
-  opacity: 0.72;
+  opacity: 0.65;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.65;
   width: 0.875rem;
 }
 
@@ -1113,12 +1113,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-event__disclosure {
   color: var(--vh-ui-dimmed);
-  flex: 0 0 1rem;
-  font-size: 0.75rem;
+  flex: 0 0 0.75rem;
+  height: 0.75rem;
   opacity: 0.65;
-  text-align: center;
   transform: rotate(0);
   transition: opacity 140ms ease, transform 140ms ease;
+  width: 0.75rem;
 }
 
 .vh-invocation-event[open] .vh-invocation-event__disclosure {

@@ -39,10 +39,13 @@ export const distributionBinEntries = Object.fromEntries(
   }),
 );
 
-const distributionEntries = distributionEntriesFromManifest([
-  frameworkPackageManifest.exports,
-  frameworkPackageManifest.bin,
-]);
+const distributionEntries = [
+  ...distributionEntriesFromManifest([
+    frameworkPackageManifest.exports,
+    frameworkPackageManifest.bin,
+  ]),
+  "src/console/runtime/client/sections.ts",
+].sort();
 
 export default defineConfig({
   pack: {
@@ -51,7 +54,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
       {
-        from: "src/console/runtime/components/console-back-button.vue",
+        from: "src/console/runtime/components/console-brand.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -92,6 +95,10 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-provider.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-primitive-switcher.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -175,6 +182,7 @@ export default defineConfig({
       bin: distributionBinEntries,
       customExports(exports) {
         delete exports["./console/runtime/console-route"];
+        delete exports["./console/runtime/client/sections"];
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
