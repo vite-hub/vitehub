@@ -3166,6 +3166,63 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("omits SQLite observation payloads before reading list rows", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summaries-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let listedRecord: string | undefined
+    // SAFETY: the proxy forwards every Client member and only observes the list query result.
+    const observingClient = new Proxy(client, {
+      get(target, property) {
+        const value = Reflect.get(target, property)
+        if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+        return async (...args: unknown[]) => {
+          // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
+          const result = await (client.execute as (...executeArgs: unknown[]) => Promise<{ rows: Array<{ record?: unknown }> }>)(...args)
+          const statement = typeof args[0] === "string"
+            ? args[0]
+            : typeof args[0] === "object" && args[0] !== null && "sql" in args[0]
+              ? String(args[0].sql)
+              : ""
+          if (statement.includes("ORDER BY sequence DESC LIMIT ?")) {
+            const record = result.rows[0]?.record
+            listedRecord = typeof record === "string" ? record : undefined
+          }
+          return result
+        }
+      },
+    }) as Client
+    const store = createLibsqlAgentInvocationStore({ client: observingClient, maxAgeMs: false, maxRecords: false })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    try {
+      await store.create({
+        createdAt: timestamp,
+        id: "bounded-summary",
+        observations: [{
+          attributes: { payload: "x".repeat(64 * 1024) },
+          name: "large-observation",
+          sequence: 0,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "trace",
+        updatedAt: timestamp,
+      })
+
+      await expect(store.list()).resolves.toMatchObject({
+        invocations: [expect.not.objectContaining({ observations: expect.anything() })],
+      })
+      expect(JSON.parse(listedRecord!).observations).toEqual([])
+      await expect(store.get("bounded-summary")).resolves.toMatchObject({
+        observations: [expect.objectContaining({ name: "large-observation" })],
+      })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("serializes concurrent writes through one SQLite invocation store", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-concurrent-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
