@@ -1138,7 +1138,7 @@ it("retains literal member-based require targets", async () => {
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, [
       'const { createRequire } = require("node:module")',
-      'exports.load = () => ({ created: createRequire(__filename)("../created-worktree"), member: module.require("../module-worktree") })',
+      'exports.load = () => ({ created: createRequire(__filename)("../created-worktree"), member: module.require(`../module-worktree`) })',
       "",
     ].join("\n")),
     writeFile(join(moduleRepository, ".git"), "gitdir: /tmp/module.git\n"),
