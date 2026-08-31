@@ -239,18 +239,28 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   let appTokenKey: string | undefined
 
   function touchBudgetState(key: string, now: number): void {
+    if (budgetStateAccess.has(key)) {
+      budgetStateAccess.delete(key)
+      budgetStateAccess.set(key, now)
+      return
+    }
+    while (budgetStateAccess.size >= budgetStateLimit) {
+      let evicted = false
+      for (const [candidate] of budgetStateAccess) {
+        if (reservations.has(candidate) || checks.has(candidate)) continue
+        const limit = limits.get(candidate)
+        if (limit?.remaining === 0 && limit.resetAt > now) continue
+        budgetStateAccess.delete(candidate)
+        limits.delete(candidate)
+        limitVersions.delete(candidate)
+        observedLimits.delete(candidate)
+        evicted = true
+        break
+      }
+      if (!evicted) throw new Error("GitHub credential budget state capacity is exhausted by active rate limits.")
+    }
     budgetStateAccess.delete(key)
     budgetStateAccess.set(key, now)
-    for (const [candidate] of budgetStateAccess) {
-      if (candidate === key || reservations.has(candidate) || checks.has(candidate)) continue
-      const limit = limits.get(candidate)
-      if (limit && limit.resetAt > now && budgetStateAccess.size <= budgetStateLimit) continue
-      budgetStateAccess.delete(candidate)
-      limits.delete(candidate)
-      limitVersions.delete(candidate)
-      observedLimits.delete(candidate)
-      if (budgetStateAccess.size <= budgetStateLimit) break
-    }
   }
 
   async function credentials(input: GitHubHostCheckoutOptions): Promise<GitHubHostCredentials> {
@@ -405,6 +415,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let auth: Awaited<ReturnType<typeof scopedAccess>> | undefined
     try {
       auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
+      touchBudgetState(auth.rateLimitKey, Date.now())
       const execOptions: ExecFileOptionsWithStringEncoding = {
         encoding: "utf8",
         env: { ...process.env, ...input.env, ...auth.env, GH_HOST: "github.com" },
@@ -532,7 +543,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           observedLimits.set(key, {
             ...limit,
             remaining: observed?.resetAt === limit.resetAt ? Math.min(observed.remaining, limit.remaining) : limit.remaining,
-            version: nextVersion,
+            version: observed?.resetAt === limit.resetAt && observed.remaining <= limit.remaining
+              ? observed.version
+              : nextVersion,
           })
           const activeReservations = reservations.get(key)
           if (activeReservations) {

@@ -301,6 +301,25 @@ describe("GitHub host", () => {
     expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github.com rate_limit/g)).toHaveLength(1_002)
   }, 20_000)
 
+  it("keeps command-created backoffs while bounding credential budget state", async () => {
+    await installFakeGitHubCommands()
+    let rateLimitKey = "credential:limited"
+    const host = createGitHubHost({ credentials: () => ({ rateLimitKey, token: "token" }), reserve: 10 })
+
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    await expect(host.command(["api", "user"]))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    for (let index = 0; index < 1_000; index++) {
+      rateLimitKey = `credential:${index}`
+      await host.command(["api", "user"])
+    }
+
+    rateLimitKey = "credential:limited"
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  }, 20_000)
+
   it("reserves cached GraphQL budget before admitting more work", async () => {
     await installFakeGitHubCommands()
     const host = createGitHubHost({ credentials: () => ({ token: "token" }), reserve: 10 })
@@ -382,6 +401,28 @@ describe("GitHub host", () => {
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
     reservation.settle(40)
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("deducts reservations admitted after the observation used as the settlement ceiling", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 5, credentials: () => ({ token: "token" }), reserve: 0 })
+
+    const first = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    first.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "30"
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(host.ensureGraphQLBudget("vite-hub/observation", { cost: 31 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    const second = await host.ensureGraphQLBudget("vite-hub/second", { cost: 10 })
+    second.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "70"
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(host.ensureGraphQLBudget("vite-hub/looser", { cost: 21 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    first.settle(10)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 11 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
   })
 
