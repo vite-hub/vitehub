@@ -5811,6 +5811,7 @@ async function executeAgentInvocationWithCapacityLease<
                     },
                     {
                       abortSignal: invocation.input.abortSignal,
+                      detachPendingReaderCancellation: true,
                       cancelOnAbort: async reason => {
                         await Promise.allSettled([
                           source.cancel(reason),
