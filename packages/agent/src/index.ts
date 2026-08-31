@@ -5799,13 +5799,19 @@ async function executeAgentInvocationWithCapacityLease<
                     toReadableAsyncIterableStream(renderedStream),
                     async (outcome) => {
                       if (!outcome.failed && !outcome.completed) {
-                        await Promise.all([
+                        const cancellationTask = Promise.all([
                           source.settleCancellation(),
                           ...(rendererSource ? [rendererSource.settleCancellation()] : []),
                         ]).then(
                           async () => await finishPreserved(outcome),
                           async error => await finishPreserved({ error, failed: true }),
                         )
+                        const settled = await Promise.race([
+                          cancellationTask.then(() => true, () => true),
+                          new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+                        ])
+                        if (settled) await cancellationTask
+                        else void cancellationTask.catch(() => {})
                         return
                       }
                       if (outcome.failed) await source.settleCancellation(outcome.error)
