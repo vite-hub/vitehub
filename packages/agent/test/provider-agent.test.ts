@@ -1634,6 +1634,25 @@ cli_auth_credentials_store = "keyring"
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
   })
 
+  it.each([
+    ["codex", "codex"],
+    ["claude-code", "claude"],
+  ] as const)("wraps the host %s executable fallback when the package is absent", async (provider, command) => {
+    const threadId = `thread-host-${provider}-launch`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
+    const launch = vi.fn(({ command: resolvedCommand }: { command: string }) => {
+      expect(resolvedCommand).toBe(command)
+      return { args: [resolvedCommand], command: "wrapper" }
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ launch, provider }).generate(context(threadId) as never)
+
+    expect(launch).toHaveBeenCalledOnce()
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.binaryPath).toEqual(expect.any(String))
+  })
+
   it("uses the installed Claude SDK executable", async () => {
     const threadId = "thread-project-claude"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

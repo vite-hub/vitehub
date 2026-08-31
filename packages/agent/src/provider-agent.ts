@@ -1893,18 +1893,21 @@ async function* runProvider<
       pendingResumeCursor = durableResumeCursor
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
+    const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
+      ? (options.provider === "codex" ? "codex" : "claude")
+      : providerExecutable
     const providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
     })
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
-      if (!hasRuntimeType(providerExecutable, "string") || !providerExecutable.trim()) {
-        throw new TypeError("[vitehub] driver.launch requires the provider executable to resolve to a non-empty path.")
+      if (!hasRuntimeType(providerCommand, "string")) {
+        throw new TypeError("[vitehub] driver.providerSettings.binaryPath must be a string.")
       }
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,
-        command: providerExecutable,
+        command: providerCommand,
         cwd: root,
         environment: Object.freeze({ ...providerRuntimeEnvironment }),
       }
