@@ -224,8 +224,9 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
 function symlinkSourcesForRequestedPath(root: string, path: string): string[] {
   const sources: string[] = []
   let current = path
-  while (current !== root && pathContains(root, current)) {
+  while (pathContains(root, current)) {
     if (lstatSync(current).isSymbolicLink()) sources.push(current)
+    if (current === root) break
     current = dirname(current)
   }
   return sources.reverse()
@@ -259,7 +260,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => path !== root && pathContains(root, path))
-    const requestedSymlinks = [...new Set(requested.flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
+    const requestedSymlinks = [...new Set([root, ...requested].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
       .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
     const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))

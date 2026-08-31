@@ -49,7 +49,6 @@ async function collectGeneratedTypeFiles(
     throw error
   })
   if (!realDirectory || visitedDirectories.has(realDirectory)) return []
-  visitedDirectories.add(realDirectory)
 
   let entries
   try {
@@ -59,6 +58,7 @@ async function collectGeneratedTypeFiles(
     if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
     throw error
   }
+  visitedDirectories.add(realDirectory)
 
   const files: string[] = []
   for (const entry of entries) {

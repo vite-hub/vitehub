@@ -676,6 +676,28 @@ it("snapshots requested files beneath symlinked directories", async () => {
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
 })
 
+it("snapshots a symlinked configured root", async () => {
+  const projectSource = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-root-target-"))
+  const rootContainer = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-root-source-"))
+  tempDirs.push(projectSource, rootContainer)
+  const rootDir = join(rootContainer, "project")
+  const sourceHandler = join(projectSource, "server", "agent.ts")
+  const handler = join(rootDir, "server", "agent.ts")
+  await mkdir(dirname(sourceHandler), { recursive: true })
+  await writeFile(sourceHandler, 'export const value = "captured"\n')
+  await symlink(projectSource, rootDir, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootContainer, "artifacts"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(sourceHandler, 'export const value = "changed"\n')
+
+  expect((await lstat(retained.resolve(rootDir))).isSymbolicLink()).toBe(false)
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+})
+
 it("retains queried resources and their imports inside nested repositories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
   tempDirs.push(rootDir)
