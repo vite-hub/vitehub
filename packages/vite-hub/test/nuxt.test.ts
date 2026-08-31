@@ -1329,7 +1329,7 @@ describe("ViteHub Nuxt integration", () => {
       ])
       expect(nitroConfig).toMatchObject({
         handlers: [
-          { route: "/api/_vitehub/console/sections" },
+          { handler: "server/handler.ts", route: "/api/example" },
           { route: "/api/_vitehub/console/definitions" },
         ],
       })
@@ -1438,7 +1438,7 @@ describe("ViteHub Nuxt integration", () => {
       ])
       expect(nitroConfig).toMatchObject({
         handlers: [
-          { route: "/api/_vitehub/console/sections" },
+          { handler: "server/handler.ts", route: "/api/example" },
           { route: "/api/_vitehub/console/definitions" },
         ],
       })
