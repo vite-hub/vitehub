@@ -326,6 +326,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
     expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
     expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");
+    expect(consolePage).toContain("if (names.length && !isUsageRoute.value)");
     expect(consolePage).toContain('v-else-if="invocationView && isDesktop && detailsOpen"');
     expect(consolePage).toContain("<ConsoleSessionNavbar");
     expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);

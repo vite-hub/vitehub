@@ -238,6 +238,17 @@ function configurationAnnotations(
   return normalizeAnnotations(annotations)
 }
 
+function mergeConfigurationAnnotations(
+  annotations: AgentInvocationRecord["annotations"],
+  configured: Record<string, AgentInvocationAnnotationValue>,
+): Record<string, AgentInvocationAnnotationValue> | undefined {
+  const merged: Record<string, AgentInvocationAnnotationValue> = { ...configured }
+  for (const [key, value] of Object.entries(annotations || {})) {
+    if (!Object.hasOwn(configured, key)) merged[key] = value
+  }
+  return normalizeAnnotations(merged)
+}
+
 function normalizeLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_LIST_LIMIT
   if (!Number.isInteger(limit) || limit < 1) {
@@ -848,7 +859,7 @@ export function applyAgentInvocationStoreUpdate(
   return {
     ...record,
     ...(configuredAnnotations
-      ? { annotations: normalizeAnnotations({ ...record.annotations, ...configuredAnnotations }) }
+      ? { annotations: mergeConfigurationAnnotations(record.annotations, configuredAnnotations) }
       : {}),
     ...(input.error ? { error: input.error } : {}),
     observations,

@@ -357,7 +357,7 @@ async function loadAgents(): Promise<void> {
         })
       : [];
     if (agentsRequest === controller) {
-      if (names.length) initialListPending = false;
+      if (names.length && !isUsageRoute.value) initialListPending = false;
       agentNames.value = [...new Set(names)];
       agentsError.value = undefined;
     }

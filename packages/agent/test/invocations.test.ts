@@ -1162,7 +1162,13 @@ describe("Agent Invocations", () => {
 
   it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const journal = await bindAgentInvocations(invocations, runtime("nested-configuration"))
+    const saturatedAnnotations = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [`custom.${index}`, index]),
+    )
+    const journal = await bindAgentInvocations(
+      invocations,
+      runtime("nested-configuration", saturatedAnnotations),
+    )
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.context.traceLog?.append({
       attributes: {
@@ -1187,6 +1193,7 @@ describe("Agent Invocations", () => {
       "agent.model.id": "gpt-5.6-sol",
       "agent.model.provider": "codex",
     })
+    expect(Object.keys(record?.annotations || {})).toHaveLength(32)
     await expect(invocations.list()).resolves.toMatchObject({
       invocations: [{ annotations: {
         "agent.model.id": "gpt-5.6-sol",
