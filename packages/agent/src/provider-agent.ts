@@ -179,6 +179,18 @@ function providerSessionStore(
   return store
 }
 
+function partitionProviderSessionStore(
+  store: ProviderRuntimeSessionStore,
+  sessionKey: string,
+): ProviderRuntimeSessionStore {
+  const persistedThreadId = sessionKey as ThreadId
+  return {
+    delete: () => store.delete(persistedThreadId),
+    get: () => store.get(persistedThreadId),
+    set: (_threadId, resumeCursor) => store.set(persistedThreadId, resumeCursor),
+  }
+}
+
 const providerCleanupTimeoutMs = 10_000
 
 // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -1658,10 +1670,13 @@ async function* runProvider<
     if (options.sessionStorePath !== undefined && (typeof options.sessionStorePath !== "string" || !options.sessionStorePath.trim())) {
       throw new TypeError("[vitehub] driver.sessionStorePath must be a non-empty string.")
     }
-    const sessionStore = options.sessionStorePath
-      ? await waitForProviderOperation(
-          providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore),
-          effectiveSignal,
+    const sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey
+      ? partitionProviderSessionStore(
+          await waitForProviderOperation(
+            providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore),
+            effectiveSignal,
+          ),
+          sessionKey,
         )
       : undefined
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)

@@ -12,14 +12,26 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, sessionStore?: unknown, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
-const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (path: string) => ({
-  close: vi.fn(),
-  delete: vi.fn(async () => undefined),
-  get: vi.fn(async () => undefined),
-  path,
-  set: vi.fn(async () => undefined),
-})))
+interface MockProviderSessionStore {
+  delete: (threadId: string) => Promise<void>
+  get: (threadId: string) => Promise<unknown | undefined>
+  set: (threadId: string, resumeCursor: unknown) => Promise<void>
+}
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, sessionStore?: MockProviderSessionStore, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (path: string) => {
+  const cursors = new Map<string, unknown>()
+  return {
+    close: vi.fn(),
+    delete: vi.fn(async (threadId: string) => {
+      cursors.delete(threadId)
+    }),
+    get: vi.fn(async (threadId: string) => cursors.get(threadId)),
+    path,
+    set: vi.fn(async (threadId: string, resumeCursor: unknown) => {
+      cursors.set(threadId, resumeCursor)
+    }),
+  }
+}))
 const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
   ? "/app/node_modules/@openai/codex/bin/codex.js"
   : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
@@ -216,9 +228,50 @@ describe("Provider Agent Driver", () => {
 
     expect(createSqliteProviderRuntimeSessionStore).toHaveBeenLastCalledWith(resolve(path))
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-      sessionStore: expect.objectContaining({ path: resolve(path) }),
+      sessionStore: expect.objectContaining({ get: expect.any(Function), set: expect.any(Function) }),
     }))
     expect(createProviderRuntime.mock.lastCall?.[0].settings).not.toHaveProperty("sessionStorePath")
+  })
+
+  it("partitions durable cursors by the ViteHub session identity", async () => {
+    const threadId = `thread-durable-session-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const sessionContext = (sessionId: string) => {
+      const value = context(threadId)
+      value.context.set("chat.sessionId", `${threadId}:chat-session:${sessionId}`)
+      return value
+    }
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("a") as never)
+    const sessionAStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(sessionContext("b") as never)
+    const sessionBStore = createProviderRuntime.mock.lastCall?.[0].sessionStore
+
+    expect(sessionAStore).toBeDefined()
+    expect(sessionBStore).toBeDefined()
+    await sessionAStore!.set(threadId, "session-a-cursor")
+    expect(await sessionAStore!.get(threadId)).toBe("session-a-cursor")
+    expect(await sessionBStore!.get(threadId)).toBeUndefined()
+  })
+
+  it("does not persist sessions that ViteHub cannot safely resume", async () => {
+    const ephemeralThreadId = `thread-ephemeral-store-${crypto.randomUUID()}`
+    runtime(ephemeralThreadId, [event("turn.completed", ephemeralThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({
+      credentials: () => "{}",
+      provider: "codex",
+      sessionStorePath: `.vitehub/${ephemeralThreadId}.sqlite`,
+    }).generate(context(ephemeralThreadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
+
+    const auxiliaryThreadId = `thread-auxiliary-store-${crypto.randomUUID()}`
+    runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({
+      provider: "claude-code",
+      sessionStorePath: `.vitehub/${auxiliaryThreadId}.sqlite`,
+    }).generate(markAuxiliaryMessageChannelInstructionContext(context(auxiliaryThreadId)) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0]).not.toHaveProperty("sessionStore")
   })
 
   it("reuses one session store concurrently for equivalent paths", async () => {
