@@ -5737,12 +5737,12 @@ async function executeAgentInvocationWithCapacityLease<
           const finishPreserved = async (outcome: CapabilityCleanupOutcome) => {
             invocation.input.abortSignal?.removeEventListener("abort", onAbort)
             if (finishTask) return await finishTask
-            const resolveUsage = !outcome.failed && outcome.completed === true
-            const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
-              ? await driverUsageFallback(resolveUsage)
-              : driverUsageFallback
-            const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
             finishTask = (async () => {
+              const resolveUsage = !outcome.failed && outcome.completed === true
+              const resolvedDriverUsageRecord = hasRuntimeType(driverUsageFallback, "function")
+                ? await driverUsageFallback(resolveUsage)
+                : driverUsageFallback
+              const finishResult = await resultWithStreamedTextAndUsage(preserved, streamedText, streamedUsageRecord, resolvedDriverUsageRecord, resolveUsage)
               const finishUsageRecord = finishResult && hasRuntimeType(finishResult, "object")
                 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
                 ? (finishResult as { usageRecord?: AgentUsageRecord }).usageRecord
