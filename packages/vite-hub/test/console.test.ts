@@ -1198,6 +1198,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.configResolved, {}, [config])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
