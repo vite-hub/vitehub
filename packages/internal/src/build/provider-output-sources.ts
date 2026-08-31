@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readdir, rename, rm, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 
@@ -120,6 +120,26 @@ function sourceClosureRoot(root: string): string {
 
 const traceableSourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"])
 
+function hasUnresolvedDynamicImport(source: string): boolean {
+  const imports = /\bimport\s*\(/g
+  for (let match = imports.exec(source); match; match = imports.exec(source)) {
+    let index = imports.lastIndex
+    while (/\s/.test(source[index] ?? "")) index++
+    const quote = source[index]
+    if (quote !== '"' && quote !== "'") return true
+    index++
+    while (index < source.length && source[index] !== quote) {
+      if (source[index] === "\\") index++
+      index++
+    }
+    if (source[index] !== quote) return true
+    index++
+    while (/\s/.test(source[index] ?? "")) index++
+    if (source[index] !== ")") return true
+  }
+  return false
+}
+
 async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return undefined
@@ -136,7 +156,12 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
       platform: "node",
       write: false,
     })
-    return new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
+    const importedSources = new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
+    const importedSourceContents = await Promise.all([...importedSources]
+      .filter(path => traceableSourceExtensions.has(extname(path)))
+      .map(async path => await readFile(path, "utf8")))
+    if (importedSourceContents.some(hasUnresolvedDynamicImport)) return undefined
+    return importedSources
   }
   catch {
     // Preserve source closure correctness when Vite-specific resolution cannot be traced here.
