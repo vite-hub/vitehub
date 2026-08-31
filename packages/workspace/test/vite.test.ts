@@ -64,7 +64,33 @@ async function configurePluginServer(plugin: { configureServer?: unknown }, serv
   }
 }
 
-async function prepareWorkspaceProviderOutput(plugin: { buildEnd?: unknown, buildStart?: unknown }): Promise<void> {
+type WorkspaceProviderOutputPlugin = {
+  buildEnd?: unknown
+  buildStart?: unknown
+  closeBundle?: unknown
+  renderError?: unknown
+}
+
+const preparedWorkspaceProviderOutputPlugins = new WeakSet<object>()
+
+function bindWorkspaceProviderOutputHook(plugin: WorkspaceProviderOutputPlugin, name: keyof WorkspaceProviderOutputPlugin, context: object) {
+  const hook = plugin[name]
+  if (typeof hook === "function") {
+    Reflect.set(plugin, name, hook.bind(context))
+  }
+  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
+    Reflect.set(hook, "handler", hook.handler.bind(context))
+  }
+}
+
+async function prepareWorkspaceProviderOutput(plugin: WorkspaceProviderOutputPlugin): Promise<void> {
+  if (!preparedWorkspaceProviderOutputPlugins.has(plugin)) {
+    const viteEnvironmentContext = {}
+    for (const name of ["buildStart", "buildEnd", "renderError", "closeBundle"] as const) {
+      bindWorkspaceProviderOutputHook(plugin, name, viteEnvironmentContext)
+    }
+    preparedWorkspaceProviderOutputPlugins.add(plugin)
+  }
   for (const hook of [plugin.buildStart, plugin.buildEnd]) {
     if (typeof hook === "function") await hook()
     else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") await hook.handler()
