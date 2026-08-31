@@ -656,24 +656,28 @@ it("snapshots requested symlinked files inside the retained generation", async (
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
 })
 
-it("retains queried resources inside nested repositories", async () => {
+it("retains queried resources and their imports inside nested repositories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "agent.ts")
   const resourceRepository = join(rootDir, "prompt-worktree")
+  const workerRepository = join(rootDir, "worker-worktree")
   const importedRepository = join(rootDir, "imported-worktree")
   const unrelatedRepository = join(rootDir, "unrelated-worktree")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(resourceRepository, { recursive: true }),
+    mkdir(workerRepository, { recursive: true }),
     mkdir(importedRepository, { recursive: true }),
     mkdir(unrelatedRepository, { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'import prompt from "../prompt-worktree/prompt.md?raw"\nexport { value } from "../imported-worktree/value.mjs"\nexport { prompt }\n'),
+    writeFile(handler, 'import prompt from "../prompt-worktree/prompt.md?raw"\nimport Worker from "../worker-worktree/worker.ts?worker"\nexport { prompt, Worker }\n'),
     writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
     writeFile(join(resourceRepository, "prompt.md"), "Retained prompt\n"),
+    writeFile(join(workerRepository, ".git"), "gitdir: /tmp/worker.git\n"),
+    writeFile(join(workerRepository, "worker.ts"), 'export { value } from "../imported-worktree/value.mjs"\n'),
     writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
     writeFile(join(importedRepository, "value.mjs"), 'export const value = "retained"\n'),
     writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
@@ -687,6 +691,7 @@ it("retains queried resources inside nested repositories", async () => {
   })
 
   await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Retained prompt\n")
+  await expect(readFile(retained.resolve(join(workerRepository, "worker.ts")), "utf8")).resolves.toContain("../imported-worktree/value.mjs")
   await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
   await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })

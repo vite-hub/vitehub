@@ -154,35 +154,48 @@ function traceComputedModuleSources(file: string, source: string): string[] {
 async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
-  const queriedResourceSources = new Set<string>()
   try {
-    const result = await build({
-      absWorkingDir: root,
-      bundle: true,
-      entryPoints: entries,
-      format: "esm",
-      logLevel: "silent",
-      metafile: true,
-      outdir: resolve(root, ".vitehub-provider-trace"),
-      packages: "external",
-      platform: "node",
-      plugins: [{
-        name: "vitehub-provider-vite-resource-query",
-        setup(traceBuild) {
-          traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
-            const resourcePath = request.path.split(/[?#]/, 1)[0]!
-            if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
-              const resourceSource = resolve(request.resolveDir, resourcePath)
-              if (existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
-            }
-            return { external: true, path: request.path }
-          })
-        },
-      }],
-      write: false,
-    })
-    const importedSources = new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
-    for (const resourceSource of queriedResourceSources) importedSources.add(resourceSource)
+    const importedSources = new Set<string>()
+    const tracedEntries = new Set<string>()
+    let pendingEntries = entries
+    while (pendingEntries.length) {
+      const tracedBatch = pendingEntries
+      pendingEntries = []
+      for (const entry of tracedBatch) tracedEntries.add(entry)
+      const queriedResourceSources = new Set<string>()
+      const result = await build({
+        absWorkingDir: root,
+        bundle: true,
+        entryPoints: tracedBatch,
+        format: "esm",
+        logLevel: "silent",
+        metafile: true,
+        outdir: resolve(root, ".vitehub-provider-trace"),
+        packages: "external",
+        platform: "node",
+        plugins: [{
+          name: "vitehub-provider-vite-resource-query",
+          setup(traceBuild) {
+            traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
+              const resourcePath = request.path.split(/[?#]/, 1)[0]!
+              if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
+                const resourceSource = resolve(request.resolveDir, resourcePath)
+                if (existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
+              }
+              return { external: true, path: request.path }
+            })
+          },
+        }],
+        write: false,
+      })
+      for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
+      for (const resourceSource of queriedResourceSources) {
+        importedSources.add(resourceSource)
+        if (traceableSourceExtensions.has(extname(resourceSource)) && !tracedEntries.has(resourceSource)) {
+          pendingEntries.push(resourceSource)
+        }
+      }
+    }
     const importedSourceContents = await Promise.all([...importedSources]
       .filter(path => traceableSourceExtensions.has(extname(path)))
       .map(async path => [path, await readFile(path, "utf8")] as const))
