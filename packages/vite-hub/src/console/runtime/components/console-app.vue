@@ -78,7 +78,13 @@ let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
 let initialListPending = !selectedAgentName.value;
-const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
+const sessionPollingEnabled = computed(
+  () =>
+    pageVisible.value &&
+    activePage.value === "sessions" &&
+    route.name !== resolveConsoleRouteName(route.name, "vitehub-console-usage"),
+);
+const listPollInterval = computed(() => (sessionPollingEnabled.value ? 5_000 : false));
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
@@ -102,7 +108,7 @@ const initialSessionLoading = computed(() =>
   !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
-  if (!pageVisible.value || !selectedInvocationId.value) return false;
+  if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
   const status =
     selectedSummary.value?.status ??
     (selectedDetailStatus.value?.id === selectedInvocationId.value

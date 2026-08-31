@@ -42,6 +42,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, con
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
+import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -2038,6 +2039,69 @@ describe("Agent invocation console", () => {
     await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
       invocations: [{ agentName: "review" }],
     })
+  })
+
+  it("returns only observations after a matching detail prefix", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "inv-delta",
+      observations: [1, 2].map(sequence => ({
+        name: "agent.invocation.running",
+        sequence,
+        timestamp: "2026-08-23T12:00:00.000Z",
+        type: "lifecycle" as const,
+      })),
+      status: "running",
+      traceId: "trace-delta",
+      updatedAt: "2026-08-23T12:00:03.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const detailURL = "http://localhost/api/_vitehub/console/invocations/inv-delta"
+    requestEvent.node!.req!.url = detailURL
+    requestEvent.req!.url = detailURL
+    const initial = await invocationHandler(requestEvent)
+    await store.update("inv-delta", {
+      observation: {
+        name: "agent.invocation.running",
+        sequence: 3,
+        timestamp: "2026-08-23T12:00:03.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-23T12:00:03.000Z",
+    })
+    const url = `${detailURL}?observationCount=2&observationCursor=${encodeURIComponent(initial.observationCursor)}`
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationHandler(requestEvent)).resolves.toMatchObject({
+      appendObservations: true,
+      invocation: { id: "inv-delta" },
+      observations: [{ sequence: 3 }],
+    })
+
+    await store.update("inv-delta", {
+      observation: {
+        name: "agent.invocation.started",
+        sequence: 0,
+        timestamp: "2026-08-23T11:59:59.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-23T12:00:04.000Z",
+    })
+    const replaced = await invocationHandler(requestEvent)
+    expect(replaced.appendObservations).toBeUndefined()
+    expect(replaced.observations.map(observation => observation.sequence)).toEqual([0, 1, 2, 3])
+
+    await store.update("inv-delta", {
+      observationsTruncated: true,
+      timestamp: "2026-08-23T12:00:05.000Z",
+    })
+    const truncatedURL = `${detailURL}?observationCount=4&observationCursor=${encodeURIComponent(replaced.observationCursor)}`
+    requestEvent.node!.req!.url = truncatedURL
+    requestEvent.req!.url = truncatedURL
+    await expect(invocationHandler(requestEvent)).resolves.not.toHaveProperty("appendObservations")
   })
 
   it("bounds each console response to the requested page size", async () => {

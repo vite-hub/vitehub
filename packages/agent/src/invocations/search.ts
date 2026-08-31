@@ -29,6 +29,7 @@ const maximumObservationSearchCharacters = 128 * 1024
 
 function appendSearchValue(value: SearchValue, output: SearchValues): void {
   if (output.values.has(value) || output.characters >= output.maximumCharacters) return
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SearchValue is a deliberate primitive union and strings require bounded slicing.
   if (typeof value !== "string") {
     output.values.add(value)
     output.characters += String(value).length
@@ -47,10 +48,12 @@ function appendContentStrings(
   includeKeys: boolean,
   seen = new Set<object>(),
 ): void {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation metadata is recursively unknown at this search-projection boundary.
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     appendSearchValue(value, output)
     return
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Recursive invocation metadata must be object-checked before traversal.
   if (!value || typeof value !== "object" || seen.has(value) || output.characters >= output.maximumCharacters) return
   seen.add(value)
   for (const [key, child] of Object.entries(value)) {
@@ -65,6 +68,7 @@ function appendSearchableObservation(observation: TraceEventLogEntry, output: Se
   appendSearchValue(observation.type, output)
   for (const [key, value] of Object.entries(observation.attributes ?? {})) {
     if (excludedObservationContent.has(key)) continue
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Trace attributes are recursively unknown at this search-projection boundary.
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       appendSearchValue(key, output)
       appendSearchValue(value, output)
