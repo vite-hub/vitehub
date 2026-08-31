@@ -117,7 +117,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await writeFile(handler, "export default async function welcome() {}\n")
   await writeFile(step, "export default async function cleanup() {}\n")
 
-  expect(discoverWorkflowProviderSourcePaths(rootDir)).toEqual([step, handler])
+  expect(discoverWorkflowProviderSourcePaths(rootDir)).toEqual([join(rootDir, "server", "workflows", "cleanup"), step, handler])
 })
 
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {

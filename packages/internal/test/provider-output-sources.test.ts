@@ -672,7 +672,7 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
-it("retains transitive nested repositories for unresolved computed imports", async () => {
+it("retains transitive nested repositories for explicitly requested computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
@@ -696,13 +696,35 @@ it("retains transitive nested repositories for unresolved computed imports", asy
 
   const retained = await retainProviderOutputSources({
     artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
-    paths: [handler],
+    paths: [handler, computed],
     roots: [rootDir],
   })
 
   // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: (module: string) => Promise<{ value: string }> }
   await expect(retainedHandler.load("../computed-worktree/workflow.mjs")).resolves.toMatchObject({ value: "transitive" })
+})
+
+it("does not cross repository boundaries for unresolved computed imports", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-boundary-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(unrelatedRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, "export const load = async module => await import(module)\n"),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("retains nested repositories for computed CommonJS requires", async () => {

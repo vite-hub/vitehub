@@ -5,7 +5,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "
 
 import { build } from "esbuild"
 
-import { findIdentifierCalls, maskSourceLiterals, stripBoundaryComments } from "../source-scanner.ts"
+import { maskSourceLiterals } from "../source-scanner.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -122,22 +122,37 @@ function sourceClosureRoot(root: string): string {
 
 const traceableSourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"])
 
-function isStaticModuleSpecifier(argument: string | undefined): boolean {
-  if (!argument) return false
-  const value = stripBoundaryComments(argument)
-  return (value.startsWith('"') || value.startsWith("'")) && maskSourceLiterals(value).trim() === ""
-}
-
-function hasUnresolvedModuleRequest(source: string): boolean {
-  for (const name of ["import", "require"]) {
-    if (findIdentifierCalls(source, name).some(call => !isStaticModuleSpecifier(call.arguments[0]))) return true
+function traceComputedModuleSources(file: string, source: string): string[] {
+  const masked = maskSourceLiterals(source)
+  const bindings = new Map<string, string>()
+  const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*(["'])(.*?)\2/gis
+  for (const match of source.matchAll(declarations)) {
+    const quoteOffset = match[0].indexOf(match[2]!)
+    if (!/\b(?:const|let|var)\s+[A-Z_$][\w$]*\s*=\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    bindings.set(match[1]!, match[3]!)
   }
-  return findIdentifierCalls(source, "createRequire").length > 0
+
+  const paths: string[] = []
+  const computedRequests = [
+    /\b(?:import|require)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
+    /\bcreateRequire\s*\([^)]*\)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
+  ]
+  for (const request of computedRequests) {
+    for (const match of masked.matchAll(request)) {
+      const specifier = bindings.get(match[1]!)
+      if (!specifier || (!specifier.startsWith(".") && !isAbsolute(specifier))) continue
+      const imported = resolve(dirname(file), specifier)
+      if (!existsSync(imported)) continue
+      paths.push(imported)
+    }
+  }
+
+  return paths
 }
 
-async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
+async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
-  if (!entries.length) return undefined
+  if (!entries.length) return new Set()
   try {
     const result = await build({
       absWorkingDir: root,
@@ -154,13 +169,15 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
     const importedSources = new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
     const importedSourceContents = await Promise.all([...importedSources]
       .filter(path => traceableSourceExtensions.has(extname(path)))
-      .map(async path => await readFile(path, "utf8")))
-    if (importedSourceContents.some(hasUnresolvedModuleRequest)) return undefined
+      .map(async path => [path, await readFile(path, "utf8")] as const))
+    for (const [file, source] of importedSourceContents) {
+      for (const imported of traceComputedModuleSources(file, source)) importedSources.add(imported)
+    }
     return importedSources
   }
   catch {
-    // Preserve source closure correctness when Vite-specific resolution cannot be traced here.
-    return undefined
+    // Requested entries remain available even when Vite-specific resolution cannot be traced here.
+    return new Set(entries)
   }
 }
 
@@ -239,7 +256,6 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (resolvedSource !== root
             && existsSync(resolve(resolvedSource, ".git"))
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-            && importedSources !== undefined
             && ![...importedSources].some(path => pathContains(resolvedSource, path))
             && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
             && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
