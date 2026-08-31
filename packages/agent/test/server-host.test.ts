@@ -526,6 +526,23 @@ describe("GitHub host", () => {
     expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github\.com rate_limit/g)).toBeNull()
   })
 
+  it("keeps secondary rate limits authoritative until reset", async () => {
+    await installFakeGitHubCommands()
+    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
+    temporaryDirectories.add(commandLog)
+    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
+    process.env.VITEHUB_TEST_RATE_LIMIT = "You have exceeded a secondary rate limit."
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    await expect(host.command(["api", "graphql"], { repository: "vite-hub/vitehub" }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT = ""
+    await expect(host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+
+    expect((await readFile(commandLog, "utf8")).match(/gh api --hostname github\.com rate_limit/g)).toBeNull()
+  })
+
   it("preserves a secondary limit recorded during an installation budget check", async () => {
     await installFakeGitHubCommands()
     process.env.VITEHUB_TEST_RATE_LIMIT_DELAY = "0.1"

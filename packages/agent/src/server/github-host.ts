@@ -479,7 +479,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           },
         }
       }
-      if (cached && cached.resetAt > now && now - cached.checkedAt < cacheMs) return admit(cached)
+      if (cached && cached.resetAt > now && (cached.remaining === 0 || now - cached.checkedAt < cacheMs)) return admit(cached)
       const pending = checks.get(key)
       if (pending) return admit(await waitForCaller(pending, { signal: operation.signal }))
       const check = (async () => {

@@ -248,11 +248,33 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       )`)
       const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
       if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
-        await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
+        }
+        await client.execute(`UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
       }
       if (!claimColumns.rows.some(row => row.name === "claim_token")) {
-        await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
+        try {
+          await client.execute(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
+          if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
+        }
       }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+        AFTER UPDATE OF expires_at ON ${table}_claims
+        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
+        BEGIN
+          UPDATE ${table}_claims
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
+          WHERE id = NEW.id;
+        END`)
     })().catch((error) => {
       initialized = undefined
       throw error

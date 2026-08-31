@@ -3442,6 +3442,11 @@ describe("Agent Invocations", () => {
         status TEXT NOT NULL,
         record TEXT NOT NULL
       )`)
+      await setupClient.execute(`CREATE TABLE vitehub_agent_invocations_claims (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`)
       await setupClient.execute({
         args: [JSON.stringify({
           agentName: "review",
@@ -3455,6 +3460,8 @@ describe("Agent Invocations", () => {
         })],
         sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('legacy', 'completed', ?)",
       })
+      await setupClient.execute(`INSERT INTO vitehub_agent_invocations_claims (id, claim_id, expires_at)
+        VALUES ('legacy', 'legacy-worker', 2000000000000)`)
 
       let inspections = 0
       let releaseInspections!: () => void
@@ -3489,6 +3496,16 @@ describe("Agent Invocations", () => {
       ])
       const migratedAgent = await firstClient.execute("SELECT agent_name FROM vitehub_agent_invocations WHERE id = 'legacy'")
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
+      const migratedClaim = await firstClient.execute(`SELECT claimed_at, claim_token
+        FROM vitehub_agent_invocations_claims WHERE id = 'legacy'`)
+      expect(Number(migratedClaim.rows[0]?.claimed_at)).toBeGreaterThan(0)
+      expect(migratedClaim.rows[0]?.claim_token).toBe("")
+      await setupClient.execute(`UPDATE vitehub_agent_invocations_claims
+        SET expires_at = 2000000001000 WHERE id = 'legacy'`)
+      const renewedClaim = await firstClient.execute(`SELECT claimed_at, claim_token
+        FROM vitehub_agent_invocations_claims WHERE id = 'legacy'`)
+      expect(Number(renewedClaim.rows[0]?.claimed_at)).toBeGreaterThanOrEqual(Number(migratedClaim.rows[0]?.claimed_at))
+      expect(renewedClaim.rows[0]?.claim_token).not.toBe("")
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ search: "observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "legacy" })] })
       await expect(createLibsqlAgentInvocationStore({ client: firstClient }).list({ agentName: "review" }))
