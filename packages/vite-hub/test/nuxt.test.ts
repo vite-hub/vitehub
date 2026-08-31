@@ -795,7 +795,7 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("preserves an explicit replayed Database root with a custom Nuxt server directory", async () => {
+  it("prefers an explicit replayed Database root over the configured root", async () => {
     const runtimeDefinition = "/tmp/vitehub-nuxt/server/databases/config.ts"
     const nuxtDefinition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
     await mkdir(resolve(runtimeDefinition, ".."), { recursive: true })
@@ -810,7 +810,11 @@ describe("ViteHub Nuxt integration", () => {
     }])
 
     try {
-      await viteHubNuxtModule({ console: true, database: true, preset: "node" }, development.nuxt)
+      await viteHubNuxtModule({
+        console: true,
+        database: { projectRoot: "/tmp/vitehub-nuxt/custom-server" },
+        preset: "node",
+      }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
 
