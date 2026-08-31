@@ -1,7 +1,9 @@
 import { existsSync, realpathSync, statSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, rename, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
+
+import { build } from "esbuild"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -116,6 +118,32 @@ function sourceClosureRoot(root: string): string {
   }
 }
 
+const traceableSourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"])
+
+async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
+  const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
+  if (!entries.length) return undefined
+  try {
+    const result = await build({
+      absWorkingDir: root,
+      bundle: true,
+      entryPoints: entries,
+      format: "esm",
+      logLevel: "silent",
+      metafile: true,
+      outdir: resolve(root, ".vitehub-provider-trace"),
+      packages: "external",
+      platform: "node",
+      write: false,
+    })
+    return new Set(Object.keys(result.metafile.inputs).map(path => resolve(root, path)))
+  }
+  catch {
+    // Preserve source closure correctness when Vite-specific resolution cannot be traced here.
+    return undefined
+  }
+}
+
 /** Retains one build generation's source trees while preserving every module's import base. */
 export async function retainProviderOutputSources(options: RetainProviderOutputSourcesOptions): Promise<{
   resolve: (path: string) => string
@@ -144,6 +172,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   await Promise.all(roots.map(async (root) => {
     const retainedRoot = retainedRoots.get(root)!
     const requested = paths.filter(path => pathContains(root, path))
+    const importedSources = await traceImportedSources(requested, root)
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
       const segments = relative(root, configuredRoot).split(sep)
@@ -190,6 +219,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (resolvedSource !== root
             && existsSync(resolve(resolvedSource, ".git"))
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
+            && importedSources !== undefined
+            && ![...importedSources].some(path => pathContains(resolvedSource, path))
             && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
             && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false
           const nested = relative(root, resolvedSource)

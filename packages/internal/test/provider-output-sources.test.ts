@@ -584,25 +584,30 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
-it("skips unrelated nested repositories while retaining requested ones", async () => {
+it("skips unrelated nested repositories while retaining requested and imported ones", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-repositories-"))
   tempDirs.push(rootDir)
-  const handler = join(rootDir, "server", "workflow.ts")
+  const handler = join(rootDir, "server", "workflow.mjs")
   const unrelatedRepository = join(rootDir, "unrelated-worktree")
   const requestedRepository = join(rootDir, "requested-worktree")
   const requested = join(requestedRepository, "workflow.ts")
+  const importedRepository = join(rootDir, "imported-worktree")
+  const imported = join(importedRepository, "workflow.mjs")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(unrelatedRepository, { recursive: true }),
     mkdir(requestedRepository, { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, "export default {}\n"),
+    writeFile(handler, 'export { imported } from "../imported-worktree/workflow.mjs"\n'),
     writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
     writeFile(join(unrelatedRepository, "large-cache.bin"), "must not be retained\n"),
     writeFile(join(requestedRepository, ".git"), "gitdir: /tmp/requested.git\n"),
     writeFile(requested, "export const requested = true\n"),
+    writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
+    writeFile(imported, "export const imported = true\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -611,7 +616,7 @@ it("skips unrelated nested repositories while retaining requested ones", async (
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ imported: true })
   await expect(readFile(retained.resolve(requested), "utf8")).resolves.toContain("requested = true")
   await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
