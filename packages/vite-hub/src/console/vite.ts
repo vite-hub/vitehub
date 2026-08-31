@@ -531,7 +531,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? databaseDiscoveryRoot
+      databaseDiscoveryRoot = "database" in viteConfig
+        ? configuredProjectRoot(viteConfig.database)
+        : databaseDiscoveryRoot
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? rateLimitDiscoveryRoot
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)

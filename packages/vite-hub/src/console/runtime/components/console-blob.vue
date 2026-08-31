@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
-import ConsoleBackButton from "./console-back-button.vue";
+import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
-import ConsoleMark from "./console-mark.vue";
+import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
 
 interface BlobObjectResponse {
@@ -233,17 +233,10 @@ onBeforeUnmount(() => {
       resizable
     >
       <template #header="{ collapsed }">
-        <div class="flex h-10 w-full min-w-0 items-center gap-2.5 px-1.5">
-          <ConsoleMark />
-          <span v-if="!collapsed" class="grid min-w-0 flex-1 leading-none">
-            <small class="truncate text-[10px] font-bold uppercase tracking-[.12em] text-muted">ViteHub Console</small>
-            <strong class="mt-1 truncate text-sm font-semibold text-highlighted">Blob</strong>
-          </span>
-        </div>
+        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
       </template>
 
       <template #default="{ collapsed }">
-        <div class="px-2 pt-2"><ConsoleBackButton :collapsed="collapsed" /></div>
         <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
           <div>
             <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">Object storage</span>
@@ -283,7 +276,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template #footer="{ collapsed, collapse }">
-        <span v-if="!collapsed" class="flex items-center gap-1.5 text-xs text-muted"><UIcon name="i-lucide-lock-keyhole" class="size-3.5" />Read-only</span>
+        <ConsolePrimitiveSwitcher active="blob" :collapsed="collapsed" :sections-base="sectionsBase" />
         <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
         <UButton class="max-lg:hidden" :class="collapsed ? '' : 'ml-1'" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show Blob objects' : 'Hide Blob objects'" @click="collapse(!collapsed)" />
       </template>

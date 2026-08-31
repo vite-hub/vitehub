@@ -1011,6 +1011,37 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("uses the resolved Vite Database root when it replaces a configured service root", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-database-override-"))
+    const viteRoot = join(projectRoot, "app")
+    try {
+      await mkdir(join(projectRoot, "packages/api/server/databases"), { recursive: true })
+      await mkdir(join(viteRoot, "server/databases"), { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), "{}\n")
+      await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        databaseDiscoveryRoot: "packages/api",
+        preset: "cloudflare",
+        resolveKVStores: () => false,
+        sections: ["databases"],
+      })
+      const config: { database?: object; nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      config.database = {}
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain('"file":"server/databases/config.ts"')
+      expect(generated).not.toContain('"file":"packages/api/server/databases/config.ts"')
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("uses each runtime's default discovery root in a nested Vite app", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-root-"))
     const viteRoot = join(projectRoot, "app")
