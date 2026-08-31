@@ -286,7 +286,7 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain("Deno.cron(cronName, cron")
-    const cronNames = [...source.matchAll(/cronName:\s*"([^"]+)"/g)].map(match => match[1])
+    const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
     expect(cronNames).toHaveLength(4)
     expect(new Set(cronNames).size).toBe(cronNames.length)
     expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
@@ -326,7 +326,7 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain('from "#app/schedule/runtime"')
-    expect(source).toContain('"cleanup": "0 0 * * *"')
+    expect(source).toContain('"cronName": "vitehub-0-cleanup"')
     expect(source).toContain("executeStaticSchedule")
   })
 
