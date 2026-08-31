@@ -442,11 +442,15 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain("kvItems.value = []");
     expect(consoleSearch).toContain("kvSearchTruncated.value = false");
     expect(consoleSearch).toContain(`if (!value) {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = undefined
     navigationRequest?.abort()
     sessionRequest?.abort()
     return
   }`);
     expect(consoleSearch).toContain("if (!open.value) return");
+    expect(consoleSearch).toContain("if (open.value) debouncedSearchTerm.value = value.trim()");
+    expect(consoleSearch).toContain("debouncedSearchTerm.value = nextSearchTerm");
     const consoleBrand = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-brand.vue`,
       "utf8",

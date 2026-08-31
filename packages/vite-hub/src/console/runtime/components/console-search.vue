@@ -369,14 +369,19 @@ async function selectSession(item: ConsoleSearchItem): Promise<void> {
 }
 
 watch(searchTerm, (value) => {
-  if (searchTimer) clearTimeout(searchTimer);
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = undefined
+  if (!open.value) return
   searchTimer = setTimeout(() => {
-    debouncedSearchTerm.value = value.trim();
-  }, 150);
-});
+    searchTimer = undefined
+    if (open.value) debouncedSearchTerm.value = value.trim()
+  }, 150)
+})
 
 watch(open, async (value) => {
   if (!value) {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = undefined
     navigationRequest?.abort()
     sessionRequest?.abort()
     return
@@ -384,8 +389,11 @@ watch(open, async (value) => {
   await loadNavigation(true);
   if (!open.value) return
   if (!agentsEnabled.value) return;
-  if (sessionSearchEnabled.value) await sessionSearch.refresh();
-  else sessionSearchEnabled.value = true;
+  const nextSearchTerm = searchTerm.value.trim()
+  const searchChanged = debouncedSearchTerm.value !== nextSearchTerm
+  debouncedSearchTerm.value = nextSearchTerm
+  if (!sessionSearchEnabled.value) sessionSearchEnabled.value = true
+  else if (!searchChanged) await sessionSearch.refresh()
 });
 
 onMounted(() => void loadNavigation());
