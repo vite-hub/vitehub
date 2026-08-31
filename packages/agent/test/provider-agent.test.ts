@@ -240,6 +240,52 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("reaps signal-ignoring descendants before a provider launcher exits", async () => {
+    const threadId = "thread-launch-process-group"
+    const heartbeatPath = join(tmpdir(), `vitehub-launch-heartbeat-${crypto.randomUUID()}`)
+    const wrapperPidPath = join(tmpdir(), `vitehub-launch-wrapper-${crypto.randomUUID()}`)
+    const descendant = `const{writeFileSync}=require("node:fs");process.on("SIGTERM",()=>{});setInterval(()=>writeFileSync(process.argv[1],String(Date.now())),20)`
+    const wrapper = `const{spawn}=require("node:child_process");const{writeFileSync}=require("node:fs");writeFileSync(process.env.WRAPPER_PID_PATH,String(process.pid));spawn(process.execPath,["-e",${JSON.stringify(descendant)},process.env.HEARTBEAT_PATH],{stdio:"ignore"});process.on("SIGTERM",()=>process.exit(0));setInterval(()=>{},1000)`
+    let wrapperPid: number | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = options?.settings?.binaryPath
+        expect(binaryPath).toEqual(expect.any(String))
+        const launched = spawn(String(binaryPath), [], { env: options?.environment, stdio: "ignore" })
+        await expect.poll(async () => access(heartbeatPath).then(() => true, () => false)).toBe(true)
+        wrapperPid = Number(await readFile(wrapperPidPath, "utf8"))
+        const closed = once(launched, "close")
+        launched.kill("SIGTERM")
+        await closed
+        const stoppedAt = await readFile(heartbeatPath, "utf8")
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await expect(readFile(heartbeatPath, "utf8")).resolves.toBe(stoppedAt)
+      },
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const invocationContext = context(threadId) as never
+      await createProviderAgentAdapter({
+        env: { HEARTBEAT_PATH: heartbeatPath, WRAPPER_PID_PATH: wrapperPidPath },
+        launch: { args: ["-e", wrapper], command: process.execPath },
+        provider: "codex",
+      }).generate(invocationContext)
+    }
+    finally {
+      if (wrapperPid) {
+        try {
+          process.kill(-wrapperPid, "SIGKILL")
+        }
+        catch {}
+      }
+      await Promise.all([
+        rm(heartbeatPath, { force: true }),
+        rm(wrapperPidPath, { force: true }),
+      ])
+    }
+  })
+
   it("resolves object-form provider environments", async () => {
     const threadId = "thread-object-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

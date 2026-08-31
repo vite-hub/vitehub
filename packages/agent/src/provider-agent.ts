@@ -309,7 +309,68 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
 }
 
 function providerLauncherSource(launch: AgentProviderLaunchCommand): string {
-  return `#!/usr/bin/env node\nimport { spawn } from "node:child_process"\n\nconst child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {\n  cwd: process.cwd(),\n  env: process.env,\n  stdio: "inherit",\n})\n\nconst signals = ["SIGINT", "SIGTERM", "SIGHUP"]\nconst handlers = new Map(signals.map(signal => [signal, () => child.kill(signal)]))\nfor (const signal of signals) process.on(signal, handlers.get(signal))\n\nchild.once("error", (error) => {\n  console.error(error)\n  process.exit(1)\n})\nchild.once("exit", (code, signal) => {\n  for (const name of signals) process.off(name, handlers.get(name))\n  if (signal) process.kill(process.pid, signal)\n  else process.exit(code ?? 1)\n})\n`
+  return `#!/usr/bin/env node
+import { spawn } from "node:child_process"
+import { setTimeout as delay } from "node:timers/promises"
+
+const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
+  cwd: process.cwd(),
+  detached: true,
+  env: process.env,
+  stdio: "inherit",
+})
+
+const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
+let termination
+
+function signalProcessGroup(signal) {
+  if (!child.pid) return false
+  try {
+    process.kill(-child.pid, signal)
+    return true
+  }
+  catch (error) {
+    if (error?.code === "ESRCH") return false
+    throw error
+  }
+}
+
+function processGroupExists() {
+  return signalProcessGroup(0)
+}
+
+function terminateProcessGroup(signal = "SIGTERM") {
+  return termination ??= (async () => {
+    if (!signalProcessGroup(signal) || !processGroupExists()) return
+    await delay(250)
+    if (processGroupExists()) signalProcessGroup("SIGKILL")
+    while (processGroupExists()) await delay(10)
+  })()
+}
+
+const handlers = new Map(signals.map(signal => [signal, () => {
+  void terminateProcessGroup(signal).catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+}]))
+for (const signal of signals) process.on(signal, handlers.get(signal))
+
+child.once("error", (error) => {
+  console.error(error)
+  process.exit(1)
+})
+child.once("exit", (code, signal) => {
+  void terminateProcessGroup().then(() => {
+    for (const name of signals) process.off(name, handlers.get(name))
+    if (signal) process.kill(process.pid, signal)
+    else process.exit(code ?? 1)
+  }, (error) => {
+    console.error(error)
+    process.exit(1)
+  })
+})
+`
 }
 
 async function materializeProviderLauncher(root: string, launch: AgentProviderLaunchCommand): Promise<string> {

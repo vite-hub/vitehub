@@ -1252,6 +1252,20 @@ describe("agent channels", () => {
     expect(unconfiguredMention).toBeInstanceOf(Response)
     if (!(unconfiguredMention instanceof Response)) throw new Error("Expected unconfigured GitHub mention response.")
     await expect(unconfiguredMention.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    const mentionOnly = github({ pullRequest: { reconcile: { events: [], mentions: ["@agent"] }, reply: false } })
+    const mentionOnlyTrigger = mentionOnly.triggers?.webhook
+    if (!mentionOnlyTrigger) throw new Error("Missing mention-only GitHub webhook trigger.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const ignoredLifecycle = await mentionOnlyTrigger.invoke({
+      ...context,
+      channel: mentionOnly,
+    } as never, {
+      github: { deliveryId: "delivery-empty-events", event: "pull_request" },
+      payload: githubPullRequestPayload("opened"),
+    })
+    if (!(ignoredLifecycle instanceof Response)) throw new Error("Expected an ignored lifecycle response.")
+    await expect(ignoredLifecycle.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {

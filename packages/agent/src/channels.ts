@@ -776,7 +776,7 @@ function githubPullRequestReconcileFromInput(
 
   if (event !== "pull_request" || !isRecord(payload.pull_request)) return
   const action = maybeString(payload.action)
-  const events = Array.isArray(options.events) && options.events.length
+  const events = Array.isArray(options.events)
     ? options.events.filter(event => hasRuntimeType(event, "string"))
     : ["opened", "reopened", "ready_for_review", "synchronize"]
   if (!action || !events.includes(action)) return
