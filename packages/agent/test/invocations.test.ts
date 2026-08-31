@@ -3681,6 +3681,12 @@ describe("Agent Invocations", () => {
         updatedAt: createdAt,
       })
       await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
+      await client.execute({
+        args: ["invocation-1"],
+        sql: "UPDATE vitehub_agent_invocations_claims SET claim_token = '' WHERE id = ?",
+      })
+      await expect(store.claim("invocation-1", "second", 30_000)).resolves.toBe(false)
+      await expect(store.claim("invocation-1", "first", 30_000)).resolves.toBe(true)
       const firstClaimToken = await store.getClaimToken("invocation-1")
       expect(firstClaimToken).toEqual(expect.any(String))
       await expect(store.claim("invocation-1", "second", 30_000, { replaceClaimToken: "not-first" })).resolves.toBe(false)

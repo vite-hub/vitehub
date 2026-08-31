@@ -332,11 +332,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         await initialize()
         const claimToken = globalThis.crypto.randomUUID()
         const result = await client.execute({
-          args: [id, claimId, claimToken, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? ""],
+          args: [id, claimId, claimToken, leaseMs, id, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
           sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
             SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
             ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
-            WHERE ? = 1 OR ${table}_claims.claim_token = ? OR ${table}_claims.claim_id = excluded.claim_id
+            WHERE ? = 1 OR (? IS NOT NULL AND ${table}_claims.claim_token = ?) OR ${table}_claims.claim_id = excluded.claim_id
               OR ${table}_claims.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`,
         })
         return result.rowsAffected > 0
