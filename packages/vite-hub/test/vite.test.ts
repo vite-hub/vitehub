@@ -24,11 +24,12 @@ const integrationMocks = vi.hoisted(() => ({
   hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
-  hubEnv: vi.fn(() => ({
+  hubEnv: vi.fn((options?: { projectRoot?: string }) => ({
     api: {
       createServerEnvRegistry: () => ({}),
       getServerEnvRegistry: () => ({}),
       onServerEnvRegistry: () => {},
+      resolveProjectRoot: (viteRoot: string) => options?.projectRoot ? join(viteRoot, options.projectRoot) : viteRoot,
     },
     name: "@vite-hub/env/vite",
   })),
@@ -968,6 +969,16 @@ describe("vitehub", () => {
     const dependency = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
 
     callHook(dependency.configResolved, [{ root: "/app" }])
+
+    expect(aliases["#vitehub/env/server"]).toBe("/app/.vitehub/env/server.mjs")
+  })
+
+  it("retains generated Server Env from the resolved Env project root", () => {
+    const plugins = vitehub({ agent: true, env: { projectRoot: ".." }, preset: "node" })
+    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    const dependency = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
+
+    callHook(dependency.configResolved, [{ root: "/app/client" }])
 
     expect(aliases["#vitehub/env/server"]).toBe("/app/.vitehub/env/server.mjs")
   })

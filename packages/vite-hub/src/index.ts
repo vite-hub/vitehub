@@ -183,6 +183,7 @@ function configureProviderOptionalImportAliases(
 
 function frameworkDependencyResolver(
   options: ViteHubOptions,
+  envPlugin: EnvVitePlugin | undefined,
   providerImportAliases: Record<string, string>,
   blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
@@ -205,8 +206,9 @@ function frameworkDependencyResolver(
       }
     },
     configResolved(config) {
-      if (options.env !== false && config.root) {
-        providerImportAliases["#vitehub/env/server"] = resolve(config.root, ".vitehub/env/server.mjs")
+      if (envPlugin && config.root) {
+        const envProjectRoot = envPlugin.api.resolveProjectRoot(config.root)
+        providerImportAliases["#vitehub/env/server"] = resolve(envProjectRoot, ".vitehub/env/server.mjs")
       }
       configureProviderOptionalImportAliases(
         providerImportAliases,
@@ -745,7 +747,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
-  plugins.push(frameworkDependencyResolver(options, providerImportAliases, blobEnabled, presetKVOptions || undefined))
+  plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (envPlugin) plugins.push(envPlugin)
