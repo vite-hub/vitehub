@@ -179,16 +179,28 @@ function providerSessionStore(
   return store
 }
 
+interface PartitionedProviderSessionStore {
+  commit: (resumeCursor: unknown) => Promise<void>
+  invalidate: () => Promise<void>
+  load: () => Promise<unknown | undefined>
+  runtime: ProviderRuntimeSessionStore
+}
+
 function partitionProviderSessionStore(
   store: ProviderRuntimeSessionStore,
   sessionKey: string,
-): ProviderRuntimeSessionStore {
+): PartitionedProviderSessionStore {
   // SAFETY: The provider runtime treats thread IDs as opaque non-empty storage keys.
   const persistedThreadId = sessionKey as ThreadId
   return {
-    delete: () => store.delete(persistedThreadId),
-    get: () => store.get(persistedThreadId),
-    set: (_threadId, resumeCursor) => store.set(persistedThreadId, resumeCursor),
+    commit: resumeCursor => store.set(persistedThreadId, resumeCursor),
+    invalidate: () => store.delete(persistedThreadId),
+    load: () => store.get(persistedThreadId),
+    runtime: {
+      async delete() {},
+      get: () => store.get(persistedThreadId),
+      async set() {},
+    },
   }
 }
 
@@ -1494,7 +1506,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
-  let sessionStore: ProviderRuntimeSessionStore | undefined
+  let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
@@ -1685,7 +1697,7 @@ async function* runProvider<
       : undefined
     let resumeCursor = pendingResumeCursor
     if (resumeCursor === undefined && sessionStore) {
-      resumeCursor = await waitForProviderOperation(sessionStore.get(threadId), effectiveSignal)
+      resumeCursor = await waitForProviderOperation(sessionStore.load(), effectiveSignal)
       if (resumeCursor !== undefined) pendingResumeCursor = resumeCursor
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
@@ -1708,7 +1720,7 @@ async function* runProvider<
         ...providerEnvironmentOverrides,
       }),
       provider: options.provider,
-      ...(sessionStore ? { sessionStore } : {}),
+      ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
       ...(Object.keys(settings).length ? { settings } : {}),
     }
     runtime = await waitForProviderOperation(
@@ -1990,27 +2002,31 @@ async function* runProvider<
     finally {
       cleanup.dispose()
     }
-    let deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
+    const deferredCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
     if (preservesProviderSession && sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
-        resumeCursors.set(sessionKey, pendingResumeCursor)
+        try {
+          await sessionStore?.commit(pendingResumeCursor)
+          resumeCursors.set(sessionKey, pendingResumeCursor)
+        }
+        catch (error) {
+          cleanupErrors.push(error)
+          resumeCursors.delete(sessionKey)
+          try {
+            await sessionStore?.invalidate()
+          }
+          catch (invalidationError) {
+            cleanupErrors.push(invalidationError)
+          }
+        }
       }
       else {
         resumeCursors.delete(sessionKey)
-        if (sessionStore) {
-          const durableSessionStore = sessionStore
-          if (deferredCleanup) {
-            deferredCleanup = deferredCleanup.finally(() => durableSessionStore.delete(threadId))
-            observeLateCleanup(deferredCleanup)
-          }
-          else {
-            try {
-              await sessionStore.delete(threadId)
-            }
-            catch (error) {
-              cleanupErrors.push(error)
-            }
-          }
+        try {
+          await sessionStore?.invalidate()
+        }
+        catch (error) {
+          cleanupErrors.push(error)
         }
       }
     }
