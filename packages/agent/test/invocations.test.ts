@@ -3169,7 +3169,7 @@ describe("Agent Invocations", () => {
   it("omits SQLite observation payloads before reading list rows", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summaries-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    let listedRecord: string | undefined
+    let listedRecord: unknown
     // SAFETY: the proxy forwards every Client member and only observes the list query result.
     const observingClient = new Proxy(client, {
       get(target, property) {
@@ -3178,14 +3178,10 @@ describe("Agent Invocations", () => {
         return async (...args: unknown[]) => {
           // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
           const result = await (client.execute as (...executeArgs: unknown[]) => Promise<{ rows: Array<{ record?: unknown }> }>)(...args)
-          const statement = typeof args[0] === "string"
-            ? args[0]
-            : typeof args[0] === "object" && args[0] !== null && "sql" in args[0]
-              ? String(args[0].sql)
-              : ""
+          // SAFETY: Client.execute accepts a SQL string or a statement whose sql member is the SQL string.
+          const statement = String((args[0] as { sql?: unknown } | undefined)?.sql ?? args[0] ?? "")
           if (statement.includes("ORDER BY sequence DESC LIMIT ?")) {
-            const record = result.rows[0]?.record
-            listedRecord = typeof record === "string" ? record : undefined
+            listedRecord = result.rows[0]?.record
           }
           return result
         }
@@ -3212,7 +3208,8 @@ describe("Agent Invocations", () => {
       await expect(store.list()).resolves.toMatchObject({
         invocations: [expect.not.objectContaining({ observations: expect.anything() })],
       })
-      expect(JSON.parse(listedRecord!).observations).toEqual([])
+      expect(listedRecord).toEqual(expect.any(String))
+      expect(JSON.parse(String(listedRecord)).observations).toEqual([])
       await expect(store.get("bounded-summary")).resolves.toMatchObject({
         observations: [expect.objectContaining({ name: "large-observation" })],
       })
