@@ -213,6 +213,7 @@ function frameworkDependencyResolver(
       configureProviderOptionalImportAliases(
         providerImportAliases,
         options,
+        // SAFETY: Vite's resolved config may be extended by the configured deployment preset with KV options.
         (config as typeof config & { kv?: KVModuleOptions }).kv ?? presetKVOptions,
       )
     },
