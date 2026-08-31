@@ -534,13 +534,23 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       databaseDiscoveryRoot = "database" in viteConfig
         ? configuredProjectRoot(viteConfig.database)
         : databaseDiscoveryRoot
-      rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? rateLimitDiscoveryRoot
+      if ("database" in viteConfig) {
+        sections = sections.filter(section => section !== "databases")
+        if (viteConfig.database) sections = [...sections, "databases"]
+      }
+      rateLimitDiscoveryRoot = "rateLimit" in viteConfig
+        ? configuredProjectRoot(viteConfig.rateLimit)
+        : rateLimitDiscoveryRoot
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
-      rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
-        ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
-        : rateLimitScanDirs
+      if ("rateLimit" in viteConfig) {
+        rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
+          ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
+          : undefined
+      }
       scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
-      workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? workspaceDiscoveryRoot
+      workspaceDiscoveryRoot = "workspace" in viteConfig
+        ? configuredProjectRoot(viteConfig.workspace)
+        : workspaceDiscoveryRoot
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
       reconcileDefinitionsHandler(nitro)

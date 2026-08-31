@@ -1286,7 +1286,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : replayConfig.queue ?? effectiveQueue,
-        sandbox: replayConfig.sandbox ?? options.sandbox,
+        sandbox: Boolean(replayConfig.sandbox ?? options.sandbox) && plan.services.sandbox.supported,
         workspace: replayConfig.workspace ?? options.workspace,
         workflow: replayConfig.workflow ?? options.workflow,
       })

@@ -1042,6 +1042,45 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("uses resolved service overrides as complete Console discovery configuration", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-service-overrides-"))
+    const viteRoot = join(projectRoot, "app")
+    try {
+      await mkdir(viteRoot, { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed" },
+        databaseDiscoveryRoot: "packages/database",
+        preset: "cloudflare",
+        rateLimitDiscoveryRoot: "packages/rate-limit",
+        rateLimitScanDirs: ["policies"],
+        resolveKVStores: () => false,
+        sections: ["databases", "rate-limits", "workspaces"],
+        workspaceDiscoveryRoot: "packages/workspace",
+      })
+      const config: {
+        database?: false
+        nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
+        rateLimit?: object
+        root: string
+        workspace?: object
+      } = { root: viteRoot }
+
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      config.database = false
+      config.rateLimit = {}
+      config.workspace = {}
+      await callPluginHook(plugin.configResolved, {}, [config])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(projectRoot)}, ["rate-limits","workspaces"])`)
+      expect(config.nitro!.handlers.map(handler => handler.route)).toContain("/api/_vitehub/console/definitions")
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("uses each runtime's default discovery root in a nested Vite app", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-root-"))
     const viteRoot = join(projectRoot, "app")

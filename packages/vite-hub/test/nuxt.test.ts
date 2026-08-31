@@ -1963,6 +1963,18 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).not.toContain(`"section":"sandboxes"`)
   })
 
+  it("keeps Sandbox Console metadata disabled when replay runs on an unsupported preset", async () => {
+    const development = createNuxt(true)
+
+    await viteHubNuxtModule({ console: true, preset: "node", sandbox: true }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).not.toContain(`"sandboxes"`)
+    expect(generated).not.toContain(`"section":"sandboxes"`)
+  })
+
   it("removes Blob Console metadata when Nuxt replay disables Blob", async () => {
     const development = createNuxt(true, [{
       name: "vite-hub/blob-replay",
