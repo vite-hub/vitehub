@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -12,12 +12,19 @@ import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, sessionStore?: unknown, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
+const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (path: string) => ({
+  close: vi.fn(),
+  delete: vi.fn(async () => undefined),
+  get: vi.fn(async () => undefined),
+  path,
+  set: vi.fn(async () => undefined),
+})))
 const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "claude-code" | "codex") => string | undefined>(provider => provider === "codex"
   ? "/app/node_modules/@openai/codex/bin/codex.js"
   : "/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude"))
 
-vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime }))
+vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -198,6 +205,78 @@ describe("Provider Agent Driver", () => {
         launchArgs: "--custom-flag",
       },
     }))
+  })
+
+  it.each(["codex", "claude-code"] as const)("passes a durable session store to the %s runtime", async (provider) => {
+    const threadId = `thread-session-store-${provider}`
+    const path = `.vitehub/${threadId}.sqlite`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+    await createProviderAgentAdapter({ provider, sessionStorePath: path }).generate(context(threadId) as never)
+
+    expect(createSqliteProviderRuntimeSessionStore).toHaveBeenLastCalledWith(resolve(path))
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionStore: expect.objectContaining({ path: resolve(path) }),
+    }))
+    expect(createProviderRuntime.mock.lastCall?.[0].settings).not.toHaveProperty("sessionStorePath")
+  })
+
+  it("reuses one session store concurrently for equivalent paths", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    const runtimes = ["first", "second"].map(suffix => runtime(`thread-session-${suffix}`, [
+      event("turn.completed", `thread-session-${suffix}`, { state: "completed" }, { turnId: "turn-1" }),
+    ]))
+
+    await Promise.all([
+      createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-first") as never),
+      createProviderAgentAdapter({ provider: "codex", sessionStorePath: resolve(path) }).generate(context("thread-session-second") as never),
+    ])
+
+    expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1)
+    expect(createProviderRuntime.mock.calls.at(-2)?.[0].sessionStore).toBe(createProviderRuntime.mock.lastCall?.[0].sessionStore)
+    expect(runtimes.every(value => value.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it("retries session store creation after a failure", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path })
+    createSqliteProviderRuntimeSessionStore.mockRejectedValueOnce(new Error("session store unavailable"))
+
+    await expect(adapter.generate(context("thread-session-failed") as never)).rejects.toThrow("session store unavailable")
+    runtime("thread-session-retried", [event("turn.completed", "thread-session-retried", { state: "completed" }, { turnId: "turn-1" })])
+    await adapter.generate(context("thread-session-retried") as never)
+
+    expect(createSqliteProviderRuntimeSessionStore.mock.calls.filter(([value]) => value === resolve(path))).toHaveLength(2)
+  })
+
+  it("cancels while a session store is opening", async () => {
+    const path = `.vitehub/provider-session-${crypto.randomUUID()}.sqlite`
+    const controller = new AbortController()
+    let resolveStore!: (value: Awaited<ReturnType<typeof createSqliteProviderRuntimeSessionStore>>) => void
+    createSqliteProviderRuntimeSessionStore.mockImplementationOnce(() => new Promise(resolve => resolveStore = resolve))
+    const calls = createSqliteProviderRuntimeSessionStore.mock.calls.length
+    const result = createProviderAgentAdapter({ provider: "codex", sessionStorePath: path }).generate(context("thread-session-cancelled", {
+      input: { abortSignal: controller.signal, prompt: "hello" },
+    }) as never)
+
+    await vi.waitFor(() => expect(createSqliteProviderRuntimeSessionStore).toHaveBeenCalledTimes(calls + 1))
+    controller.abort(new DOMException("cancelled", "AbortError"))
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    resolveStore({
+      close: vi.fn(),
+      delete: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      path: resolve(path),
+      set: vi.fn(async () => undefined),
+    })
+  })
+
+  it("rejects an empty session store path", async () => {
+    await expect(createProviderAgentAdapter({
+      provider: "codex",
+      sessionStorePath: " ",
+    }).generate(context("thread-empty-session-store") as never)).rejects.toThrow("driver.sessionStorePath must be a non-empty string")
   })
 
   it("appends ViteHub reasoning flags to explicit Codex launch arguments", async () => {

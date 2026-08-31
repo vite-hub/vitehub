@@ -102,7 +102,7 @@ The directory is a complete Codex Home, not a credentials-only store; treat its 
 
 Provider Drivers require a local Node.js host with credentials available to the process. Codex credentials without an explicit resolver must be available to that process. ViteHub resolves an installed `@openai/codex` or `@anthropic-ai/claude-agent-sdk` package without requiring deployment-specific copy scripts. Production self-hosted Node builds on macOS and Linux copy only the build host's native optional package into `.output/server/node_modules`, including the Linux libc variant, so build on the same host type used for deployment. If Codex is absent, ViteHub falls back to `codex` on the host `PATH`. Claude requires the Agent SDK, while a missing native SDK package at runtime retains T3's host `claude` command fallback. ViteHub does not download provider packages during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
-Provider runtime cursors resume a thread while the Agent Definition process remains active. Chat-backed cursors are also partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. Cursors are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
+Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
@@ -119,6 +119,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
+| `sessionStorePath` | Optional SQLite file for provider session cursors. Enables thread continuation after a process restart on the same persistent host volume. |
 | `output` | Optional structured Agent output contract. |
 | `capacity` | Optional process-local static or adaptive concurrency and queue limits. |
 

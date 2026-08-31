@@ -199,6 +199,7 @@ describe("built-in Agent Driver selection", () => {
         providerSettings,
         reasoningEffort: "high",
         reasoningSummary: "detailed",
+        sessionStorePath: " .vitehub/provider-sessions.sqlite ",
       },
     });
     providerSettings.launchArgs = "changed";
@@ -211,6 +212,7 @@ describe("built-in Agent Driver selection", () => {
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStorePath: ".vitehub/provider-sessions.sqlite",
     });
     const agent = defineAgent({ driver: {
       credentials,
@@ -219,6 +221,7 @@ describe("built-in Agent Driver selection", () => {
       providerSettings: { binaryPath: undefined, launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStorePath: ".vitehub/provider-sessions.sqlite",
     } });
     expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
       credentials: true,
@@ -228,6 +231,7 @@ describe("built-in Agent Driver selection", () => {
       providerSettings: ["launchArgs"],
       reasoningEffort: "high",
       reasoningSummary: "detailed",
+      sessionStore: "sqlite",
     });
   });
 
@@ -252,6 +256,8 @@ describe("built-in Agent Driver selection", () => {
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: "verbose" }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", model: "gpt-5.6-sol", reasoningSummary: { toString: (): string => "auto" } }, "must be \"auto\", \"concise\", \"detailed\", or \"none\""],
     [{ kind: "codex", providerSettings: [] }, "driver.providerSettings }) must be an object"],
+    [{ kind: "codex", sessionStorePath: "" }, "driver.sessionStorePath }) must be a non-empty string"],
+    [{ kind: "claude-code", sessionStorePath: {} }, "driver.sessionStorePath }) must be a non-empty string"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);

@@ -32,6 +32,7 @@ import type {
   ProviderApprovalDecision,
   ProviderRuntime,
   ProviderRuntimeEvent,
+  ProviderRuntimeSessionStore,
   ProviderUserInputAnswers,
   RuntimeMode,
   ThreadId,
@@ -79,6 +80,7 @@ export interface ProviderAgentAdapterOptions<
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  sessionStorePath?: string
 }
 
 interface GeneratedProviderFile {
@@ -157,6 +159,24 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
   "allow-all": "full-access",
   "allow-edits": "auto-accept-edits",
   ask: "approval-required",
+}
+
+const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
+
+function providerSessionStore(
+  path: string,
+  create: (path: string) => Promise<ProviderRuntimeSessionStore>,
+): Promise<ProviderRuntimeSessionStore> {
+  const resolvedPath = resolve(path)
+  let store = providerSessionStores.get(resolvedPath)
+  if (!store) {
+    store = create(resolvedPath).catch((error) => {
+      providerSessionStores.delete(resolvedPath)
+      throw error
+    })
+    providerSessionStores.set(resolvedPath, store)
+  }
+  return store
 }
 
 const providerCleanupTimeoutMs = 10_000
@@ -1629,12 +1649,21 @@ async function* runProvider<
       },
       observeLateCleanup,
     )
-    const { createProviderRuntime } = await import("@t3tools/provider-runtime")
+    const { createProviderRuntime, createSqliteProviderRuntimeSessionStore } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
       await cleanupRoot()
     }
+    if (options.sessionStorePath !== undefined && (typeof options.sessionStorePath !== "string" || !options.sessionStorePath.trim())) {
+      throw new TypeError("[vitehub] driver.sessionStorePath must be a non-empty string.")
+    }
+    const sessionStore = options.sessionStorePath
+      ? await waitForProviderOperation(
+          providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore),
+          effectiveSignal,
+        )
+      : undefined
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
@@ -1655,6 +1684,7 @@ async function* runProvider<
         ...providerEnvironmentOverrides,
       }),
       provider: options.provider,
+      ...(sessionStore ? { sessionStore } : {}),
       ...(Object.keys(settings).length ? { settings } : {}),
     }
     runtime = await waitForProviderOperation(

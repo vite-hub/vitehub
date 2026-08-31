@@ -46,6 +46,7 @@ export type NormalizedAgentDriver<
     providerSettings?: Record<string, unknown>
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
+    sessionStorePath?: string
   }
   | {
     kind: "run"
@@ -130,7 +131,7 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 
 function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
@@ -185,6 +186,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   if (value.providerSettings !== undefined && !isPlainObject(value.providerSettings)) {
     throw new TypeError("[vitehub] defineAgent({ driver.providerSettings }) must be an object.")
+  }
+  if (value.sessionStorePath !== undefined && (!isRuntimeString(value.sessionStorePath) || !value.sessionStorePath.trim())) {
+    throw new TypeError("[vitehub] defineAgent({ driver.sessionStorePath }) must be a non-empty string.")
   }
   const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
@@ -255,6 +259,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     reasoningEffort: isRuntimeString(value.reasoningEffort) ? value.reasoningEffort.trim() : undefined,
     // SAFETY: reasoningSummary is either absent or validated against the Codex summary values above.
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
+    sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
   }
 }
 
