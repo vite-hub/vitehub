@@ -822,10 +822,11 @@ function sourceHasUnresolvedWorkspaceRoot(
         visitor: {
           ObjectProperty(path: BabelObjectPropertyPath) {
             // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
+            const valueNode = path.node.value as BabelNode | undefined
             if (
               babelPropertyName(path) === "root"
               && babelPropertyIsTopLevelDefaultExport(path)
-              && babelStringValue(path.node.value as BabelNode | undefined, path) === undefined
+              && babelStringValue(valueNode, path) === undefined
             ) unresolved = true
           },
         },
@@ -865,12 +866,13 @@ function sourceInlineWorkspaceStoreOperations(
               : undefined
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
             if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
-            operations.push({
+            const operation: InlineWorkspaceStoreOperation = {
               kind: "spread",
               localName: babelResolveIdentifierAlias(path, localName),
               position,
-              ...(typeof selectedName === "string" ? { selectedName } : {}),
-            })
+            }
+            if (selectedName !== undefined) operation.selectedName = selectedName
+            operations.push(operation)
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
             // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
