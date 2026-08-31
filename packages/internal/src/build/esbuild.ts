@@ -68,10 +68,12 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
   if (typeof exportsValue === "string") {
     return normalizePathSeparators(exportsValue).replace(/^\.\//, "") === packageRelativePath ? [packageName] : []
   }
-  if (!isPlainObject(exportsValue)) return []
+  if (!Array.isArray(exportsValue) && !isPlainObject(exportsValue)) return []
   const candidates: string[] = []
-  for (const [exportKey, target] of Object.entries(exportsValue)) {
-    if (!exportKey.startsWith(".")) continue
+  const exportEntries = isPlainObject(exportsValue) && Object.keys(exportsValue).some(exportKey => exportKey.startsWith("."))
+    ? Object.entries(exportsValue)
+    : [[".", exportsValue] as const]
+  for (const [exportKey, target] of exportEntries) {
     const targets: unknown[] = [target]
     while (targets.length) {
       const value = targets.shift()

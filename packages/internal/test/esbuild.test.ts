@@ -86,6 +86,31 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).toContain("replacement-token")
   })
 
+  it("applies exact aliases to package roots with conditional exports", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "index.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { import: "./index.mjs", default: "./fallback.mjs" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'conditional-replacement'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: replacement },
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("conditional-replacement")
+  })
+
   it("preserves overlapping trailing-slash alias prefixes", async () => {
     const rootDir = await createTempDir()
     const broadDir = resolve(rootDir, "broad")
