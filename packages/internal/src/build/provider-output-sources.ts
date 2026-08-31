@@ -302,6 +302,119 @@ function packageMetadataSourcesForPath(root: string, path: string): string[] {
   return sources
 }
 
+function parseJsonWithComments(source: string): unknown {
+  let output = ""
+  let blockComment = false
+  let lineComment = false
+  let quoted = false
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (lineComment) {
+      if (char === "\n" || char === "\r") {
+        lineComment = false
+        output += char
+      }
+      else output += " "
+      continue
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false
+        output += "  "
+        index += 1
+      }
+      else output += char === "\n" || char === "\r" ? char : " "
+      continue
+    }
+    if (!quoted && char === "/" && next === "/") {
+      lineComment = true
+      output += "  "
+      index += 1
+      continue
+    }
+    if (!quoted && char === "/" && next === "*") {
+      blockComment = true
+      output += "  "
+      index += 1
+      continue
+    }
+    output += char
+    if (char === "\"") {
+      let backslashes = 0
+      for (let previous = index - 1; source[previous] === "\\"; previous -= 1) backslashes += 1
+      if (backslashes % 2 === 0) quoted = !quoted
+    }
+  }
+  let withoutTrailingCommas = ""
+  quoted = false
+  for (let index = 0; index < output.length; index += 1) {
+    const char = output[index]!
+    if (char === "\"") {
+      let backslashes = 0
+      for (let previous = index - 1; output[previous] === "\\"; previous -= 1) backslashes += 1
+      if (backslashes % 2 === 0) quoted = !quoted
+    }
+    if (!quoted && char === ",") {
+      let next = index + 1
+      while (/\s/.test(output[next] ?? "")) next += 1
+      if (output[next] === "}" || output[next] === "]") continue
+    }
+    withoutTrailingCommas += char
+  }
+  return JSON.parse(withoutTrailingCommas)
+}
+
+function resolveTsconfigReference(config: string, reference: string): string | undefined {
+  const candidates = reference.startsWith(".") || isAbsolute(reference)
+    ? [resolve(dirname(config), reference), resolve(dirname(config), `${reference}.json`), resolve(dirname(config), reference, "tsconfig.json")]
+    : [reference, `${reference}/tsconfig.json`]
+  for (const candidate of candidates) {
+    try {
+      const resolved = isAbsolute(candidate) ? candidate : createRequire(config).resolve(candidate)
+      if (existsSync(resolved)) return resolved
+    }
+    catch {
+      // Try the next TypeScript-compatible config reference form.
+    }
+  }
+}
+
+async function tsconfigSourcesForPaths(root: string, paths: string[]): Promise<string[]> {
+  const pending: string[] = []
+  for (const path of paths) {
+    let current = statSync(path).isDirectory() ? path : dirname(path)
+    while (pathContains(root, current)) {
+      const config = resolve(current, "tsconfig.json")
+      if (existsSync(config)) {
+        pending.push(config)
+        break
+      }
+      if (current === root) break
+      current = dirname(current)
+    }
+  }
+
+  const sources = new Set<string>()
+  while (pending.length) {
+    const config = pending.pop()!
+    if (sources.has(config)) continue
+    sources.add(config)
+    try {
+      const parsed = parseJsonWithComments(await readFile(config, "utf8")) as { extends?: string | string[] }
+      const references = Array.isArray(parsed.extends) ? parsed.extends : parsed.extends ? [parsed.extends] : []
+      for (const reference of references) {
+        const resolved = resolveTsconfigReference(config, reference)
+        if (resolved && !sources.has(resolved)) pending.push(resolved)
+      }
+    }
+    catch {
+      // The bundler remains responsible for reporting invalid TypeScript configuration.
+    }
+  }
+  return [...sources]
+}
+
 /** Retains one build generation's source trees while preserving every module's import base. */
 export async function retainProviderOutputSources(options: RetainProviderOutputSourcesOptions): Promise<{
   resolve: (path: string) => string
@@ -333,7 +446,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
     const materializedSourcePaths = [...requested, ...importedSources]
-    const captureRoot = commonSourceRoot(root, importedSources)
+    const tsconfigSources = await tsconfigSourcesForPaths(root, materializedSourcePaths)
+    materializedSourcePaths.push(...tsconfigSources)
+    const captureRoot = commonSourceRoot(root, [...importedSources, ...tsconfigSources])
     const retainedContainer = resolve(artifactDir, String(index))
     const retainedRoot = resolve(retainedContainer, relative(captureRoot, root))
     retainedRoots.set(root, retainedRoot)

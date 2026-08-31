@@ -756,6 +756,42 @@ it("snapshots a symlinked configured root", async () => {
   expect(execution.status).toBe(0)
 })
 
+it("retains the tsconfig chain for a symlinked configured root", async () => {
+  const projectSource = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-target-"))
+  const rootContainer = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-source-"))
+  tempDirs.push(projectSource, rootContainer)
+  const rootDir = join(rootContainer, "project")
+  const handler = join(rootDir, "server", "agent.ts")
+  const sourceHandler = join(projectSource, "server", "agent.ts")
+  const shared = join(projectSource, "shared", "value.ts")
+  const baseConfig = join(projectSource, "config", "tsconfig.base.json")
+  await Promise.all([mkdir(dirname(sourceHandler), { recursive: true }), mkdir(dirname(shared), { recursive: true }), mkdir(dirname(baseConfig), { recursive: true })])
+  await Promise.all([
+    writeFile(join(projectSource, "tsconfig.json"), '{"extends":"./config/tsconfig.base.json"}\n'),
+    writeFile(baseConfig, '{"compilerOptions":{"baseUrl":"..","paths":{"@shared":["shared/value.ts"]}}}\n'),
+    writeFile(sourceHandler, 'export { value } from "@shared"\n'),
+    writeFile(shared, 'export const value = "captured"\n'),
+  ])
+  await symlink(projectSource, rootDir, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootContainer, "artifacts"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await Promise.all([
+    writeFile(baseConfig, "{}\n"),
+    writeFile(shared, 'export const value = "changed"\n'),
+  ])
+
+  const bundleFile = join(rootContainer, "bundle.mjs")
+  await expect(readFile(join(retained.resolve(rootDir), "tsconfig.json"), "utf8")).resolves.toContain("tsconfig.base.json")
+  await expect(readFile(join(retained.resolve(rootDir), "config", "tsconfig.base.json"), "utf8")).resolves.toContain("@shared")
+  await expect(readFile(join(retained.resolve(rootDir), "shared", "value.ts"), "utf8")).resolves.toContain("captured")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+  await expect(readFile(bundleFile, "utf8")).resolves.toContain("captured")
+})
+
 it("snapshots symlinks discovered through imported sources", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-source-"))
   const linkedSource = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-target-"))
