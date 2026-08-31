@@ -596,10 +596,9 @@ describe("agent eval", () => {
     } = await import("../src/eval.ts")
     const extensions = {
       entries: (): Array<[string, unknown]> => [["completion", { status: "completed" }]],
-      get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+      get(capabilityId: string, key?: string): unknown {
         if (capabilityId !== "completion") return undefined
-        const value = key === "status" ? "completed" : { status: "completed" }
-        return value as T
+        return key === "status" ? "completed" : { status: "completed" }
       },
       toJSON: () => ({ completion: { status: "completed" } }),
     }

@@ -163,6 +163,21 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 
 const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
 const invalidatedProviderSessions = new WeakMap<ProviderRuntimeSessionStore, Set<ThreadId>>()
+const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
+
+interface ProviderSessionCursorRecord {
+  [providerSessionCursorRecordKey]: "invalidated" | "ready"
+  value?: unknown
+}
+
+function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecord {
+  return { [providerSessionCursorRecordKey]: "ready", value }
+}
+
+function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
+  return isRuntimeRecord(value)
+    && (value[providerSessionCursorRecordKey] === "invalidated" || value[providerSessionCursorRecordKey] === "ready")
+}
 
 function providerSessionStore(
   path: string,
@@ -182,8 +197,8 @@ function providerSessionStore(
 
 interface PartitionedProviderSessionStore {
   commit: (resumeCursor: unknown) => Promise<void>
+  consume: () => Promise<unknown | undefined>
   invalidate: () => Promise<void>
-  load: () => Promise<unknown | undefined>
   runtime: ProviderRuntimeSessionStore
 }
 
@@ -200,24 +215,34 @@ function partitionProviderSessionStore(
   }
   const invalidate = async () => {
     invalidatedSessions.add(persistedThreadId)
+    await store.set(persistedThreadId, { [providerSessionCursorRecordKey]: "invalidated" })
     await store.delete(persistedThreadId)
     invalidatedSessions.delete(persistedThreadId)
   }
-  const load = async () => {
-    if (!invalidatedSessions.has(persistedThreadId)) return store.get(persistedThreadId)
-    await invalidate()
-    return undefined
+  const consume = async () => {
+    if (invalidatedSessions.has(persistedThreadId)) {
+      await invalidate()
+      return undefined
+    }
+    const storedCursor = await store.get(persistedThreadId)
+    if (isProviderSessionCursorRecord(storedCursor) && storedCursor[providerSessionCursorRecordKey] === "invalidated") {
+      await invalidate()
+      return undefined
+    }
+    const resumeCursor = isProviderSessionCursorRecord(storedCursor) ? storedCursor.value : storedCursor
+    if (resumeCursor !== undefined) await invalidate()
+    return resumeCursor
   }
   return {
     async commit(resumeCursor) {
-      await store.set(persistedThreadId, resumeCursor)
+      await store.set(persistedThreadId, providerSessionCursorRecord(resumeCursor))
       invalidatedSessions.delete(persistedThreadId)
     },
+    consume,
     invalidate,
-    load,
     runtime: {
       async delete() {},
-      get: load,
+      get: consume,
       async set() {},
     },
   }
@@ -1714,10 +1739,12 @@ async function* runProvider<
           sessionKey,
         )
       : undefined
-    let resumeCursor = pendingResumeCursor
-    if (resumeCursor === undefined && sessionStore) {
-      resumeCursor = await waitForProviderOperation(sessionStore.load(), effectiveSignal)
-      if (resumeCursor !== undefined) pendingResumeCursor = resumeCursor
+    const durableResumeCursor = sessionStore
+      ? await waitForProviderOperation(sessionStore.consume(), effectiveSignal)
+      : undefined
+    const resumeCursor = pendingResumeCursor ?? durableResumeCursor
+    if (pendingResumeCursor === undefined && durableResumeCursor !== undefined) {
+      pendingResumeCursor = durableResumeCursor
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
