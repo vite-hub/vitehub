@@ -67,6 +67,7 @@ const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
+let workspaceLoad: Promise<void> | undefined;
 let fileRequest: AbortController | undefined;
 
 onBeforeUnmount(() => {
@@ -130,6 +131,7 @@ watch(
   () => {
     workspaceRequest?.abort();
     workspaceRequest = undefined;
+    workspaceLoad = undefined;
     workspaceLoading.value = false;
     fileRequest?.abort();
     fileRequest = undefined;
@@ -218,7 +220,7 @@ function openFile(path: string) {
 
 async function openWorkspaceInstructions() {
   openView("workspace");
-  if (!workspace.value && !workspaceLoading.value) await loadWorkspace();
+  if (!workspace.value) await loadWorkspace();
   const path = workspace.value?.paths
     .filter((path) => /(^|\/)AGENTS\.md$/i.test(path))
     .sort(
@@ -294,6 +296,17 @@ function fileName(path: string) {
 }
 
 async function loadWorkspace() {
+  if (workspaceLoad) return workspaceLoad;
+  const load = requestWorkspace();
+  workspaceLoad = load;
+  try {
+    await load;
+  } finally {
+    if (workspaceLoad === load) workspaceLoad = undefined;
+  }
+}
+
+async function requestWorkspace() {
   if (!props.workspaceBase) return;
   workspaceRequest?.abort();
   const controller = new AbortController();

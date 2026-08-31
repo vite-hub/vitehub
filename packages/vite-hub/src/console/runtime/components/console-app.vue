@@ -109,11 +109,11 @@ const initialSessionLoading = computed(() =>
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
+  const detailStatus = selectedDetailStatus.value;
   const status =
-    selectedSummary.value?.status ??
-    (selectedDetailStatus.value?.id === selectedInvocationId.value
-      ? selectedDetailStatus.value.status
-      : undefined);
+    detailStatus?.id === selectedInvocationId.value
+      ? detailStatus.status
+      : selectedSummary.value?.status;
   return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {

@@ -320,8 +320,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(
       "[() => detail.invocation.value?.id, () => detail.invocation.value?.status]",
     );
-    expect(consolePage).toContain(
-      "selectedDetailStatus.value?.id === selectedInvocationId.value",
+    expect(consolePage).toMatch(
+      /const detailStatus = selectedDetailStatus\.value;[\s\S]*?detailStatus\?\.id === selectedInvocationId\.value[\s\S]*?\? detailStatus\.status[\s\S]*?: selectedSummary\.value\?\.status/,
     );
     expect(consolePage).toContain('v-if="initialSessionLoading"');
     expect(consolePage).toContain(':loading="refreshing"');
@@ -358,9 +358,8 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
     expect(sessionInspector).toContain('<button v-if="props.workspaceBase"');
-    expect(sessionInspector).toContain(
-      "if (!workspace.value && !workspaceLoading.value) await loadWorkspace();",
-    );
+    expect(sessionInspector).toContain("if (!workspace.value) await loadWorkspace();");
+    expect(sessionInspector).toContain("if (workspaceLoad) return workspaceLoad;");
     expect(sessionInspector).toContain("invocationUsage.totalTokens");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
