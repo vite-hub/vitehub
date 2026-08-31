@@ -46,6 +46,14 @@ function testFunction<T extends (...args: never[]) => unknown>(value: unknown, c
   return handler as T
 }
 
+function createDeferred() {
+  let resolve = () => {}
+  const promise = new Promise<void>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
   const hook = plugin.configureServer
   if (typeof hook === "function") {
@@ -1558,10 +1566,12 @@ describe("hubWorkspace", () => {
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
-    let finishCopy: (() => void) | undefined
-    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => await new Promise<void>((resolve) => {
-      finishCopy = resolve
-    }))
+    const copy = createDeferred()
+    const copyStarted = createDeferred()
+    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => {
+      copyStarted.resolve()
+      await copy.promise
+    })
     const plugin = hubWorkspace({
       store: {
         binding: "WORKSPACES",
@@ -1572,11 +1582,13 @@ describe("hubWorkspace", () => {
 
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
-    const close = (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+    const closeBundle = testFunction(plugin.closeBundle, async () => {})
+    const close = closeBundle()
     const wranglerPath = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
 
+    await copyStarted.promise
     await expect(readFile(wranglerPath, "utf8")).rejects.toThrow()
-    finishCopy?.()
+    copy.resolve()
     await close
     await expect(readFile(wranglerPath, "utf8")).resolves.toContain('"binding": "WORKSPACES"')
   })
@@ -1751,6 +1763,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -1890,6 +1903,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -1904,6 +1918,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -1926,6 +1941,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -1939,6 +1955,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -1953,6 +1970,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -1967,6 +1985,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
+    await prepareWorkspaceProviderOutput(plugin)
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
