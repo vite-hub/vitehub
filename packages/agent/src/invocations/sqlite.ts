@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client"
 
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 
 import type {
@@ -377,7 +378,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         sql: `SELECT claim_token FROM ${table}_claims WHERE id = ?`,
       })
       const claimToken = result.rows[0]?.claim_token
-      return typeof claimToken === "string" ? claimToken : undefined
+      return hasRuntimeType(claimToken, "string") ? claimToken : undefined
     },
     get: read,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {

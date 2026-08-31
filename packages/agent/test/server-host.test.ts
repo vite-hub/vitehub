@@ -344,10 +344,8 @@ describe("GitHub host", () => {
     await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
     reservation.settle(40)
-    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 51 }))
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 11 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
-    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 50 }))
-      .resolves.toMatchObject({ remaining: 10 })
   })
 
   it("preserves a stricter same-window observation during settlement", async () => {
@@ -357,7 +355,24 @@ describe("GitHub host", () => {
     const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
     reservation.submit()
     process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "30"
-    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 1 }))
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 21 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "70"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 21 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+    reservation.settle(40)
+    await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 1 }))
+      .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
+  })
+
+  it("preserves external GraphQL usage while settling a submitted reservation", async () => {
+    await installFakeGitHubCommands()
+    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: "token" }), reserve: 10 })
+
+    const reservation = await host.ensureGraphQLBudget("vite-hub/vitehub", { cost: 60 })
+    reservation.submit()
+    process.env.VITEHUB_TEST_RATE_LIMIT_REMAINING = "70"
+    await expect(host.ensureGraphQLBudget("vite-hub/another", { cost: 31 }))
       .rejects.toSatisfy((error: unknown) => host.isRateLimitError(error))
     reservation.settle(40)
     await expect(host.ensureGraphQLBudget("vite-hub/third", { cost: 21 }))

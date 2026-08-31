@@ -221,7 +221,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const identity = options.identity ?? {}
   const limits = new Map<string, GitHubGraphQLRateLimit>()
   const limitVersions = new Map<string, number>()
-  const observedLimits = new Map<string, GitHubGraphQLRateLimit>()
+  const observedLimits = new Map<string, GitHubGraphQLRateLimit & { version: number }>()
   const reservations = new Map<string, Set<{
     points: number
     resetAt: number
@@ -461,9 +461,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (current?.resetAt === reservation.resetAt) {
             const observed = observedLimits.get(key)
             const remaining = current.remaining + releasedPoints
+            const observationCeiling = observed?.resetAt === current.resetAt
+              ? observed.version > (reservation.submittedAtVersion ?? observed.version)
+                ? Math.max(0, observed.remaining - actualCost)
+                : observed.remaining
+              : undefined
             limits.set(key, {
               ...current,
-              remaining: observed?.resetAt === current.resetAt ? Math.min(remaining, observed.remaining) : remaining,
+              remaining: observationCeiling === undefined ? remaining : Math.min(remaining, observationCeiling),
             })
           }
         }
@@ -492,7 +497,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             signal: checkOperation.signal,
           })
           const limit = parseGraphQLRateLimit(JSON.parse(result.stdout), now)
-          observedLimits.set(key, limit)
+          const nextVersion = (limitVersions.get(key) ?? 0) + 1
+          const observed = observedLimits.get(key)
+          observedLimits.set(key, {
+            ...limit,
+            remaining: observed?.resetAt === limit.resetAt ? Math.min(observed.remaining, limit.remaining) : limit.remaining,
+            version: nextVersion,
+          })
           const activeReservations = reservations.get(key)
           if (activeReservations) {
             for (const reservation of activeReservations) {
@@ -518,7 +529,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             && current.resetAt === limit.resetAt
             ? { ...limit, remaining: Math.min(current.remaining, limit.remaining - outstanding) }
             : { ...limit, remaining: limit.remaining - outstanding }
-          limitVersions.set(key, (limitVersions.get(key) ?? 0) + 1)
+          limitVersions.set(key, nextVersion)
           limits.set(key, reconciled)
           return reconciled
         }
