@@ -300,10 +300,12 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (!isRuntimeRecord(value) || !hasRuntimeType(value.command, "string") || !value.command.trim()) {
     throw new TypeError("[vitehub] driver.launch must resolve to a non-empty command.")
   }
-  if (value.args !== undefined && (!Array.isArray(value.args) || value.args.some(item => !hasRuntimeType(item, "string")))) {
+  if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
     throw new TypeError("[vitehub] driver.launch args must contain only strings.")
   }
-  return { command: value.command.trim(), ...(value.args ? { args: [...value.args] as string[] } : {}) }
+  const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (value.args !== undefined) launch.args = [...value.args]
+  return launch
 }
 
 function providerLauncherSource(launch: AgentProviderLaunchCommand): string {

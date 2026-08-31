@@ -144,6 +144,7 @@ function isResolver(value: unknown): value is { resolve: (...args: never[]) => u
 
 function normalizeProviderEnvironment(value: unknown): AgentProviderEnvironmentResolver | undefined {
   if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved values are validated at invocation time.
   if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderEnvironmentResolver
   if (!isPlainObject(value)) {
     throw new TypeError("[vitehub] defineAgent({ driver.env }) must contain only string or undefined values.")
@@ -160,14 +161,17 @@ function normalizeProviderLaunchCommand(value: unknown): AgentProviderLaunchComm
   if (!isPlainObject(value) || !isRuntimeString(value.command) || !value.command.trim()) {
     throw new TypeError("[vitehub] defineAgent({ driver.launch }) must be a command object or resolver.")
   }
-  if (value.args !== undefined && (!Array.isArray(value.args) || value.args.some(item => !isRuntimeString(item)))) {
+  if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(isRuntimeString))) {
     throw new TypeError("[vitehub] defineAgent({ driver.launch.args }) must contain only strings.")
   }
-  return { command: value.command.trim(), ...(value.args ? { args: [...value.args] as string[] } : {}) }
+  const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (value.args !== undefined) launch.args = [...value.args]
+  return launch
 }
 
 function normalizeProviderLaunch(value: unknown): AgentProviderLaunchResolver | undefined {
   if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved command is validated at invocation time.
   if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderLaunchResolver
   return normalizeProviderLaunchCommand(value)
 }

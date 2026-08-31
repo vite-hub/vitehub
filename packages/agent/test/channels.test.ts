@@ -1238,7 +1238,8 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const ignored = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("plain question") })
     expect(ignored).toBeInstanceOf(Response)
-    await expect((ignored as Response).json()).resolves.toMatchObject({ reason: "not_command" })
+    if (!(ignored instanceof Response)) throw new Error("Expected ignored GitHub comment response.")
+    await expect(ignored.json()).resolves.toMatchObject({ reason: "not_command" })
 
     const lifecycleOnly = github({ pullRequest: { reconcile: true, reply: false } })
     const lifecycleTrigger = lifecycleOnly.triggers?.webhook
@@ -1249,7 +1250,8 @@ describe("agent channels", () => {
       channel: lifecycleOnly,
     } as never, { payload: githubIssueCommentPayload("@bot review this") })
     expect(unconfiguredMention).toBeInstanceOf(Response)
-    await expect((unconfiguredMention as Response).json()).resolves.toMatchObject({ reason: "not_command" })
+    if (!(unconfiguredMention instanceof Response)) throw new Error("Expected unconfigured GitHub mention response.")
+    await expect(unconfiguredMention.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
   it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
@@ -1312,7 +1314,8 @@ describe("agent channels", () => {
       payload: githubPullRequestPayload("synchronize", "Bot"),
     })
     expect(botUpdate).toBeInstanceOf(Response)
-    await expect((botUpdate as Response).json()).resolves.toMatchObject({ reason: "not_command" })
+    if (!(botUpdate instanceof Response)) throw new Error("Expected ignored bot synchronization response.")
+    await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
   })
 
   it("fetches public pull request head metadata without a token", async () => {

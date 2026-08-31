@@ -218,7 +218,9 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
-        launcherPath = options?.settings?.binaryPath as string | undefined
+        const binaryPath = options?.settings?.binaryPath
+        // SAFETY: The mocked provider runtime contract declares binaryPath as string when configured.
+        launcherPath = binaryPath as string | undefined
         if (!launcherPath) throw new Error("Expected generated provider launcher.")
         expect((await stat(launcherPath)).mode & 0o777).toBe(0o700)
         const launched = spawnSync(launcherPath, ["app-server", "--flag"], { env: options?.environment, encoding: "utf8" })
@@ -226,6 +228,7 @@ describe("Provider Agent Driver", () => {
       },
     })
     try {
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
       await createProviderAgentAdapter({ env, launch, provider: "codex" }).generate(context(threadId) as never)
       expect(env).toHaveBeenCalledOnce()
       expect(launch).toHaveBeenCalledOnce()
@@ -242,6 +245,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const resolve = vi.fn(() => ({ PROVIDER_SELECTED: "object" }))
 
+    // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
     await createProviderAgentAdapter({ env: { resolve }, provider: "codex" }).generate(context(threadId) as never)
 
     expect(resolve).toHaveBeenCalledOnce()
@@ -255,10 +259,14 @@ describe("Provider Agent Driver", () => {
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     provider.close.mockRejectedValueOnce(new Error("close failed"))
 
+    // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
     await expect(createProviderAgentAdapter({
       launch: { command: process.execPath },
       provider: "codex",
-    }).generate(context(threadId) as never)).rejects.toThrow("cleanup failed")
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context(threadId) as never,
+    )).rejects.toThrow("cleanup failed")
 
     const launcherPath = createProviderRuntime.mock.lastCall?.[0].settings?.binaryPath
     expect(launcherPath).toEqual(expect.any(String))
@@ -266,26 +274,40 @@ describe("Provider Agent Driver", () => {
   })
 
   it("validates invocation-resolved provider settings after resolution", async () => {
+    // SAFETY: The invalid environment and minimal context exercise runtime validation boundaries.
     await expect(createProviderAgentAdapter({
       // SAFETY: This invalid fixture exercises the runtime resolver boundary.
       env: (() => []) as never,
       provider: "codex",
-    }).generate(context("thread-invalid-dynamic-env") as never)).rejects.toThrow("driver.env must resolve to an object")
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-invalid-dynamic-env") as never,
+    )).rejects.toThrow("driver.env must resolve to an object")
     await expect(createProviderAgentAdapter({
       credentials: "{}",
       env: () => ({ CODEX_HOME: "/tmp/conflict" }),
       provider: "codex",
-    }).generate(context("thread-dynamic-codex-home") as never)).rejects.toThrow("resolved driver.env.CODEX_HOME")
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-codex-home") as never,
+    )).rejects.toThrow("resolved driver.env.CODEX_HOME")
     await expect(createProviderAgentAdapter({
       env: () => ({ T3CODE_CODEX_LAUNCH_ARGS: "--conflict" }),
       model: "gpt-5.6-sol",
       provider: "codex",
       reasoningEffort: "high",
-    }).generate(context("thread-dynamic-launch-args") as never)).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-launch-args") as never,
+    )).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
     await expect(createProviderAgentAdapter({
+      // SAFETY: This invalid fixture exercises the runtime launch validation boundary.
       launch: () => ({ args: [1], command: "wrapper" } as never),
       provider: "codex",
-    }).generate(context("thread-invalid-dynamic-launch") as never)).rejects.toThrow("driver.launch args must contain only strings")
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-invalid-dynamic-launch") as never,
+    )).rejects.toThrow("driver.launch args must contain only strings")
   })
 
   it("preserves ambient CODEX_HOME for unprovisioned Codex runs", async () => {
