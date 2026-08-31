@@ -232,6 +232,36 @@ describe("bundleEsmEntry", () => {
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("matches bare package prefix aliases after subpath imports become absolute", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const original = resolve(packageDir, "jobs/task.mjs")
+    const replacementDir = resolve(rootDir, "replacement")
+    const replacement = resolve(replacementDir, "jobs/task.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      mkdir(dirname(original), { recursive: true }),
+      mkdir(dirname(replacement), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { "./jobs/*": "./jobs/*" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(original, "export const value = 'original'\n", "utf8"),
+      writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
+      writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
+      format: "esm",
+      platform: "node",
+    })
+
+    expect(await readFile(outfile, "utf8")).toContain("replacement")
+    expect(await readFile(outfile, "utf8")).not.toContain("original")
+  })
+
   it("resolves bare aliases independently for each importer", async () => {
     const rootDir = await createTempDir()
     const rootPackageDir = resolve(rootDir, "node_modules/example")

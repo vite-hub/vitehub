@@ -140,6 +140,10 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                 if (alias.prefix && /^\.\.?[\\/]/.test(alias.specifier)) {
                   resolvedAliasPath = normalizePathSeparators(resolve(aliasResolveDir, alias.specifier))
                 }
+                else if (alias.prefix && resolutionScope) {
+                  const packageSubpath = alias.specifier.slice(packageName.length).replace(/^\/+/, "")
+                  resolvedAliasPath = normalizePathSeparators(resolve(resolutionScope, packageSubpath))
+                }
                 else {
                   const resolvedAlias = await build.resolve(alias.specifier, {
                     importer: args.importer,
