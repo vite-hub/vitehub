@@ -578,8 +578,8 @@ function sourceImportsFeedingWorkspaceStore(
                   const memberNames = babelNamespaceMemberNames(reference, referenceReachesRequestedExport)
                   for (const importedName of memberNames) {
                     imports.push(imported.type === "ImportDefaultSpecifier"
-                      ? { importedName: "default", selectedName: importedName, specifier }
-                      : { importedName, specifier })
+                      ? { importedName: "default", localName: imported.local.name, selectedName: importedName, specifier }
+                      : { importedName, localName: imported.local.name, selectedName: importedName, specifier })
                   }
                   if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
                     imports.push({ importedName: "default", localName: imported.local.name, specifier })
@@ -680,11 +680,11 @@ function sourceImportsFeedingWorkspaceStore(
                   : babelPathOrBindingIsExported(reference, exportedName)
                 // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
                 if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
-                  imports.push({ importedName: selectedDynamicImportName, localName, specifier })
+                  imports.push({ importedName: selectedDynamicImportName, localName, selectedName: selectedDynamicImportName, specifier })
                 }
                 for (const reference of binding?.referencePaths ?? []) {
                   const memberNames = babelNamespaceMemberNames(reference, reachesRequestedExport)
-                  for (const importedName of memberNames) imports.push({ importedName, specifier })
+                  for (const importedName of memberNames) imports.push({ importedName, localName, selectedName: importedName, specifier })
                 }
               }
               return
@@ -746,7 +746,7 @@ function sourceImportsFeedingWorkspaceStore(
               : "default"
             // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
-            for (const name of selectedNames) imports.push({ importedName: name, specifier })
+            for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, selectedName: name, specifier })
           },
         },
       })],
@@ -756,8 +756,12 @@ function sourceImportsFeedingWorkspaceStore(
 }
 
 type InlineWorkspaceStoreOperation =
-  | { kind: "spread", localName: string, position: number }
+  | { kind: "spread", localName: string, position: number, selectedName?: string }
   | { environmentValue: boolean, kind: "property", localName?: string, name: string, position: number, value?: string }
+
+function importedWorkspaceValueKey(localName: string, selectedName?: string): string {
+  return selectedName === undefined ? localName : `${localName}\0${selectedName}`
+}
 
 function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
   const bindingPath = path.scope.getBinding(name)?.path
@@ -803,6 +807,33 @@ function babelEnvironmentValue(
   return key === undefined ? undefined : env[key]
 }
 
+function sourceHasUnresolvedWorkspaceRoot(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+): boolean {
+  let unresolved = false
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            if (
+              babelPropertyName(path) === "root"
+              && babelPropertyIsTopLevelDefaultExport(path)
+              && babelStringValue(path.node.value as BabelNode | undefined, path) === undefined
+            ) unresolved = true
+          },
+        },
+      })],
+    },
+  })
+  return unresolved
+}
+
 function sourceInlineWorkspaceStoreOperations(
   loaded: { file: string, source: string },
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
@@ -822,16 +853,21 @@ function sourceInlineWorkspaceStoreOperations(
             const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
             // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
             const position = (path.node as BabelNode & { start?: number }).start
-            if (
-              position === undefined
-              || !babelPathReachesExportedStore(path)
-              || argument?.type !== "Identifier"
-              || !argument.name
-            ) return
+            if (position === undefined || !babelPathReachesExportedStore(path)) return
+            const localName = argument?.type === "Identifier"
+              ? argument.name
+              : argument?.type === "MemberExpression" && argument.object?.type === "Identifier"
+                ? argument.object.name
+                : undefined
+            const selectedName = argument?.type === "MemberExpression"
+              ? argument.property?.name ?? argument.property?.value
+              : undefined
+            if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
             operations.push({
               kind: "spread",
-              localName: babelResolveIdentifierAlias(path, argument.name),
+              localName: babelResolveIdentifierAlias(path, localName),
               position,
+              ...(typeof selectedName === "string" ? { selectedName } : {}),
             })
           },
           ObjectProperty(path: BabelObjectPropertyPath) {
@@ -866,7 +902,17 @@ function sourceInlineWorkspaceStoreOperations(
       })],
     },
   })
-  return operations.sort((left, right) => left.position - right.position)
+  return operations
+    .sort((left, right) => left.position - right.position
+      || (left.kind === "property" && right.kind === "property"
+        ? Number(right.localName !== undefined) - Number(left.localName !== undefined)
+        : 0))
+    .filter((operation, index, sorted) => {
+      const previous = sorted[index - 1]
+      if (!previous || operation.position !== previous.position || operation.kind !== previous.kind) return true
+      if (operation.kind === "spread" || previous.kind === "spread") return false
+      return operation.name !== previous.name
+    })
 }
 
 function reconstructCloudflareArtifactStore(
@@ -876,7 +922,7 @@ function reconstructCloudflareArtifactStore(
   let reconstructed: Record<string, unknown> = {}
   for (const operation of operations) {
     if (operation.kind === "spread") {
-      const imported = importedValues.get(operation.localName)
+      const imported = importedValues.get(importedWorkspaceValueKey(operation.localName, operation.selectedName))
       reconstructed = isRecord(imported) ? { ...reconstructed, ...imported } : {}
       continue
     }
@@ -916,7 +962,10 @@ async function loadFactoredCloudflareArtifactStore(
       const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
       const sourceExport = importedName === "default" ? imported.default : imported[importedName]
       const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
-      if (localName) importedValues.set(localName, store)
+      if (localName) {
+        importedValues.set(localName, store)
+        if (selectedName) importedValues.set(importedWorkspaceValueKey(localName, selectedName), store)
+      }
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
@@ -1034,6 +1083,8 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     }
     catch (error) {
       if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
+      const source = await readSourceModule(definition.path)
+      if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
       const store = await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
       if (!store) {
         if (inspection?.artifactsOnly) continue

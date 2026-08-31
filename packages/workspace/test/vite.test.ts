@@ -1104,6 +1104,26 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("preserves member-selected Artifact stores with inline overrides when standalone Definition loading fails", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "artifact-stores.ts"), `export default { artifactStore: { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" } }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import stores from "./artifact-stores"`,
+      `import "virtual:generated-workspace-metadata"`,
+      `export default { store: { ...stores.artifactStore, binding: "CUSTOM_FILES" } }`,
+      ``,
+    ].join("\n"))
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      cloudflare: {
+        wrangler: {
+          artifacts: [{ binding: "CUSTOM_FILES", namespace: "base-workspaces" }],
+        },
+      },
+    })
+  })
+
   it("preserves inline overrides for destructured CommonJS Artifact stores", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "artifact-stores.cjs"), `exports.artifactStore = { binding: "BASE_FILES", namespace: "base-workspaces", provider: "cloudflare-artifacts" }\n`)
