@@ -122,7 +122,7 @@ function sourceClosureRoot(root: string): string {
 
 const traceableSourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"])
 
-function traceComputedImportSources(file: string, source: string): { paths: string[], unresolved: boolean } {
+function traceComputedImportSources(file: string, source: string): string[] {
   const masked = maskSourceLiterals(source)
   const bindings = new Map<string, string>()
   const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*(["'])(.*?)\2/gis
@@ -133,7 +133,6 @@ function traceComputedImportSources(file: string, source: string): { paths: stri
   }
 
   const paths: string[] = []
-  const resolvedImports = new Set<number>()
   const computedImports = /\bimport\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(computedImports)) {
     const specifier = bindings.get(match[1]!)
@@ -141,23 +140,14 @@ function traceComputedImportSources(file: string, source: string): { paths: stri
     const imported = resolve(dirname(file), specifier)
     if (!existsSync(imported)) continue
     paths.push(imported)
-    resolvedImports.add(match.index)
   }
 
-  let unresolved = false
-  const importCalls = /\bimport\s*\(/g
-  for (let match = importCalls.exec(masked); match; match = importCalls.exec(masked)) {
-    let index = importCalls.lastIndex
-    while (/\s/.test(masked[index] ?? "")) index++
-    if (source[index] === '"' || source[index] === "'") continue
-    if (!resolvedImports.has(match.index)) unresolved = true
-  }
-  return { paths, unresolved }
+  return paths
 }
 
-async function traceImportedSources(paths: string[], root: string): Promise<Set<string> | undefined> {
+async function traceImportedSources(paths: string[], root: string): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
-  if (!entries.length) return undefined
+  if (!entries.length) return new Set()
   try {
     const result = await build({
       absWorkingDir: root,
@@ -176,15 +166,13 @@ async function traceImportedSources(paths: string[], root: string): Promise<Set<
       .filter(path => traceableSourceExtensions.has(extname(path)))
       .map(async path => [path, await readFile(path, "utf8")] as const))
     for (const [file, source] of importedSourceContents) {
-      const computedImports = traceComputedImportSources(file, source)
-      for (const imported of computedImports.paths) importedSources.add(imported)
-      if (computedImports.unresolved) return undefined
+      for (const imported of traceComputedImportSources(file, source)) importedSources.add(imported)
     }
     return importedSources
   }
   catch {
-    // Preserve source closure correctness when Vite-specific resolution cannot be traced here.
-    return undefined
+    // Requested entries remain available even when Vite-specific resolution cannot be traced here.
+    return new Set(entries)
   }
 }
 
@@ -263,7 +251,6 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           if (resolvedSource !== root
             && existsSync(resolve(resolvedSource, ".git"))
             && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))
-            && importedSources !== undefined
             && ![...importedSources].some(path => pathContains(resolvedSource, path))
             && !nestedConfiguredRoots.some(configuredRoot => pathContains(resolvedSource, configuredRoot))
             && !configuredOutputClosures.some(outputRoot => pathContains(outputRoot, resolvedSource))) return false

@@ -646,7 +646,7 @@ it("retains nested repositories when a requested handler has a computed import",
   await expect(retainedHandler.load()).resolves.toMatchObject({ computed: true })
 })
 
-it("retains nested repositories for unresolved computed imports", async () => {
+it("does not cross repository boundaries for unresolved computed imports", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
@@ -665,7 +665,7 @@ it("retains nested repositories for unresolved computed imports", async () => {
     roots: [rootDir],
   })
 
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).resolves.toContain("runtime = true")
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("preserves dependency resolution for a workspace-linked package", async () => {
