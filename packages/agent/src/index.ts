@@ -6371,17 +6371,7 @@ async function executeAgentInvocationWithCapacityLease<
       }
       if (collectToolResult) finalizationOptions.onNormalizedChunk = collectToolResult
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(enrichedRendered, invocation), shouldWrapOutput, async (outcome, streamedText, streamedUsageRecord) => {
-        const finishTask = finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
-        if (!outcome.failed && !outcome.completed && options.holdCapacity !== true) {
-          const settled = await Promise.race([
-            finishTask.then(() => true, () => true),
-            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
-          ])
-          if (settled) await finishTask
-          else void finishTask.catch(() => {})
-          return
-        }
-        await finishTask
+        await finishUiMessageStream(outcome, streamedText, streamedUsageRecord)
       }, finalizationOptions)
     }
 
