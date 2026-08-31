@@ -86,6 +86,31 @@ describe("Console session trace model", () => {
     ]);
   });
 
+  it("keeps same-sequence terminals scoped to their lifecycle identity", () => {
+    const observations = [
+      { attributes: { "model.call.id": "first" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "first" }, name: "agent.model.output", sequence: 3 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.output", sequence: 4 },
+      { attributes: { "model.call.id": "first" }, name: "agent.model.finish", sequence: 5 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.finish", sequence: 5 },
+    ];
+    const starts = [observations[0]!, observations[1]!];
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(
+      lifecycles.map(({ observations: events }) =>
+        events.map((event) => event.attributes["model.call.id"]),
+      ),
+    ).toEqual([
+      ["first", "first", "first"],
+      ["second", "second", "second"],
+    ]);
+  });
+
   it("does not correlate later observations into an unpaired lifecycle", () => {
     const observations = [
       { attributes: { "step.id": "step" }, name: "agent.task.started", sequence: 1 },
