@@ -757,7 +757,7 @@ function sourceImportsFeedingWorkspaceStore(
 
 type InlineWorkspaceStoreOperation =
   | { kind: "spread", localName: string, position: number }
-  | { environmentValue: boolean, kind: "property", name: string, position: number, value?: string }
+  | { environmentValue: boolean, kind: "property", localName?: string, name: string, position: number, value?: string }
 
 function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
   const bindingPath = path.scope.getBinding(name)?.path
@@ -852,6 +852,9 @@ function sourceInlineWorkspaceStoreOperations(
             if (typeof name === "string") {
               operations.push({
                 kind: "property",
+                localName: valueNode?.type === "Identifier" && valueNode.name
+                  ? babelResolveIdentifierAlias(path, valueNode.name)
+                  : undefined,
                 name,
                 position,
                 environmentValue,
@@ -868,14 +871,19 @@ function sourceInlineWorkspaceStoreOperations(
 
 function reconstructCloudflareArtifactStore(
   operations: InlineWorkspaceStoreOperation[],
-  importedStore?: { localName: string, store: Record<string, unknown> },
+  importedValues = new Map<string, unknown>(),
 ): WorkspaceDefinitionInput["store"] | undefined {
   let reconstructed: Record<string, unknown> = {}
   for (const operation of operations) {
     if (operation.kind === "spread") {
-      reconstructed = operation.localName === importedStore?.localName
-        ? { ...reconstructed, ...importedStore.store }
-        : {}
+      const imported = importedValues.get(operation.localName)
+      reconstructed = isRecord(imported) ? { ...reconstructed, ...imported } : {}
+      continue
+    }
+    const imported = operation.localName === undefined ? undefined : importedValues.get(operation.localName)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Imported Workspace store properties cross the module-loader boundary as unknown values.
+    if (typeof imported === "string") {
+      reconstructed[operation.name] = imported
       continue
     }
     if (operation.value === undefined && !operation.environmentValue) return
@@ -895,6 +903,7 @@ async function loadFactoredCloudflareArtifactStore(
   const loaded = await readSourceModule(definition.path)
   if (!loaded) return
   const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
+  const importedValues = new Map<string, unknown>()
   for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
     if (!importedName) continue
     const resolvedModule = specifier.startsWith(".")
@@ -906,18 +915,19 @@ async function loadFactoredCloudflareArtifactStore(
       const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
       const sourceExport = importedName === "default" ? imported.default : imported[importedName]
       const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
+      if (localName) importedValues.set(localName, store)
       // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
       if (isRecord(store) && store.provider === "cloudflare-artifacts") {
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!operations.length) return store as WorkspaceDefinitionInput["store"]
         // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
         if (!localName) return store as WorkspaceDefinitionInput["store"]
-        return reconstructCloudflareArtifactStore(operations, { localName, store })
+        return reconstructCloudflareArtifactStore(operations, importedValues)
       }
     }
     catch {}
   }
-  return reconstructCloudflareArtifactStore(operations)
+  return reconstructCloudflareArtifactStore(operations, importedValues)
 }
 
 function vercelFunctionRuntimePackages() {

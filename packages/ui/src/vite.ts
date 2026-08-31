@@ -7,11 +7,18 @@ export interface ViteHubUIViteOptions {
   nuxtUI?: Record<string, unknown>;
 }
 
+function asPluginOption(plugin: unknown): PluginOption {
+  // SAFETY: Both integrations return Vite plugins, but their transitive Vite type identities can differ from this package's resolved Vite version.
+  return plugin as PluginOption;
+}
+
 export default function viteHubUI(options: ViteHubUIViteOptions = {}): PluginOption[] {
-  const nuxtUIPlugin = nuxtUi(options.nuxtUI as Parameters<typeof nuxtUi>[0]) as unknown as PluginOption;
+  // SAFETY: The public options record is the open configuration object accepted by Nuxt UI's Vite integration.
+  const nuxtUIOptions = options.nuxtUI as Parameters<typeof nuxtUi>[0];
+  const nuxtUIPlugin = asPluginOption(nuxtUi(nuxtUIOptions));
 
   return [
     nuxtUIPlugin,
-    options.comark === false ? undefined : (comark(options.comark) as unknown as PluginOption),
-  ].filter(Boolean) as PluginOption[];
+    options.comark === false ? undefined : asPluginOption(comark(options.comark)),
+  ].filter((plugin): plugin is PluginOption => plugin !== undefined);
 }

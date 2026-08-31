@@ -2387,6 +2387,7 @@ describe("hubWorkspace", () => {
     ].join("\n"))
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import { provider } from "./workspace-provider"`,
+      `import "#generated-agent"`,
       `export default {`,
       `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider },`,
       `}`,
