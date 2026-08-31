@@ -225,6 +225,29 @@ it("excludes ignored output directories beneath a configured closure root", asyn
   await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
 })
 
+it("retains Nuxt build tsconfigs without retaining other generated output", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nuxt-tsconfig-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const tsconfig = join(rootDir, ".nuxt", "tsconfig.app.json")
+  const manifest = join(rootDir, ".nuxt", "manifest.json")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(tsconfig), { recursive: true })])
+  await Promise.all([
+    writeFile(handler, "export default {}\n"),
+    writeFile(tsconfig, "{}\n"),
+    writeFile(manifest, "{}\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [rootDir, handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(tsconfig), "utf8")).resolves.toBe("{}\n")
+  await expect(readFile(retained.resolve(manifest), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("relinks dependency trees nested beneath retained workspace packages", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-dependencies-"))
   tempDirs.push(workspace)

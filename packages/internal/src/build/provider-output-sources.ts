@@ -268,11 +268,13 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           const containingConfiguredRoot = nestedConfiguredRoots
             .filter(configuredRoot => pathContains(configuredRoot, resolvedSource))
             .sort((left, right) => right.length - left.length)[0]
-          const scopedFirst = containingConfiguredRoot
-            ? relative(containingConfiguredRoot, resolvedSource).split(sep)[0]
-            : first
-          const nestedGeneratedOutput = relative(containingConfiguredRoot ?? root, resolvedSource)
-            .split(sep)
+          const scopedSegments = relative(containingConfiguredRoot ?? root, resolvedSource).split(sep)
+          const scopedFirst = containingConfiguredRoot ? scopedSegments[0] : first
+          if (scopedFirst === ".nuxt") {
+            return scopedSegments.length === 1
+              || (scopedSegments.length === 2 && /^tsconfig(?:\.[^.]+)?\.json$/i.test(scopedSegments[1]!))
+          }
+          const nestedGeneratedOutput = scopedSegments
             .some(segment => ignoredGeneratedDirectories.has(segment))
           if (nestedGeneratedOutput || (scopedFirst && ignoredSourceDirectories.has(scopedFirst)
             && !(packageRoots.has(root) && !containingConfiguredRoot && scopedFirst === "dist"))) {
