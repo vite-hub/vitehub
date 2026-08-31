@@ -1968,13 +1968,16 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("removes Workspace Console metadata when Nuxt Vite config disables Workspace", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    const { nuxt, runNitroConfigHook, runPagesHook } = createNuxt(true)
     nuxt.options.vite.workspace = false
 
     await viteHubNuxtModule({ console: true, preset: "node", workspace: true }, nuxt)
     const nitroConfig = nitroOptions(nuxt)
     await runNitroConfigHook(nitroConfig)
+    const pages: Array<{ file: string; name: string; path: string }> = []
+    runPagesHook(pages)
 
+    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workspaces" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", [])`)
