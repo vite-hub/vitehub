@@ -69,9 +69,9 @@ function resolveServerOptions(config: ResolvedConfig) {
   return {
     alias: serverResolve?.alias,
     conditions: conditions.map(condition => condition === "development|production" ? (config.isProduction ? "production" : "development") : condition),
-    extensions: serverResolve?.extensions,
-    mainFields: serverResolve?.mainFields,
-    preserveSymlinks: serverResolve?.preserveSymlinks,
+    extensions: serverResolve?.extensions ?? [],
+    mainFields: serverResolve?.mainFields ?? [],
+    preserveSymlinks: serverResolve?.preserveSymlinks ?? false,
   }
 }
 
