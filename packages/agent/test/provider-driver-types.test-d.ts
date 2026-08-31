@@ -1,10 +1,24 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { claudeCodeDriver, codexDriver, defineAgent, runAgentInline, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent, runAgentInline, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentRuntimeContext, type BuiltInAgentDriver } from "../src/index.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 describe("provider Agent Driver types", () => {
+  it("exports reusable provider environment and launch resolver contracts", () => {
+    const env: AgentProviderEnvironmentResolver = context => {
+      expectTypeOf(context.abortSignal).toEqualTypeOf<AbortSignal | undefined>()
+      return { PROVIDER_TOKEN: "secret" } satisfies AgentProviderEnvironment
+    }
+    const launch: AgentProviderLaunchResolver = (context: AgentProviderLaunchContext) => {
+      expectTypeOf(context.environment).toEqualTypeOf<Readonly<AgentProviderEnvironment>>()
+      return { args: [context.command], command: "wrapper" } satisfies AgentProviderLaunchCommand
+    }
+
+    codexDriver({ env, launch })
+    claudeCodeDriver({ env, launch })
+  })
+
   it("accepts omitted permissions and explicit full access for both built-in providers", () => {
     const defaultCodex = { kind: "codex" } satisfies BuiltInAgentDriver
     const defaultClaude = { kind: "claude-code" } satisfies BuiltInAgentDriver
@@ -13,6 +27,16 @@ describe("provider Agent Driver types", () => {
     const configuredCodex = codexDriver({
       credentialProfile: "support",
       credentials: async () => ({ unseal: () => "{}" }),
+      env(context) {
+        expectTypeOf(context.abortSignal).toEqualTypeOf<AbortSignal | undefined>()
+        return { CRABBOX_TOKEN: "secret" }
+      },
+      launch(context) {
+        expectTypeOf(context.command).toEqualTypeOf<string>()
+        expectTypeOf(context.cwd).toEqualTypeOf<string>()
+        expectTypeOf(context.environment).toEqualTypeOf<Readonly<Record<string, string | undefined>>>()
+        return { args: ["codex"], command: "crabbox" }
+      },
       model: "gpt-5.6-sol",
       providerSettings: { launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
@@ -40,6 +64,8 @@ describe("provider Agent Driver types", () => {
     defineAgent({ driver: { model: "openai/gpt-5", reasoningEffort: "high" } })
     // @ts-expect-error Provider settings are not accepted by inline run drivers.
     defineAgent({ driver: { providerSettings: {}, run: async () => new Response() } })
+    // @ts-expect-error Provider launchers are not accepted by inline run drivers.
+    defineAgent({ driver: { launch: { command: "wrapper" }, run: async () => new Response() } })
     // @ts-expect-error Session stores are not accepted by inline run drivers.
     defineAgent({ driver: { run: async () => new Response(), sessionStorePath: ".vitehub/sessions.sqlite" } })
   })

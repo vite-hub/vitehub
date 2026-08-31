@@ -165,6 +165,25 @@ describe("built-in Agent Driver selection", () => {
     expect(driver).toMatchObject({ credentials, kind: "provider", provider: "codex" })
   })
 
+  it("normalizes static and dynamic provider launch configuration", () => {
+    const environment = { resolve: () => ({ TOKEN: "selected" }) }
+    const launch = { args: ["codex"], command: " provider-wrapper " }
+    const driver = normalizeAgentDriver({ driver: { env: environment, kind: "codex", launch } })
+    expect(driver).toMatchObject({ env: environment, kind: "provider", launch: { args: ["codex"], command: "provider-wrapper" } })
+    expect(() => normalizeAgentDriver({ driver: { kind: "codex", launch: { command: "" } } }))
+      .toThrow("driver.launch }) must be a command object or resolver")
+    expect(() => normalizeAgentDriver({
+      // SAFETY: This invalid fixture exercises provider launch normalization.
+      driver: { kind: "codex", launch: { args: [1], command: "wrapper" } } as never,
+    })).toThrow("driver.launch.args }) must contain only strings")
+
+    const staticAgent = defineAgent({ driver: { env: { TOKEN: "selected" }, kind: "codex", launch: { command: "provider-wrapper" } } })
+    expect(createAgentInspectionMetadata(staticAgent).config?.driver.provider).toMatchObject({
+      environment: "static",
+      launch: "static",
+    })
+  })
+
   it.each([
     ["execution", "invalid", "driver.execution }) must be an object"],
     ["execution", { unsupported: true }, "driver.execution }) does not support option: unsupported"],
@@ -219,7 +238,9 @@ describe("built-in Agent Driver selection", () => {
     const agent = defineAgent({ driver: {
       credentialProfile: "support",
       credentials,
+      env: () => ({ PROVIDER_TOKEN: "selected" }),
       kind: "codex",
+      launch: () => ({ command: "wrapper" }),
       model: "gpt-5.6-sol",
       providerSettings: { binaryPath: undefined, launchArgs: "--enable responses_websockets_v2" },
       reasoningEffort: "high",
@@ -229,6 +250,8 @@ describe("built-in Agent Driver selection", () => {
     expect(createAgentInspectionMetadata(agent).config?.driver.provider).toEqual({
       credentialProfile: "support",
       credentials: true,
+      environment: "dynamic",
+      launch: "dynamic",
       model: "gpt-5.6-sol",
       permissions: "ask",
       provider: "codex",

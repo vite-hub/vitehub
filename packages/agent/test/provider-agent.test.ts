@@ -197,6 +197,166 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("resolves provider environment once and launches through an isolated executable", async () => {
+    const threadId = "thread-dynamic-launch"
+    const outputRoot = await mkdtemp(join(tmpdir(), "vitehub-launch-test-"))
+    const outputPath = join(outputRoot, "args.json")
+    let launcherPath: string | undefined
+    const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PATH: undefined, PROVIDER_SELECTED: "selected" }))
+    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>> }) => {
+      expect(launchContext).toMatchObject({
+        command: "/app/node_modules/@openai/codex/bin/codex.js",
+        environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
+      })
+      expect(launchContext.environment).not.toHaveProperty("PATH")
+      expect(launchContext.cwd).toContain("vitehub-provider-")
+      expect(Object.isFrozen(launchContext.environment)).toBe(true)
+      return {
+        args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
+        command: process.execPath,
+      }
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = options?.settings?.binaryPath
+        // SAFETY: The mocked provider runtime contract declares binaryPath as string when configured.
+        launcherPath = binaryPath as string | undefined
+        if (!launcherPath) throw new Error("Expected generated provider launcher.")
+        expect((await stat(launcherPath)).mode & 0o777).toBe(0o700)
+        const launched = spawnSync(launcherPath, ["app-server", "--flag"], { env: options?.environment, encoding: "utf8" })
+        expect(launched.status, launched.stderr).toBe(0)
+      },
+    })
+    try {
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      await createProviderAgentAdapter({ env, launch, provider: "codex" }).generate(context(threadId) as never)
+      expect(env).toHaveBeenCalledOnce()
+      expect(launch).toHaveBeenCalledOnce()
+      expect(JSON.parse(await readFile(outputPath, "utf8"))).toEqual(["app-server", "--flag"])
+      await expect(access(launcherPath!)).rejects.toThrow()
+    }
+    finally {
+      await rm(outputRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("stops signal-ignoring descendants before a provider launcher exits", async () => {
+    const threadId = "thread-launch-process-group"
+    const heartbeatPath = join(tmpdir(), `vitehub-launch-heartbeat-${crypto.randomUUID()}`)
+    const wrapperPidPath = join(tmpdir(), `vitehub-launch-wrapper-${crypto.randomUUID()}`)
+    const descendant = `const{writeFileSync}=require("node:fs");process.on("SIGTERM",()=>{});setInterval(()=>writeFileSync(process.argv[1],String(Date.now())),20)`
+    const wrapper = `const{spawn}=require("node:child_process");const{writeFileSync}=require("node:fs");writeFileSync(process.env.WRAPPER_PID_PATH,String(process.pid));spawn(process.execPath,["-e",${JSON.stringify(descendant)},process.env.HEARTBEAT_PATH],{stdio:"ignore"});process.on("SIGTERM",()=>process.exit(0));setInterval(()=>{},1000)`
+    let wrapperPid: number | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = options?.settings?.binaryPath
+        expect(binaryPath).toEqual(expect.any(String))
+        const launched = spawn(String(binaryPath), [], { env: options?.environment, stdio: "ignore" })
+        await expect.poll(async () => access(heartbeatPath).then(() => true, () => false)).toBe(true)
+        wrapperPid = Number(await readFile(wrapperPidPath, "utf8"))
+        const closed = once(launched, "close")
+        launched.kill("SIGTERM")
+        await closed
+        const stoppedAt = await readFile(heartbeatPath, "utf8")
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await expect(readFile(heartbeatPath, "utf8")).resolves.toBe(stoppedAt)
+      },
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const invocationContext = context(threadId) as never
+      await createProviderAgentAdapter({
+        env: { HEARTBEAT_PATH: heartbeatPath, WRAPPER_PID_PATH: wrapperPidPath },
+        launch: { args: ["-e", wrapper], command: process.execPath },
+        provider: "codex",
+      }).generate(invocationContext)
+    }
+    finally {
+      if (wrapperPid) {
+        try {
+          process.kill(-wrapperPid, "SIGKILL")
+        }
+        catch {}
+      }
+      await Promise.all([
+        rm(heartbeatPath, { force: true }),
+        rm(wrapperPidPath, { force: true }),
+      ])
+    }
+  })
+
+  it("resolves object-form provider environments", async () => {
+    const threadId = "thread-object-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const resolve = vi.fn(() => ({ PROVIDER_SELECTED: "object" }))
+
+    // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+    await createProviderAgentAdapter({ env: { resolve }, provider: "codex" }).generate(context(threadId) as never)
+
+    expect(resolve).toHaveBeenCalledOnce()
+    expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "object" }),
+    }))
+  })
+
+  it("removes a provider launcher when runtime cleanup fails", async () => {
+    const threadId = "thread-launch-cleanup-failure"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    provider.close.mockRejectedValueOnce(new Error("close failed"))
+
+    // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+    await expect(createProviderAgentAdapter({
+      launch: { command: process.execPath },
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context(threadId) as never,
+    )).rejects.toThrow("cleanup failed")
+
+    const launcherPath = createProviderRuntime.mock.lastCall?.[0].settings?.binaryPath
+    expect(launcherPath).toEqual(expect.any(String))
+    await expect(access(String(launcherPath))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("validates invocation-resolved provider settings after resolution", async () => {
+    // SAFETY: The invalid environment and minimal context exercise runtime validation boundaries.
+    await expect(createProviderAgentAdapter({
+      // SAFETY: This invalid fixture exercises the runtime resolver boundary.
+      env: (() => []) as never,
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-invalid-dynamic-env") as never,
+    )).rejects.toThrow("driver.env must resolve to an object")
+    await expect(createProviderAgentAdapter({
+      credentials: "{}",
+      env: () => ({ CODEX_HOME: "/tmp/conflict" }),
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-codex-home") as never,
+    )).rejects.toThrow("resolved driver.env.CODEX_HOME")
+    await expect(createProviderAgentAdapter({
+      env: () => ({ T3CODE_CODEX_LAUNCH_ARGS: "--conflict" }),
+      model: "gpt-5.6-sol",
+      provider: "codex",
+      reasoningEffort: "high",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-launch-args") as never,
+    )).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
+    await expect(createProviderAgentAdapter({
+      // SAFETY: This invalid fixture exercises the runtime launch validation boundary.
+      launch: () => ({ args: [1], command: "wrapper" } as never),
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-invalid-dynamic-launch") as never,
+    )).rejects.toThrow("driver.launch args must contain only strings")
+  })
+
   it("preserves ambient CODEX_HOME for unprovisioned Codex runs", async () => {
     const threadId = "thread-ambient-codex-home"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -1472,6 +1632,25 @@ cli_auth_credentials_store = "keyring"
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.not.objectContaining({ settings: expect.anything() }))
+  })
+
+  it.each([
+    ["codex", "codex"],
+    ["claude-code", "claude"],
+  ] as const)("wraps the host %s executable fallback when the package is absent", async (provider, command) => {
+    const threadId = `thread-host-${provider}-launch`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
+    const launch = vi.fn(({ command: resolvedCommand }: { command: string }) => {
+      expect(resolvedCommand).toBe(command)
+      return { args: [resolvedCommand], command: "wrapper" }
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ launch, provider }).generate(context(threadId) as never)
+
+    expect(launch).toHaveBeenCalledOnce()
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.binaryPath).toEqual(expect.any(String))
   })
 
   it("uses the installed Claude SDK executable", async () => {

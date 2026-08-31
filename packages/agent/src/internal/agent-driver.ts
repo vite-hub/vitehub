@@ -12,6 +12,9 @@ import type {
   AgentModelResolver,
   AgentOutputDefinition,
   AgentProviderCredentialResolver,
+  AgentProviderEnvironmentResolver,
+  AgentProviderLaunchCommand,
+  AgentProviderLaunchResolver,
   AgentProviderPermissions,
   AgentRunHandler,
   AgentRuntimeConfig,
@@ -35,10 +38,11 @@ export type NormalizedAgentDriver<
   | {
     credentialProfile?: string
     credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
-    env?: Record<string, string | undefined>
+    env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
+    launch?: AgentProviderLaunchResolver<TRuntimeConfig>
     model?: string
     output?: AgentOutputDefinition<TOutput>
     permissions: AgentProviderPermissions
@@ -131,11 +135,17 @@ function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOption
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 
-function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
+function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
+  return isPlainObject(value) && isRuntimeFunction(value.resolve)
+}
+
+function normalizeProviderEnvironment(value: unknown): AgentProviderEnvironmentResolver | undefined {
   if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved values are validated at invocation time.
+  if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderEnvironmentResolver
   if (!isPlainObject(value)) {
     throw new TypeError("[vitehub] defineAgent({ driver.env }) must contain only string or undefined values.")
   }
@@ -145,6 +155,25 @@ function normalizeProviderEnvironment(value: unknown): Record<string, string | u
   }
   // SAFETY: Every entry value was validated as string or undefined above.
   return Object.fromEntries(entries) as Record<string, string | undefined>
+}
+
+function normalizeProviderLaunchCommand(value: unknown): AgentProviderLaunchCommand {
+  if (!isPlainObject(value) || !isRuntimeString(value.command) || !value.command.trim()) {
+    throw new TypeError("[vitehub] defineAgent({ driver.launch }) must be a command object or resolver.")
+  }
+  if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(isRuntimeString))) {
+    throw new TypeError("[vitehub] defineAgent({ driver.launch.args }) must contain only strings.")
+  }
+  const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (value.args !== undefined) launch.args = [...value.args]
+  return launch
+}
+
+function normalizeProviderLaunch(value: unknown): AgentProviderLaunchResolver | undefined {
+  if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved command is validated at invocation time.
+  if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderLaunchResolver
+  return normalizeProviderLaunchCommand(value)
 }
 
 export const defaultAgentProviderPermissions: AgentProviderPermissions = "ask"
@@ -253,6 +282,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     // SAFETY: normalizeProviderDriver receives the typed AgentSettings driver after validating its provider-owned fields.
     instructions: value.instructions as AgentAdapterInstructions | undefined,
     kind: "provider",
+    launch: normalizeProviderLaunch(value.launch),
     model: value.model,
     // SAFETY: The typed AgentSettings boundary establishes the provider output definition; provider-owned fields are validated here.
     output: value.output as AgentOutputDefinition | undefined,
