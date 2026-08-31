@@ -1951,6 +1951,9 @@ importers:
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.105.4
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
       '@vercel/sandbox':
         specifier: catalog:sandbox
         version: 1.10.2
@@ -2075,9 +2078,6 @@ importers:
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.11.0(c5589a93cbc9b0c58caff9511e0bac36)
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.13.3
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
