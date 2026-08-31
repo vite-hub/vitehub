@@ -135,6 +135,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   const paths: string[] = []
   const computedRequests = [
     /\b(?:import|require)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
+    /\bmodule\s*\.\s*require\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
     /\bcreateRequire\s*\([^)]*\)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
   ]
   for (const request of computedRequests) {

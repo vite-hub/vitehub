@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
@@ -750,6 +751,33 @@ it("retains nested repositories for computed CommonJS requires", async () => {
   // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { default: { load: () => { required: boolean } } }
   await expect(retainedHandler.default.load()).toMatchObject({ required: true })
+})
+
+it("retains nested repositories for computed module.require calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-computed-module-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "workflow.cjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'const target = "../required-worktree/workflow.cjs"\nexports.load = () => module.require(target)\n'),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const handler = require(process.argv[1]); if (handler.load().required !== true) process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
 })
 
 it("retains nested repositories when createRequire may load a runtime target", async () => {
