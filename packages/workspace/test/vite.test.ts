@@ -71,9 +71,11 @@ type WorkspaceProviderOutputPlugin = {
   renderError?: unknown
 }
 
+type WorkspaceProviderOutputHookContext = Record<string, never>
+
 const preparedWorkspaceProviderOutputPlugins = new WeakSet<object>()
 
-function bindWorkspaceProviderOutputHook(plugin: WorkspaceProviderOutputPlugin, name: keyof WorkspaceProviderOutputPlugin, context: object) {
+function bindWorkspaceProviderOutputHook(plugin: WorkspaceProviderOutputPlugin, name: keyof WorkspaceProviderOutputPlugin, context: WorkspaceProviderOutputHookContext) {
   const hook = plugin[name]
   if (typeof hook === "function") {
     Reflect.set(plugin, name, hook.bind(context))
