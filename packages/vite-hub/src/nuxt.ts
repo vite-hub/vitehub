@@ -868,6 +868,7 @@ async function applyNitroConfig(
     return order(left) - order(right)
   })
   let replayedDatabaseDiscoveryRoot: string | undefined
+  let hasReplayedDatabaseDiscoveryRoot = false
   for (const plugin of orderedPlugins) {
     const handler = configHandler(plugin)
     if (handler) {
@@ -888,6 +889,7 @@ async function applyNitroConfig(
       if (plugin.name !== "@vite-hub/database/vite") {
         const currentDatabaseProjectRoot = configuredProjectRootOption(config.database)
         if (returnedDatabase !== undefined || currentDatabaseProjectRoot !== previousDatabaseProjectRoot) {
+          hasReplayedDatabaseDiscoveryRoot = true
           replayedDatabaseDiscoveryRoot = returnedDatabase !== undefined
             ? configuredProjectRoot(config.root || projectRoot, returnedDatabase)
             : configuredProjectRoot(config.root || projectRoot, config.database)
@@ -926,7 +928,7 @@ async function applyNitroConfig(
     installVitePluginNitroModules(config.nitro, plugins)
     Object.assign(nitroConfig, config.nitro)
   }
-  return { config, replayedDatabaseDiscoveryRoot }
+  return { config, hasReplayedDatabaseDiscoveryRoot, replayedDatabaseDiscoveryRoot }
 }
 
 function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOptions | undefined): ReturnType<typeof resolveKVViteConfig>["kv"] {
@@ -1265,7 +1267,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.hook?.("nitro:config", async (config) => {
     const hostHandlers = Array.isArray(config.handlers) ? [...config.handlers] : []
-    const { config: replayConfig, replayedDatabaseDiscoveryRoot } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    const {
+      config: replayConfig,
+      hasReplayedDatabaseDiscoveryRoot,
+      replayedDatabaseDiscoveryRoot,
+    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
     consoleWorkflowConfigResolved = true
     if (options.console) {
       const resolvedKV = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
@@ -1310,8 +1316,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
       )
       const consoleCatalog = await discoverConsoleBuildCatalog({
-        databaseDiscoveryRoot: replayedDatabaseDiscoveryRoot
-          ?? configuredDatabaseDiscoveryRoot,
+        databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
+          ? replayedDatabaseDiscoveryRoot
+          : configuredDatabaseDiscoveryRoot,
         discoveryRoot: viteRoot,
         projectRoot,
         queueDiscoveryRoot: rootDir,
