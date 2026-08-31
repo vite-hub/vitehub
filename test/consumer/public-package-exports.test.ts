@@ -19,7 +19,7 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "vite", "vitest", "vue"]
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "reka-ui", "vite", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -402,6 +402,7 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
+  const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
@@ -409,6 +410,7 @@ async function addOptionalPeers(appDir: string) {
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
+    "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vitest: agentManifest.peerDependencies!.vitest!,
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
@@ -646,6 +648,17 @@ describe("published declaration diagnostics", () => {
     expect(fixtureSpecs).toMatchObject({ ai: "1.0.0", "@nuxt/ui": "1.0.0", "@types/node": "1.0.0" })
     expect(fixtureSpecs).not.toHaveProperty("evalite")
     expect(fixtureSpecs).not.toHaveProperty("vite")
+
+    const viteHubFixtureSpecs = mixedPeerFixtureSpecs(
+      "vite-hub",
+      "vite",
+      [],
+      ["reka-ui", "vite"],
+      {},
+      { "@types/node": "1.0.0", "reka-ui": "2.10.3", vite: "8.0.8" },
+    )
+    expect(viteHubFixtureSpecs).toMatchObject({ "@types/node": "1.0.0", "reka-ui": "2.10.3" })
+    expect(viteHubFixtureSpecs).not.toHaveProperty("vite")
   })
 
   it("provides install specs for Workflow's optional declaration peers", async () => {
