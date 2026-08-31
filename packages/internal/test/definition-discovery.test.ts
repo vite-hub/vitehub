@@ -44,6 +44,18 @@ describe("listSourceFiles", () => {
     expect(files).toEqual(["a.ts", "b.ts", "nested/c.mjs"])
   })
 
+  it("does not discover definitions from nested Git worktrees", async () => {
+    const root = await createTempDir("vitehub-internal-list-worktrees-")
+    const nestedWorktree = join(root, "unrelated-worktree")
+    await mkdir(nestedWorktree, { recursive: true })
+    await writeFile(join(root, "root.ts"), "", "utf8")
+    await writeFile(join(nestedWorktree, ".git"), "gitdir: /tmp/unrelated.git\n", "utf8")
+    await writeFile(join(nestedWorktree, "nested.ts"), "", "utf8")
+
+    const files = listSourceFiles(root).map(file => file.replace(`${root}/`, ""))
+    expect(files).toEqual(["root.ts"])
+  })
+
   it("returns empty when root does not exist", () => {
     expect(listSourceFiles(join(tmpdir(), "vitehub-internal-missing-dir"))).toEqual([])
   })
