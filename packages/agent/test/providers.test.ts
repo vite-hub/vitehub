@@ -84,7 +84,6 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
-const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -507,7 +506,7 @@ describe("agent Vite plugin", () => {
 
   it("bundles the provider runtime into hosted Vite server output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-hosted-vite-output-"))
+    const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-hosted-vite-output-"))
     const outDir = join(root, "dist")
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1779,7 +1778,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...agentRuntimeExternals],
+        external: ["existing", ...optionalAgentRuntimeExternals],
         input: "legacy-entry",
       },
     })
