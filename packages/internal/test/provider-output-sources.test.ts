@@ -8,12 +8,27 @@ import { dirname, join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
+import { retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+it("rewrites JSON-escaped paths when publishing retained Provider Output sources", () => {
+  const retainedSourcesDir = String.raw`C:\project\.vitehub\agent-generations\test\sources`
+  const publishedSourcesDir = String.raw`C:\project\.vitehub\agent\sources`
+  const contents = `import agent from ${JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support\\agent.ts`)}`
+  const workspaceRoot = JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support`)
+
+  expect(rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
+    `import agent from ${JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support\\agent.ts`)}`,
+  )
+  expect(rewriteRetainedProviderSourcePaths(workspaceRoot, retainedSourcesDir, publishedSourcesDir))
+    .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
+  expect(rewriteRetainedProviderSourcePaths(`${retainedSourcesDir}-external\\agent.ts`, retainedSourcesDir, publishedSourcesDir))
+    .toBe(`${retainedSourcesDir}-external\\agent.ts`)
 })
 
 it("retains absolute alias keys with their copied source trees", () => {

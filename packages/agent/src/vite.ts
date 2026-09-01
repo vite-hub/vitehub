@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2391,6 +2391,7 @@ async function writeNetlifyAgentProviderOutput(
   serverDirs?: string[],
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
   retainedDefinitions?: DiscoveredAgentDefinition[],
+  retainedSourcesDir?: string,
 ): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
@@ -2400,6 +2401,9 @@ async function writeNetlifyAgentProviderOutput(
     webhookRoute: options.routes.webhooks,
   }, serverDirs ?? [join(config.root, "server")], retainedDefinitions)
   await write({
+    afterWrite: retainedSourcesDir
+      ? async signal => await publishNetlifyAgentProviderSources(config, retainedSourcesDir, signal)
+      : undefined,
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
       functions: [{
@@ -2424,6 +2428,40 @@ async function writeNetlifyAgentProviderOutput(
     rootDir: config.root,
     sourceRootDir: generatedOptions.sourceRootDir,
   })
+}
+
+async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retainedSourcesDir: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const generatedAgentDir = resolve(resolveViteHubGeneratedRoot(config), "agent")
+  const publishedSourcesDir = resolve(generatedAgentDir, "sources")
+  const nextAgentDir = `${generatedAgentDir}.${randomUUID()}.next`
+  const previousAgentDir = `${generatedAgentDir}.${randomUUID()}.previous`
+  const netlifyFunction = resolve(createDefaultNetlifyOutputRoot(config.root), "functions", `${netlifyAgentFunctionName}.mjs`)
+  let installedNext = false
+  let movedPrevious = false
+  try {
+    await cp(generatedAgentDir, nextAgentDir, { recursive: true })
+    await rm(resolve(nextAgentDir, "sources"), { force: true, recursive: true })
+    await cp(retainedSourcesDir, resolve(nextAgentDir, "sources"), { recursive: true })
+    const nextHandler = resolve(nextAgentDir, "netlify-function.mjs")
+    const nextHandlerContents = await readFile(nextHandler, "utf8")
+    await writeFile(nextHandler, rewriteRetainedProviderSourcePaths(nextHandlerContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    signal?.throwIfAborted()
+    await rename(generatedAgentDir, previousAgentDir)
+    movedPrevious = true
+    await rename(nextAgentDir, generatedAgentDir)
+    installedNext = true
+    const netlifyFunctionContents = await readFile(netlifyFunction, "utf8")
+    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    signal?.throwIfAborted()
+    await rm(previousAgentDir, { force: true, recursive: true })
+  }
+  catch (error) {
+    await rm(nextAgentDir, { force: true, recursive: true })
+    if (installedNext) await rm(generatedAgentDir, { force: true, recursive: true })
+    if (movedPrevious) await rename(previousAgentDir, generatedAgentDir)
+    throw error
+  }
 }
 
 async function cleanupNetlifyAgentProviderOutput(
@@ -2889,7 +2927,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-            }, serverDirs, write, retainedDefinitions)
+            }, serverDirs, write, retainedDefinitions, contributionArtifactDir ? resolve(contributionArtifactDir, "sources") : undefined)
           }
           else if (isNetlifyHosting(config)) {
             await cleanupNetlifyAgentProviderOutput(config, write)

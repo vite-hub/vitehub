@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -330,21 +330,6 @@ it("removes partial staged Workflow publication when preparation fails", async (
 
   const viteHubEntries = await readdir(join(rootDir, ".vitehub"))
   expect(viteHubEntries.some(entry => entry.endsWith(".next"))).toBe(false)
-})
-
-it("rewrites JSON-escaped Windows paths when publishing retained Workflow sources", () => {
-  const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow-generations\test\sources`
-  const publishedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
-  const contents = `import step from ${JSON.stringify(`${retainedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`
-  const workspaceRoot = JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support`)
-
-  expect(rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
-    `import step from ${JSON.stringify(`${publishedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`,
-  )
-  expect(rewriteRetainedSourceImportPaths(workspaceRoot, retainedSourcesDir, publishedSourcesDir))
-    .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
-  expect(rewriteRetainedSourceImportPaths(`${retainedSourcesDir}-external\\workflow.ts`, retainedSourcesDir, publishedSourcesDir))
-    .toBe(`${retainedSourcesDir}-external\\workflow.ts`)
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {

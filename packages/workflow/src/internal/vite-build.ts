@@ -13,6 +13,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withP
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -834,19 +835,6 @@ function createVercelNativeWorkflowContents(
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
-export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
-  const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
-  const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
-  const replacements = [
-    [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
-    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
-    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
-    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
-    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
-  ] as const
-  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
-}
-
 function renderWorkflowRegistryEntry(
   registryFile: string,
   definition: DiscoveredWorkflowDefinition,
@@ -1464,7 +1452,7 @@ async function generateProviderOutputsWithinLock(
         await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
         const rewriteRetainedSourceImports = async (file: string) => {
           const contents = await readFile(file, "utf8")
-          const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
+          const rewritten = rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir)
           if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
         }
         await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))

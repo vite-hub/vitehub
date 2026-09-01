@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink } from "node
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 
@@ -16,6 +17,20 @@ interface RetainProviderOutputSourcesOptions {
 
 interface RetainedProviderOutputSources {
   resolve: (path: string) => string
+}
+
+/** Rewrites retained source paths after their snapshot is published to a durable generated directory. */
+export function rewriteRetainedProviderSourcePaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
+  const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
+  const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
+  const replacements = [
+    [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
+    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
+    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
+    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
+    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
+  ] as const
+  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
 }
 
 /** Rewrites both sides of absolute aliases and retains the original key for imports that still use it. */
