@@ -516,6 +516,67 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("lists distinct Agent names without paging through invocation summaries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    try {
+      for (const [index, store] of stores.entries()) {
+        for (const [record, agentName] of ["review", "support", "review", "legacy"].entries()) {
+          await store.create({
+            agentName,
+            createdAt: timestamp,
+            id: `${index}-${record}`,
+            observations: [],
+            status: "completed",
+            traceId: `${index}-${record}-trace`,
+            updatedAt: timestamp,
+          })
+        }
+        if (index === 1) {
+          await client.execute({
+            args: [`${index}-3`],
+            sql: "UPDATE vitehub_agent_invocations SET agent_name = '' WHERE id = ?",
+          })
+        }
+
+        await expect(defineAgentInvocations({ store }).listAgentNames()).resolves.toEqual([
+          "legacy",
+          "review",
+          "support",
+        ])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("lists Agent names through every page for stores without an optimized index", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const timestamp = new Date().toISOString()
+    for (let index = 0; index < 101; index++) {
+      const agentName = index % 3 === 0 ? " beta " : index % 3 === 1 ? "alpha" : undefined
+      await memory.create({
+        ...(agentName ? { agentName } : {}),
+        createdAt: timestamp,
+        id: `fallback-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `fallback-${index}-trace`,
+        updatedAt: timestamp,
+      })
+    }
+    const { listAgentNames: _listAgentNames, ...fallback } = memory
+    const list = vi.fn(fallback.list)
+
+    await expect(defineAgentInvocations({ store: { ...fallback, list } }).listAgentNames())
+      .resolves.toEqual(["alpha", "beta"])
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
   it("does not let a stalled store block Agent execution", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
@@ -1099,6 +1160,48 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
+  it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const saturatedAnnotations = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [`custom.${index}`, index]),
+    )
+    const journal = await bindAgentInvocations(
+      invocations,
+      runtime("nested-configuration", saturatedAnnotations),
+    )
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: {
+        "vitehub.agent.configuration": {
+          capabilities: [{ id: "otlp", metadata: { signals: ["traces"] } }],
+          driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" } },
+          runtime: { name: "ViteHub" },
+        },
+      },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const record = await invocations.getByRunId("nested-configuration")
+    const configured = record?.observations.findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      capabilities: [{ id: "otlp", metadata: { signals: ["traces"] } }],
+    })
+    expect(record?.annotations).toMatchObject({
+      "agent.model.id": "gpt-5.6-sol",
+      "agent.model.provider": "codex",
+    })
+    expect(Object.keys(record?.annotations || {})).toHaveLength(32)
+    await expect(invocations.list()).resolves.toMatchObject({
+      invocations: [{ annotations: {
+        "agent.model.id": "gpt-5.6-sol",
+        "agent.model.provider": "codex",
+      } }],
+    })
+  })
+
   it("marks bounded ordinary observations as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-ordinary-observation"))
@@ -1477,6 +1580,7 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
+      channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
         model: new MockLanguageModelV3({
@@ -1506,6 +1610,9 @@ describe("Agent Invocations", () => {
       },
     })
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      channels: [{ id: "reviews", kind: "github" }],
+    })
   })
 
   it("persists resolved instructions when invocation content is enabled", async () => {
@@ -3166,6 +3273,117 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("stores a compact searchable SQLite projection without raw tool payloads", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-projection-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    const bulkyToolPayload = `raw-tool-payload-${"x".repeat(512 * 1024)}`
+    try {
+      await store.create({
+        agentName: "babysitter",
+        annotations: { "github.repository": "vite-hub/vitehub" },
+        createdAt: timestamp,
+        id: "compact-search",
+        observations: [{
+          attributes: {
+            "input.messages": [{ content: "Investigate the slow session picker", role: "user" }],
+            "message.content": "The selected session now opens quickly.",
+            "tool.name": "shell",
+            "tool.output": { content: bulkyToolPayload },
+            "vitehub.activity.body": bulkyToolPayload,
+          },
+          name: "agent.message",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "compact-search-trace",
+        updatedAt: timestamp,
+      })
+
+      await expect(store.list({ search: "selected session now opens" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      await expect(store.list({ search: "slow session picker" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      await expect(store.list({ search: "raw-tool-payload" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "vite-hub/vitehub" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "compact-search" })],
+      })
+      const indexed = await client.execute(`SELECT length(record) AS record_bytes,
+        length(search) AS search_bytes, search, search_version
+        FROM vitehub_agent_invocations WHERE id = 'compact-search'`)
+      expect(Number(indexed.rows[0]?.search_version)).toBe(3)
+      expect(Number(indexed.rows[0]?.search_bytes)).toBeLessThan(Number(indexed.rows[0]?.record_bytes) / 100)
+      expect(String(indexed.rows[0]?.search)).not.toContain("raw-tool-payload")
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rebuilds version-two SQLite search rows with the compact projection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-v3-migration-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    const bulkyToolPayload = `legacy-tool-payload-${"x".repeat(256 * 1024)}`
+    const record = {
+      agentName: "review",
+      createdAt: timestamp,
+      id: "legacy-search-v2",
+      observations: [{
+        attributes: {
+          "message.content": "Legacy searchable message",
+          "tool.output": bulkyToolPayload,
+        },
+        name: "agent.message",
+        sequence: 1,
+        timestamp,
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "legacy-search-v2-trace",
+      updatedAt: timestamp,
+    }
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      await client.execute({
+        args: [record.id, record.status, record.agentName, JSON.stringify(record).toLowerCase(), 2, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+      await expect(store.list({ search: "legacy searchable message" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "legacy-search-v2" })],
+      })
+      await expect(store.list({ search: "legacy-tool-payload" })).resolves.toEqual({ invocations: [] })
+      const migrated = await client.execute(`SELECT length(record) AS record_bytes,
+        length(search) AS search_bytes, search_version
+        FROM vitehub_agent_invocations WHERE id = 'legacy-search-v2'`)
+      expect(Number(migrated.rows[0]?.search_version)).toBe(3)
+      expect(Number(migrated.rows[0]?.search_bytes)).toBeLessThan(Number(migrated.rows[0]?.record_bytes) / 100)
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("omits SQLite observation payloads before reading list rows", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summaries-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -3648,6 +3866,105 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("keeps ordinary libSQL reads available while compact search backfills", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-background-search-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let releaseBackfill: (() => void) | undefined
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      const timestamp = "2026-01-01T00:00:00.000Z"
+      const record = {
+        agentName: "review",
+        createdAt: timestamp,
+        id: "legacy-search-v2",
+        observations: [{
+          attributes: { "message.content": "Legacy searchable message" },
+          name: "agent.message",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "legacy-search-v2-trace",
+        updatedAt: timestamp,
+      }
+      await client.execute({
+        args: [record.id, record.status, record.agentName, JSON.stringify(record).toLowerCase(), 2, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      let markBackfillStarted!: () => void
+      const backfillStarted = new Promise<void>((resolve) => {
+        markBackfillStarted = resolve
+      })
+      const backfillReleased = new Promise<void>((resolve) => {
+        releaseBackfill = resolve
+      })
+      // SAFETY: The proxy forwards every Client member and only pauses the v3 search-backfill query.
+      const stalledClient = new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            const input = args[0]
+            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+              ? input.sql
+              : ""
+            if (sql.includes("search_version < ?")) {
+              markBackfillStarted()
+              await backfillReleased
+            }
+            // SAFETY: The proxy receives Client.execute arguments and forwards them unchanged.
+            return await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+          }
+        },
+      }) as Client
+      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
+      const ordinaryReads = Promise.all([
+        store.get("legacy-search-v2"),
+        store.list(),
+        store.listAgentNames!(),
+      ])
+
+      await backfillStarted
+      await expect(ordinaryReads).resolves.toEqual([
+        expect.objectContaining({ id: "legacy-search-v2" }),
+        { invocations: [expect.objectContaining({ id: "legacy-search-v2" })] },
+        ["review"],
+      ])
+      let searchSettled = false
+      const search = Promise.resolve(store.list({ search: "legacy searchable message" }))
+      void search.then(() => {
+        searchSettled = true
+      }, () => {
+        searchSettled = true
+      })
+      await Promise.resolve()
+      expect(searchSettled).toBe(false)
+
+      releaseBackfill?.()
+      await expect(search).resolves.toEqual({
+        invocations: [expect.objectContaining({ id: "legacy-search-v2" })],
+      })
+    }
+    finally {
+      releaseBackfill?.()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("filters old-shape writes in fresh libSQL journals", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -3675,7 +3992,9 @@ describe("Agent Invocations", () => {
       await expect(store.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })
-      await expect(store.list({ search: "fresh observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "fresh observation-only" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "fresh observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
 
@@ -3706,7 +4025,9 @@ describe("Agent Invocations", () => {
       )
       expect(overlappingUpdate.rows[0]?.status).toBe("completed")
       expect(overlappingUpdate.rows[0]?.updated_at).toBe("2026-01-01T00:02:00.000Z")
-      await expect(store.list({ search: "updated observation-only" })).resolves.toEqual({ invocations: [] })
+      await expect(store.list({ search: "updated observation-only" })).resolves.toMatchObject({
+        invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
+      })
       await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
     }
@@ -3764,7 +4085,7 @@ describe("Agent Invocations", () => {
       })
       const store = createLibsqlAgentInvocationStore({ client: flakyClient })
 
-      await expect(store.list()).rejects.toThrow("migration interrupted")
+      await expect(store.list({ search: "repository-204" })).rejects.toThrow("migration interrupted")
       const committed = await client.execute("SELECT count(*) AS count FROM vitehub_agent_invocations WHERE search IS NOT NULL")
       expect(Number(committed.rows[0]?.count)).toBe(100)
 

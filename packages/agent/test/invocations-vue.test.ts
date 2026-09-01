@@ -188,6 +188,63 @@ describe("Agent Invocation Vue composables", () => {
     expect(resource.isLoading.value).toBe(false);
   });
 
+  it("requests and appends only observations after the latest sequence", async () => {
+    const { calls, request } = controlledRequester();
+    const scope = effectScope();
+    const resource = scope.run(() =>
+      useAgentInvocation("inv-1", { immediate: false, request }),
+    )!;
+
+    const initial = resource.refresh();
+    expect(calls[0]!.path).toBe("/api/invocations/inv-1");
+    calls[0]!.resolve({
+      invocation: record("inv-1"),
+      observationCursor: "cursor-1",
+      observations: [observation(1)],
+    } satisfies AgentInvocationDetailResult);
+    await initial;
+
+    const poll = resource.refresh();
+    expect(calls[1]!.path).toBe(
+      "/api/invocations/inv-1?observationCount=1&observationCursor=cursor-1",
+    );
+    calls[1]!.resolve({
+      appendObservations: true,
+      invocation: record("inv-1"),
+      observationCursor: "cursor-2",
+      observations: [observation(2)],
+    } satisfies AgentInvocationDetailResult);
+    await poll;
+
+    expect(resource.observations.value).toEqual([observation(1), observation(2)]);
+    scope.stop();
+  });
+
+  it("loads a full detail when the invocation endpoint changes", async () => {
+    const { calls, request } = controlledRequester();
+    const baseURL = ref("/first/invocations");
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocation("inv-1", { baseURL, request }))!;
+
+    calls[0]!.resolve({
+      invocation: record("inv-1"),
+      observations: [observation(1)],
+    } satisfies AgentInvocationDetailResult);
+    await settle();
+
+    baseURL.value = "/second/invocations";
+    await nextTick();
+    expect(calls[1]!.path).toBe("/second/invocations/inv-1");
+    calls[1]!.resolve({
+      invocation: record("inv-1"),
+      observations: [observation(10)],
+    } satisfies AgentInvocationDetailResult);
+    await settle();
+
+    expect(resource.observations.value).toEqual([observation(10)]);
+    scope.stop();
+  });
+
   it("does not paginate while refreshing the first page", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

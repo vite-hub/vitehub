@@ -2,6 +2,7 @@ import { createClient } from "@libsql/client"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
+import { searchableAgentInvocationText } from "./search.ts"
 
 import type {
   AgentInvocationListOptions,
@@ -27,7 +28,7 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 const maximumDateMs = 8_640_000_000_000_000
 const backfillPageSize = 100
-const searchVersion = 2
+const searchVersion = 3
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
 function tableName(prefix = "vitehub_agent_"): string {
@@ -73,10 +74,6 @@ function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | u
 function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord, "cursor"> {
   const { cursor: _cursor, ...stored } = record
   return stored
-}
-
-function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
-  return JSON.stringify(record).toLowerCase()
 }
 
 function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -147,11 +144,50 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
   const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
+  let searchBackfill: Promise<void> | undefined
   let writes = Promise.resolve()
   const write = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = writes.then(operation, operation)
     writes = result.then(() => undefined, () => undefined)
     return result
+  }
+  const backfillSearch = async () => {
+    let backfillSequence = 0
+    while (true) {
+      const missingSearch = await client.execute({
+        args: [searchVersion, backfillSequence, backfillPageSize],
+        sql: `SELECT sequence, record FROM ${table}
+          WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      if (!missingSearch.rows.length) break
+      const searchUpdates = missingSearch.rows.flatMap((row) => {
+        backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          const record = deserialize(row.record, row.sequence)
+          return record
+            ? [{
+                args: [
+                  searchableAgentInvocationText(storedRecord(record)),
+                  searchVersion,
+                  numberValue(row.sequence),
+                  searchVersion,
+                  String(row.record),
+                ],
+                sql: `UPDATE ${table} SET search = ?, search_version = ?
+                  WHERE sequence = ? AND search_version < ? AND record = ?`,
+              }]
+            : []
+      })
+      if (searchUpdates.length) await client.batch(searchUpdates, "write")
+    }
+  }
+  const ensureSearchBackfill = () => {
+    if (!searchBackfill) searchBackfill = backfillSearch().finally(() => {
+      searchBackfill = undefined
+    })
+    return searchBackfill
+  }
+  const startSearchBackfill = () => {
+    void ensureSearchBackfill().catch(() => undefined)
   }
   const initialize = async () => {
     if (!initialized) initialized = (async () => {
@@ -227,26 +263,6 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
         ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
-      while (true) {
-        const missingSearch = await client.execute({
-          args: [searchVersion, backfillSequence, backfillPageSize],
-          sql: `SELECT sequence, record FROM ${table}
-            WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingSearch.rows.length) break
-        const searchBackfill = missingSearch.rows.flatMap((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
-          return record
-            ? [{
-                args: [searchableRecord(storedRecord(record)), searchVersion, numberValue(row.sequence)],
-                sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
-              }]
-            : []
-        })
-        if (searchBackfill.length) await client.batch(searchBackfill, "write")
-      }
-      backfillSequence = 0
       while (true) {
         const missingAgentNames = await client.execute({
           args: [backfillSequence, backfillPageSize],
@@ -325,6 +341,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
           WHERE id = NEW.id;
         END`)
+      startSearchBackfill()
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -398,7 +415,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const statements = [
             ...prePrune,
             {
-              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, input.updatedAt, serialize(input)],
+              args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, input.updatedAt, serialize(input)],
               sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             }
           ]
@@ -455,6 +472,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const search = searchValue(listOptions.search)
       if (search) {
+        await ensureSearchBackfill()
         filters.push("search LIKE ? ESCAPE '\\'")
         args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
@@ -474,6 +492,19 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           return summary
         }),
       }
+    },
+    async listAgentNames() {
+      await initialize()
+      const result = await client.execute(`SELECT DISTINCT name FROM (
+        SELECT agent_name AS name FROM ${table} WHERE agent_name <> ''
+        UNION ALL
+        SELECT json_extract(record, '$.agentName') AS name FROM ${table}
+          WHERE agent_name IS NULL OR agent_name = ''
+      ) WHERE typeof(name) = 'text' AND name <> '' ORDER BY name`)
+      return result.rows.flatMap((row) => {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- LibSQL rows are external storage values, so validate the indexed Agent name before exposing it.
+        return typeof row.name === "string" ? [row.name] : []
+      })
     },
     async release(id, claimId) {
       await write(async () => {
@@ -509,7 +540,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
               sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
             })
             await transaction.execute({
-              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, updated.updatedAt, serialize(stored), id],
+              args: [updated.status, agentNameRecord(stored), searchableAgentInvocationText(stored), searchVersion, updated.updatedAt, serialize(stored), id],
               sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`,
             })
             if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {

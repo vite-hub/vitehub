@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  indexTraceLifecycles,
   correlatedLifecycleObservations,
   isDeniedApproval,
   isLifecycleStartObservation,
@@ -24,6 +25,141 @@ import {
 } from "../src/console/runtime/components/console-session-trace-model";
 
 describe("Console session trace model", () => {
+  it("indexes lifecycle terminals and correlated observations with linear identity reads", () => {
+    let identityReads = 0;
+    const observations = Array.from({ length: 100 }, (_, index) => {
+      const id = `step-${index}`;
+      const attributes = Object.defineProperty({}, "step.id", {
+        enumerable: true,
+        get() {
+          identityReads += 1;
+          return id;
+        },
+      });
+      const sequence = index * 3 + 1;
+      return [
+        { attributes, name: "agent.model.start", sequence },
+        { attributes, name: "agent.model.output", sequence: sequence + 1 },
+        { attributes, name: "agent.model.finish", sequence: sequence + 2 },
+      ];
+    }).flat();
+    const starts = observations.filter((observation) =>
+      isLifecycleStartObservation(observation.name),
+    );
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(lifecycles).toHaveLength(100);
+    expect(lifecycles.at(-1)?.finish?.sequence).toBe(300);
+    expect(lifecycles.at(-1)?.observations.map((observation) => observation.sequence)).toEqual([
+      298, 299, 300,
+    ]);
+    expect(identityReads).toBe(observations.length);
+  });
+
+  it("preserves overlapping lifecycle correlation while pairing terminals in sequence order", () => {
+    const observations = [
+      { attributes: { "model.call.id": "model" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.output", sequence: 2 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.start", sequence: 3 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.output", sequence: 4 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 5 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.output", sequence: 6 },
+      { attributes: { "model.call.id": "model" }, name: "agent.model.finish", sequence: 7 },
+    ];
+    const starts = [observations[0]!, observations[2]!];
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(
+      lifecycles.map(({ finish, observations: events }) => ({
+        events: events.map((event) => event.sequence),
+        finish: finish?.sequence,
+      })),
+    ).toEqual([
+      { events: [1, 2, 4, 5], finish: 5 },
+      { events: [3, 4, 6, 7], finish: 7 },
+    ]);
+  });
+
+  it("keeps same-sequence terminals scoped to their lifecycle identity", () => {
+    const observations = [
+      { attributes: { "model.call.id": "first" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "first" }, name: "agent.model.output", sequence: 3 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.output", sequence: 4 },
+      { attributes: { "model.call.id": "first" }, name: "agent.model.finish", sequence: 5 },
+      { attributes: { "model.call.id": "second" }, name: "agent.model.finish", sequence: 5 },
+    ];
+    const starts = [observations[0]!, observations[1]!];
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(
+      lifecycles.map(({ observations: events }) =>
+        events.map((event) => event.attributes["model.call.id"]),
+      ),
+    ).toEqual([
+      ["first", "first", "first"],
+      ["second", "second", "second"],
+    ]);
+  });
+
+  it("keeps same-sequence terminals scoped to their exact overlapping lifecycle", () => {
+    const observations = [
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.start", sequence: 1 },
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.start", sequence: 2 },
+      { attributes: { "model.call.id": "shared" }, name: "agent.model.output", sequence: 3 },
+      {
+        attributes: { "model.call.id": "shared", result: "first" },
+        name: "agent.model.finish",
+        sequence: 4,
+      },
+      {
+        attributes: { "model.call.id": "shared", result: "second" },
+        name: "agent.model.finish",
+        sequence: 4,
+      },
+    ];
+    const starts = [observations[0]!, observations[1]!];
+
+    const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+      lifecycleTerminalNames(start.name),
+    );
+
+    expect(
+      lifecycles.map(({ finish, observations: events }) => ({
+        finish: finish?.attributes?.result,
+        terminalResults: events.flatMap((event) =>
+          event.name === "agent.model.finish" ? [event.attributes?.result] : [],
+        ),
+      })),
+    ).toEqual([
+      { finish: "first", terminalResults: ["first"] },
+      { finish: "second", terminalResults: ["second"] },
+    ]);
+  });
+
+  it("does not correlate later observations into an unpaired lifecycle", () => {
+    const observations = [
+      { attributes: { "step.id": "step" }, name: "agent.task.started", sequence: 1 },
+      { attributes: { "step.id": "step" }, name: "agent.task.progress", sequence: 2 },
+    ];
+
+    const [lifecycle] = indexTraceLifecycles([observations[0]!], observations, () => [
+      "agent.task.completed",
+    ]);
+
+    expect(lifecycle?.finish).toBeUndefined();
+    expect(lifecycle?.observations.map((observation) => observation.sequence)).toEqual([1]);
+  });
+
   it("pairs approval requests and decisions by approval identity", () => {
     const request = {
       attributes: { "approval.id": "approval-1" },

@@ -3530,6 +3530,13 @@ async function createAgentInvocationContext<
       capabilities: [...capabilityTelemetryMetadata.entries()]
         .map(([id, metadata]) => ({ id, ...(Object.keys(metadata).length ? { metadata } : {}) }))
         .sort((left, right) => left.id.localeCompare(right.id)),
+      ...(definition?.channels
+        ? {
+            channels: Object.entries(definition.channels)
+              .map(([id, channel]) => ({ id, kind: channel.kind }))
+              .sort((left, right) => left.id.localeCompare(right.id)),
+          }
+        : {}),
       driver: {
         kind: driverKind,
         ...(configuredDriver?.kind === "provider" ? { provider: configuredDriver.provider } : {}),

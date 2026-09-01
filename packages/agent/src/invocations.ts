@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -21,6 +22,7 @@ const MAX_OBSERVATIONS = 256
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
+const MAX_AGENT_CONFIGURATION_DEPTH = 8
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
@@ -104,6 +106,7 @@ export interface AgentInvocationStore {
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
+  listAgentNames?(): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -120,6 +123,7 @@ export interface AgentInvocations {
   get(id: string): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
+  listAgentNames(): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -195,6 +199,10 @@ function annotationKey(key: string): boolean {
   return key.length <= MAX_ANNOTATION_KEY_LENGTH && /^[A-Za-z][A-Za-z0-9_.-]*$/.test(key)
 }
 
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
+}
+
 function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<string, AgentInvocationAnnotationValue> | undefined {
   if (!input || !hasRuntimeType(input, "object")) return
   const annotations: Record<string, AgentInvocationAnnotationValue> = {}
@@ -206,6 +214,40 @@ function normalizeAnnotations(input: AgentRunMetadata["annotations"]): Record<st
     else if (hasRuntimeType(value, "boolean") || value === null) annotations[key] = value
   }
   return Object.keys(annotations).length ? annotations : undefined
+}
+
+function configurationAnnotations(
+  observation: TraceEventLogEntry,
+): Record<string, AgentInvocationAnnotationValue> | undefined {
+  if (observation.name !== "vitehub.agent.configured") return
+  const configuration = observation.attributes?.["vitehub.agent.configuration"]
+  if (!isStringRecord(configuration)) return
+  const driver = configuration.driver
+  if (!isStringRecord(driver)) return
+  const modelRecord = isStringRecord(driver.model) ? driver.model : undefined
+  const provider = hasRuntimeType(modelRecord?.provider, "string")
+    ? modelRecord.provider
+    : hasRuntimeType(driver.provider, "string")
+      ? driver.provider
+      : undefined
+  const modelId = hasRuntimeType(modelRecord?.id, "string")
+    ? modelRecord.id
+    : undefined
+  const annotations: AgentRunMetadata["annotations"] = {}
+  if (modelId) annotations["agent.model.id"] = modelId
+  if (provider) annotations["agent.model.provider"] = provider
+  return normalizeAnnotations(annotations)
+}
+
+function mergeConfigurationAnnotations(
+  annotations: AgentInvocationRecord["annotations"],
+  configured: Record<string, AgentInvocationAnnotationValue>,
+): Record<string, AgentInvocationAnnotationValue> | undefined {
+  const merged: Record<string, AgentInvocationAnnotationValue> = { ...configured }
+  for (const [key, value] of Object.entries(annotations || {})) {
+    if (!Object.hasOwn(configured, key)) merged[key] = value
+  }
+  return normalizeAnnotations(merged)
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -231,8 +273,7 @@ function normalizeSearch(search: string | undefined): string | undefined {
 
 function matchesInvocationSearch(record: AgentInvocationRecord, search: string | undefined): boolean {
   if (!search) return true
-  const { cursor: _cursor, ...searchable } = record
-  return JSON.stringify(searchable).toLowerCase().includes(search.toLowerCase())
+  return searchableAgentInvocationText(record).includes(search.toLowerCase())
 }
 
 function normalizeBuiltInCursor(cursor: string | undefined): string | undefined {
@@ -255,6 +296,7 @@ function normalizedTimestamp(value: Date | string): string {
 
 interface ObservationBudget {
   items: number
+  maxDepth?: number
   stringLength: number
   truncated: boolean
 }
@@ -406,7 +448,7 @@ function boundedObservationValue(
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
   }
-  if (depth >= MAX_OBSERVATION_DEPTH) {
+  if (depth >= (budget.maxDepth ?? MAX_OBSERVATION_DEPTH)) {
     budget.truncated = true
     return "[truncated]"
   }
@@ -542,6 +584,23 @@ function boundedObservationPayload(
   if (payload?.visibility === "private") return { visibility: "private" }
 }
 
+function boundedObservationAttributeValue(
+  key: string,
+  value: unknown,
+  budget: ObservationBudget,
+  maxStringLength: number,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): unknown {
+  const maxDepth = budget.maxDepth
+  if (key === "vitehub.agent.configuration") budget.maxDepth = MAX_AGENT_CONFIGURATION_DEPTH
+  try {
+    return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
+  }
+  finally {
+    budget.maxDepth = maxDepth
+  }
+}
+
 function boundedObservation(
   observation: TraceEventLogEntry,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
@@ -581,7 +640,13 @@ function boundedObservation(
           .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
           if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-          return value === undefined ? [] : [[boundedString(key), boundedObservationValue(value, budget, 0, isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH, builtIns)]]
+          return value === undefined ? [] : [[boundedString(key), boundedObservationAttributeValue(
+            key,
+            value,
+            budget,
+            isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH,
+            builtIns,
+          )]]
         })),
         ...canonicalAttributes,
       }
@@ -762,6 +827,9 @@ export function applyAgentInvocationStoreUpdate(
   const status = input.status && (!terminalStatus(record.status) || input.status === record.status)
     ? input.status
     : record.status
+  const configuredAnnotations = input.observation
+    ? configurationAnnotations(input.observation)
+    : undefined
   const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
@@ -790,6 +858,9 @@ export function applyAgentInvocationStoreUpdate(
     : record.observations
   return {
     ...record,
+    ...(configuredAnnotations
+      ? { annotations: mergeConfigurationAnnotations(record.annotations, configuredAnnotations) }
+      : {}),
     ...(input.error ? { error: input.error } : {}),
     observations,
     ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
@@ -855,6 +926,10 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
           return summary
         }),
       }
+    },
+    listAgentNames() {
+      return [...new Set([...records.values()].flatMap(record => record.agentName?.trim() || []))]
+        .sort()
     },
     release(id, claimId) {
       if (claims.get(id)?.claimId === claimId) claims.delete(id)
@@ -1455,6 +1530,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
+    },
+    async listAgentNames() {
+      if (store.listAgentNames) {
+        return [...new Set((await store.listAgentNames()).map(name => name.trim()).filter(Boolean))]
+          .sort()
+      }
+      const names = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ cursor, limit: MAX_LIST_LIMIT })
+        for (const invocation of page.invocations) {
+          if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...names].sort()
     },
   }
   return invocations

@@ -40,6 +40,16 @@ describe("Agent Invocation display", () => {
     expect(agentInvocationContext({ channelId: "telegram", id: "invocation-2" })).toBe("telegram");
   });
 
+  it("shows the invoking user when no repository context is available", () => {
+    expect(
+      agentInvocationContext({
+        annotations: { triggeredBy: "Maxi" },
+        id: "invocation-4",
+        threadId: "thread-4",
+      }),
+    ).toBe("Maxi");
+  });
+
   it("rejects unsafe external links", () => {
     expect(
       agentInvocationExternalUrl({

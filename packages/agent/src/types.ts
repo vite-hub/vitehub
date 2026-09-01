@@ -313,6 +313,10 @@ export interface AgentTelemetryConfiguration {
     version?: string
   }
   capabilities?: AgentTelemetryCapabilityMetadata[]
+  channels?: Array<{
+    id: string
+    kind: string
+  }>
   driver: {
     kind: AgentDriverKind
     model?: {

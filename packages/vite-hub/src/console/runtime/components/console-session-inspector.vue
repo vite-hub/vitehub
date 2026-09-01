@@ -30,7 +30,6 @@ const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["de
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const workspace = ref<WorkspaceDescriptor>();
-const workspaceSupported = ref<boolean>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
@@ -62,15 +61,13 @@ const viewMeta: Record<
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "trace",
-  ...(workspaceSupported.value === true ||
-  (workspaceSupported.value === undefined && openViews.value.includes("workspace"))
-    ? (["workspace"] as const)
-    : []),
+  ...(props.workspaceBase ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
 const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
+let workspaceLoad: Promise<void> | undefined;
 let fileRequest: AbortController | undefined;
 
 onBeforeUnmount(() => {
@@ -133,14 +130,17 @@ watch(
   [() => props.invocation.id, () => props.workspaceBase],
   () => {
     workspaceRequest?.abort();
+    workspaceRequest = undefined;
+    workspaceLoad = undefined;
+    workspaceLoading.value = false;
     fileRequest?.abort();
+    fileRequest = undefined;
     workspace.value = undefined;
-    workspaceSupported.value = undefined;
     workspaceError.value = undefined;
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
-    void loadWorkspace();
+    if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
 );
@@ -219,8 +219,10 @@ function openFile(path: string) {
 }
 
 async function openWorkspaceInstructions() {
+  const invocationId = props.invocation.id;
   openView("workspace");
-  if (!workspace.value && !workspaceLoading.value) await loadWorkspace();
+  if (!workspace.value) await loadWorkspace();
+  if (props.invocation.id !== invocationId) return;
   const path = workspace.value?.paths
     .filter((path) => /(^|\/)AGENTS\.md$/i.test(path))
     .sort(
@@ -296,6 +298,17 @@ function fileName(path: string) {
 }
 
 async function loadWorkspace() {
+  if (workspaceLoad) return workspaceLoad;
+  const load = requestWorkspace();
+  workspaceLoad = load;
+  try {
+    await load;
+  } finally {
+    if (workspaceLoad === load) workspaceLoad = undefined;
+  }
+}
+
+async function requestWorkspace() {
   if (!props.workspaceBase) return;
   workspaceRequest?.abort();
   const controller = new AbortController();
@@ -303,34 +316,25 @@ async function loadWorkspace() {
   workspaceLoading.value = true;
   workspaceError.value = undefined;
   try {
-    workspace.value = parseWorkspaceDescriptor(
+    const loadedWorkspace = parseWorkspaceDescriptor(
       await requestJson(
         `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
         controller.signal,
       ),
     );
-    workspaceSupported.value = true;
+    if (workspaceRequest !== controller) return;
+    workspace.value = loadedWorkspace;
     if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
-      workspaceSupported.value = !(error instanceof RequestError && error.status === 404);
-      workspaceError.value = workspaceSupported.value ? message(error) : undefined;
-      if (!workspaceSupported.value) clearWorkspaceState();
+      workspaceError.value = message(error);
     }
   } finally {
-    if (!controller.signal.aborted && workspaceRequest === controller)
+    if (workspaceRequest === controller) {
+      workspaceRequest = undefined;
       workspaceLoading.value = false;
+    }
   }
-}
-
-function clearWorkspaceState() {
-  fileRequest?.abort();
-  workspace.value = undefined;
-  selectedPath.value = undefined;
-  openPaths.value = [];
-  file.value = undefined;
-  fileError.value = undefined;
-  fileLoading.value = false;
 }
 
 async function loadFile(path: string) {
@@ -355,7 +359,10 @@ async function loadFile(path: string) {
   } catch (error) {
     if (!controller.signal.aborted && fileRequest === controller) fileError.value = message(error);
   } finally {
-    if (!controller.signal.aborted && fileRequest === controller) fileLoading.value = false;
+    if (fileRequest === controller) {
+      fileRequest = undefined;
+      fileLoading.value = false;
+    }
   }
 }
 
@@ -610,7 +617,7 @@ function message(error: unknown) {
         >
           <h4>System instructions</h4>
           <p>Resolved instructions were not recorded for this invocation.</p>
-          <button v-if="workspace" type="button" @click="openWorkspaceInstructions">
+          <button v-if="props.workspaceBase" type="button" @click="openWorkspaceInstructions">
             <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />

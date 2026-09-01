@@ -906,6 +906,14 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
     configuration.workspace?.sources?.length
       ? inspectorCollection("Sources", configuration.workspace.sources)
       : null,
+    configuration.channels?.length
+      ? inspectorCollection(
+          "Channels",
+          configuration.channels.map((channel) =>
+            channel.id === channel.kind ? channel.id : `${channel.id} · ${channel.kind}`,
+          ),
+        )
+      : null,
     configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
@@ -1022,6 +1030,8 @@ function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
+  open: boolean,
+  setOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
 ) {
@@ -1029,13 +1039,20 @@ function renderWorkSummary(
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
   return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
-    h("details", { class: "vh-invocation-work__details" }, [
+    h("details", {
+      class: "vh-invocation-work__details",
+      // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
+      onToggle: (event: Event) => setOpen((event.currentTarget as HTMLDetailsElement).open),
+      open,
+    }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
         h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
         renderChevronDown("vh-invocation-work__disclosure"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect)),
+      open
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect))
+        : null,
     ]),
   ]);
 }
@@ -1044,6 +1061,8 @@ function renderInvocationActivities(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
+  workOpen: boolean,
+  setWorkOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
 ) {
@@ -1089,7 +1108,7 @@ function renderInvocationActivities(
   return [
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
-    renderWorkSummary(work, invocation, expanded, toggleExpanded, inspect),
+    renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect),
     ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
     ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
@@ -1109,6 +1128,7 @@ export const AgentInvocation = defineComponent({
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
+    const workOpen = ref(false);
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
 
@@ -1127,6 +1147,7 @@ export const AgentInvocation = defineComponent({
     }
 
     async function focusActivity(id: string | undefined) {
+      if (id) workOpen.value = true;
       await nextTick();
       const target = [...(root.value?.querySelectorAll<HTMLElement>("[data-activity-id]") ?? [])]
         .find(element => element.dataset.activityId === id);
@@ -1148,6 +1169,9 @@ export const AgentInvocation = defineComponent({
     }
 
     watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { flush: "post", immediate: true });
+    watch(() => props.invocation.id, () => {
+      workOpen.value = false;
+    });
     onBeforeUnmount(clearSelectedElement);
 
     return () => {
@@ -1182,6 +1206,8 @@ export const AgentInvocation = defineComponent({
               activities.value,
               props.invocation,
               expandedMessages.value,
+              workOpen.value,
+              open => workOpen.value = open,
               toggleExpanded,
               target => emit("inspect", target),
             ))]),
@@ -1325,6 +1351,9 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
                     h("span", "Agent"),
                     h("code", agentName),
+                    configuration?.agent?.version
+                      ? h("small", `v${configuration.agent.version}`)
+                      : null,
                   ])
                 : null,
               props.invocation.error

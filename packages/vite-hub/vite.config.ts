@@ -122,6 +122,14 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-session-loading.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-session-navbar.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-session-trace-model.ts",
         to: "dist/console/runtime/components",
       },

@@ -184,6 +184,23 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("marks lifecycle counts as partial while older matching sessions remain", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        hasMore: true,
+        items: [
+          { id: "working", status: "running", title: "Working" },
+          { id: "done", status: "completed", title: "Done" },
+        ],
+        remainingStatuses: ["completed"],
+      },
+    });
+
+    const counts = wrapper.findAll(".vh-invocation-list__group-count");
+    expect(counts.map(count => count.text())).toEqual(["1", "1+"]);
+    expect(counts[1]!.attributes("aria-label")).toBe("At least 1 session; more available");
+  });
+
   it("reveals the selected terminal session", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
@@ -574,7 +591,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-message__more").text()).toBe("Show less");
   });
 
-  it("groups terminal work while keeping external effects and the final answer visible", () => {
+  it("groups terminal work while keeping external effects and the final answer visible", async () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
       cancelledAt: "2026-08-22T00:00:05.000Z",
@@ -620,6 +637,11 @@ describe("Agent Invocation UI", () => {
     expect(rows[1]!.attributes("data-kind")).toBe("delivery");
     expect(rows[2]!.attributes("data-kind")).toBe("delivery");
     expect(wrapper.findAll(".vh-invocation-work")).toHaveLength(1);
+    expect(wrapper.find(".vh-invocation-work__activities").exists()).toBe(false);
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Verify");
     expect(rows[4]!.text()).toContain("Done.");
@@ -627,7 +649,7 @@ describe("Agent Invocation UI", () => {
     expect(rows[2]!.get(".vh-invocation-delivery__body").text()).toBe("The Telegram reply body.");
   });
 
-  it("keeps adjacent completed lifecycle activities grouped", () => {
+  it("keeps adjacent completed lifecycle activities grouped", async () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
       createdAt: timestamp,
@@ -642,6 +664,10 @@ describe("Agent Invocation UI", () => {
       updatedAt: timestamp,
     } satisfies AgentInvocationView;
     const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
 
     expect(wrapper.findAll(".vh-invocation-lifecycle")).toHaveLength(1);
     expect(wrapper.findAll(".vh-invocation-lifecycle li")).toHaveLength(2);
@@ -2218,6 +2244,12 @@ describe("Agent Invocation UI", () => {
     expect(prompt.get(".vh-invocation-message__content").attributes("data-collapsed")).toBeUndefined();
 
     expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 2m 43s");
+    expect(wrapper.find(".vh-invocation-work__activities").exists()).toBe(false);
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Checked the diff.");
     expect(wrapper.get('.vh-invocation-message[data-role="assistant"]').text()).toContain("Merged after checks passed.");
     expect(wrapper.get('.vh-invocation-lifecycle[data-activity-group="github-lifecycle"] .vh-invocation-lifecycle__emoji').text()).toBe("👀");
   });
@@ -2514,8 +2546,9 @@ describe("Agent Invocation UI", () => {
   it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {
-        agent: { name: "babysitter" },
+        agent: { name: "babysitter", version: "2" },
         capabilities: [{ id: "github" }],
+        channels: [{ id: "reviews", kind: "github" }],
         driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "openai" } },
         instructions: ["Follow repository instructions."],
         runtime: { name: "node" },
@@ -2534,6 +2567,8 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("gpt-5.6-sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("openai");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
+    expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
+    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
   });
