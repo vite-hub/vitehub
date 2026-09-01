@@ -253,11 +253,17 @@ describe("Agent Vue clients", () => {
     await nextTick()
     await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
     responses.get("/api/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, {
-      headers: { "x-vitehub-message-id": "message-b" },
+      headers: {
+        "x-vitehub-invocation-id": "invocation-b",
+        "x-vitehub-message-id": "message-b",
+      },
       status: 204,
     }))
     responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(createUIMessageStreamResponse({
-      headers: { "x-vitehub-message-id": "message-a" },
+      headers: {
+        "x-vitehub-invocation-id": "invocation-a",
+        "x-vitehub-message-id": "message-a",
+      },
       stream: createUIMessageStream({
         execute({ writer }) {
           writer.write({ id: "answer", type: "text-start" })
@@ -268,6 +274,7 @@ describe("Agent Vue clients", () => {
     }))
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
     expect(chat.messages.value).toEqual(messages)
+    expect(chat.invocationId.value).toBe("invocation-b")
     await chat.stop()
 
     expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-b&messageId=message-b", {
@@ -394,6 +401,7 @@ describe("Agent Vue clients", () => {
       const body = parse(object({ messages: array(object({ id: string() })) }), JSON.parse(String(init?.body)))
       submittedMessageId = body.messages.at(-1)?.id
       return createUIMessageStreamResponse({
+        headers: { "x-vitehub-invocation-id": "invocation-fresh" },
         stream: createUIMessageStream({
           execute({ writer }) {
             writer.write({ id: "fresh", type: "text-start" })
@@ -417,7 +425,10 @@ describe("Agent Vue clients", () => {
     ))
     await chat.sendMessage({ text: "New question" })
     finishReconnect(createUIMessageStreamResponse({
-      headers: { "x-vitehub-message-id": "user-1" },
+      headers: {
+        "x-vitehub-invocation-id": "invocation-stale",
+        "x-vitehub-message-id": "user-1",
+      },
       stream: createUIMessageStream({
         execute({ writer }) {
           writer.write({ id: "stale", type: "text-start" })
@@ -432,6 +443,7 @@ describe("Agent Vue clients", () => {
       parts: [{ text: "Fresh answer", type: "text" }],
       role: "assistant",
     })
+    expect(chat.invocationId.value).toBe("invocation-fresh")
     expect(chat.messages.value).not.toContainEqual(expect.objectContaining({ id: "stale" }))
     await chat.stop()
     expect(fetch).toHaveBeenLastCalledWith(`/api/_vitehub/agents/support/chat?id=chat-1&messageId=${submittedMessageId}`, {

@@ -81,7 +81,9 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       api: route,
       async fetch(input, init) {
         const response = await globalThis.fetch(input, init)
-        invocationId.value = response.headers.get(agentChatInvocationIdHeader) || invocationId.value
+        if (init?.method !== "GET" || generation === reconnectGeneration) {
+          invocationId.value = response.headers.get(agentChatInvocationIdHeader) || invocationId.value
+        }
         if (init?.method === "GET" && generation === reconnectGeneration) {
           resumableMessageId = response.headers.get("x-vitehub-message-id") || undefined
         }
