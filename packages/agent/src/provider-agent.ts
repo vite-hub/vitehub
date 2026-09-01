@@ -76,6 +76,7 @@ export interface ProviderAgentAdapterOptions<
 > {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
+  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
@@ -336,13 +337,8 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
   return diagnostic
 }
 
-const providerSecretEnvironmentKeyPattern = /(?:^|_)(?:API_KEY|AUTH_JSON|PASSWORD|PRIVATE_KEY|SECRET|TOKEN)(?:$|_)/i
-
-function providerSecretEnvironmentKeys(environment: NodeJS.ProcessEnv, requiredEnvironment: readonly string[]): string[] {
-  const required = new Set(requiredEnvironment)
-  return Object.keys(environment)
-    .concat(requiredEnvironment.filter(key => !(key in environment)))
-    .filter((key, index, keys) => keys.indexOf(key) === index && (required.has(key) || providerSecretEnvironmentKeyPattern.test(key)))
+function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment])]
 }
 
 function providerLauncherSource(
@@ -369,14 +365,15 @@ let processGroupTerminated = false
 let stderr = Buffer.alloc(0)
 let stderrBytes = 0
 const secretEnvironmentKeys = ${JSON.stringify(secretEnvironmentKeys)}
+const diagnosticSecrets = [...new Set(secretEnvironmentKeys
+  .map(key => process.env[key])
+  .filter(item => typeof item === "string" && item.length > 0))]
+  .sort((left, right) => right.length - left.length)
+const stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
 
 function redactDiagnostic(value) {
   let redacted = String(value)
-  const secrets = [...new Set(secretEnvironmentKeys
-    .map(key => process.env[key])
-    .filter(item => typeof item === "string" && item.length > 0))]
-    .sort((left, right) => right.length - left.length)
-  for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
+  for (const secret of diagnosticSecrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
   return redacted
     .replace(/\\b(Bearer|Basic)\\s+[^\\s]+/gi, "$1 [REDACTED]")
     .replace(/\\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\\s]+)/g, "$1=[REDACTED]")
@@ -384,12 +381,15 @@ function redactDiagnostic(value) {
 
 function recordDiagnostic(diagnostic) {
   try {
+    const redactedStderr = Buffer.from(redactDiagnostic(stderr.toString("utf8")))
+      .subarray(-${providerLaunchStderrMaxBytes})
+      .toString("utf8")
     writeFileSync(${JSON.stringify(diagnosticPath)}, JSON.stringify({
       ...diagnostic,
       ...(diagnostic.spawnError ? { spawnError: redactDiagnostic(diagnostic.spawnError) } : {}),
-      stderr: redactDiagnostic(stderr.toString("utf8")),
+      stderr: redactedStderr,
       stderrBytes,
-      stderrTruncated: stderrBytes > stderr.length,
+      stderrTruncated: stderrBytes > ${providerLaunchStderrMaxBytes},
     }), { mode: 0o600 })
   }
   catch {}
@@ -397,7 +397,7 @@ function recordDiagnostic(diagnostic) {
 
 child.stderr.on("data", (chunk) => {
   stderrBytes += chunk.length
-  stderr = Buffer.concat([stderr, chunk]).subarray(-${providerLaunchStderrMaxBytes})
+  stderr = Buffer.concat([stderr, chunk]).subarray(-stderrRetentionBytes)
   if (!process.stderr.write(chunk)) {
     child.stderr.pause()
     process.stderr.once("drain", () => child.stderr.resume())
@@ -2060,7 +2060,7 @@ async function* runProvider<
         throw new TypeError("[vitehub] driver.providerSettings.binaryPath must be a string.")
       }
       const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerRuntimeEnvironment, requiredEnvironment)
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,
         command: providerCommand,

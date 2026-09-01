@@ -1229,6 +1229,7 @@ export interface AgentProviderDriverOptions<
   TOutput = unknown,
 > {
   capacity?: AgentDriverCapacityOptions
+  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: {
     attachments?: AgentAttachmentExecutionOptions

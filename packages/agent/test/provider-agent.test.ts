@@ -249,6 +249,7 @@ describe("Provider Agent Driver", () => {
     const launch = vi.fn(({ command }: { command: string, requiredEnvironment: readonly string[] }) => ({ command }))
     const invocation = context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } })
 
+    // SAFETY: This fixture supplies the minimal provider invocation context needed to expose tool-owned launch environment.
     await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
@@ -271,7 +272,8 @@ describe("Provider Agent Driver", () => {
         expect(launched.status).toBe(5)
         const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
         expect(persisted).not.toContain(secret)
-        expect(persisted).toContain("token=[REDACTED] label=ordinary-value")
+        expect(persisted).toContain("token=[REDACTED] short=[REDACTED] label=ordinary-value")
+        expect(persisted).not.toContain(shortSecret)
         throw new Error("Codex App Server process exited with code 5")
       },
     })
@@ -279,12 +281,13 @@ describe("Provider Agent Driver", () => {
     let failure: unknown
     try {
       await createProviderAgentAdapter({
-        env: { PROVIDER_LABEL: "ordinary-value", SHORT_TOKEN: shortSecret },
+        env: { SHORT_TOKEN: shortSecret },
         launch: {
           args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
+        // SAFETY: This fixture supplies the exact tool-bearing provider invocation context exercised by the launcher.
       }).generate(context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } }) as never)
     }
     catch (error) {
@@ -301,9 +304,54 @@ describe("Provider Agent Driver", () => {
       },
     })
     expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
+    // SAFETY: The adapter rejection under test is an Error whose optional cause preserves the provider runtime failure.
     expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
     expect(JSON.stringify(shape)).not.toContain(secret)
     expect(JSON.stringify(shape)).not.toContain(shortSecret)
+  })
+
+  it("redacts arbitrary provider credentials before truncating launch stderr", async () => {
+    const threadId = "thread-launch-diagnostic-boundary"
+    const databaseUrl = "postgres://quiver:boundary-secret@database/quiver"
+    const leakedSuffix = databaseUrl.slice(-8)
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = String(options?.settings?.binaryPath)
+        const launched = spawnSync(binaryPath, [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(5)
+        const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
+        expect(persisted).not.toContain(databaseUrl)
+        expect(persisted).not.toContain(leakedSuffix)
+        throw new Error("Codex App Server process exited with code 5")
+      },
+    })
+
+    const stderrLimit = 16_384
+    const trailingBytes = stderrLimit - 8
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        env: { DATABASE_URL: databaseUrl },
+        launch: {
+          args: ["-e", `process.stderr.write("x".repeat(128)+process.env.DATABASE_URL+"y".repeat(${trailingBytes}));process.exit(5)`],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture places a provider credential across the retained stderr boundary.
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    const shape = getViteHubErrorShape(failure)
+    expect(shape).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: { exitCode: 5, phase: "launch", stderrBytes: 128 + databaseUrl.length + trailingBytes, stderrTruncated: true },
+    })
+    expect(JSON.stringify(shape)).not.toContain(databaseUrl)
+    expect(JSON.stringify(shape)).not.toContain(leakedSuffix)
   })
 
   it("reports a custom launcher that exits successfully before the provider handshake", async () => {
@@ -325,6 +373,7 @@ describe("Provider Agent Driver", () => {
           command: process.execPath,
         },
         provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise an early launcher exit.
       }).generate(context(threadId) as never)
     }
     catch (error) {
@@ -362,6 +411,7 @@ describe("Provider Agent Driver", () => {
           command: process.execPath,
         },
         provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise bounded stderr forwarding.
       }).generate(context(threadId) as never)
     }
     catch (error) {

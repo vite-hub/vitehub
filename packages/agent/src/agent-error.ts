@@ -2,13 +2,15 @@ import {
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
 
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+
 interface NormalizedAgentError {
   message: string
   name?: string
 }
 
 export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknown {
-  if (typeof error !== "object" || error === null) return
+  if (!hasRuntimeType(error, "object") || error === null) return
   try {
     return Reflect.get(error, key)
   }
@@ -17,7 +19,8 @@ export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknow
   }
 }
 
-function isError(error: object): boolean {
+function isError(error: unknown): boolean {
+  if (!hasRuntimeType(error, "object") || error === null) return false
   try {
     return error instanceof Error
   }
@@ -30,10 +33,10 @@ function stringifyErrorValue(value: unknown): string | undefined {
   const seen = new WeakSet<object>()
   try {
     return JSON.stringify(value, (_key, item) => {
-      if (typeof item === "bigint") return `${item}n`
-      if (typeof item === "function") return `[Function${item.name ? `: ${item.name}` : ""}]`
-      if (typeof item === "symbol") return String(item)
-      if (item && typeof item === "object") {
+      if (hasRuntimeType(item, "bigint")) return `${item}n`
+      if (hasRuntimeType(item, "function")) return `[Function${item.name ? `: ${item.name}` : ""}]`
+      if (hasRuntimeType(item, "symbol")) return String(item)
+      if (isRuntimeObject(item)) {
         if (seen.has(item)) return "[Circular]"
         seen.add(item)
       }
@@ -47,7 +50,7 @@ function stringifyErrorValue(value: unknown): string | undefined {
 
 export function formatAgentError(error: unknown, fallback = "Unknown error."): string {
   if (error instanceof Error) return error.stack || error.message || error.name || fallback
-  if (typeof error === "string") return error || fallback
+  if (hasRuntimeType(error, "string")) return error || fallback
   const text = stringifyErrorValue(error)
   if (text) return text
   if (error === undefined) return fallback
@@ -61,17 +64,17 @@ export function formatAgentError(error: unknown, fallback = "Unknown error."): s
 }
 
 export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
-  if (typeof error === "string") return { message: error || fallback }
-  if (typeof error === "object" && error !== null) {
+  if (hasRuntimeType(error, "string")) return { message: error || fallback }
+  if (hasRuntimeType(error, "object") && error !== null) {
     const message = readAgentErrorProperty(error, "message")
     const name = readAgentErrorProperty(error, "name")
-    if (typeof message === "string" && message) {
+    if (hasRuntimeType(message, "string") && message) {
       return {
         message,
-        ...(typeof name === "string" && name ? { name } : {}),
+        ...(hasRuntimeType(name, "string") && name ? { name } : {}),
       }
     }
-    if (isError(error) && typeof name === "string" && name) {
+    if (isError(error) && hasRuntimeType(name, "string") && name) {
       return {
         message: name,
         name,
@@ -126,7 +129,7 @@ export interface AgentPublicError {
 export type AgentPublicErrorContext = "http" | "invocation" | "serialization"
 
 function identifier(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length === 0 || value.length > 128) return
+  if (!hasRuntimeType(value, "string") || value.length === 0 || value.length > 128) return
   return /^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/.test(value) ? value : undefined
 }
 
@@ -164,8 +167,8 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
     readAgentErrorProperty(nested, "code"),
     readAgentErrorProperty(nested, "type"),
     readAgentErrorProperty(data, "code"),
-  ].find(value => typeof value === "string")
-  const quota = typeof code === "string" && [
+  ].find(value => hasRuntimeType(value, "string"))
+  const quota = hasRuntimeType(code, "string") && [
     "credit_balance_exhausted",
     "insufficient_quota",
     "organization_spend_limit_exceeded",
@@ -182,7 +185,7 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
   if (status === 429) {
     return publicError("PROVIDER_RATE_LIMITED", "AI provider is temporarily rate limited. Try again later.")
   }
-  if (typeof status === "number" && status >= 500) {
+  if (hasRuntimeType(status, "number") && status >= 500) {
     return publicError("PROVIDER_UNAVAILABLE", "AI provider is temporarily unavailable. Try again later.")
   }
 }
@@ -197,7 +200,7 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     }
     if (viteHubError?.code === "RATE_LIMIT_REJECTED" || viteHubError?.code === "RATE_LIMIT_UNAVAILABLE") {
       const retryAfter = viteHubError.details?.retryAfter
-      const details = publicDetails(error, typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter >= 0
+      const details = publicDetails(error, hasRuntimeType(retryAfter, "number") && Number.isFinite(retryAfter) && retryAfter >= 0
         ? { retryAfter }
         : {})
       return viteHubError.code === "RATE_LIMIT_UNAVAILABLE"

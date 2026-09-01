@@ -4,6 +4,7 @@ import { resolveChatErrorFallbackText } from "../src/chat-trigger.ts"
 
 describe("chat error fallback", () => {
   it("includes a safe provider reference without exposing diagnostics", async () => {
+    // SAFETY: This fixture supplies the minimal chat failure context needed to resolve the fallback text.
     const fallback = await resolveChatErrorFallbackText(undefined, {
       error: new Error("private stderr"),
       history: [],
