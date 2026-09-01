@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withP
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
-import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -31,6 +31,7 @@ const productName = "workflow"
 const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"
 const vercelWorkflowFunctionOwnershipMarker = ".vitehub-workflow-output.json"
 const vercelWorkflowOutputState = ".vitehub/workflow/vercel-output.json"
+const deployedWorkflowSourcesPath = ".vitehub/workflow/sources"
 
 interface VercelNativeWorkflowOwnership {
   cleanup?: boolean
@@ -1225,7 +1226,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   return {
-    fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
+    fileNames: ownsWrapper ? ["index.js", "worker.mjs", deployedWorkflowSourcesPath] : ["worker.mjs", deployedWorkflowSourcesPath],
     outputRoot,
     wranglerConfigOwnership: {
       keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
@@ -1539,6 +1540,30 @@ async function generateProviderOutputsWithinLock(
         },
         afterWrite: async (signal) => {
           signal?.throwIfAborted()
+          const publishedSourcesDir = resolve(artifacts.generatedDir, "sources")
+          if (cloudflareOutput) {
+            await publishProviderSourcesToDeploymentOutputs({
+              destinations: [{
+                files: [resolve(createDefaultCloudflareOutputRoot(options.rootDir), "worker.mjs")],
+                runtimeSourcesDir: `./${deployedWorkflowSourcesPath}`,
+                sourcesDir: resolve(createDefaultCloudflareOutputRoot(options.rootDir), deployedWorkflowSourcesPath),
+              }],
+              publishedSourcesDir,
+              signal,
+            })
+          }
+          if (vercelOutput) {
+            const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", options.serverFunctionName ?? "__server.func")
+            await publishProviderSourcesToDeploymentOutputs({
+              destinations: [{
+                files: [resolve(functionRoot, "index.mjs")],
+                runtimeSourcesDir: `./${deployedWorkflowSourcesPath}`,
+                sourcesDir: resolve(functionRoot, deployedWorkflowSourcesPath),
+              }],
+              publishedSourcesDir,
+              signal,
+            })
+          }
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
               ...options.providerImportAliases,

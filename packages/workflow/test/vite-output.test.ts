@@ -1060,6 +1060,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(optionalDevtoolsFixture, "package.json"), JSON.stringify({ main: "index.js", name: "optional-vite-devtools-fixture", type: "module" }))
     await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
+    await writeFile(join(agentDir, "workspace", "context.md"), "Deployed workspace context.\n")
     await writeFile(join(agentDir, "review.template.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
@@ -1167,6 +1168,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).toContain("cloudflare:workflows")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
     expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
+    expect(cloudflareWorkerBundleContents).toContain("./.vitehub/workflow/sources/")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
@@ -1193,6 +1195,11 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
+    expect(await readFile(vercelServer, "utf8")).toContain("./.vitehub/workflow/sources/")
+    await expect(readFile(join(rootDir, "dist", "vite", ".vitehub", "workflow", "sources", "0", "server", "agents", "nuxt", "workspace", "context.md"), "utf8"))
+      .resolves.toBe("Deployed workspace context.\n")
+    await expect(readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", ".vitehub", "workflow", "sources", "0", "server", "agents", "nuxt", "workspace", "context.md"), "utf8"))
+      .resolves.toBe("Deployed workspace context.\n")
     expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
     expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
   }, buildOutputTestTimeout)

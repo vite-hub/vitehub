@@ -474,7 +474,12 @@ describe("Vite schedule integration", () => {
       readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8"),
     ])
     expect(providerOutputs.join("\n")).not.toContain("schedule-generations")
+    expect(providerOutputs.join("\n")).toContain("./.vitehub/schedule/sources/")
     await expect(readFile(join(root, ".vitehub", "schedule", "sources", "0", "src", "cleanup.schedule.ts"), "utf8"))
+      .resolves.toContain("cron: '0 0 * * *'")
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule", "sources", "0", "src", "cleanup.schedule.ts"), "utf8"))
+      .resolves.toContain("cron: '0 0 * * *'")
+    await expect(readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule", "sources", "0", "src", "cleanup.schedule.ts"), "utf8"))
       .resolves.toContain("cron: '0 0 * * *'")
   })
 

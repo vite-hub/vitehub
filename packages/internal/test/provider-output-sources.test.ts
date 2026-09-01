@@ -8,7 +8,7 @@ import { dirname, join, relative } from "node:path"
 import { afterEach, expect, it } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
-import { rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
@@ -41,6 +41,32 @@ it("rewrites relative imports when publishing retained Provider Output sources",
     published: generatedFile,
     retained: generatedFile,
   })).toBe('import agent from "./sources/0/server/agents/support/agent.ts"')
+})
+
+it("copies published sources into deployment artifacts and rewrites their runtime path", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deployed-provider-sources-"))
+  tempDirs.push(rootDir)
+  const publishedSourcesDir = join(rootDir, ".vitehub", "workflow", "sources")
+  const deployedSourcesDir = join(rootDir, ".vercel", "output", "functions", "__server.func", ".vitehub", "workflow", "sources")
+  const bundleFile = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+  await mkdir(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace"), { recursive: true })
+  await mkdir(dirname(bundleFile), { recursive: true })
+  await writeFile(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace", "context.md"), "deployed\n")
+  await writeFile(bundleFile, `const sourceRootDir = ${JSON.stringify(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace"))}\n`)
+
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: [bundleFile],
+      runtimeSourcesDir: "./.vitehub/workflow/sources",
+      sourcesDir: deployedSourcesDir,
+    }],
+    publishedSourcesDir,
+  })
+
+  await expect(readFile(join(deployedSourcesDir, "0", "server", "agents", "review", "workspace", "context.md"), "utf8"))
+    .resolves.toBe("deployed\n")
+  await expect(readFile(bundleFile, "utf8")).resolves.toContain("./.vitehub/workflow/sources/0/server/agents/review/workspace")
+  await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
 })
 
 it("rebases published dependency links before retained generation cleanup", async () => {

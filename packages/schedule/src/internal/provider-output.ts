@@ -10,7 +10,7 @@ import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
-import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
 import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
@@ -26,6 +26,7 @@ const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const cloudflareOutputStateFileName = "cloudflare-output.json"
 const cloudflareScheduleWorkerMarker = "vitehub-schedule-provider-output"
+const deployedScheduleSourcesPath = ".vitehub/schedule/sources"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
@@ -434,6 +435,15 @@ export async function writeVercelScheduleFunctions(options: {
       signal: options.signal,
       workingDir: options.sourceRootDir ?? options.rootDir,
     })
+    await publishProviderSourcesToDeploymentOutputs({
+      destinations: [{
+        files: [functionFile],
+        runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,
+        sourcesDir: resolve(functionDir, deployedScheduleSourcesPath),
+      }],
+      publishedSourcesDir: resolve(dirname(options.registryFile), "sources"),
+      signal: options.signal,
+    })
     options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
     options.signal?.throwIfAborted()
@@ -686,6 +696,15 @@ async function writeCloudflareScheduleOutput(options: {
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
     writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
   ])
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: [resolve(outputRoot, main)],
+      runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,
+      sourcesDir: resolve(outputRoot, deployedScheduleSourcesPath),
+    }],
+    publishedSourcesDir: resolve(dirname(options.bundleEntry), "sources"),
+    signal: options.signal,
+  })
 }
 
 interface CloudflareOutputState {
@@ -749,6 +768,7 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   }
   await Promise.all([
     ...(ownsWorker ? [rm(workerFile, { force: true })] : []),
+    rm(resolve(outputRoot, deployedScheduleSourcesPath), { force: true, recursive: true }),
     rm(stateFile, { force: true }),
   ])
 }

@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
@@ -18,6 +18,12 @@ interface RetainProviderOutputSourcesOptions {
 
 interface RetainedProviderOutputSources {
   resolve: (path: string) => string
+}
+
+interface ProviderOutputSourceDestination {
+  files: string[]
+  runtimeSourcesDir: string
+  sourcesDir: string
 }
 
 /** Rewrites retained source paths after their snapshot is published to a durable generated directory. */
@@ -77,6 +83,28 @@ export async function rebasePublishedProviderSourceLinks(
     }))
   }
   await visit(stagedSourcesDir)
+}
+
+/** Copies durable generated sources into deployment artifacts and rewrites their serialized runtime location. */
+export async function publishProviderSourcesToDeploymentOutputs(options: {
+  destinations: ProviderOutputSourceDestination[]
+  publishedSourcesDir: string
+  signal?: AbortSignal
+}): Promise<void> {
+  await Promise.all(options.destinations.map(async (destination) => {
+    options.signal?.throwIfAborted()
+    await rm(destination.sourcesDir, { force: true, recursive: true })
+    if (!existsSync(options.publishedSourcesDir)) return
+    await mkdir(dirname(destination.sourcesDir), { recursive: true })
+    await cp(options.publishedSourcesDir, destination.sourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
+    await Promise.all(destination.files.map(async (file) => {
+      const contents = await readFile(file, "utf8")
+      const rewritten = rewriteRetainedProviderSourcePaths(contents, options.publishedSourcesDir, destination.runtimeSourcesDir)
+      if (rewritten !== contents) await writeFile(file, rewritten, { encoding: "utf8", signal: options.signal })
+    }))
+    options.signal?.throwIfAborted()
+  }))
 }
 
 async function rebaseCapturedAbsoluteSourceLinks(
