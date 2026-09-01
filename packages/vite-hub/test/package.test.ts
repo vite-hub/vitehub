@@ -425,11 +425,20 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)");
     expect(consoleSessionNavbar).toContain('data-slot="mobile-session-navigation"');
     expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")');
+    expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
+    expect(consolePage).toContain("}, 60_000);");
+    expect(consolePage).toContain("scheduleAgentsRetry()");
+    expect(consolePage).toContain("}, 5_000);");
     expect(consoleSessionNavbar).toContain('class="vitehub-console__session-navbar"');
-    expect(consolePage).toContain("minSize: 220");
+    expect(consolePage).toContain('class="vitehub-console__session-panel"');
+    expect(consolePage).toContain('class="flex h-full min-h-0 w-full flex-col overflow-hidden"');
+    expect(consolePage).toMatch(
+      /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
+    );
+    expect(consolePage).toContain("minSize: 360");
     expect(consolePage).toContain("defaultSize: 680");
     expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 560");
+    expect(consolePage).toContain("defaultSize: 540");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
@@ -542,6 +551,8 @@ describe("framework package contract", () => {
     );
     expect(consoleClient).toContain('"robot-light":{"width":256');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
+    expect(consoleClient).toContain("prefers-color-scheme: dark");
+    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");
@@ -554,9 +565,13 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/sandboxes");
     expect(consoleClient).toContain("/workspaces");
     expect(consoleClient).toContain("currentRoute.value");
-    expect(
-      readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8"),
-    ).toContain("vitehub-console");
+    const consoleCss = readFileSync(
+      `${packageRoot}/dist/console/runtime/public/console/console.css`,
+      "utf8",
+    );
+    expect(consoleCss).toContain("vitehub-console");
+    expect(consoleCss).toContain("--ui-bg:#fdfdfd");
+    expect(consoleCss).toContain("--ui-text:#27272a");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
   });
 

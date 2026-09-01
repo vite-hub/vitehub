@@ -2993,6 +2993,33 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ search: "x".repeat(257) })).rejects.toThrow("at most 256 characters")
   })
 
+  it("falls back to full records for custom stores without summary reads", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    memory.create({
+      createdAt: "2026-01-01T00:00:00.000Z",
+      id: "legacy-custom-store",
+      observations: [{
+        name: "private",
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "legacy-custom-store-trace",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    })
+    const { getSummary: _getSummary, ...legacyStore } = memory
+    const get = vi.spyOn(legacyStore, "get")
+    const invocations = defineAgentInvocations({ store: legacyStore })
+
+    await expect(invocations.getSummary?.("legacy-custom-store")).resolves.toMatchObject({
+      id: "legacy-custom-store",
+      status: "completed",
+    })
+    await expect(invocations.getSummary?.("legacy-custom-store")).resolves.not.toHaveProperty("observations")
+    expect(get).toHaveBeenCalledWith("legacy-custom-store")
+  })
+
   it("keeps terminal records immutable when an invocation id is reused", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const completed = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
@@ -3326,6 +3353,62 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("persists compact SQLite invocation summaries apart from observation records", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summary-projection-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    try {
+      await store.create({
+        agentName: "babysitter",
+        createdAt: timestamp,
+        id: "compact-summary",
+        observations: [{
+          attributes: { payload: "x".repeat(512 * 1024) },
+          name: "large-observation",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "running",
+        traceId: "compact-summary-trace",
+        updatedAt: timestamp,
+      })
+
+      const stored = await client.execute(`SELECT length(record) AS record_bytes,
+        length(summary) AS summary_bytes, summary
+        FROM vitehub_agent_invocations WHERE id = 'compact-summary'`)
+      expect(Number(stored.rows[0]?.summary_bytes)).toBeLessThan(Number(stored.rows[0]?.record_bytes) / 100)
+      expect(JSON.parse(String(stored.rows[0]?.summary))).toMatchObject({
+        id: "compact-summary",
+        status: "running",
+      })
+      expect(JSON.parse(String(stored.rows[0]?.summary))).not.toHaveProperty("observations")
+      await expect(store.getSummary?.("compact-summary")).resolves.toMatchObject({
+        id: "compact-summary",
+        status: "running",
+      })
+      await expect(store.getSummary?.("compact-summary")).resolves.not.toHaveProperty("observations")
+
+      await store.update("compact-summary", {
+        status: "completed",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      })
+      const updated = await client.execute(
+        "SELECT summary FROM vitehub_agent_invocations WHERE id = 'compact-summary'",
+      )
+      expect(JSON.parse(String(updated.rows[0]?.summary))).toMatchObject({
+        completedAt: "2026-01-01T00:01:00.000Z",
+        status: "completed",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      })
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("rebuilds version-two SQLite search rows with the compact projection", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-v3-migration-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -3388,6 +3471,7 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summaries-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     let listedRecord: unknown
+    let listedSummary: unknown
     // SAFETY: the proxy forwards every Client member and only observes the list query result.
     const observingClient = new Proxy(client, {
       get(target, property) {
@@ -3395,11 +3479,12 @@ describe("Agent Invocations", () => {
         if (property !== "execute") return value instanceof Function ? value.bind(target) : value
         return async (...args: unknown[]) => {
           // SAFETY: the proxy receives the arguments of Client.execute and forwards them unchanged.
-          const result = await (client.execute as (...executeArgs: unknown[]) => Promise<{ rows: Array<{ record?: unknown }> }>)(...args)
+          const result = await (client.execute as (...executeArgs: unknown[]) => Promise<{ rows: Array<{ record?: unknown, summary?: unknown }> }>)(...args)
           // SAFETY: Client.execute accepts a SQL string or a statement whose sql member is the SQL string.
           const statement = String((args[0] as { sql?: unknown } | undefined)?.sql ?? args[0] ?? "")
           if (statement.includes("ORDER BY sequence DESC LIMIT ?")) {
             listedRecord = result.rows[0]?.record
+            listedSummary = result.rows[0]?.summary
           }
           return result
         }
@@ -3426,8 +3511,9 @@ describe("Agent Invocations", () => {
       await expect(store.list()).resolves.toMatchObject({
         invocations: [expect.not.objectContaining({ observations: expect.anything() })],
       })
-      expect(listedRecord).toEqual(expect.any(String))
-      expect(JSON.parse(String(listedRecord)).observations).toEqual([])
+      expect(listedRecord).toBeUndefined()
+      expect(listedSummary).toEqual(expect.any(String))
+      expect(JSON.parse(String(listedSummary))).not.toHaveProperty("observations")
       await expect(store.get("bounded-summary")).resolves.toMatchObject({
         observations: [expect.objectContaining({ name: "large-observation" })],
       })
@@ -3808,6 +3894,13 @@ describe("Agent Invocations", () => {
       expect(migratedAgent.rows[0]?.agent_name).toBe("review")
       expect(migratedAgent.rows[0]?.status).toBe("completed")
       expect(migratedAgent.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
+      await vi.waitFor(async () => {
+        const migratedSummary = await firstClient.execute(
+          "SELECT summary FROM vitehub_agent_invocations WHERE id = 'legacy'",
+        )
+        expect(migratedSummary.rows[0]?.summary).toEqual(expect.any(String))
+        expect(JSON.parse(String(migratedSummary.rows[0]?.summary))).not.toHaveProperty("observations")
+      })
       const migratedUpdateTrigger = await firstClient.execute(
         `SELECT name, sql FROM sqlite_master
           WHERE type = 'trigger'
@@ -3845,9 +3938,14 @@ describe("Agent Invocations", () => {
         sql: "INSERT INTO vitehub_agent_invocations (id, status, record) VALUES ('overlapping-legacy-writer', 'completed', ?)",
       })
       const overlappingInsert = await setupClient.execute(
-        "SELECT updated_at FROM vitehub_agent_invocations WHERE id = 'overlapping-legacy-writer'",
+        "SELECT summary, updated_at FROM vitehub_agent_invocations WHERE id = 'overlapping-legacy-writer'",
       )
       expect(overlappingInsert.rows[0]?.updated_at).toBe("2026-01-01T00:00:00.000Z")
+      expect(JSON.parse(String(overlappingInsert.rows[0]?.summary))).toMatchObject({
+        id: "overlapping-legacy-writer",
+        status: "completed",
+      })
+      expect(JSON.parse(String(overlappingInsert.rows[0]?.summary))).not.toHaveProperty("observations")
       await expect(initializedStore.list({ agentName: "review" })).resolves.toMatchObject({
         invocations: expect.arrayContaining([expect.objectContaining({ id: "overlapping-legacy-writer" })]),
       })
@@ -3965,6 +4063,99 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("keeps legacy reads available while compact invocation summaries backfill", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-background-summary-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let releaseBackfill: (() => void) | undefined
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      const timestamp = "2026-01-01T00:00:00.000Z"
+      const record = {
+        agentName: "review",
+        createdAt: timestamp,
+        id: "legacy-summary",
+        observations: [{
+          attributes: { payload: "x".repeat(64 * 1024) },
+          name: "legacy",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
+        status: "completed",
+        traceId: "legacy-summary-trace",
+        updatedAt: timestamp,
+      }
+      await client.execute({
+        args: [record.id, record.status, record.agentName, "review", 3, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      let markBackfillStarted!: () => void
+      const backfillStarted = new Promise<void>((resolve) => {
+        markBackfillStarted = resolve
+      })
+      const backfillReleased = new Promise<void>((resolve) => {
+        releaseBackfill = resolve
+      })
+      // SAFETY: The proxy forwards every Client member and only pauses the summary-backfill query.
+      const stalledClient = new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "execute") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            const input = args[0]
+            const sql = input !== null && hasRuntimeType(input, "object") && "sql" in input && hasRuntimeType(input.sql, "string")
+              ? input.sql
+              : ""
+            if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
+              markBackfillStarted()
+              await backfillReleased
+            }
+            // SAFETY: The proxy receives Client.execute arguments and forwards them unchanged.
+            return await (client.execute as (...executeArgs: unknown[]) => Promise<unknown>)(...args)
+          }
+        },
+      }) as Client
+      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
+      const ordinaryReads = Promise.all([
+        store.get("legacy-summary"),
+        store.getSummary?.("legacy-summary"),
+        store.list(),
+      ])
+
+      await backfillStarted
+      await expect(ordinaryReads).resolves.toEqual([
+        expect.objectContaining({ id: "legacy-summary", observations: [expect.anything()] }),
+        expect.not.objectContaining({ observations: expect.anything() }),
+        { invocations: [expect.not.objectContaining({ observations: expect.anything() })] },
+      ])
+
+      releaseBackfill?.()
+      await vi.waitFor(async () => {
+        const persisted = await client.execute(
+          "SELECT summary FROM vitehub_agent_invocations WHERE id = 'legacy-summary'",
+        )
+        expect(persisted.rows[0]?.summary).toEqual(expect.any(String))
+      })
+    }
+    finally {
+      releaseBackfill?.()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("filters old-shape writes in fresh libSQL journals", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -4021,10 +4212,15 @@ describe("Agent Invocations", () => {
         sql: "UPDATE vitehub_agent_invocations SET search = ?, record = ? WHERE id = ?",
       })
       const overlappingUpdate = await client.execute(
-        "SELECT status, updated_at FROM vitehub_agent_invocations WHERE id = 'fresh-overlapping-legacy-writer'",
+        "SELECT status, summary, updated_at FROM vitehub_agent_invocations WHERE id = 'fresh-overlapping-legacy-writer'",
       )
       expect(overlappingUpdate.rows[0]?.status).toBe("completed")
       expect(overlappingUpdate.rows[0]?.updated_at).toBe("2026-01-01T00:02:00.000Z")
+      expect(JSON.parse(String(overlappingUpdate.rows[0]?.summary))).toMatchObject({
+        annotations: { writer: "legacy" },
+        status: "completed",
+      })
+      expect(JSON.parse(String(overlappingUpdate.rows[0]?.summary))).not.toHaveProperty("observations")
       await expect(store.list({ search: "updated observation-only" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })

@@ -1,5 +1,5 @@
 <template>
-  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-console">
+  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-console-v2">
     <slot />
   </UDashboardGroup>
 </template>

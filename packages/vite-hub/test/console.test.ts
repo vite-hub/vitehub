@@ -3293,21 +3293,26 @@ describe("Agent invocation console", () => {
         updatedAt: "2026-08-23T12:00:00.000Z",
       })
     }
+    const get = vi.spyOn(store, "get")
+    const getSummary = vi.spyOn(store, "getSummary")
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/api/_vitehub/console/invocations?id=inv-1&id=inv-2"
     requestEvent.node!.req!.url = url
     requestEvent.req!.url = url
 
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    const result = await invocationsHandler(requestEvent)
+    expect(result).toMatchObject({
       invocations: [{ id: "inv-1" }, { id: "inv-2" }],
     })
-    expect(await invocationsHandler(requestEvent)).toEqual({
+    expect(result).toEqual({
       invocations: [
         expect.not.objectContaining({ observations: expect.anything() }),
         expect.not.objectContaining({ observations: expect.anything() }),
       ],
     })
+    expect(getSummary).toHaveBeenCalledTimes(2)
+    expect(get).not.toHaveBeenCalled()
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {

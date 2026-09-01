@@ -260,6 +260,13 @@ const router = createRouter({
 
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
+const preferredColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const applyPreferredColorScheme = ({ matches }) => {
+  document.documentElement.classList.toggle("dark", matches);
+};
+applyPreferredColorScheme(preferredColorScheme);
+preferredColorScheme.addEventListener("change", applyPreferredColorScheme);
+
 router.beforeEach(async (to) => {
   const section = to.meta.consoleSection;
   if (!isConsoleSectionId(section)) return;

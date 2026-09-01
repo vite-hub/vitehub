@@ -24,7 +24,7 @@ defineEmits<{
   >
     <template #title>
       <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-        <UIcon name="i-ph-folder-light" class="size-4 shrink-0 text-muted opacity-70" />
+        <UIcon name="i-lucide-folder" class="size-3.5 shrink-0 text-muted" />
         <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{ project }}</span>
         <span class="text-dimmed" aria-hidden="true">/</span>
         <strong class="min-w-0 truncate font-medium text-highlighted">{{ title }}</strong>
@@ -36,7 +36,7 @@ defineEmits<{
         <UButton
           data-slot="mobile-session-navigation"
           class="lg:hidden"
-          icon="i-ph-sidebar-simple-light"
+          icon="i-lucide-panel-left"
           color="neutral"
           variant="ghost"
           size="sm"
@@ -48,7 +48,7 @@ defineEmits<{
         <UButton
           :to="externalUrl"
           target="_blank"
-          icon="i-ph-arrow-square-out-light"
+          icon="i-lucide-external-link"
           color="neutral"
           variant="ghost"
           size="sm"
@@ -57,7 +57,7 @@ defineEmits<{
       </UTooltip>
       <UTooltip text="Refresh session">
         <UButton
-          icon="i-ph-arrows-clockwise-light"
+          icon="i-lucide-refresh-cw"
           color="neutral"
           variant="ghost"
           size="sm"
@@ -68,7 +68,7 @@ defineEmits<{
       </UTooltip>
       <UTooltip v-if="hasSelection" text="Session details">
         <UButton
-          icon="i-ph-sidebar-simple-light"
+          icon="i-lucide-panel-right"
           color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="sm"

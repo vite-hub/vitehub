@@ -73,6 +73,7 @@ const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 const refreshing = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
+let agentsRetry: ReturnType<typeof setTimeout> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
@@ -203,7 +204,7 @@ const splitterItems: SplitterItem[] = [
   {
     id: "thread",
     slot: "thread",
-    minSize: 220,
+    minSize: 360,
     defaultSize: 680,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
@@ -211,9 +212,9 @@ const splitterItems: SplitterItem[] = [
   {
     id: "details",
     slot: "details",
-    minSize: 300,
+    minSize: 360,
     maxSize: 1080,
-    defaultSize: 560,
+    defaultSize: 540,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
@@ -354,7 +355,22 @@ async function toggleUsage(): Promise<void> {
   }
   await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
 }
+function clearAgentsRetry(): void {
+  if (agentsRetry) clearTimeout(agentsRetry);
+  agentsRetry = undefined;
+}
+
+function scheduleAgentsRetry(): void {
+  clearAgentsRetry();
+  if (!pageVisible.value) return;
+  agentsRetry = setTimeout(() => {
+    agentsRetry = undefined;
+    if (pageVisible.value && agentsError.value) void loadAgents();
+  }, 5_000);
+}
+
 async function loadAgents(): Promise<void> {
+  clearAgentsRetry();
   agentsRequest?.abort();
   const controller = new AbortController();
   agentsRequest = controller;
@@ -374,7 +390,10 @@ async function loadAgents(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (agentsRequest === controller) agentsError.value = error;
+    if (agentsRequest === controller) {
+      agentsError.value = error;
+      scheduleAgentsRetry();
+    }
   } finally {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
@@ -436,13 +455,14 @@ function syncClock(): void {
   nowMs.value = Date.now();
   clock = setInterval(() => {
     nowMs.value = Date.now();
-  }, 1_000);
+  }, 60_000);
 }
 
 function updatePageVisibility(): void {
   const wasVisible = pageVisible.value;
   pageVisible.value = document.visibilityState !== "hidden";
   syncClock();
+  if (!pageVisible.value) clearAgentsRetry();
   if (!wasVisible && pageVisible.value) void refresh();
 }
 
@@ -545,6 +565,7 @@ watch(
 onMounted(() => {
   media = window.matchMedia("(min-width: 1024px)");
   updateDesktop();
+  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
@@ -555,6 +576,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   capabilitiesRequest?.abort();
+  clearAgentsRetry();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
   document.removeEventListener("visibilitychange", updatePageVisibility);
@@ -565,11 +587,12 @@ onBeforeUnmount(() => {
   <ConsoleFrame>
     <UDashboardSidebar
       id="agent-sessions"
+      class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
       v-model:collapsed="sessionsCollapsed"
-      :default-size="20"
-      :collapsed-size="4"
-      :min-size="16"
+      :default-size="16"
+      :collapsed-size="3"
+      :min-size="13"
       :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
       :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
@@ -788,7 +811,12 @@ onBeforeUnmount(() => {
       <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
     </UDashboardPanel>
 
-    <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel
+      v-else
+      id="agent-session"
+      class="vitehub-console__session-panel"
+      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
+    >
       <template #body>
         <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
           <ConsoleSessionInspector
@@ -814,7 +842,7 @@ onBeforeUnmount(() => {
             class="h-full min-h-0 overflow-hidden"
           >
             <template #thread>
-              <div class="flex h-full min-h-0 flex-col overflow-hidden">
+              <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
                 <ConsoleSessionNavbar
                   :details-open="detailsOpen"
                   :external-url="selectedExternalUrl"
@@ -959,6 +987,7 @@ onBeforeUnmount(() => {
 
 <style>
 .vitehub-console {
+  --ui-header-height: 3.25rem;
   height: 100dvh;
   min-height: 32rem;
   overflow: hidden;
@@ -974,6 +1003,23 @@ onBeforeUnmount(() => {
   border-inline-start: 0;
 }
 
+.vitehub-console__sessions[data-slot="root"] {
+  background: var(--ui-bg-muted);
+}
+
+.vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: #fff;
+}
+
+.dark .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: var(--ui-bg-elevated);
+}
+
+.vitehub-console__session-panel > [data-slot="body"] {
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
 .vitehub-console__session-navbar {
   background: var(--ui-bg) !important;
   height: 3.25rem !important;
@@ -982,6 +1028,11 @@ onBeforeUnmount(() => {
   padding: 0 1.25rem !important;
   position: relative;
   z-index: 10;
+}
+
+.vitehub-console__session-navbar svg,
+.session-inspector__header svg {
+  opacity: 0.8;
 }
 
 .vitehub-console__session-navbar::after {

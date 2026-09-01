@@ -131,15 +131,15 @@
   align-items: center;
   border-radius: 0.5rem !important;
   display: inline-flex;
-  height: 2rem !important;
+  height: 1.75rem !important;
   justify-content: center;
   padding: 0 !important;
-  width: 2rem !important;
+  width: 1.75rem !important;
 }
 
 .session-inspector__icon-button [data-slot="leadingIcon"] {
-  height: 0.875rem !important;
-  width: 0.875rem !important;
+  height: 1rem !important;
+  width: 1rem !important;
 }
 
 .session-inspector__tabstrip > [data-reka-popper-root] {
