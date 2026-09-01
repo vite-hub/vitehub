@@ -70,7 +70,6 @@ const optionalAgentRuntimeExternals = [
 ]
 const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
-  "@t3tools/provider-runtime",
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
   "@vite-hub/sandbox",
