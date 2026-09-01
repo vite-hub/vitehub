@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withP
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
-import { rebasePublishedProviderSourceLinks, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -1477,8 +1477,8 @@ async function generateProviderOutputsWithinLock(
     let publicationSettled = false
     commitGeneratedArtifacts = async () => {
       if (publicationSettled) return
-      await rm(previousDir, { force: true, recursive: true })
       publicationSettled = true
+      await removeProviderOutputArtifactDir(previousDir).catch(() => undefined)
     }
     rollbackGeneratedArtifacts = async () => {
       if (publicationSettled) return

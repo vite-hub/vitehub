@@ -7,13 +7,37 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+
+const workflowBackupRetirement = vi.hoisted(() => ({
+  attempts: 0,
+  enabled: false,
+}))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...fs,
+    async rm(...args: Parameters<typeof fs.rm>) {
+      const path = String(args[0])
+      if (workflowBackupRetirement.enabled
+        && /[\\/]\.vitehub[\\/]workflow\.[^\\/]+\.previous$/.test(path)) {
+        workflowBackupRetirement.attempts += 1
+        if (workflowBackupRetirement.attempts === 1) {
+          await fs.rm(join(path, "previous.txt"), { force: true })
+        }
+        throw Object.assign(new Error("Workflow backup is busy"), { code: "EBUSY" })
+      }
+      return await fs.rm(...args)
+    },
+  }
+})
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -354,6 +378,35 @@ it("restores published Workflow artifacts when standalone output fails", async (
 
   await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).resolves.toBe("previous\n")
   await expect(readFile(join(generatedDir, "cloudflare-worker.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("keeps published Workflow artifacts when backup retirement fails after partial deletion", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-publication-retirement-failure-")
+  const generatedDir = join(rootDir, ".vitehub", "workflow")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  await Promise.all([mkdir(generatedDir, { recursive: true }), mkdir(retainedRoot, { recursive: true })])
+  await writeFile(join(generatedDir, "previous.txt"), "previous\n")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
+
+  workflowBackupRetirement.attempts = 0
+  workflowBackupRetirement.enabled = true
+  try {
+    await expect(generateWorkflowProviderOutputs({
+      artifacts,
+      clientOutDir: join(rootDir, "dist", "client"),
+      hosting: "node-server",
+      rootDir,
+      workflow: false,
+    }, async options => await options.afterWrite?.())).resolves.toBeDefined()
+  }
+  finally {
+    workflowBackupRetirement.enabled = false
+  }
+
+  expect(workflowBackupRetirement.attempts).toBeGreaterThan(1)
+  await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(generatedDir, "registry.mjs"), "utf8")).resolves.toContain("export")
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {
