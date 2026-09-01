@@ -35,7 +35,7 @@ import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import { usePreservedAgentSelectionRefresh } from "./console-session-bootstrap";
+import { useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -81,7 +81,6 @@ let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
-let usageSessionBootstrap = false;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -108,7 +107,11 @@ const list = useAgentInvocations({
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
-const { preserveInvocationListFor } = usePreservedAgentSelectionRefresh({
+const { selectAgentName } = useConsoleSessionBootstrap({
+  agentNames,
+  firstInvocation: computed(() => list.invocations.value[0]),
+  initialBootstrapPending,
+  isUsageRoute,
   isLoading: list.isLoading,
   scheduleRefresh: scheduleInvocationListRefresh,
   selectedAgentName,
@@ -422,9 +425,7 @@ async function loadAgents(): Promise<void> {
 }
 
 function updateSelectedAgentName(name: string, preserveInvocationList = false): void {
-  if (name === selectedAgentName.value) return;
-  if (preserveInvocationList) preserveInvocationListFor(name);
-  selectedAgentName.value = name;
+  selectAgentName(name, preserveInvocationList);
 }
 
 function scheduleInvocationListRefresh(): void {
@@ -520,12 +521,9 @@ watch(
       if (!firstInvocation) return;
       if (!firstInvocation.agentName) {
         initialBootstrapPending.value = false;
-        usageSessionBootstrap = false;
         return;
       }
       selectedInvocationId.value = firstInvocation.id;
-      updateSelectedAgentName(firstInvocation.agentName, usageSessionBootstrap);
-      usageSessionBootstrap = false;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
@@ -565,11 +563,7 @@ watch(
         : currentAgent && names.includes(currentAgent)
           ? currentAgent
           : names[0];
-    updateSelectedAgentName(
-      agentName,
-      usageSessionBootstrap && !requestedAgent && !currentAgent,
-    );
-    usageSessionBootstrap = false;
+    updateSelectedAgentName(agentName);
     if (requestedAgent !== agentName) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
@@ -636,10 +630,7 @@ watch(
   isUsageRoute,
   (usageRoute) => {
     rememberConsoleSection(usageRoute ? "usage" : "agents");
-    if (usageRoute) {
-      usageSessionBootstrap = false;
-    } else {
-      usageSessionBootstrap = !selectedAgentName.value;
+    if (!usageRoute) {
       if (!selectedAgentName.value) initialBootstrapPending.value = true;
       if (!list.isLoading.value && list.invocations.value.length === 0) {
         scheduleInvocationListRefresh();

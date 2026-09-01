@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
-import { usePreservedAgentSelectionRefresh } from "../src/console/runtime/components/console-session-bootstrap";
-import { computed, effectScope, nextTick, ref, watch } from "vue";
+import { useConsoleSessionBootstrap } from "../src/console/runtime/components/console-session-bootstrap";
+import { computed, effectScope, nextTick, ref } from "vue";
 import { describe, expect, it } from "vitest";
 
 const consolePage = readFileSync(
@@ -10,10 +10,30 @@ const consolePage = readFileSync(
   "utf8",
 );
 
-it("releases bare Agents bootstrap when the newest invocation is unnamed", () => {
-  expect(consolePage).toMatch(
-    /if \(!firstInvocation\.agentName\) \{\s+initialBootstrapPending\.value = false;\s+usageSessionBootstrap = false;\s+return;\s+\}/,
-  );
+it("releases bare Agents bootstrap when the newest invocation is unnamed", async () => {
+  const scope = effectScope();
+  const firstInvocation = ref<{ agentName?: string }>();
+  const initialBootstrapPending = ref(true);
+  const selectedAgentName = ref<string>();
+
+  scope.run(() => {
+    useConsoleSessionBootstrap({
+      agentNames: ref([]),
+      firstInvocation,
+      initialBootstrapPending,
+      isLoading: ref(false),
+      isUsageRoute: ref(false),
+      scheduleRefresh: () => undefined,
+      selectedAgentName,
+    });
+  });
+
+  firstInvocation.value = {};
+  await nextTick();
+
+  expect(initialBootstrapPending.value).toBe(false);
+  expect(selectedAgentName.value).toBeUndefined();
+  scope.stop();
 });
 
 it("keeps shared refreshes on Usage free of Invocation requests", () => {
@@ -58,24 +78,15 @@ describe.each(["agents-first", "invocations-first"] as const)(
             void resource.refresh();
           });
         };
-        const { preserveInvocationListFor } = usePreservedAgentSelectionRefresh({
+        useConsoleSessionBootstrap({
+          agentNames,
+          firstInvocation: computed(() => resource.invocations.value[0]),
+          initialBootstrapPending,
+          isUsageRoute: ref(false),
           isLoading: resource.isLoading,
           scheduleRefresh,
           selectedAgentName,
         });
-        watch(agentNames, (names) => {
-          if (!names.length || initialBootstrapPending.value || selectedAgentName.value) return;
-          selectedAgentName.value = names[0];
-        });
-        watch(
-          () => resource.invocations.value[0],
-          (invocation) => {
-            if (!invocation?.agentName || selectedAgentName.value) return;
-            preserveInvocationListFor(invocation.agentName);
-            selectedAgentName.value = invocation.agentName;
-            initialBootstrapPending.value = false;
-          },
-        );
         return resource;
       })!;
 
