@@ -492,7 +492,12 @@ watch(
       initialBootstrapPending.value = false;
       if (routeChanged) showSessions();
     }
-    if (!requestedAgent && !agentName && firstInvocation?.agentName) {
+    if (!requestedAgent && !agentName) {
+      if (!firstInvocation) return;
+      if (!firstInvocation.agentName) {
+        initialBootstrapPending.value = false;
+        return;
+      }
       selectedInvocationId.value = firstInvocation.id;
       try {
         await router.replace({
