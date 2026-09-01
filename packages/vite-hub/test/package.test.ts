@@ -321,8 +321,9 @@ describe("framework package contract", () => {
       "[() => detail.invocation.value?.id, () => detail.invocation.value?.status]",
     );
     expect(consolePage).toMatch(
-      /const detailStatus = selectedDetailStatus\.value;[\s\S]*?detailStatus\?\.id === selectedInvocationId\.value[\s\S]*?\? detailStatus\.status[\s\S]*?: selectedSummary\.value\?\.status/,
+      /const detailStatus = selectedDetailStatus\.value;[\s\S]*?detailStatus\?\.id === selectedInvocationId\.value[\s\S]*?\? detailStatus\.status[\s\S]*?: undefined/,
     );
+    expect(consolePage).not.toContain(": selectedSummary.value?.status");
     expect(consolePage).toContain('v-if="initialSessionLoading"');
     expect(consolePage).toContain(':loading="refreshing"');
     expect(consolePage).toContain("<template #loading />");
@@ -539,6 +540,8 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/public/console/console.js`,
       "utf8",
     );
+    expect(consoleClient).toContain('"robot-light":{"width":256');
+    expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");

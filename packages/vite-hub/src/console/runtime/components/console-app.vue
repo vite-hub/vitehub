@@ -113,7 +113,7 @@ const detailPollInterval = computed(() => {
   const status =
     detailStatus?.id === selectedInvocationId.value
       ? detailStatus.status
-      : selectedSummary.value?.status;
+      : undefined;
   return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {

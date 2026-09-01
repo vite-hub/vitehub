@@ -217,6 +217,7 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@nuxt/ui": "catalog:nuxt",
