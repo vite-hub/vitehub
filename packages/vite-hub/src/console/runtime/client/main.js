@@ -267,11 +267,18 @@ const applyPreferredColorScheme = ({ matches }) => {
 applyPreferredColorScheme(preferredColorScheme);
 preferredColorScheme.addEventListener("change", applyPreferredColorScheme);
 
-router.beforeEach(async (to) => {
+router.beforeEach((to) => {
   const section = to.meta.consoleSection;
   if (!isConsoleSectionId(section)) return;
-  const installed = await loadSections();
-  if (installed && !installed.includes(section)) return { name: "vitehub-console" };
+  void loadSections().then((installed) => {
+    if (
+      installed &&
+      !installed.includes(section) &&
+      router.currentRoute.value.fullPath === to.fullPath
+    ) {
+      void router.replace({ name: "vitehub-console" });
+    }
+  });
 });
 
 router.afterEach((to) => {

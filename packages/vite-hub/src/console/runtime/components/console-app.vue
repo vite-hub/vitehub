@@ -52,6 +52,7 @@ const props = defineProps<{
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
+const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
@@ -78,7 +79,6 @@ let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
-let initialListPending = !selectedAgentName.value;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -86,10 +86,13 @@ const sessionPollingEnabled = computed(
     route.name !== resolveConsoleRouteName(route.name, "vitehub-console-usage"),
 );
 const listPollInterval = computed(() => (sessionPollingEnabled.value ? 5_000 : false));
+const isUsageRoute = computed(
+  () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
+);
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
-  immediate: pageVisible.value && !initialListPending,
+  immediate: pageVisible.value && !isUsageRoute.value,
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
@@ -173,9 +176,6 @@ const routeInvocation = computed(() => {
 const routeAgent = computed(() => {
   return decodeAgentRouteParam(route.params.agent);
 });
-const isUsageRoute = computed(
-  () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
-);
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
   if (!invocation || invocation.id !== selectedInvocationId.value) return;
@@ -395,7 +395,6 @@ async function loadAgents(): Promise<void> {
         })
       : [];
     if (agentsRequest === controller) {
-      if (names.length && !isUsageRoute.value) initialListPending = false;
       agentNames.value = [...new Set(names)];
       agentsError.value = undefined;
     }
@@ -409,10 +408,6 @@ async function loadAgents(): Promise<void> {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
       agentsLoading.value = false;
-      if (initialListPending && !selectedAgentName.value) {
-        initialListPending = false;
-        if (pageVisible.value) void list.refresh();
-      }
     }
   }
 }
@@ -422,13 +417,10 @@ async function refresh(): Promise<void> {
   refreshing.value = true;
   try {
     const agents = loadAgents();
-    const invocations = initialListPending && !selectedAgentName.value
-      ? agents.then(() => undefined)
-      : list.refresh();
     await Promise.all([
       detectHostCapabilities(),
       agents,
-      invocations,
+      list.refresh(),
       selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
     ]);
   } finally {
@@ -481,7 +473,7 @@ watch(
   [
     routeInvocation,
     routeAgent,
-    () => list.invocations.value[0]?.id,
+    () => list.invocations.value[0],
     selectedAgentName,
     isUsageRoute,
   ],
@@ -490,19 +482,39 @@ watch(
     previous,
   ) => {
     if (usageRoute) {
+      initialBootstrapPending.value = false;
       selectedInvocationId.value = undefined;
       return;
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    if ((requestedInvocation || requestedAgent) && routeChanged) showSessions();
+    if (requestedInvocation || requestedAgent) {
+      initialBootstrapPending.value = false;
+      if (routeChanged) showSessions();
+    }
+    if (!requestedAgent && !agentName && firstInvocation?.agentName) {
+      selectedInvocationId.value = firstInvocation.id;
+      try {
+        await router.replace({
+          name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
+          params: {
+            agent: encodeAgentRouteParam(firstInvocation.agentName),
+            invocation: firstInvocation.id,
+          },
+        });
+        selectedAgentName.value = firstInvocation.agentName;
+      } finally {
+        initialBootstrapPending.value = false;
+      }
+      return;
+    }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
-    if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
+    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
-        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
+        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation.id },
       });
     }
   },
@@ -510,11 +522,18 @@ watch(
 );
 
 watch(
-  [routeAgent, agentNames, isUsageRoute],
-  async ([requestedAgent, names, usageRoute]) => {
+  [routeAgent, agentNames, isUsageRoute, initialBootstrapPending],
+  async ([requestedAgent, names, usageRoute, bootstrapPending]) => {
     if (usageRoute) return;
     if (!names.length) return;
-    const agentName = requestedAgent && names.includes(requestedAgent) ? requestedAgent : names[0];
+    if (!requestedAgent && bootstrapPending) return;
+    const currentAgent = selectedAgentName.value;
+    const agentName =
+      requestedAgent && names.includes(requestedAgent)
+        ? requestedAgent
+        : currentAgent && names.includes(currentAgent)
+          ? currentAgent
+          : names[0];
     selectedAgentName.value = agentName;
     if (requestedAgent !== agentName) {
       await router.replace({
@@ -524,6 +543,19 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  [() => list.isLoading.value, () => list.error.value],
+  ([loading, error]) => {
+    if (
+      initialBootstrapPending.value &&
+      !loading &&
+      (Boolean(error) || list.invocations.value.length === 0)
+    ) {
+      initialBootstrapPending.value = false;
+    }
+  },
 );
 
 watch(
@@ -569,9 +601,22 @@ watch(
   isUsageRoute,
   (usageRoute) => {
     rememberConsoleSection(usageRoute ? "usage" : "agents");
+    if (!usageRoute) {
+      void nextTick(() => {
+        if (
+          pageVisible.value &&
+          !list.isLoading.value &&
+          list.invocations.value.length === 0
+        ) {
+          void list.refresh();
+        }
+      });
+    }
   },
   { immediate: true },
 );
+
+if (pageVisible.value) void loadAgents();
 
 onMounted(() => {
   media = window.matchMedia("(min-width: 981px)");
@@ -580,7 +625,6 @@ onMounted(() => {
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
-  if (pageVisible.value) void loadAgents();
   void detectHostCapabilities();
 });
 
@@ -697,11 +741,25 @@ onBeforeUnmount(() => {
           v-if="
             !collapsed && (agentsLoading || list.isLoading.value) && !invocationItems.length
           "
-          class="grid gap-2 px-3"
+          class="grid gap-1 px-2"
           aria-label="Loading sessions"
           role="status"
         >
-          <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
+          <div
+            v-for="index in 6"
+            :key="index"
+            class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
+          >
+            <USkeleton class="mt-0.5 size-4 rounded" />
+            <div class="grid min-w-0 gap-2">
+              <div class="flex items-center justify-between gap-3">
+                <USkeleton class="h-3 w-16 rounded" />
+                <USkeleton class="h-3 w-14 rounded" />
+              </div>
+              <USkeleton class="h-4 rounded" :class="index % 3 === 0 ? 'w-3/4' : 'w-full'" />
+              <USkeleton class="h-3 w-2/3 rounded" />
+            </div>
+          </div>
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -858,26 +916,24 @@ onBeforeUnmount(() => {
             <ConsoleSessionLoading
               v-else-if="detail.isLoading.value"
               class="h-full min-h-0"
+              :maximized="true"
+              surface="inspector"
+              @close="closeDetails"
+              @toggle-maximized="detailsMaximized = false"
             />
-            <UEmpty
+            <ConsoleSessionLoading
               v-else
               class="h-full min-h-0"
-              icon="i-ph-cloud-slash-light"
-              title="Could not load this session"
-              :description="errorMessage(detail.error.value)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-                {
-                  label: 'Show conversation',
-                  icon: 'i-lucide-panel-right-close',
-                  variant: 'ghost',
-                  onClick: () => (detailsMaximized = false),
-                },
-              ]"
+              :error="errorMessage(detail.error.value)"
+              :maximized="true"
+              surface="inspector"
+              @close="closeDetails"
+              @retry="refresh"
+              @toggle-maximized="detailsMaximized = false"
             />
           </div>
           <USplitter
-            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
+            v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout"
             :items="splitterItems"
@@ -910,7 +966,7 @@ onBeforeUnmount(() => {
                   ]"
                 />
                 <ConsoleSessionLoading
-                  v-if="detail.isLoading.value && !invocationView"
+                  v-if="(detail.isLoading.value || initialSessionLoading) && !invocationView"
                   class="min-h-0 flex-1"
                 />
                 <UEmpty
@@ -949,18 +1005,20 @@ onBeforeUnmount(() => {
                 @toggle-maximized="detailsMaximized = true"
               />
               <ConsoleSessionLoading
-                v-else-if="detail.isLoading.value"
+                v-else-if="detail.isLoading.value || initialSessionLoading"
                 class="h-full min-h-0"
+                surface="inspector"
+                @close="closeDetails"
+                @toggle-maximized="detailsMaximized = true"
               />
-              <UEmpty
+              <ConsoleSessionLoading
                 v-else
                 class="h-full min-h-0"
-                icon="i-ph-cloud-slash-light"
-                title="Could not load session details"
-                :description="errorMessage(detail.error.value)"
-                :actions="[
-                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-                ]"
+                :error="errorMessage(detail.error.value)"
+                surface="inspector"
+                @close="closeDetails"
+                @retry="refresh"
+                @toggle-maximized="detailsMaximized = true"
               />
             </template>
             <template #resize-handle>
@@ -1063,6 +1121,19 @@ onBeforeUnmount(() => {
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+}
+
+.vitehub-console,
+.vitehub-console :where(*) {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+}
+
+.vitehub-console::-webkit-scrollbar,
+.vitehub-console :where(*)::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .vitehub-console [data-slot="invocation"],
