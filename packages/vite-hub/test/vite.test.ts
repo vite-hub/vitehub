@@ -312,14 +312,14 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("passes the deployment storage contract to the console plugin", async () => {
+  it("allows a host-managed Console on Cloudflare", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ agent: true, console: true, preset: "cloudflare" }),
+      vitehub({ agent: true, console: { exposure: "host-managed" }, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
-      .rejects.toThrow('Console currently requires preset: "node" for production')
+      .resolves.toBeUndefined()
   })
 
   it("derives Console KV registration from the resolved Vite KV configuration", async () => {

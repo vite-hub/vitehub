@@ -93,12 +93,15 @@ export function createConsoleFixtureInvocations(file: string): AgentInvocations 
   return createConsoleFixtureInvocationsFromSnapshot(readConsoleFixture(file))
 }
 
-export function installConsoleInvocations(projectRoot: string): AgentInvocations {
+export function installConsoleInvocations(
+  projectRoot: string,
+  configuredInvocations?: AgentInvocations,
+): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const identity = createConsoleInvocationsIdentity(resolvedRoot)
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsIdentity() === identity) return installed
-  const invocations = createConsoleInvocations(resolvedRoot)
+  if (installed && resolveConsoleInvocationsIdentity() === identity && (!configuredInvocations || installed === configuredInvocations)) return installed
+  const invocations = configuredInvocations ?? createConsoleInvocations(resolvedRoot)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }
