@@ -2,6 +2,7 @@ import { assertConsoleRequest } from "./request.ts";
 
 import type { ConsoleRequestEvent } from "./request.ts";
 
+const assetVersion = Date.now().toString(36);
 const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -12,11 +13,11 @@ const page = `<!doctype html>
     <meta name="description" content="Read-only ViteHub project inspection">
     <meta name="robots" content="noindex, nofollow">
     <title>ViteHub Console</title>
-    <link rel="stylesheet" href="/_vitehub/assets/console.css">
+    <link rel="stylesheet" href="/_vitehub/assets/console.css?v=${assetVersion}">
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/_vitehub/assets/console.js"></script>
+    <script type="module" src="/_vitehub/assets/console.js?v=${assetVersion}"></script>
   </body>
 </html>`;
 

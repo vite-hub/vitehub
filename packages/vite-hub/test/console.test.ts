@@ -3854,14 +3854,19 @@ describe("Agent invocation console", () => {
     ]))
   })
 
-  it("serves the standalone shell with a restrictive non-cacheable policy", async () => {
+  it("serves the standalone shell with versioned assets and a restrictive non-cacheable policy", async () => {
     const response = consolePageHandler(event("127.0.0.1"))
+    const page = await response.text()
+    const assetVersions = [...page.matchAll(/\/_vitehub\/assets\/console\.(?:css|js)\?v=([^"']+)/g)]
+      .map(match => match[1])
 
+    expect(assetVersions).toHaveLength(2)
+    expect(new Set(assetVersions).size).toBe(1)
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("content-security-policy")).toContain("base-uri 'none'")
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
-    expect(await response.text()).toContain('<meta name="robots" content="noindex, nofollow">')
+    expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
   })
 
