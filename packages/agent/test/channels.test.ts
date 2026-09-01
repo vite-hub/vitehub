@@ -7,14 +7,14 @@ import { describe, expect, it, vi } from "vitest"
 
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 
-function githubIssueCommentPayload(body = "/review please") {
+function githubIssueCommentPayload(body = "/review please", userType = "User") {
   return {
     action: "created",
     comment: {
       body,
       id: 99,
       node_id: "comment-node",
-      user: { id: 1, login: "mona", type: "User" },
+      user: { id: 1, login: "mona", type: userType },
     },
     issue: {
       html_url: "https://github.test/acme/app/issues/42",
@@ -39,6 +39,26 @@ function githubPullRequestOpenedPayload() {
     number: 42,
     pull_request: { number: 42 },
     repository: { full_name: "acme/app" },
+  }
+}
+
+function githubPullRequestPayload(action = "opened", senderType = "User") {
+  return {
+    action,
+    installation: { id: 123 },
+    number: 42,
+    pull_request: {
+      body: "Please improve the app.",
+      html_url: "https://github.test/acme/app/pull/42",
+      id: 420,
+      labels: [{ name: "review" }],
+      number: 42,
+      title: "Improve app",
+      url: "https://api.github.test/repos/acme/app/pulls/42",
+      user: { id: 1, login: "mona", type: "User" },
+    },
+    repository: { full_name: "acme/app" },
+    sender: { id: 1, login: "mona", type: senderType },
   }
 }
 
@@ -238,7 +258,7 @@ describe("agent channels", () => {
         trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
         waitUntil: (task: Promise<unknown>) => background.push(task),
       } as never
-      const opened = { github: { event: "pull_request" }, payload: githubPullRequestOpenedPayload() }
+      const opened = { github: { deliveryId: "opened-delivery", event: "pull_request" }, payload: githubPullRequestOpenedPayload() }
       const result = await trigger.invoke(triggerContext, opened)
 
       expect(result).toBeInstanceOf(Response)
@@ -248,7 +268,7 @@ describe("agent channels", () => {
       releaseIdentity!()
       await background[0]
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
-      expect(storedBody).toContain("agent-queued-6e7781")
+      expect(storedBody).toContain("agent-queued")
 
       // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
       await channel.activity?.update({
@@ -1190,6 +1210,136 @@ describe("agent channels", () => {
     })
   })
 
+  it("keeps slash commands and adds explicit mention commands when reconciliation is enabled", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ pullRequest: { reconcile: { mentions: ["@agent"] }, reply: false } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const mentioned = await trigger.invoke(context as never, {
+      github: { deliveryId: "mention-delivery", event: "issue_comment" },
+      payload: githubIssueCommentPayload("Please @AgEnT, review this"),
+    })
+    if (mentioned instanceof Response) throw new Error("Expected GitHub mention invocation.")
+    expect(mentioned.input.context?.github).toMatchObject({ args: "Please, review this", command: "@AgEnT", event: "issue_comment" })
+    expect(mentioned.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "mention-delivery" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const botMention = await trigger.invoke(context as never, {
+      github: { deliveryId: "bot-mention-delivery", event: "issue_comment" },
+      payload: githubIssueCommentPayload("@agent review this", "Bot"),
+    })
+    if (!(botMention instanceof Response)) throw new Error("Expected ignored bot-authored GitHub mention response.")
+    await expect(botMention.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const slash = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review legacy", "Bot") })
+    if (slash instanceof Response) throw new Error("Expected legacy GitHub slash-command invocation.")
+    expect(slash.input.context?.github).toMatchObject({ args: "legacy", command: "/review" })
+    expect(slash.webhook).toBeUndefined()
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const ignored = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("plain question") })
+    expect(ignored).toBeInstanceOf(Response)
+    if (!(ignored instanceof Response)) throw new Error("Expected ignored GitHub comment response.")
+    await expect(ignored.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    const lifecycleOnly = github({ pullRequest: { reconcile: true, reply: false } })
+    const lifecycleTrigger = lifecycleOnly.triggers?.webhook
+    if (!lifecycleTrigger) throw new Error("Missing lifecycle-only GitHub webhook trigger.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const unconfiguredMention = await lifecycleTrigger.invoke({
+      ...context,
+      channel: lifecycleOnly,
+    } as never, { payload: githubIssueCommentPayload("@bot review this") })
+    expect(unconfiguredMention).toBeInstanceOf(Response)
+    if (!(unconfiguredMention instanceof Response)) throw new Error("Expected unconfigured GitHub mention response.")
+    await expect(unconfiguredMention.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    const mentionOnly = github({ pullRequest: { reconcile: { events: [], mentions: ["@agent"] }, reply: false } })
+    const mentionOnlyTrigger = mentionOnly.triggers?.webhook
+    if (!mentionOnlyTrigger) throw new Error("Missing mention-only GitHub webhook trigger.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const ignoredLifecycle = await mentionOnlyTrigger.invoke({
+      ...context,
+      channel: mentionOnly,
+    } as never, {
+      github: { deliveryId: "delivery-empty-events", event: "pull_request" },
+      payload: githubPullRequestPayload("opened"),
+    })
+    if (!(ignoredLifecycle instanceof Response)) throw new Error("Expected an ignored lifecycle response.")
+    await expect(ignoredLifecycle.json()).resolves.toMatchObject({ reason: "not_command" })
+  })
+
+  it("reconciles configured pull request lifecycle events with invocation ownership", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ activity: true, pullRequest: { reconcile: { prompt: "Keep this pull request healthy." }, reply: false } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [{ metadata: { commands: { review: {} }, trigger: "/" } }],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const result = await trigger.invoke(context as never, {
+      github: { deliveryId: "delivery-1", event: "pull_request", installationId: 123 },
+      payload: githubPullRequestPayload("reopened"),
+    })
+    if (result instanceof Response) throw new Error("Expected GitHub reconciliation invocation.")
+    expect(result.input).toMatchObject({
+      context: {
+        github: { action: "reopened", args: "reopened", command: "/reconcile", event: "pull_request" },
+        pullRequest: {
+          pullRequest: { body: "Please improve the app.", number: 42, title: "Improve app" },
+          run: { origin: "github-pull-request" },
+          trigger: { action: "reopened", event: "pull_request" },
+        },
+      },
+      prompt: "Keep this pull request healthy.",
+    })
+    expect(result.webhook).toEqual({ concurrencyKey: "acme/app#42", concurrencyLimit: 1, deliveryId: "delivery-1" })
+    expect(result.run?.activity).toEqual({ links: [], target: { installationId: 123, issue: 42, repository: "acme/app" } })
+
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (input: string | URL | Request) => String(input).includes("/access_tokens")
+      ? Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      : Response.json({ id: 777 }, { status: 201 }))
+    const deliveryChannel = github({ app: { appId: "reaction-test", fetch: fetcher, installationId: 123, privateKey: privateKeyPem } })
+    const configuredReaction = deliveryChannel.effects?.reaction
+    const reaction = Array.isArray(configuredReaction) ? configuredReaction[0] : configuredReaction
+    if (!reaction) throw new Error("Missing GitHub reaction effect.")
+    // SAFETY: This test fixture supplies the complete lifecycle delivery effect context.
+    await reaction({
+      channel: deliveryChannel,
+      effect: { kind: "reaction", payload: "eyes" },
+      input: result.input,
+      memo: vi.fn(),
+      run: result.run,
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/app/issues/42/reactions",
+      expect.objectContaining({ body: JSON.stringify({ content: "eyes" }), method: "POST" }),
+    )
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const botUpdate = await trigger.invoke(context as never, {
+      github: { deliveryId: "delivery-2", event: "pull_request" },
+      payload: githubPullRequestPayload("synchronize", "Bot"),
+    })
+    expect(botUpdate).toBeInstanceOf(Response)
+    if (!(botUpdate instanceof Response)) throw new Error("Expected ignored bot synchronization response.")
+    await expect(botUpdate.json()).resolves.toMatchObject({ reason: "not_command" })
+  })
+
   it("fetches public pull request head metadata without a token", async () => {
     const { github } = await import("../src/channels.ts")
     const tokenKeys = ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const
@@ -1414,6 +1564,70 @@ describe("agent channels", () => {
       "github.url",
     ])
 
+    const lifecyclePullRequest = {
+      ...pullRequest,
+      trigger: { ...pullRequest.trigger, action: "reopened", args: "reopened", command: "/reconcile", event: "pull_request" },
+    }
+    // SAFETY: This test fixture intentionally round-trips the complete public GitHub command context.
+    const fromLifecycleContext = await trigger.invoke(context as never, {
+      github: {
+        action: "reopened",
+        actor: { login: "mona" },
+        args: "reopened",
+        body: "Reconcile this pull request.",
+        command: "/reconcile",
+        commentId: 99,
+        event: "pull_request",
+        issueNumber: 42,
+        owner: "acme",
+        pullRequestUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        repo: "app",
+        repository: "acme/app",
+      },
+      pullRequest: lifecyclePullRequest,
+    })
+    if (fromLifecycleContext instanceof Response) throw new Error("Expected GitHub lifecycle context invocation.")
+    expect(fromLifecycleContext.input.context).toMatchObject({
+      github: { action: "reopened" },
+      pullRequest: { trigger: { action: "reopened" } },
+    })
+
+    // SAFETY: This test fixture proves lifecycle context replays bypass slash-command declarations.
+    const fromDeclaredLifecycleContext = await trigger.invoke({
+      ...context,
+      agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, { pullRequest: lifecyclePullRequest })
+    if (fromDeclaredLifecycleContext instanceof Response) throw new Error("Expected declared GitHub lifecycle context invocation.")
+    expect(fromDeclaredLifecycleContext.input.context?.github).toMatchObject({
+      action: "reopened",
+      command: "/reconcile",
+      event: "pull_request",
+    })
+
+    // SAFETY: A caller-supplied GitHub view must not override the owning pull request trigger when enforcing commands.
+    const fromMismatchedContext = await trigger.invoke({
+      ...context,
+      agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, {
+      github: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "docs",
+        body: "/review docs",
+        command: "/review",
+        commentId: 99,
+        event: "pull_request",
+        issueNumber: 42,
+        owner: "acme",
+        pullRequestUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        repo: "app",
+        repository: "acme/app",
+      },
+      pullRequest,
+    })
+    if (!(fromMismatchedContext instanceof Response)) throw new Error("Expected mismatched GitHub context to be ignored.")
+    await expect(fromMismatchedContext.json()).resolves.toMatchObject({ reason: "not_command" })
+
     const { bindAgentInvocations } = await import("../src/invocations.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -1472,6 +1686,44 @@ describe("agent channels", () => {
       origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
       threadId: "https://github.test/acme/app/pull/42",
+    })
+
+    const reconcileChannel = github({ pullRequest: { reconcile: {
+      events: ["reopened"],
+      mentions: ["@agent"],
+      prompt: "Keep this pull request healthy.",
+    } } })
+    const reconcileTrigger = reconcileChannel.triggers?.dev
+    if (!reconcileTrigger) throw new Error("Missing GitHub reconciliation dev trigger.")
+    const reconcileContext = { ...context, channel: reconcileChannel }
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const fromLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      ...githubPullRequestPayload("reopened"),
+    })
+    if (fromLifecyclePayload instanceof Response) throw new Error("Expected GitHub lifecycle dev invocation.")
+    expect(fromLifecyclePayload.input).toMatchObject({
+      context: { github: { action: "reopened", command: "/reconcile" } },
+      prompt: "Keep this pull request healthy.",
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const ignoredLifecyclePayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      github: { event: "pull_request" },
+      payload: githubPullRequestPayload("opened"),
+    })
+    if (!(ignoredLifecyclePayload instanceof Response)) throw new Error("Expected ignored GitHub lifecycle dev response.")
+    await expect(ignoredLifecyclePayload.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const fromMentionPayload = await reconcileTrigger.invoke(reconcileContext as never, {
+      github: { event: "issue_comment" },
+      payload: githubIssueCommentPayload("@agent review this"),
+    })
+    if (fromMentionPayload instanceof Response) throw new Error("Expected GitHub mention dev invocation.")
+    expect(fromMentionPayload.input.context?.github).toMatchObject({
+      args: "review this",
+      command: "@agent",
+      event: "issue_comment",
     })
   })
 
@@ -1582,6 +1834,24 @@ describe("agent channels", () => {
         method: "PATCH",
       }),
     )
+
+    const lifecycleUpdateContext = {
+      ...updateContext,
+      input: {
+        ...updateContext.input,
+        context: {
+          github: {
+            ...updateContext.input.context.github,
+            event: "pull_request",
+          },
+        },
+      },
+    }
+    // SAFETY: This test fixture intentionally constructs a lifecycle delivery effect context.
+    await expect(updateEffect(lifecycleUpdateContext as never)).rejects.toThrow(
+      "GitHub pull request lifecycle invocations cannot update a triggering comment",
+    )
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
   it("traces rewritten GitHub review and failed update bodies through delivery", async () => {

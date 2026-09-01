@@ -378,6 +378,18 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("propagates AI SDK message start identity to text parts", () => {
+    const messageState: { messageId?: string } = {}
+
+    expect(toAgentStreamEvent({ messageId: "message-1", type: "start" }, undefined, undefined, undefined, messageState)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "part-1", text: "Hello", type: "text-delta" }, undefined, undefined, undefined, messageState)).toEqual({
+      id: "part-1",
+      messageId: "message-1",
+      text: "Hello",
+      type: "text-delta",
+    })
+  })
+
   it("preserves explicit text phases across text lifecycle events", () => {
     const textPhases = new Map()
 

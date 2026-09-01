@@ -1078,6 +1078,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   flex: 0 0 1.25rem;
   height: 1.25rem;
   justify-content: center;
+  position: relative;
   width: 1.25rem;
 }
 
@@ -1089,8 +1090,21 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   width: 0.875rem;
 }
 
-.vh-invocation-activity[data-status="failed"] .vh-invocation-event__icon {
-  color: var(--vh-ui-error);
+.vh-invocation-event__icon[data-icon="activity"] > svg:first-child {
+  stroke-width: 5;
+}
+
+.vh-invocation-event__failure-icon {
+  background: var(--vh-ui-bg);
+  border-radius: 999px;
+  bottom: -0.05rem;
+  color: var(--vh-ui-text);
+  height: 0.65rem !important;
+  opacity: 0.86 !important;
+  position: absolute;
+  right: -0.05rem;
+  stroke: none !important;
+  width: 0.65rem !important;
 }
 
 .vh-invocation-event__title {
@@ -1456,7 +1470,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-command__bar span[data-failed="true"] {
-  color: var(--vh-ui-error);
+  color: var(--vh-ui-text);
+  font-weight: 600;
 }
 
 .vh-invocation-command__cwd {
@@ -1662,6 +1677,28 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   color: inherit;
   font-size: 0.6875rem;
   margin: 0.2rem 0 0;
+}
+
+.vh-invocation-error__details {
+  color: inherit;
+  font-size: 0.6875rem;
+  margin-block-start: 0.45rem;
+}
+
+.vh-invocation-error__details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vh-invocation-error__details pre {
+  background: color-mix(in oklab, currentColor 6%, transparent);
+  border-radius: calc(var(--vh-ui-radius) * 0.75);
+  margin: 0.45rem 0 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .vh-invocation-inspector__metrics {

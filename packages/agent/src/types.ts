@@ -313,6 +313,10 @@ export interface AgentTelemetryConfiguration {
     version?: string
   }
   capabilities?: AgentTelemetryCapabilityMetadata[]
+  channels?: Array<{
+    id: string
+    kind: string
+  }>
   driver: {
     kind: AgentDriverKind
     model?: {
@@ -1225,11 +1229,13 @@ export interface AgentProviderDriverOptions<
   TOutput = unknown,
 > {
   capacity?: AgentDriverCapacityOptions
-  env?: Record<string, string | undefined>
+  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
+  env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: {
     attachments?: AgentAttachmentExecutionOptions
   }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
   output?: AgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
@@ -1250,6 +1256,28 @@ export interface AgentProviderCredentialContext<
 > extends AgentAdapterMetadataContext<TRuntimeConfig> {
   abortSignal?: AbortSignal
 }
+
+export type AgentProviderEnvironment = Record<string, string | undefined>
+
+export type AgentProviderEnvironmentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<AgentProviderEnvironment, AgentProviderCredentialContext<TRuntimeConfig>>
+
+export interface AgentProviderLaunchCommand {
+  args?: readonly string[]
+  command: string
+}
+
+export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentProviderCredentialContext<TRuntimeConfig> {
+  command: string
+  cwd: string
+  environment: Readonly<AgentProviderEnvironment>
+  /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
+  requiredEnvironment: readonly string[]
+}
+
+export type AgentProviderLaunchResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<AgentProviderLaunchCommand, AgentProviderLaunchContext<TRuntimeConfig>>
 
 export type AgentProviderCredentialResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1293,6 +1321,7 @@ export interface AgentModelDriver<
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
+  launch?: never
   maxRetries?: number
   model: AgentModelResolver<TRuntimeConfig>
   output?: AgentOutputDefinition<TOutput>
@@ -1319,6 +1348,7 @@ export interface AgentRunDriver<
   execution?: never
   instructions?: never
   kind?: never
+  launch?: never
   model?: never
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
@@ -1908,6 +1938,8 @@ export interface AgentInspectionModelExecutionMetadata {
 export interface AgentInspectionProviderMetadata {
   credentialProfile?: string
   credentials?: true
+  environment?: "dynamic" | "static"
+  launch?: "dynamic" | "static"
   model?: string
   permissions: AgentProviderPermissions
   provider?: string

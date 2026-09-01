@@ -277,6 +277,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded") continue;
     const originalAttributes = observation.attributes ?? {};
+    if (
+      observation.name === "agent.stream.error"
+      && originalAttributes["error.recoverable"] === true
+    ) continue;
     const delta = messageText({ parts: [{ text: originalAttributes["message.content"] }] });
     const role = messageRole(originalAttributes["message.role"]);
     const resultText = messageText({ parts: [{ text: originalAttributes["result.text"] }] });
@@ -325,7 +329,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       anonymousMessagePhase = undefined;
     }
     const key = activityKey(observation, anonymousMessageKey);
-    groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
+    const group = groups.get(key);
+    const groupedObservation = { ...observation, attributes };
+    if (group) group.push(groupedObservation);
+    else groups.set(key, [groupedObservation]);
   }
 
   const activities = [...groups.entries()]

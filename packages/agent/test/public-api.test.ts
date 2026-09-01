@@ -96,6 +96,18 @@ it("keeps Effect out of provider and browser bundle graphs", async () => {
   }
 })
 
+it("statically imports the provider runtime in the published Agent build", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const javascript = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => /\.[cm]?js$/.test(path))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+
+  expect(javascript).toMatch(/\bfrom\s*["']@t3tools\/provider-runtime["']/)
+  expect(javascript).not.toMatch(/\bimport\s*\(\s*["']@t3tools\/provider-runtime["']/)
+})
+
 it.each([
   'import { Effect } from "effect"',
   'export type { Effect } from "effect/Effect"',

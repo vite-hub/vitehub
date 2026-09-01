@@ -14,7 +14,7 @@ import {
   streamAgentTrigger,
 } from "../index.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
-import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
+import { appendLatestFinalText, hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
@@ -1633,6 +1633,7 @@ async function collectAgentOutput(
 
   let explicitPhaseSeen = false
   let finalText = ""
+  let finalTextId: string | undefined
   let unphasedText = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") {
@@ -1641,7 +1642,11 @@ async function collectAgentOutput(
       } else {
         explicitPhaseSeen = true
         unphasedText = ""
-        if (event.phase === "final") finalText += event.text
+        if (event.phase === "final") {
+          const next = appendLatestFinalText(finalText, finalTextId, event)
+          finalText = next.text
+          finalTextId = next.identity
+        }
       }
     }
     const summary = progressSummaryFromEvent(event)

@@ -23,16 +23,19 @@ import {
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../console-route";
-import { requestConsole } from "../client/request";
+import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleHealth from "./console-health.vue";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSessionLoading from "./console-session-loading.vue";
+import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
+import { useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -50,10 +53,10 @@ const props = defineProps<{
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
+const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
-const paginationRetryRevision = ref(0);
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
@@ -70,22 +73,68 @@ const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
+const refreshing = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
+let agentsRetry: ReturnType<typeof setTimeout> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
-const listPollInterval = computed(() => (pageVisible.value ? 5_000 : false));
-const detailPollInterval = computed(() =>
-  pageVisible.value && selectedInvocationId.value ? 3_000 : false,
+let refreshCount = 0;
+let invocationListRefreshQueued = false;
+const sessionPollingEnabled = computed(
+  () =>
+    pageVisible.value &&
+    activePage.value === "sessions" &&
+    route.name !== resolveConsoleRouteName(route.name, "vitehub-console-usage"),
+);
+const listPollInterval = computed(() => (sessionPollingEnabled.value ? 5_000 : false));
+const isUsageRoute = computed(
+  () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
 );
 
 const list = useAgentInvocations({
   baseURL: props.apiBase,
-  immediate: pageVisible.value,
+  immediate: pageVisible.value && !isUsageRoute.value,
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
-  query: computed(() => (selectedAgentName.value ? { agent: selectedAgentName.value } : {})),
+  watch: false,
+  query: computed(() => ({
+    ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
+    limit: 10,
+  })),
+});
+const selectedSummary = computed(() =>
+  list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
+);
+const { selectAgentName } = useConsoleSessionBootstrap({
+  agentNames,
+  firstInvocation: computed(() => list.invocations.value[0]),
+  initialBootstrapPending,
+  isUsageRoute,
+  isLoading: list.isLoading,
+  scheduleRefresh: scheduleInvocationListRefresh,
+  selectedAgentName,
+});
+const selectedDetailStatus = ref<{
+  id: string;
+  status: AgentInvocationListItem["status"];
+}>();
+const selectedDetailError = ref<unknown>();
+const initialSessionLoading = computed(() =>
+  !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
+);
+const detailPollInterval = computed(() => {
+  if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
+  if (selectedDetailError.value) {
+    return isRetryableConsoleRequestError(selectedDetailError.value) ? 3_000 : false;
+  }
+  const detailStatus = selectedDetailStatus.value;
+  const status =
+    detailStatus?.id === selectedInvocationId.value
+      ? detailStatus.status
+      : undefined;
+  return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {
   baseURL: props.apiBase,
@@ -93,6 +142,13 @@ const detail = useAgentInvocation(selectedInvocationId, {
   pollInterval: detailPollInterval,
   request: requestConsole,
 });
+watch(
+  () => detail.error.value,
+  (error) => {
+    selectedDetailError.value = error;
+  },
+  { flush: "sync", immediate: true },
+);
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
@@ -101,13 +157,18 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
+    provider:
+      stringValue(invocation.annotations?.["agent.model.provider"]) ||
+      (invocation.id === selectedInvocationId.value
+        ? invocationView.value?.configuration?.driver?.model?.provider ||
+          invocationView.value?.configuration?.driver?.provider
+        : undefined),
     startedAt: invocation.startedAt,
     status: invocation.status,
     title: agentInvocationTitle(invocation),
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
   })),
 );
-const invocationPaginationKey = computed(() => paginationRetryRevision.value);
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentLabel = computed(
   () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
@@ -127,12 +188,6 @@ const routeInvocation = computed(() => {
 const routeAgent = computed(() => {
   return decodeAgentRouteParam(route.params.agent);
 });
-const isUsageRoute = computed(
-  () => route.name === resolveConsoleRouteName(route.name, "vitehub-console-usage"),
-);
-const selectedSummary = computed(() =>
-  list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
-);
 const invocationView = computed<AgentInvocationView | undefined>(() => {
   const invocation = detail.invocation.value;
   if (!invocation || invocation.id !== selectedInvocationId.value) return;
@@ -172,19 +227,19 @@ const splitterItems: SplitterItem[] = [
   {
     id: "thread",
     slot: "thread",
-    minSize: 220,
+    minSize: 360,
     defaultSize: 680,
     sizeUnit: "px",
-    class: "min-h-0 min-w-0 overflow-hidden",
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
   {
     id: "details",
     slot: "details",
-    minSize: 300,
+    minSize: 360,
     maxSize: 1080,
-    defaultSize: 560,
+    defaultSize: 540,
     sizeUnit: "px",
-    class: "min-h-0 min-w-0 overflow-hidden",
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
 ];
 
@@ -289,7 +344,7 @@ async function selectInvocation(
   if (!agentName) return;
   showSessions();
   sessionsOpen.value = false;
-  selectedAgentName.value = agentName;
+  updateSelectedAgentName(agentName);
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
@@ -299,7 +354,7 @@ async function selectInvocation(
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
   showSessions();
-  selectedAgentName.value = name;
+  updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
@@ -323,7 +378,22 @@ async function toggleUsage(): Promise<void> {
   }
   await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
 }
+function clearAgentsRetry(): void {
+  if (agentsRetry) clearTimeout(agentsRetry);
+  agentsRetry = undefined;
+}
+
+function scheduleAgentsRetry(): void {
+  clearAgentsRetry();
+  if (!pageVisible.value) return;
+  agentsRetry = setTimeout(() => {
+    agentsRetry = undefined;
+    if (pageVisible.value && agentsError.value) void loadAgents();
+  }, 5_000);
+}
+
 async function loadAgents(): Promise<void> {
+  clearAgentsRetry();
   agentsRequest?.abort();
   const controller = new AbortController();
   agentsRequest = controller;
@@ -342,7 +412,10 @@ async function loadAgents(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (agentsRequest === controller) agentsError.value = error;
+    if (agentsRequest === controller) {
+      agentsError.value = error;
+      if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();
+    }
   } finally {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
@@ -351,17 +424,44 @@ async function loadAgents(): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
-  await Promise.all([
-    detectHostCapabilities(),
-    loadAgents(),
-    list.refresh(),
-    selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
-  ]);
+function updateSelectedAgentName(name: string, preserveInvocationList = false): void {
+  selectAgentName(name, preserveInvocationList);
 }
 
-function retryPagination(): void {
-  paginationRetryRevision.value++;
+function scheduleInvocationListRefresh(): void {
+  if (invocationListRefreshQueued) return;
+  invocationListRefreshQueued = true;
+  void nextTick(() => {
+    invocationListRefreshQueued = false;
+    if (pageVisible.value && !isUsageRoute.value) void list.refresh();
+  });
+}
+
+async function refresh(): Promise<void> {
+  refreshCount++;
+  refreshing.value = true;
+  try {
+    const agents = loadAgents();
+    await Promise.all([
+      detectHostCapabilities(),
+      agents,
+      isUsageRoute.value ? Promise.resolve() : list.refresh(),
+      selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
+    ]);
+  } finally {
+    refreshCount--;
+    refreshing.value = refreshCount > 0;
+  }
+}
+
+function inspectSession(target: "agent" | "workspace"): void {
+  const view = target === "agent" ? "details" : "workspace";
+  inspectorTab.value = view;
+  if (!inspectorOpenViews.value.includes(view)) {
+    inspectorOpenViews.value = [...inspectorOpenViews.value, view];
+  }
+  inspectorActiveSurface.value = `view:${view}`;
+  detailsOpen.value = true;
 }
 
 function statusIcon(status: AgentInvocationListItem["status"]): string {
@@ -383,13 +483,14 @@ function syncClock(): void {
   nowMs.value = Date.now();
   clock = setInterval(() => {
     nowMs.value = Date.now();
-  }, 1_000);
+  }, 60_000);
 }
 
 function updatePageVisibility(): void {
   const wasVisible = pageVisible.value;
   pageVisible.value = document.visibilityState !== "hidden";
   syncClock();
+  if (!pageVisible.value) clearAgentsRetry();
   if (!wasVisible && pageVisible.value) void refresh();
 }
 
@@ -397,7 +498,7 @@ watch(
   [
     routeInvocation,
     routeAgent,
-    () => list.invocations.value[0]?.id,
+    () => list.invocations.value[0],
     selectedAgentName,
     isUsageRoute,
   ],
@@ -406,19 +507,43 @@ watch(
     previous,
   ) => {
     if (usageRoute) {
+      initialBootstrapPending.value = false;
       selectedInvocationId.value = undefined;
       return;
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    if ((requestedInvocation || requestedAgent) && routeChanged) showSessions();
+    if (requestedInvocation || requestedAgent) {
+      initialBootstrapPending.value = false;
+      if (routeChanged) showSessions();
+    }
+    if (!requestedAgent && !agentName) {
+      if (!firstInvocation) return;
+      if (!firstInvocation.agentName) {
+        initialBootstrapPending.value = false;
+        return;
+      }
+      selectedInvocationId.value = firstInvocation.id;
+      try {
+        await router.replace({
+          name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
+          params: {
+            agent: encodeAgentRouteParam(firstInvocation.agentName),
+            invocation: firstInvocation.id,
+          },
+        });
+      } finally {
+        initialBootstrapPending.value = false;
+      }
+      return;
+    }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? firstInvocation : undefined);
-    if (!requestedInvocation && firstInvocation && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
+    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
-        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation },
+        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation.id },
       });
     }
   },
@@ -426,12 +551,19 @@ watch(
 );
 
 watch(
-  [routeAgent, agentNames, isUsageRoute],
-  async ([requestedAgent, names, usageRoute]) => {
+  [routeAgent, agentNames, isUsageRoute, initialBootstrapPending],
+  async ([requestedAgent, names, usageRoute, bootstrapPending]) => {
     if (usageRoute) return;
     if (!names.length) return;
-    const agentName = requestedAgent && names.includes(requestedAgent) ? requestedAgent : names[0];
-    selectedAgentName.value = agentName;
+    if (!requestedAgent && bootstrapPending) return;
+    const currentAgent = selectedAgentName.value;
+    const agentName =
+      requestedAgent && names.includes(requestedAgent)
+        ? requestedAgent
+        : currentAgent && names.includes(currentAgent)
+          ? currentAgent
+          : names[0];
+    updateSelectedAgentName(agentName);
     if (requestedAgent !== agentName) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
@@ -440,6 +572,19 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  [() => list.isLoading.value, () => list.error.value],
+  ([loading, error]) => {
+    if (
+      initialBootstrapPending.value &&
+      !loading &&
+      (Boolean(error) || list.invocations.value.length === 0)
+    ) {
+      initialBootstrapPending.value = false;
+    }
+  },
 );
 
 watch(
@@ -463,6 +608,7 @@ watch(
 
 watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
+  selectedDetailStatus.value = undefined;
   const identity = selectedInvocationId.value
     ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
     : undefined;
@@ -474,26 +620,42 @@ watch(selectedInvocationId, () => {
 });
 
 watch(
+  [() => detail.invocation.value?.id, () => detail.invocation.value?.status],
+  ([id, status]) => {
+    selectedDetailStatus.value = id && status ? { id, status } : undefined;
+  },
+);
+
+watch(
   isUsageRoute,
   (usageRoute) => {
     rememberConsoleSection(usageRoute ? "usage" : "agents");
+    if (!usageRoute) {
+      if (!selectedAgentName.value) initialBootstrapPending.value = true;
+      if (!list.isLoading.value && list.invocations.value.length === 0) {
+        scheduleInvocationListRefresh();
+      }
+    }
   },
   { immediate: true },
 );
 
+if (pageVisible.value) void loadAgents();
+
 onMounted(() => {
-  media = window.matchMedia("(min-width: 1024px)");
+  media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
+  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
-  if (pageVisible.value) void loadAgents();
   void detectHostCapabilities();
 });
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   capabilitiesRequest?.abort();
+  clearAgentsRetry();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
   document.removeEventListener("visibilitychange", updatePageVisibility);
@@ -504,14 +666,21 @@ onBeforeUnmount(() => {
   <ConsoleFrame>
     <UDashboardSidebar
       id="agent-sessions"
+      class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
       v-model:collapsed="sessionsCollapsed"
-      :default-size="20"
-      :collapsed-size="4"
-      :min-size="16"
+      :default-size="16"
+      :collapsed-size="3"
+      :min-size="13"
       :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
+      :ui="{
+        root: 'md:flex',
+        body: 'gap-0 overflow-hidden p-0',
+        footer: 'px-2 py-1',
+        content: 'md:hidden',
+        overlay: 'md:hidden',
+      }"
       collapsible
       resizable
     >
@@ -575,6 +744,11 @@ onBeforeUnmount(() => {
             icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
             :description="errorMessage(list.error.value || list.loadMoreError.value)"
+            :actions="
+              list.error.value
+                ? [{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: list.refresh }]
+                : undefined
+            "
           />
           <UButton
             v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
@@ -584,14 +758,32 @@ onBeforeUnmount(() => {
             size="sm"
             variant="soft"
             :loading="list.isLoadingMore.value"
-            @click="retryPagination"
+            @click="list.loadMore"
           />
         </div>
         <div
-          v-if="!collapsed && list.isLoading.value && !invocationItems.length"
-          class="grid gap-2 px-3"
+          v-if="
+            !collapsed && (agentsLoading || list.isLoading.value) && !invocationItems.length
+          "
+          class="grid gap-1 px-2"
+          aria-label="Loading sessions"
+          role="status"
         >
-          <USkeleton v-for="index in 4" :key="index" class="h-16 rounded-lg" />
+          <div
+            v-for="index in 6"
+            :key="index"
+            class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
+          >
+            <USkeleton class="mt-0.5 size-4 rounded" />
+            <div class="grid min-w-0 gap-2">
+              <div class="flex items-center justify-between gap-3">
+                <USkeleton class="h-3 w-16 rounded" />
+                <USkeleton class="h-3 w-14 rounded" />
+              </div>
+              <USkeleton class="h-4 rounded" :class="index % 3 === 0 ? 'w-3/4' : 'w-full'" />
+              <USkeleton class="h-3 w-2/3 rounded" />
+            </div>
+          </div>
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -619,14 +811,25 @@ onBeforeUnmount(() => {
           :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
-          :loading="list.isLoadingMore.value"
+          :loading="list.isLoading.value || list.isLoadingMore.value"
           :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
-          :retry-key="invocationPaginationKey"
           :selected-id="selectedInvocationId"
-          @end-reached="list.loadMore()"
           @select="selectInvocation($event)"
         >
+          <template #loading />
+          <template #footer>
+            <div v-if="list.cursor.value" class="flex justify-center px-2 py-3">
+              <UButton
+                color="neutral"
+                label="Load older sessions"
+                size="xs"
+                variant="soft"
+                :loading="list.isLoadingMore.value"
+                @click="list.loadMore()"
+              />
+            </div>
+          </template>
           <template #empty
             ><UEmpty
               class="px-4"
@@ -673,7 +876,7 @@ onBeforeUnmount(() => {
           </UTooltip>
           <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
             <UButton
-              class="ml-auto max-lg:hidden"
+              class="ml-auto max-md:hidden"
               icon="i-ph-sidebar-simple-light"
               color="neutral"
               variant="ghost"
@@ -707,118 +910,20 @@ onBeforeUnmount(() => {
       <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
     </UDashboardPanel>
 
-    <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-      <template #header>
-        <UDashboardNavbar
-          class="vitehub-console__session-navbar"
-          :title="selectedTitle"
-          :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
-        >
-          <template #title>
-            <div v-if="selectedDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-              <UIcon name="i-ph-folder-light" class="size-4 shrink-0 text-muted opacity-70" />
-              <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{
-                selectedProject
-              }}</span>
-              <span class="text-dimmed" aria-hidden="true">/</span>
-              <strong class="min-w-0 truncate font-medium text-highlighted">{{
-                selectedTitle
-              }}</strong>
-            </div>
-            <span v-else class="text-sm font-medium">{{ selectedTitle }}</span>
-          </template>
-          <template #right>
-            <UTooltip text="Open sessions">
-              <UButton
-                data-slot="mobile-session-navigation"
-                class="lg:hidden"
-                icon="i-ph-sidebar-simple-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Open sessions"
-                @click="sessionsOpen = true"
-              />
-            </UTooltip>
-            <UTooltip v-if="selectedExternalUrl" text="Open related page">
-              <UButton
-                :to="selectedExternalUrl"
-                target="_blank"
-                icon="i-ph-arrow-square-out-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Open related page"
-              />
-            </UTooltip>
-            <UTooltip text="Refresh session">
-              <UButton
-                icon="i-ph-arrows-clockwise-light"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                :loading="list.isLoading.value || detail.isLoading.value"
-                aria-label="Refresh session"
-                @click="refresh"
-              />
-            </UTooltip>
-            <UTooltip v-if="invocationView" text="Session details">
-              <UButton
-                icon="i-ph-sidebar-simple-light"
-                color="neutral"
-                :variant="detailsOpen ? 'soft' : 'ghost'"
-                size="sm"
-                aria-label="Session details"
-                :aria-pressed="detailsOpen"
-                @click="detailsOpen = !detailsOpen"
-              />
-            </UTooltip>
-          </template>
-        </UDashboardNavbar>
-      </template>
-
+    <UDashboardPanel
+      v-else
+      id="agent-session"
+      class="vitehub-console__session-panel"
+      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
+    >
       <template #body>
         <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
           <div
-            v-if="!selectedInvocationId"
-            class="flex h-full items-center justify-center p-8 text-sm text-muted"
+            v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
+            class="h-full min-h-0 overflow-hidden"
           >
-            Select an Agent Invocation to inspect its work.
-          </div>
-          <UEmpty
-            v-else-if="errorMessage(detail.error.value) && !invocationView"
-            class="h-full"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load this session"
-            :description="errorMessage(detail.error.value)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-            ]"
-          />
-          <div
-            v-else-if="detail.isLoading.value && !invocationView"
-            class="flex h-full items-center justify-center"
-          >
-            <UIcon
-              name="i-ph-circle-notch-light"
-              class="size-4 animate-spin text-muted opacity-70"
-            />
-          </div>
-          <div v-else-if="invocationView" class="flex h-full min-h-0 flex-col">
-            <UAlert
-              v-if="errorMessage(detail.error.value)"
-              class="m-3 shrink-0"
-              color="error"
-              variant="subtle"
-              icon="i-ph-cloud-slash-light"
-              title="Could not refresh this session"
-              :description="errorMessage(detail.error.value)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-              ]"
-            />
             <ConsoleSessionInspector
-              v-if="isDesktop && detailsOpen && detailsMaximized"
+              v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
               :workspace-base="`${hostBase}/api/invocations`"
@@ -827,56 +932,186 @@ onBeforeUnmount(() => {
               v-model:open-views="inspectorOpenViews"
               v-model:open-paths="inspectorOpenPaths"
               v-model:selected-path="inspectorSelectedPath"
-              class="min-h-0 flex-1"
+              class="h-full"
               @close="closeDetails"
               @focus-activity="selectActivity"
               @toggle-maximized="detailsMaximized = false"
             />
-            <USplitter
-              v-else-if="isDesktop && detailsOpen"
-              id="agent-session-layout"
-              auto-save-id="vitehub-agent-session-layout"
-              :items="splitterItems"
-              class="min-h-0 flex-1 overflow-hidden"
-            >
-              <template #thread>
+            <ConsoleSessionLoading
+              v-else-if="detail.isLoading.value"
+              class="h-full min-h-0"
+              :maximized="true"
+              surface="inspector"
+              @close="closeDetails"
+              @toggle-maximized="detailsMaximized = false"
+            />
+            <ConsoleSessionLoading
+              v-else
+              class="h-full min-h-0"
+              :error="errorMessage(detail.error.value)"
+              :maximized="true"
+              surface="inspector"
+              @close="closeDetails"
+              @retry="refresh"
+              @toggle-maximized="detailsMaximized = false"
+            />
+          </div>
+          <USplitter
+            v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
+            id="agent-session-layout"
+            auto-save-id="vitehub-agent-session-layout"
+            :items="splitterItems"
+            class="h-full min-h-0 overflow-hidden"
+          >
+            <template #thread>
+              <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
+                <ConsoleSessionNavbar
+                  :details-open="detailsOpen"
+                  :external-url="selectedExternalUrl"
+                  :has-display="Boolean(selectedDisplay)"
+                  :has-selection="Boolean(selectedInvocationId)"
+                  :loading="refreshing"
+                  :project="selectedProject"
+                  :title="selectedTitle"
+                  @open-sessions="sessionsOpen = true"
+                  @refresh="refresh"
+                  @toggle-details="detailsOpen = !detailsOpen"
+                />
+                <UAlert
+                  v-if="invocationView && errorMessage(detail.error.value)"
+                  class="m-3 shrink-0"
+                  color="error"
+                  variant="subtle"
+                  icon="i-ph-cloud-slash-light"
+                  title="Could not refresh this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  ]"
+                />
+                <ConsoleSessionLoading
+                  v-if="(detail.isLoading.value || initialSessionLoading) && !invocationView"
+                  class="min-h-0 flex-1"
+                />
+                <UEmpty
+                  v-else-if="errorMessage(detail.error.value) && !invocationView"
+                  class="min-h-0 flex-1"
+                  icon="i-ph-cloud-slash-light"
+                  title="Could not load this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  ]"
+                />
                 <AgentInvocation
+                  v-else-if="invocationView"
                   :header="false"
                   :invocation="invocationView"
                   :selected-activity-id="selectedActivityId"
-                  class="h-full"
+                  class="min-h-0 flex-1"
+                  @inspect="inspectSession"
                 />
-              </template>
-              <template #details>
-                <ConsoleSessionInspector
-                  :invocation="invocationView"
-                  :workspace-base="`${hostBase}/api/invocations`"
-                  v-model:tab="inspectorTab"
-                  v-model:active-surface="inspectorActiveSurface"
-                  v-model:open-views="inspectorOpenViews"
-                  v-model:open-paths="inspectorOpenPaths"
-                  v-model:selected-path="inspectorSelectedPath"
-                  class="h-full"
-                  @close="closeDetails"
-                  @focus-activity="selectActivity"
-                  @toggle-maximized="detailsMaximized = true"
-                />
-              </template>
-              <template #resize-handle>
-                <span
-                  class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
-                />
-              </template>
-            </USplitter>
-            <AgentInvocation
-              v-else
-              :header="false"
-              :invocation="invocationView"
-              :selected-activity-id="selectedActivityId"
+              </div>
+            </template>
+            <template #details>
+              <ConsoleSessionInspector
+                v-if="invocationView"
+                :invocation="invocationView"
+                :workspace-base="`${hostBase}/api/invocations`"
+                v-model:tab="inspectorTab"
+                v-model:active-surface="inspectorActiveSurface"
+                v-model:open-views="inspectorOpenViews"
+                v-model:open-paths="inspectorOpenPaths"
+                v-model:selected-path="inspectorSelectedPath"
+                class="h-full"
+                @close="closeDetails"
+                @focus-activity="selectActivity"
+                @toggle-maximized="detailsMaximized = true"
+              />
+              <ConsoleSessionLoading
+                v-else-if="detail.isLoading.value || initialSessionLoading"
+                class="h-full min-h-0"
+                :maximizable="Boolean(selectedInvocationId)"
+                surface="inspector"
+                @close="closeDetails"
+                @toggle-maximized="detailsMaximized = true"
+              />
+              <ConsoleSessionLoading
+                v-else
+                class="h-full min-h-0"
+                :error="errorMessage(detail.error.value)"
+                surface="inspector"
+                @close="closeDetails"
+                @retry="refresh"
+                @toggle-maximized="detailsMaximized = true"
+              />
+            </template>
+            <template #resize-handle>
+              <span
+                class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+              />
+            </template>
+          </USplitter>
+          <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
+            <ConsoleSessionNavbar
+              :details-open="detailsOpen"
+              :external-url="selectedExternalUrl"
+              :has-display="Boolean(selectedDisplay)"
+              :has-selection="Boolean(selectedInvocationId)"
+              :loading="refreshing"
+              :project="selectedProject"
+              :title="selectedTitle"
+              @open-sessions="sessionsOpen = true"
+              @refresh="refresh"
+              @toggle-details="detailsOpen = !detailsOpen"
+            />
+            <ConsoleSessionLoading
+              v-if="initialSessionLoading"
               class="min-h-0 flex-1"
             />
+            <div
+              v-else-if="!selectedInvocationId"
+              class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted"
+            >
+              Select an Agent Invocation to inspect its work.
+            </div>
+            <UEmpty
+              v-else-if="errorMessage(detail.error.value) && !invocationView"
+              class="min-h-0 flex-1"
+              icon="i-ph-cloud-slash-light"
+              title="Could not load this session"
+              :description="errorMessage(detail.error.value)"
+              :actions="[
+                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+              ]"
+            />
+            <ConsoleSessionLoading
+              v-else-if="detail.isLoading.value && !invocationView"
+              class="min-h-0 flex-1"
+            />
+            <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
+              <UAlert
+                v-if="errorMessage(detail.error.value)"
+                class="m-3 shrink-0"
+                color="error"
+                variant="subtle"
+                icon="i-ph-cloud-slash-light"
+                title="Could not refresh this session"
+                :description="errorMessage(detail.error.value)"
+                :actions="[
+                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                ]"
+              />
+              <AgentInvocation
+                :header="false"
+                :invocation="invocationView"
+                :selected-activity-id="selectedActivityId"
+                class="min-h-0 flex-1"
+                @inspect="inspectSession"
+              />
+            </div>
             <USlideover
-              v-if="!isDesktop"
+              v-if="!isDesktop && invocationView"
               v-model:open="detailsOpen"
               side="right"
               title="Session details"
@@ -907,9 +1142,23 @@ onBeforeUnmount(() => {
 
 <style>
 .vitehub-console {
+  --ui-header-height: 3.25rem;
   height: 100dvh;
-  min-height: 32rem;
+  min-height: 0;
   overflow: hidden;
+}
+
+.vitehub-console,
+.vitehub-console :where(*) {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+}
+
+.vitehub-console::-webkit-scrollbar,
+.vitehub-console :where(*)::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .vitehub-console [data-slot="invocation"],
@@ -922,6 +1171,23 @@ onBeforeUnmount(() => {
   border-inline-start: 0;
 }
 
+.vitehub-console__sessions[data-slot="root"] {
+  background: var(--ui-bg-muted);
+}
+
+.vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: #fff;
+}
+
+.dark .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: var(--ui-bg-elevated);
+}
+
+.vitehub-console__session-panel > [data-slot="body"] {
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
 .vitehub-console__session-navbar {
   background: var(--ui-bg) !important;
   height: 3.25rem !important;
@@ -930,6 +1196,11 @@ onBeforeUnmount(() => {
   padding: 0 1.25rem !important;
   position: relative;
   z-index: 10;
+}
+
+.vitehub-console__session-navbar svg,
+.session-inspector__header svg {
+  opacity: 0.8;
 }
 
 .vitehub-console__session-navbar::after {

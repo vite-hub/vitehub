@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { glob, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
@@ -10,6 +10,7 @@ import { promisify } from "node:util"
 import { Message } from "chat"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { build as viteBuild } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
@@ -89,7 +90,6 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
-const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -506,9 +506,46 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect(result).toMatchObject({
-      resolve: { noExternal: ["existing", "@vite-hub/agent"] },
+      resolve: { noExternal: ["existing", "@vite-hub/agent", "@t3tools/provider-runtime"] },
     })
   })
+
+  it("bundles the provider runtime into hosted Vite server output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-hosted-vite-output-"))
+    const outDir = join(root, "dist")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}\n", "utf8")
+      await writeFile(
+        join(root, "server.ts"),
+        'export { createProviderRuntime } from "@t3tools/provider-runtime"\n',
+        "utf8",
+      )
+
+      await viteBuild({
+        build: {
+          minify: false,
+          outDir,
+          ssr: join(root, "server.ts"),
+        },
+        configFile: false,
+        logLevel: "silent",
+        plugins: [hubAgent({ providers: { state: { provider: "memory" } } })],
+        root,
+      })
+
+      const output = (await Promise.all(
+        (await readdir(outDir, { recursive: true }))
+          .filter(path => /\.[cm]?js$/.test(path))
+          .map(path => readFile(join(outDir, path), "utf8")),
+      )).join("\n")
+      expect(output).toContain("createProviderRuntime")
+      expect(output).not.toMatch(/\bfrom\s*["']@t3tools\/provider-runtime["']/)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 60_000)
 
   it("normalizes the final server environment externals for Rolldown", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -1176,7 +1213,20 @@ describe("agent Vite plugin", () => {
                     "@/\0vitehub-prefix:2": `${join(root, "duplicate")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
-                  external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),
+                  external: [
+                    "@ai-sdk/mcp",
+                    "@modelcontextprotocol/sdk/*",
+                    "@vite-hub/sandbox",
+                    "@vite-hub/sandbox/*",
+                    "@vite-hub/shell",
+                    "@vite-hub/shell/*",
+                    "@vite-hub/workflow",
+                    "@vite-hub/workflow/*",
+                    "agents",
+                    "evalite/*",
+                    ...optionalAgentRuntimeExternals,
+                    "vitest/*",
+                  ],
                 }),
                 config: expect.objectContaining({
                   path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
@@ -1298,7 +1348,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-            nitro: { externals: { inline: ["existing"] } },
+            nitro: { externals: { inline: ["existing"] }, noExternals: [/existing/] },
           } as never,
           { command: "build", mode: "production" },
         )
@@ -1307,10 +1357,11 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({
       nitro: {
         externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
+        noExternals: [/existing/, "@t3tools/provider-runtime"],
         rollupConfig: {
-          external: agentRuntimeExternals,
+          external: optionalAgentRuntimeExternals,
         },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
@@ -1881,7 +1932,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...agentRuntimeExternals],
+        external: ["existing", ...optionalAgentRuntimeExternals],
         input: "legacy-entry",
       },
     })
@@ -2064,7 +2115,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
     expect(output.build).toEqual({
-      rolldownOptions: { external: agentRuntimeExternals },
+      rolldownOptions: { external: optionalAgentRuntimeExternals },
     })
   })
 
@@ -2268,7 +2319,7 @@ export default defineAgent({
         const plugin = hubAgent(
           stateProvider === "libsql"
             ? {
-                providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+                providers: { state: { provider: "libsql" } },
                 routes: { inspection: true },
               }
             : { routes: { inspection: true } },
@@ -2283,6 +2334,7 @@ export default defineAgent({
         expect(generatedRoute).toContain("abortSignal: request.signal")
         expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
+          expect(generatedRoute).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }
         await execFileAsync(
@@ -2350,7 +2402,7 @@ export default defineAgent({
       expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
       expect(webhookRoute).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
       expect(webhookRoute).toContain(
-        `const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".vitehub/data/agent-state.sqlite")).href)}}`,
+        `const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {"url":${JSON.stringify(pathToFileURL(join(root, ".vitehub/data/agent-state.sqlite")).href)}}`,
       )
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
@@ -2375,7 +2427,7 @@ export default defineAgent({
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("const viteHubChatStateOptions = {}")
+      expect(webhookRoute).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
       expect(webhookRoute).toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment")
       expect(webhookRoute).toContain("Agent state cannot use a file: URL on vercel because its filesystem is ephemeral")
       expect(webhookRoute).toContain("state: viteHubChatStateResolver")
@@ -2470,7 +2522,7 @@ export default defineAgent({
 
         expect(webhookRoute).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
-        expect(webhookRoute).toContain('const viteHubChatStateOptions = {"tablePrefix":"agent_state_","url":"file:build-state.sqlite"}')
+        expect(webhookRoute).toContain('const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {"tablePrefix":"agent_state_","url":"file:build-state.sqlite"}')
         expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("let viteHubChatState")
         expect(webhookRoute).toContain("viteHubChatState = createLibsqlAgentState({")
@@ -2654,6 +2706,7 @@ export default defineAgent({
       expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/chat$")')
       expect(denoServer).toContain('const webhookRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$")')
       expect(denoServer).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
+      expect(denoServer).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
       expect(denoServer).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
       expect(denoServer).toContain(
         "return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }) : await handler(request, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver })",
@@ -5356,7 +5409,10 @@ describe("server helpers", () => {
     await Promise.all(waitUntilTasks)
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       run: expect.objectContaining({
-        annotations: { triggeredBy: "Maxi" },
+        annotations: {
+          "channel.sentAt": "2026-06-10T12:00:00.000Z",
+          triggeredBy: "Maxi",
+        },
       }),
     }))
     expect(agent.chat).toMatchObject({ stream: false })
@@ -15918,6 +15974,67 @@ describe("server helpers", () => {
     })
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", {
       markdown: "Private model output",
+    })
+  })
+
+  it("uses only the latest final message for a manual final reply", { timeout: 30_000 }, async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Loading…",
+            stream: false,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Checking connected tools.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { messageId: "intermediate-message", type: "start" }
+            yield { id: "intermediate-1", phase: "final", type: "text-start" }
+            yield { delta: "I’ll check the connected tools directly.", id: "intermediate-1", type: "text-delta" }
+            yield { id: "intermediate-1", type: "text-end" }
+            yield { messageId: "answer-message", type: "start" }
+            yield { id: "answer-1", phase: "final", type: "text-start" }
+            yield { delta: "Yes—", id: "answer-1", type: "text-delta" }
+            yield { id: "answer-1", type: "text-end" }
+            yield { id: "answer-2", phase: "final", type: "text-start" }
+            yield { delta: "I have working access.", id: "answer-2", type: "text-delta" }
+            yield { id: "answer-2", type: "text-end" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply(event.text ?? ""),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(99_917), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Loading…")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", {
+      markdown: "Checking connected tools.",
+    })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: "Yes—I have working access.",
     })
   })
 

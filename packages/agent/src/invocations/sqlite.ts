@@ -2,11 +2,13 @@ import { createClient } from "@libsql/client"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
+import { searchableAgentInvocationText } from "./search.ts"
 
 import type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationRecord,
+  AgentInvocationSummary,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
 } from "../invocations.ts"
@@ -27,7 +29,7 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 const maximumDateMs = 8_640_000_000_000_000
 const backfillPageSize = 100
-const searchVersion = 2
+const searchVersion = 3
 const terminalStatuses = ["completed", "failed", "cancelled"] as const
 
 function tableName(prefix = "vitehub_agent_"): string {
@@ -46,7 +48,7 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
   return JSON.stringify(record, (_key, value) => typeof value === "bigint" ? String(value) : value)
 }
 
-function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | undefined {
+function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {
   if (typeof value !== "string") return
   const parsed: unknown = JSON.parse(value)
   if (
@@ -62,12 +64,22 @@ function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | u
     || typeof parsed.createdAt !== "string"
     || !("updatedAt" in parsed)
     || typeof parsed.updatedAt !== "string"
-    || !("observations" in parsed)
-    || !Array.isArray(parsed.observations)
   ) return
   // SAFETY: SQLite values are written by serialize(), and required invocation identity/lifecycle fields were validated.
-  const record = parsed as Omit<AgentInvocationRecord, "cursor">
+  return parsed as Omit<AgentInvocationRecord, "cursor">
+}
+
+function deserialize(value: unknown, cursor: unknown): AgentInvocationRecord | undefined {
+  const record = parsedRecord(value)
+  if (!record || !("observations" in record) || !Array.isArray(record.observations)) return
   return { ...record, cursor: String(cursor) }
+}
+
+function deserializeSummary(value: unknown, cursor: unknown): AgentInvocationSummary | undefined {
+  const record = parsedRecord(value)
+  if (!record) return
+  const { observations: _observations, ...summary } = record
+  return { ...summary, cursor: String(cursor) }
 }
 
 function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord, "cursor"> {
@@ -75,8 +87,9 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
   return stored
 }
 
-function searchableRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
-  return JSON.stringify(record).toLowerCase()
+function serializedSummary(record: Omit<AgentInvocationRecord, "cursor">): string {
+  const { observations: _observations, ...summary } = record
+  return JSON.stringify(summary, (_key, value) => typeof value === "bigint" ? String(value) : value)
 }
 
 function agentNameRecord(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -147,11 +160,76 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
   const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
+  let searchBackfill: Promise<void> | undefined
+  let summaryBackfill: Promise<void> | undefined
   let writes = Promise.resolve()
   const write = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = writes.then(operation, operation)
     writes = result.then(() => undefined, () => undefined)
     return result
+  }
+  const backfillSearch = async () => {
+    let backfillSequence = 0
+    while (true) {
+      const missingSearch = await client.execute({
+        args: [searchVersion, backfillSequence, backfillPageSize],
+        sql: `SELECT sequence, record FROM ${table}
+          WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      if (!missingSearch.rows.length) break
+      const searchUpdates = missingSearch.rows.flatMap((row) => {
+        backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
+          const record = deserialize(row.record, row.sequence)
+          return record
+            ? [{
+                args: [
+                  searchableAgentInvocationText(storedRecord(record)),
+                  searchVersion,
+                  numberValue(row.sequence),
+                  searchVersion,
+                  String(row.record),
+                ],
+                sql: `UPDATE ${table} SET search = ?, search_version = ?
+                  WHERE sequence = ? AND search_version < ? AND record = ?`,
+              }]
+            : []
+      })
+      if (searchUpdates.length) await client.batch(searchUpdates, "write")
+    }
+  }
+  const ensureSearchBackfill = () => {
+    if (!searchBackfill) searchBackfill = backfillSearch().finally(() => {
+      searchBackfill = undefined
+    })
+    return searchBackfill
+  }
+  const startSearchBackfill = () => {
+    void ensureSearchBackfill().catch(() => undefined)
+  }
+  const backfillSummaries = async () => {
+    let beforeSequence = Number.MAX_SAFE_INTEGER
+    while (true) {
+      const missingSummaries = await client.execute({
+        args: [beforeSequence, backfillPageSize],
+        sql: `SELECT sequence FROM ${table}
+          WHERE summary IS NULL AND json_valid(record) AND sequence < ? ORDER BY sequence DESC LIMIT ?`,
+      })
+      if (!missingSummaries.rows.length) break
+      beforeSequence = Math.min(...missingSummaries.rows.map(row => numberValue(row.sequence)))
+      await client.batch(missingSummaries.rows.map(row => ({
+        args: [numberValue(row.sequence)],
+        sql: `UPDATE ${table} SET summary = json_remove(record, '$.observations')
+          WHERE sequence = ? AND summary IS NULL AND json_valid(record)`,
+      })), "write")
+    }
+  }
+  const startSummaryBackfill = () => {
+    if (summaryBackfill) return
+    summaryBackfill = backfillSummaries().catch((error) => {
+      summaryBackfill = undefined
+      throw error
+    })
+    void summaryBackfill.catch(() => undefined)
   }
   const initialize = async () => {
     if (!initialized) initialized = (async () => {
@@ -162,6 +240,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         agent_name TEXT NOT NULL DEFAULT '',
         search TEXT,
         search_version INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
         updated_at TEXT NOT NULL DEFAULT '',
         record TEXT NOT NULL
       )`)
@@ -191,6 +270,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         catch (error) {
           const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
           if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
+        }
+      }
+      if (!columns.rows.some(row => row.name === "summary")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN summary TEXT`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "summary")) throw error
         }
       }
       if (!columns.rows.some(row => row.name === "updated_at")) {
@@ -224,29 +312,23 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         BEGIN
           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
         END`)
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.summary IS NULL
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`)
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.summary IS OLD.summary
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`)
       await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
         ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
       let backfillSequence = 0
-      while (true) {
-        const missingSearch = await client.execute({
-          args: [searchVersion, backfillSequence, backfillPageSize],
-          sql: `SELECT sequence, record FROM ${table}
-            WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingSearch.rows.length) break
-        const searchBackfill = missingSearch.rows.flatMap((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
-          return record
-            ? [{
-                args: [searchableRecord(storedRecord(record)), searchVersion, numberValue(row.sequence)],
-                sql: `UPDATE ${table} SET search = ?, search_version = ? WHERE sequence = ?`,
-              }]
-            : []
-        })
-        if (searchBackfill.length) await client.batch(searchBackfill, "write")
-      }
-      backfillSequence = 0
       while (true) {
         const missingAgentNames = await client.execute({
           args: [backfillSequence, backfillPageSize],
@@ -325,6 +407,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
           WHERE id = NEW.id;
         END`)
+      startSearchBackfill()
+      startSummaryBackfill()
     })().catch((error) => {
       initialized = undefined
       throw error
@@ -339,6 +423,17 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     })
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
+  }
+  const readSummary = async (id: string): Promise<AgentInvocationSummary | undefined> => {
+    await initialize()
+    startSummaryBackfill()
+    const result = await client.execute({
+      args: [id],
+      sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
+        THEN json_remove(record, '$.observations') END) AS summary FROM ${table} WHERE id = ? LIMIT 1`,
+    })
+    const row = result.rows[0]
+    return row ? deserializeSummary(row.summary, row.sequence) : undefined
   }
   const pruneStatements = (now = Date.now()) => {
     const filters: string[] = []
@@ -398,8 +493,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const statements = [
             ...prePrune,
             {
-              args: [input.id, input.status, agentNameRecord(input), searchableRecord(input), searchVersion, input.updatedAt, serialize(input)],
-              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, serializedSummary(input), input.updatedAt, serialize(input)],
+              sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, summary, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             }
           ]
           if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") {
@@ -427,8 +522,10 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return hasRuntimeType(claimToken, "string") ? claimToken : undefined
     },
     get: read,
+    getSummary: readSummary,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {
       await initialize()
+      startSummaryBackfill()
       const limit = listLimit(listOptions.limit)
       const statuses = listOptions.status === undefined
         ? []
@@ -455,25 +552,38 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const search = searchValue(listOptions.search)
       if (search) {
+        await ensureSearchBackfill()
         filters.push("search LIKE ? ESCAPE '\\'")
         args.push(`%${escapeLike(search.toLowerCase())}%`)
       }
       args.push(limit + 1)
       const result = await client.execute({
         args,
-        sql: `SELECT sequence, json_set(record, '$.observations', json('[]')) AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
+        sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
+          THEN json_remove(record, '$.observations') END) AS summary
+          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`,
       })
       const records = result.rows
-        .map(row => deserialize(row.record, row.sequence))
-        .filter((record): record is AgentInvocationRecord => Boolean(record))
+        .map(row => deserializeSummary(row.summary, row.sequence))
+        .filter((record): record is AgentInvocationSummary => Boolean(record))
       const page = records.slice(0, limit)
       return {
         ...(records.length > limit && page.length ? { cursor: page.at(-1)!.cursor } : {}),
-        invocations: page.map((record) => {
-          const { observations: _observations, ...summary } = record
-          return summary
-        }),
+        invocations: page,
       }
+    },
+    async listAgentNames() {
+      await initialize()
+      const result = await client.execute(`SELECT DISTINCT name FROM (
+        SELECT agent_name AS name FROM ${table} WHERE agent_name <> ''
+        UNION ALL
+        SELECT json_extract(record, '$.agentName') AS name FROM ${table}
+          WHERE agent_name IS NULL OR agent_name = ''
+      ) WHERE typeof(name) = 'text' AND name <> '' ORDER BY name`)
+      return result.rows.flatMap((row) => {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- LibSQL rows are external storage values, so validate the indexed Agent name before exposing it.
+        return typeof row.name === "string" ? [row.name] : []
+      })
     },
     async release(id, claimId) {
       await write(async () => {
@@ -506,11 +616,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             const stored = storedRecord(updated)
             await transaction.execute({
               args: [id],
-              sql: `UPDATE ${table} SET search_version = -1 WHERE id = ?`,
+              sql: `UPDATE ${table} SET search_version = -1, summary = NULL WHERE id = ?`,
             })
             await transaction.execute({
-              args: [updated.status, agentNameRecord(stored), searchableRecord(stored), searchVersion, updated.updatedAt, serialize(stored), id],
-              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`,
+              args: [updated.status, agentNameRecord(stored), searchableAgentInvocationText(stored), searchVersion, serializedSummary(stored), updated.updatedAt, serialize(stored), id],
+              sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, summary = ?, updated_at = ?, record = ? WHERE id = ?`,
             })
             if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") {
               await prune(transaction)

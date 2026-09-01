@@ -769,6 +769,11 @@ describe("agent public types", () => {
             maxComments: 30,
             maxFiles: 200,
             origin: "github-review",
+            reconcile: {
+              events: ["opened", "synchronize"],
+              mentions: ["@agent"],
+              prompt: "Keep this pull request healthy.",
+            },
             reply: reviewFinishEffect,
           },
         }),
@@ -1440,6 +1445,8 @@ describe("agent public types", () => {
     github({ pullRequest: { workspace: true } })
     github({ pullRequest: { workspace: false } })
     github({ pullRequest: { workspace: { mount: "portal" } } })
+    github({ pullRequest: { reconcile: true } })
+    github({ pullRequest: { reconcile: { mentions: ["@agent"] } } })
 
     const inferredWorkspace = defineCapability({
       id: "inferred-workspace",

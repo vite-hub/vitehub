@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
-  correlatedLifecycleObservations,
+  indexTraceLifecycles,
   isDeniedApproval,
   isLifecycleStartObservation,
   isLifecycleTerminalObservation,
@@ -14,8 +15,6 @@ import {
   invocationSpanStatus,
   invocationTerminalNames,
   lifecycleTerminalNames,
-  pairedLifecycleTerminal,
-  pairedToolTerminal,
   standaloneSuccessfulLifecycleSequences,
   traceDurationMs,
   traceEventId,
@@ -68,7 +67,7 @@ const traceEndMs = computed(() =>
     ...spans.value.map((span) => traceSpanEndMs(span.startMs, span.endMs, span.durationMs)),
   ),
 );
-const traceDurationMs = computed(() => Math.max(1, traceEndMs.value - traceStartMs.value));
+const traceWindowMs = computed(() => Math.max(1, traceEndMs.value - traceStartMs.value));
 const filteredSpans = computed(() => {
   const query = spanQuery.value.trim().toLowerCase();
   if (!query) return spans.value;
@@ -77,6 +76,26 @@ const filteredSpans = computed(() => {
 const selectedSpan = computed(
   () => spans.value.find((span) => span.id === selectedSpanId.value) ?? spans.value[0],
 );
+const tracePanels = computed<SplitterItem[]>(() => [
+  {
+    id: "waterfall",
+    slot: "waterfall",
+    defaultSize: selectedSpan.value ? 65 : 100,
+    minSize: 25,
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
+  },
+  ...(selectedSpan.value
+    ? [
+        {
+          id: "detail",
+          slot: "detail",
+          defaultSize: 35,
+          minSize: 20,
+          class: "h-full min-h-0 min-w-0 overflow-hidden",
+        },
+      ]
+    : []),
+]);
 const selectedAttributes = computed(() =>
   selectedSpan.value
     ? {
@@ -106,7 +125,7 @@ const filteredAttributes = computed(() => {
 });
 const ticks = computed(() =>
   [0, 0.25, 0.5, 0.75, 1].map((position) => ({
-    label: formatAxis(traceDurationMs.value * position),
+    label: formatAxis(traceWindowMs.value * position),
     position,
   })),
 );
@@ -130,15 +149,14 @@ function buildSpans(invocation: AgentInvocationView): TraceSpan[] {
     (left, right) => left.sequence - right.sequence,
   );
   const starts = traceStarts(observations);
-  const pairs = starts.map((start) => ({
-    finish: pairedTerminal(start, observations, invocation),
-    start,
-  }));
-  const result = pairs.map(({ start, finish }) =>
-    pairedSpan(start, finish, observations, invocation),
+  const lifecycles = indexTraceLifecycles(starts, observations, (start) =>
+    terminalNames(start, invocation),
+  );
+  const result = lifecycles.map(({ start, finish, observations: events }) =>
+    pairedSpan(start, finish, events, invocation),
   );
   const representedSequences = new Set(
-    pairs.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
+    lifecycles.flatMap(({ finish }) => (finish ? [finish.sequence] : [])),
   );
   const standaloneSuccessfulTerminals = standaloneSuccessfulLifecycleSequences(
     observations,
@@ -256,11 +274,10 @@ function traceStarts(observations: Observation[]): Observation[] {
 function pairedSpan(
   start: Observation,
   finish: Observation | undefined,
-  observations: Observation[],
+  events: Observation[],
   invocation: AgentInvocationView,
 ): TraceSpan {
   const id = eventId(start);
-  const events = correlatedLifecycleObservations(start, finish, observations);
   const attributes = Object.assign({}, ...events.map((event) => event.attributes ?? {}));
   const startMs = timestamp(start.timestamp);
   const operation = operationName(start, attributes);
@@ -291,22 +308,13 @@ function pairedSpan(
   };
 }
 
-function pairedTerminal(
-  start: Observation,
-  observations: Observation[],
-  invocation: AgentInvocationView,
-): Observation | undefined {
-  const terminalNames =
-    start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name)
-      ? invocationTerminalNames(invocation.status)
-      : start.name === "agent.task.started"
-        ? ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"]
-        : start.name === "agent.approval.request"
-          ? ["agent.approval.decision"]
-          : lifecycleTerminalNames(start.name);
-  if (start.name.startsWith("agent.tool.") && isLifecycleStartObservation(start.name))
-    return pairedToolTerminal(start, observations);
-  return pairedLifecycleTerminal(start, observations, terminalNames);
+function terminalNames(start: Observation, invocation: AgentInvocationView): string[] {
+  if (start.name.startsWith("agent.invocation.") && isLifecycleStartObservation(start.name))
+    return invocationTerminalNames(invocation.status);
+  if (start.name === "agent.task.started")
+    return ["agent.task.completed", "agent.task.failed", "agent.task.cancelled"];
+  if (start.name === "agent.approval.request") return ["agent.approval.decision"];
+  return lifecycleTerminalNames(start.name);
 }
 
 function invocationSpan(invocation: AgentInvocationView, observations: Observation[]): TraceSpan {
@@ -435,9 +443,9 @@ function spanIcon(operation: string) {
 function barStyle(span: TraceSpan) {
   const left = Math.max(
     0,
-    Math.min(100, ((span.startMs - traceStartMs.value) / traceDurationMs.value) * 100),
+    Math.min(100, ((span.startMs - traceStartMs.value) / traceWindowMs.value) * 100),
   );
-  const width = Math.max(0, Math.min(100 - left, (span.durationMs / traceDurationMs.value) * 100));
+  const width = Math.max(0, Math.min(100 - left, (span.durationMs / traceWindowMs.value) * 100));
   return { left: `${left}%`, width: `max(3px, ${width}%)` };
 }
 
@@ -543,127 +551,145 @@ async function copyAttributes() {
 </script>
 
 <template>
-  <section class="session-trace">
-    <div class="session-trace__waterfall">
-      <div class="session-trace__search">
-        <UInput
-          v-model="spanQuery"
-          icon="i-lucide-search"
-          placeholder="Search spans"
-          size="sm"
-          variant="outline"
-          :ui="{ base: 'w-full' }"
-        />
-        <span>{{ filteredSpans.length }} spans</span>
-      </div>
+  <USplitter
+    id="session-trace-layout"
+    auto-save-id="vitehub-session-trace-layout"
+    :items="tracePanels"
+    orientation="vertical"
+    class="session-trace"
+  >
+    <template #waterfall>
+      <div class="session-trace__waterfall">
+        <div class="session-trace__search">
+          <UInput
+            v-model="spanQuery"
+            icon="i-lucide-search"
+            placeholder="Search spans"
+            size="sm"
+            variant="outline"
+            :ui="{ base: 'w-full' }"
+          />
+          <span>{{ filteredSpans.length }} spans</span>
+        </div>
 
-      <div class="session-trace__table-scroll">
-        <div class="session-trace__table">
-          <div class="session-trace__table-head">
-            <strong>Name</strong>
-            <div class="session-trace__axis">
-              <span
-                v-for="tick in ticks"
-                :key="tick.position"
-                :style="{ left: `${tick.position * 100}%` }"
-                >{{ tick.label }}</span
-              >
-            </div>
-          </div>
-          <div class="session-trace__rows">
-            <button
-              v-for="span in filteredSpans"
-              :key="span.id"
-              type="button"
-              class="session-trace__row"
-              :data-selected="selectedSpan?.id === span.id"
-              :data-status="span.status"
-              @click="
-                selectedSpanId = span.id;
-                emit('focusActivity', span.activityId);
-              "
-            >
-              <span
-                class="session-trace__name"
-                :style="{ paddingInlineStart: `${0.75 + span.depth * 1.65}rem` }"
-              >
-                <UIcon :name="span.icon" />
+        <div class="session-trace__table-scroll">
+          <div class="session-trace__table">
+            <div class="session-trace__table-head">
+              <strong>Name</strong>
+              <div class="session-trace__axis">
                 <span
-                  ><strong>{{ span.name }}</strong
-                  ><small v-if="span.description">{{ span.description }}</small></span
-                >
-              </span>
-              <span class="session-trace__timeline">
-                <i
                   v-for="tick in ticks"
                   :key="tick.position"
                   :style="{ left: `${tick.position * 100}%` }"
-                />
-                <span
-                  class="session-trace__bar"
-                  :data-wide="span.durationMs / traceDurationMs > 0.16"
-                  :style="barStyle(span)"
-                  ><span>{{ formatDuration(span.durationMs) }}</span></span
+                  >{{ tick.label }}</span
                 >
-              </span>
-            </button>
-            <div v-if="filteredSpans.length === 0" class="session-trace__empty">
-              No spans match this search.
+              </div>
+            </div>
+            <div class="session-trace__rows">
+              <button
+                v-for="span in filteredSpans"
+                :key="span.id"
+                type="button"
+                class="session-trace__row"
+                :data-selected="selectedSpan?.id === span.id"
+                :data-status="span.status"
+                @click="
+                  selectedSpanId = span.id;
+                  emit('focusActivity', span.activityId);
+                "
+              >
+                <span
+                  class="session-trace__name"
+                  :style="{ paddingInlineStart: `${0.75 + span.depth * 1.65}rem` }"
+                >
+                  <UIcon :name="span.icon" />
+                  <span
+                    ><strong>{{ span.name }}</strong
+                    ><small v-if="span.description">{{ span.description }}</small></span
+                  >
+                </span>
+                <span class="session-trace__timeline">
+                  <i
+                    v-for="tick in ticks"
+                    :key="tick.position"
+                    :style="{ left: `${tick.position * 100}%` }"
+                  />
+                  <span
+                    class="session-trace__bar"
+                    :data-wide="span.durationMs / traceWindowMs > 0.16"
+                    :style="barStyle(span)"
+                    ><span>{{ formatDuration(span.durationMs) }}</span></span
+                  >
+                </span>
+              </button>
+              <div v-if="filteredSpans.length === 0" class="session-trace__empty">
+                No spans match this search.
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <aside v-if="selectedSpan" class="session-trace__detail">
-      <header class="session-trace__detail-head">
-        <strong><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong>
-        <button type="button" @click="copyAttributes">
-          <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
-            copied ? "Copied" : "Copy attributes"
-          }}
-        </button>
-      </header>
-      <section class="session-trace__summary">
-        <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
-        <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
-        <dl>
-          <div>
-            <dt>Duration</dt>
-            <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
-          </div>
-          <div>
-            <dt>Trace ID</dt>
-            <dd>
-              <code>{{ shortId(invocation.traceId) }}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Span ID</dt>
-            <dd>
-              <code>{{ shortId(selectedSpan.id) }}</code>
-            </dd>
-          </div>
-        </dl>
-      </section>
-      <div class="session-trace__field-search">
-        <UInput
-          v-model="fieldQuery"
-          icon="i-lucide-search"
-          placeholder="Search fields…"
-          size="sm"
-          variant="outline"
-        />
-      </div>
-      <div class="session-trace__fields">
-        <section v-for="[key, value] in filteredAttributes" :key="key">
-          <span>{{ key }}</span>
-          <pre>{{ displayValue(value) }}</pre>
+    <template #resize-handle>
+      <span
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+      />
+    </template>
+
+    <template #detail>
+      <aside v-if="selectedSpan" class="session-trace__detail">
+        <header class="session-trace__detail-head">
+          <strong
+            ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
+          >
+          <button type="button" @click="copyAttributes">
+            <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
+              copied ? "Copied" : "Copy attributes"
+            }}
+          </button>
+        </header>
+        <section class="session-trace__summary">
+          <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
+          <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
+          <dl>
+            <div>
+              <dt>Duration</dt>
+              <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
+            </div>
+            <div>
+              <dt>Trace ID</dt>
+              <dd>
+                <code>{{ shortId(invocation.traceId) }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Span ID</dt>
+              <dd>
+                <code>{{ shortId(selectedSpan.id) }}</code>
+              </dd>
+            </div>
+          </dl>
         </section>
-        <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
-          No fields match this search.
+        <div class="session-trace__field-search">
+          <UInput
+            v-model="fieldQuery"
+            icon="i-lucide-search"
+            placeholder="Search fields…"
+            size="sm"
+            variant="outline"
+          />
         </div>
-      </div>
-    </aside>
-  </section>
+        <div class="session-trace__fields">
+          <section v-for="[key, value] in filteredAttributes" :key="key">
+            <span>{{ key }}</span>
+            <pre>{{ displayValue(value) }}</pre>
+          </section>
+          <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
+            No fields match this search.
+          </div>
+        </div>
+      </aside>
+    </template>
+  </USplitter>
 </template>

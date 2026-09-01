@@ -477,6 +477,18 @@ function optionalMessageId(messageId: string | undefined): { messageId?: string 
   return messageId ? { messageId } : {}
 }
 
+export function appendLatestFinalText(
+  text: string,
+  identity: string | undefined,
+  event: Extract<StreamEvent, { type: "text-delta" }>,
+): { identity: string | undefined, text: string } {
+  const nextIdentity = event.messageId ?? event.id
+  return {
+    identity: nextIdentity ?? identity,
+    text: nextIdentity && identity && nextIdentity !== identity ? event.text : text + event.text,
+  }
+}
+
 function optionalDurationMs(durationMs: number | undefined): { durationMs?: number } {
   return durationMs === undefined ? {} : { durationMs }
 }
@@ -503,6 +515,7 @@ export function toAgentStreamEvent(
   toolNames?: Map<string, string>,
   textPhases?: Map<string, AgentMessagePhase | "hidden">,
   toolActivities?: ReadonlyMap<string, AgentActivity>,
+  messageState?: { messageId?: string },
 ): StreamEvent | undefined {
   if (hasRuntimeType(chunk, "string")) {
     return { text: chunk, type: "text-delta" }
@@ -514,7 +527,12 @@ export function toAgentStreamEvent(
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
-  const messageId = hasRuntimeType(value.messageId, "string") ? value.messageId : undefined
+  const explicitMessageId = hasRuntimeType(value.messageId, "string") ? value.messageId : undefined
+  if (type === "start") {
+    if (messageState) messageState.messageId = explicitMessageId
+    return undefined
+  }
+  const messageId = explicitMessageId ?? messageState?.messageId
   const hasExplicitPhase = "phase" in value && value.phase !== undefined
   const phase = value.phase === "commentary"
     ? "commentary"
@@ -625,6 +643,7 @@ async function* streamChunksToEvents(
 ): AsyncIterable<StreamEvent> {
   const toolNames = new Map<string, string>()
   const textPhases = new Map<string, AgentMessagePhase>()
+  const messageState: { messageId?: string } = {}
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
@@ -636,7 +655,7 @@ async function* streamChunksToEvents(
       && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
     if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
     if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
-    const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+    const event = toAgentStreamEvent(chunk, toolNames, textPhases, undefined, messageState)
     if (!event) continue
     if (event.type === "text-delta" && event.phase !== undefined && observation) {
       observation.explicitTextPhaseSeen = true

@@ -45,7 +45,9 @@ export interface UseAgentInvocationsReturn {
 }
 
 export interface AgentInvocationDetailResult {
+  appendObservations?: boolean;
   invocation: AgentInvocationSummary;
+  observationCursor?: string;
   observations: readonly TraceEventLogEntry[];
 }
 
@@ -146,7 +148,21 @@ function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetail
       type: observation.type,
     };
   });
-  return { invocation: parseInvocationSummary(value.invocation), observations };
+  if (value.appendObservations !== undefined && typeof value.appendObservations !== "boolean") {
+    throw new TypeError("Invalid Agent Invocation observation page.");
+  }
+  const observationCursor = value.observationCursor;
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation detail responses are untrusted JSON at this requester boundary.
+  if (observationCursor !== undefined && typeof observationCursor !== "string") {
+    throw new TypeError("Invalid Agent Invocation observation cursor.");
+  }
+  const result: AgentInvocationDetailResult = {
+    invocation: parseInvocationSummary(value.invocation),
+    observations,
+  };
+  if (value.appendObservations === true) result.appendObservations = true;
+  if (observationCursor !== undefined) result.observationCursor = observationCursor;
+  return result;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -526,22 +542,43 @@ export function useAgentInvocation(
   const observations = shallowRef<readonly TraceEventLogEntry[]>([]);
   const request = options.request;
   const baseURL = options.baseURL ?? defaultBaseURL;
+  let loadedSource: string | undefined;
+  let loadedObservationCursor: string | undefined;
+  let requestedSource: string | undefined;
 
   const resource = useInvocationResource<AgentInvocationDetailResult>({
     apply(result) {
+      const append = result.appendObservations
+        && loadedSource === requestedSource
+        && invocation.value?.id === result.invocation.id;
       invocation.value = result.invocation;
-      observations.value = result.observations;
+      observations.value = append
+        ? [...observations.value, ...result.observations]
+        : result.observations;
+      loadedSource = requestedSource;
+      loadedObservationCursor = result.observationCursor;
     },
     clear() {
       invocation.value = null;
       observations.value = [];
+      loadedSource = undefined;
+      loadedObservationCursor = undefined;
+      requestedSource = undefined;
     },
     immediate:
       options.immediate !== false && (options.request !== undefined || "window" in globalThis),
     load(signal) {
       const resolvedId = toValue(id);
       if (resolvedId === undefined) return Promise.resolve(undefined);
-      return request(detailPath(toValue(baseURL), resolvedId), { signal }).then(
+      const resolvedBaseURL = toValue(baseURL);
+      const source = JSON.stringify([resolvedBaseURL, resolvedId]);
+      requestedSource = source;
+      const canRequestDelta = loadedSource === source && loadedObservationCursor !== undefined;
+      const path = appendQuery(detailPath(resolvedBaseURL, resolvedId), {
+        observationCount: canRequestDelta ? observations.value.length : undefined,
+        observationCursor: canRequestDelta ? loadedObservationCursor : undefined,
+      });
+      return request(path, { signal }).then(
         parseAgentInvocationDetailResult,
       );
     },

@@ -74,6 +74,35 @@ await runScheduledAgent(agent, schedule, {
 
 The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.
 
+## Reconcile GitHub pull requests
+
+`pullRequest: true` accepts declared slash commands on pull request comments. Add `pullRequest.reconcile` when selected pull request lifecycle events should also start an invocation. Mention commands are opt-in and application-owned, so ViteHub does not reserve a bot name.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      activity: true,
+      app: true,
+      pullRequest: {
+        reconcile: {
+          events: ['opened', 'reopened', 'ready_for_review', 'synchronize'],
+          mentions: ['@agent'],
+          prompt: 'Review this pull request and make any needed changes.',
+        },
+      },
+    }),
+  },
+  driver: { kind: 'codex', permissions: 'allow-all' },
+  workspace: { mode: 'write' },
+})
+```
+
+Lifecycle deliveries use one concurrent invocation slot per repository and pull request. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
+
 ## Connect a web chat
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.

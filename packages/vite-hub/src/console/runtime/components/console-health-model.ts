@@ -10,7 +10,7 @@ export type ConsoleHealth = {
   }>;
   status: "degraded" | "healthy";
   summary: string;
-  workload: { active: number; completed: number; failed: number; snapshots: number; total: number };
+  workload: { active: number; completed: number; failed: number; snapshots?: number; total: number };
 };
 
 const diagnosticSchema = v.object({
@@ -36,7 +36,7 @@ const healthSchema = v.object({
       active: workloadCountSchema,
       completed: workloadCountSchema,
       failed: workloadCountSchema,
-      snapshots: workloadCountSchema,
+      snapshots: v.optional(workloadCountSchema),
       total: workloadCountSchema,
     }),
     v.check(

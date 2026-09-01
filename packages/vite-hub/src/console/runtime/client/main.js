@@ -260,11 +260,25 @@ const router = createRouter({
 
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
-router.beforeEach(async (to) => {
+const preferredColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const applyPreferredColorScheme = ({ matches }) => {
+  document.documentElement.classList.toggle("dark", matches);
+};
+applyPreferredColorScheme(preferredColorScheme);
+preferredColorScheme.addEventListener("change", applyPreferredColorScheme);
+
+router.beforeEach((to) => {
   const section = to.meta.consoleSection;
   if (!isConsoleSectionId(section)) return;
-  const installed = await loadSections();
-  if (installed && !installed.includes(section)) return { name: "vitehub-console" };
+  void loadSections().then((installed) => {
+    if (
+      installed &&
+      !installed.includes(section) &&
+      router.currentRoute.value.fullPath === to.fullPath
+    ) {
+      void router.replace({ name: "vitehub-console" });
+    }
+  });
 });
 
 router.afterEach((to) => {

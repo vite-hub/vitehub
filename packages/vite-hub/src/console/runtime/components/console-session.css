@@ -4,6 +4,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -130,15 +131,15 @@
   align-items: center;
   border-radius: 0.5rem !important;
   display: inline-flex;
-  height: 2rem !important;
+  height: 1.75rem !important;
   justify-content: center;
   padding: 0 !important;
-  width: 2rem !important;
+  width: 1.75rem !important;
 }
 
 .session-inspector__icon-button [data-slot="leadingIcon"] {
-  height: 0.875rem !important;
-  width: 0.875rem !important;
+  height: 1rem !important;
+  width: 1rem !important;
 }
 
 .session-inspector__tabstrip > [data-reka-popper-root] {
@@ -593,17 +594,21 @@
   min-width: max-content;
 }
 
-.session-code-preview .shiki {
+.session-code-preview .shiki,
+.session-code-preview__plain {
   background: transparent !important;
-  counter-reset: line;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  line-height: 1.45;
+  font-size: 0.6875rem;
+  line-height: 1.4;
   margin: 0;
   min-height: 100%;
   min-width: max-content;
   padding: 0.625rem 0 1.5rem;
   tab-size: 2;
+}
+
+.session-code-preview .shiki {
+  counter-reset: line;
 }
 
 .session-code-preview .line {
@@ -643,8 +648,6 @@
 }
 
 .session-trace {
-  display: grid;
-  grid-template-columns: minmax(20rem, 1.45fr) minmax(15rem, 0.95fr);
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -652,6 +655,7 @@
 
 .session-trace__waterfall {
   display: grid;
+  flex: 1;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
@@ -862,12 +866,13 @@
 }
 
 .session-trace__detail {
-  border-inline-start: 1px solid var(--ui-border);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  flex: 1;
+  grid-template-rows: auto auto auto auto;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .session-trace__detail-head {
@@ -996,8 +1001,6 @@
 
 .session-trace__fields {
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .session-trace__fields section {
@@ -1474,10 +1477,5 @@
   }
   .session-inspector__breadcrumbs {
     padding-inline: 0.65rem;
-  }
-  .session-trace {
-    grid-template-columns: 18rem 14rem;
-    min-width: 32rem;
-    overflow-x: auto;
   }
 }

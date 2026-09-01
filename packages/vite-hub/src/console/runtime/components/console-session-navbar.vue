@@ -1,0 +1,98 @@
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  detailsOpen: boolean;
+  externalUrl?: string;
+  hasDisplay: boolean;
+  hasSelection: boolean;
+  loading: boolean;
+  project: string;
+  title: string;
+}>();
+
+const externalTarget = computed(() => {
+  if (!props.externalUrl) return;
+  try {
+    const host = new URL(props.externalUrl).hostname.toLowerCase();
+    if (host === "github.com" || host.endsWith(".github.com"))
+      return { icon: "i-lucide-github", label: "Open on GitHub" };
+  } catch {
+    // Keep malformed or relative consumer links usable with the generic action.
+  }
+  return { icon: "i-lucide-external-link", label: "Open related page" };
+});
+
+defineEmits<{
+  openSessions: [];
+  refresh: [];
+  toggleDetails: [];
+}>();
+</script>
+
+<template>
+  <UDashboardNavbar
+    class="vitehub-console__session-navbar"
+    :title="title"
+    :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
+  >
+    <template #title>
+      <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
+        <UIcon name="i-lucide-folder" class="size-3.5 shrink-0 text-muted" />
+        <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{ project }}</span>
+        <span class="text-dimmed" aria-hidden="true">/</span>
+        <strong class="min-w-0 truncate font-medium text-highlighted">{{ title }}</strong>
+      </div>
+      <span v-else class="text-sm font-medium">{{ title }}</span>
+    </template>
+    <template #right>
+      <UTooltip text="Open sessions">
+        <UButton
+          data-slot="mobile-session-navigation"
+          class="md:hidden"
+          icon="i-lucide-panel-left"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          aria-label="Open sessions"
+          @click="$emit('openSessions')"
+        />
+      </UTooltip>
+      <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
+        <UButton
+          :to="externalUrl"
+          target="_blank"
+          :icon="externalTarget.icon"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :aria-label="externalTarget.label"
+        />
+      </UTooltip>
+      <UTooltip text="Refresh session">
+        <UButton
+          icon="i-lucide-refresh-cw"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :loading="loading"
+          aria-label="Refresh session"
+          @click="$emit('refresh')"
+        />
+      </UTooltip>
+      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
+        <UButton
+          data-slot="session-details-toggle"
+          icon="i-lucide-panel-right"
+          color="neutral"
+          :variant="detailsOpen ? 'soft' : 'ghost'"
+          size="sm"
+          :disabled="!hasSelection"
+          aria-label="Session details"
+          :aria-pressed="detailsOpen"
+          @click="$emit('toggleDetails')"
+        />
+      </UTooltip>
+    </template>
+  </UDashboardNavbar>
+</template>
