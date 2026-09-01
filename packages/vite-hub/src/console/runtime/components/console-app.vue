@@ -852,7 +852,7 @@ onBeforeUnmount(() => {
             @toggle-maximized="detailsMaximized = false"
           />
           <USplitter
-            v-else-if="invocationView && isDesktop && detailsOpen"
+            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout"
             :items="splitterItems"
@@ -873,7 +873,7 @@ onBeforeUnmount(() => {
                   @toggle-details="detailsOpen = !detailsOpen"
                 />
                 <UAlert
-                  v-if="errorMessage(detail.error.value)"
+                  v-if="invocationView && errorMessage(detail.error.value)"
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
@@ -884,7 +884,22 @@ onBeforeUnmount(() => {
                     { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
                   ]"
                 />
+                <ConsoleSessionLoading
+                  v-if="detail.isLoading.value && !invocationView"
+                  class="min-h-0 flex-1"
+                />
+                <UEmpty
+                  v-else-if="errorMessage(detail.error.value) && !invocationView"
+                  class="min-h-0 flex-1"
+                  icon="i-ph-cloud-slash-light"
+                  title="Could not load this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  ]"
+                />
                 <AgentInvocation
+                  v-else-if="invocationView"
                   :header="false"
                   :invocation="invocationView"
                   :selected-activity-id="selectedActivityId"
@@ -895,6 +910,7 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
+                v-if="invocationView"
                 :invocation="invocationView"
                 :workspace-base="`${hostBase}/api/invocations`"
                 v-model:tab="inspectorTab"
@@ -906,6 +922,20 @@ onBeforeUnmount(() => {
                 @close="closeDetails"
                 @focus-activity="selectActivity"
                 @toggle-maximized="detailsMaximized = true"
+              />
+              <ConsoleSessionLoading
+                v-else-if="detail.isLoading.value"
+                class="h-full min-h-0"
+              />
+              <UEmpty
+                v-else
+                class="h-full min-h-0"
+                icon="i-ph-cloud-slash-light"
+                title="Could not load session details"
+                :description="errorMessage(detail.error.value)"
+                :actions="[
+                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                ]"
               />
             </template>
             <template #resize-handle>
@@ -1006,7 +1036,7 @@ onBeforeUnmount(() => {
 .vitehub-console {
   --ui-header-height: 3.25rem;
   height: 100dvh;
-  min-height: 32rem;
+  min-height: 0;
   overflow: hidden;
 }
 

@@ -7,7 +7,7 @@
 <style>
 .vitehub-console {
   height: 100dvh;
-  min-height: 32rem;
+  min-height: 0;
   overflow: hidden;
 }
 </style>

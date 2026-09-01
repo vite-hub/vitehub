@@ -292,6 +292,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-app.vue`,
       "utf8",
     );
+    const consoleFrame = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-frame.vue`,
+      "utf8",
+    );
     expect(consolePage).toMatch(
       /\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/,
     );
@@ -334,7 +338,13 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
     expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");
     expect(consolePage).toContain("if (names.length && !isUsageRoute.value)");
-    expect(consolePage).toContain('v-else-if="invocationView && isDesktop && detailsOpen"');
+    expect(consolePage).toContain(
+      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
+    );
+    expect(consolePage).toContain('v-if="detail.isLoading.value && !invocationView"');
+    expect(consolePage).not.toContain("min-height: 32rem");
+    expect(consoleFrame).toContain("min-height: 0");
+    expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
     expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
     expect(consolePage).toContain('@inspect="inspectSession"');
