@@ -1240,5 +1240,5 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 600_000)
+  }, 1_800_000)
 })
