@@ -3,6 +3,27 @@ import { describe, expect, it } from "vitest"
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
+  it("materializes UI data URL attachments for provider agents", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          filename: "clipboard.png",
+          mediaType: "image/png",
+          type: "file",
+          url: "data:image/png;base64,AQID",
+        }],
+        role: "user",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([{
+      data: "data:image/png;base64,AQID",
+      mediaType: "image/png",
+      name: "clipboard.png",
+      type: "image",
+    }])
+  })
+
   it("keeps a fresh approval boundary stable for a new manual Chat Session", () => {
     const messages = [
       { id: "message-new", metadata: { sessionId: "chat" }, parts: [], role: "user" as const },
