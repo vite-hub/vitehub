@@ -333,7 +333,7 @@ function chatContextString(value: unknown, maxLength = 256): string | undefined 
     : undefined
 }
 
-function chatMessageRun(
+export function resolveChatMessageRunMetadata(
   run: AgentRunMetadata | undefined,
   invoker: AgentInvoker | undefined,
   messages: readonly Pick<Message, "createdAt">[],
@@ -398,7 +398,7 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       return {
         input,
         ...(thinkingFallback !== undefined ? { metadata: { thinkingFallback } } : {}),
-        run: chatMessageRun(triggerInput.run, input.context?.invoker, input.messages || []),
+        run: resolveChatMessageRunMetadata(triggerInput.run, input.context?.invoker, input.messages || []),
       }
     },
   }

@@ -293,6 +293,14 @@ describe("Channel instructions", () => {
         // SAFETY: createModel implements the AI SDK methods exercised by this test.
         model: model as never,
       },
+      invoker: {
+        resolve: () => ({
+          id: "resolved-user-1",
+          kind: "chat",
+          label: "Resolved Maxi",
+          meta: { username: "resolved-maxi" },
+        }),
+      },
       invocations,
       name: "support",
     })
@@ -320,13 +328,13 @@ describe("Channel instructions", () => {
       user: { id: "user-1", name: "Maxi", username: "maxi" },
     })
 
-    const prompt = model.doGenerateCalls[0]!.prompt as Array<{ content: unknown, role: string }>
+    const prompt = model.doGenerateCalls[0]!.prompt
     const system = prompt.find(message => message.role === "system")?.content
     expect(system).toEqual(expect.any(String))
     expect(system).toContain("Current channel message")
     expect(system).toContain("Channel: \"telegram\"")
-    expect(system).toContain("Sender: \"Maxi\"")
-    expect(system).toContain("Username: \"maxi\"")
+    expect(system).toContain("Sender: \"Resolved Maxi\"")
+    expect(system).toContain("Username: \"resolved-maxi\"")
     expect(system).toContain(`Sent at: "${sentAt}"`)
     expect(prompt.find(message => message.role === "user")?.content)
       .toEqual([{ text: "What changed for me this week?", type: "text" }])
@@ -334,7 +342,7 @@ describe("Channel instructions", () => {
       annotations: {
         "channel.sentAt": sentAt,
         source: "portal",
-        triggeredBy: "Maxi",
+        triggeredBy: "Resolved Maxi",
       },
     })
   })
