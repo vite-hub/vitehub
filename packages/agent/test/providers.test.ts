@@ -1166,10 +1166,10 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({
       nitro: {
         externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
         rollupConfig: {
-          external: agentRuntimeExternals,
+          external: optionalAgentRuntimeExternals,
         },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),

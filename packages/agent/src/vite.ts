@@ -68,7 +68,7 @@ const optionalAgentRuntimeExternals = [
   "zlib-sync",
 ]
 const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp"]
+const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
   "@t3tools/provider-runtime",
   "@ai-sdk/mcp",
@@ -742,7 +742,7 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const existingExternal = nitro.rollupConfig.external as RollupExternalOption | undefined
   nitro.rollupConfig.external = mergeRollupExternals(
     existingExternal,
-    agentRuntimeExternals,
+    optionalAgentRuntimeExternals,
   )
   return nitro
 }
