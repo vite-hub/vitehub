@@ -12,11 +12,11 @@ const page = `<!doctype html>
     <meta name="description" content="Read-only ViteHub project inspection">
     <meta name="robots" content="noindex, nofollow">
     <title>ViteHub Console</title>
-    <link rel="stylesheet" href="/_vitehub/assets/console.css">
+    <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/_vitehub/assets/console.js"></script>
+    <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>
 </html>`;
 

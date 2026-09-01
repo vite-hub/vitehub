@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
@@ -46,6 +49,17 @@ const distributionEntries = [
   ]),
   "src/console/runtime/client/sections.ts",
 ].sort();
+
+const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
+
+function consoleAsset(extension: ".css" | ".js"): string {
+  const matches = readdirSync(consoleAssetRoot)
+    .filter(file => file.startsWith("console-") && file.endsWith(extension));
+  if (matches.length !== 1) {
+    throw new TypeError(`Expected one hashed Console ${extension} asset, found ${matches.length}.`);
+  }
+  return matches[0]!;
+}
 
 export default defineConfig({
   pack: {
@@ -169,6 +183,21 @@ export default defineConfig({
       onlyBundle: false,
     },
     plugins: [
+      {
+        name: "vite-hub-console-assets",
+        generateBundle(_options, bundle) {
+          const page = Object.values(bundle).find(output =>
+            output.type === "chunk"
+            && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
+          );
+          if (!page || page.type !== "chunk") {
+            throw new TypeError("Expected the standalone Console page in the package bundle.");
+          }
+          page.code = page.code
+            .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset(".css"))
+            .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset(".js"));
+        },
+      },
       {
         name: "vite-hub-env-config-declarations",
         generateBundle(_options, bundle) {
