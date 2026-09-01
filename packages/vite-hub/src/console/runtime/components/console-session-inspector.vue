@@ -471,7 +471,7 @@ function message(error: unknown) {
           variant="pill"
           :ui="{
             root: 'min-w-0',
-            list: 'w-max min-w-full gap-1 bg-transparent p-0',
+            list: 'w-max min-w-0 gap-1 bg-transparent p-0',
             indicator: 'hidden',
             trigger:
               'group/tab h-6 max-w-36 shrink-0 grow-0 cursor-pointer justify-start gap-0.5 rounded-md px-1.5 py-0 text-xs',

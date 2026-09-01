@@ -228,7 +228,7 @@ const splitterItems: SplitterItem[] = [
     id: "thread",
     slot: "thread",
     minSize: 360,
-    defaultSize: 680,
+    defaultSize: 720,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
@@ -237,7 +237,7 @@ const splitterItems: SplitterItem[] = [
     slot: "details",
     minSize: 360,
     maxSize: 1080,
-    defaultSize: 540,
+    defaultSize: 440,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
@@ -959,7 +959,7 @@ onBeforeUnmount(() => {
           <USplitter
             v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
             id="agent-session-layout"
-            auto-save-id="vitehub-agent-session-layout"
+            auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
             class="h-full min-h-0 overflow-hidden"
           >
