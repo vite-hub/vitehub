@@ -970,6 +970,30 @@ it("resolves conditional package imports with their calling semantics", async ()
   await expect(readFile(neutralBundle, "utf8")).resolves.toContain('platform = "default"')
 })
 
+it("preserves successful provider-condition traces when another condition rejects", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-partial-condition-trace-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nodeTarget = join(rootDir, "dist", "node.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(nodeTarget), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      imports: { "#provider": { workerd: null, node: "./dist/node.mjs" } },
+      type: "module",
+    })),
+    writeFile(handler, 'export { value } from "#provider"\n'),
+    writeFile(nodeTarget, 'export const value = "node"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "node" })
+})
+
 it("traces local package exports with every provider condition", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-conditional-exports-"))
   tempDirs.push(rootDir)
@@ -1359,8 +1383,8 @@ it("retains nested repositories for bound createRequire calls", async () => {
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, [
-      'import { createRequire } from "node:module"',
-      "const projectRequire = createRequire(import.meta.url)",
+      'import { createRequire as makeRequire } from "node:module"',
+      "const projectRequire = makeRequire(import.meta.url)",
       'const module = "../required-worktree/workflow.cjs"',
       'export const load = () => ({ computed: projectRequire(module), literal: projectRequire("../literal-worktree/workflow.cjs") })',
       "",

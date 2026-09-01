@@ -252,15 +252,31 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     if (match[2] === "`" && match[3]!.includes("${")) continue
     bindings.set(match[1]!, match[3]!)
   }
+  const createRequireNames = new Set(["createRequire"])
+  const namedImports = /\bimport\s*\{([^}]*)\}\s*from\s*([`"'])node:module\2/gis
+  for (const match of source.matchAll(namedImports)) {
+    for (const specifier of match[1]!.split(",")) {
+      const binding = /^\s*createRequire(?:\s+as\s+([A-Z_$][\w$]*))?\s*$/i.exec(specifier)?.[1]
+      if (binding) createRequireNames.add(binding)
+    }
+  }
+  const destructuredRequires = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*([`"'])node:module\2\s*\)/gis
+  for (const match of source.matchAll(destructuredRequires)) {
+    for (const property of match[1]!.split(",")) {
+      const binding = /^\s*createRequire(?:\s*:\s*([A-Z_$][\w$]*))?\s*$/i.exec(property)?.[1]
+      if (binding) createRequireNames.add(binding)
+    }
+  }
   const boundRequireNames = new Set<string>()
-  const boundRequireDeclarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*createRequire\s*\(/gi
-  for (const match of masked.matchAll(boundRequireDeclarations)) boundRequireNames.add(match[1]!)
+  const boundRequireDeclarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*([A-Z_$][\w$]*)\s*\(/gi
+  for (const match of masked.matchAll(boundRequireDeclarations)) {
+    if (createRequireNames.has(match[2]!)) boundRequireNames.add(match[1]!)
+  }
 
   const paths: string[] = []
   const computedRequests = [
     /\b(?:import|require)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
     /\bmodule\s*\.\s*require\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
-    /\bcreateRequire\s*\([^)]*\)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
   ]
   for (const request of computedRequests) {
     for (const match of masked.matchAll(request)) {
@@ -270,6 +286,14 @@ function traceComputedModuleSources(file: string, source: string): string[] {
       if (!imported) continue
       paths.push(imported)
     }
+  }
+  const createdComputedRequests = /\b([A-Z_$][\w$]*)\s*\([^)]*\)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
+  for (const match of masked.matchAll(createdComputedRequests)) {
+    if (!createRequireNames.has(match[1]!)) continue
+    const specifier = bindings.get(match[2]!)
+    if (!specifier || (!specifier.startsWith(".") && !isAbsolute(specifier))) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
   }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedRequests)) {
@@ -285,10 +309,6 @@ function traceComputedModuleSources(file: string, source: string): string[] {
       pattern: /\bmodule\s*\.\s*require\s*\(\s*([`"'])(.*?)\1/gi,
       prefix: /\bmodule\s*\.\s*require\s*\(\s*$/i,
     },
-    {
-      pattern: /\bcreateRequire\s*\([^)]*\)\s*\(\s*([`"'])(.*?)\1/gi,
-      prefix: /\bcreateRequire\s*\([^)]*\)\s*\(\s*$/i,
-    },
   ]
   for (const request of literalRequests) {
     for (const match of source.matchAll(request.pattern)) {
@@ -300,6 +320,17 @@ function traceComputedModuleSources(file: string, source: string): string[] {
       const imported = resolveComputedModuleSource(file, specifier)
       if (imported) paths.push(imported)
     }
+  }
+  const createdLiteralRequests = /\b([A-Z_$][\w$]*)\s*\([^)]*\)\s*\(\s*([`"'])(.*?)\2/gis
+  for (const match of source.matchAll(createdLiteralRequests)) {
+    if (!createRequireNames.has(match[1]!)) continue
+    const quoteOffset = match[0].indexOf(match[2]!)
+    if (!/\b[A-Z_$][\w$]*\s*\([^)]*\)\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    const specifier = match[3]!
+    if (match[2] === "`" && specifier.includes("${")) continue
+    if (!specifier.startsWith(".") && !isAbsolute(specifier)) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
   }
   const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralRequests)) {
@@ -328,7 +359,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
     { conditions: ["vitehub-hosted", "node", "default"], platform: "node" as const },
   ]
   try {
-    const importedSources = new Set<string>()
+    const importedSources = new Set(entries)
     const scannedModuleRequestSources = new Set<string>()
     const tracedEntries = new Set<string>()
     let pendingEntries = entries
@@ -338,7 +369,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
       const importedSourceHints = new Set<string>()
-      const results = await Promise.all(traceBuildVariants.map(async variant => await build({
+      const results = (await Promise.allSettled(traceBuildVariants.map(async variant => await build({
         absWorkingDir: root,
         bundle: true,
         entryPoints: tracedBatch,
@@ -418,7 +449,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
           },
         }],
         write: false,
-      })))
+      })))).flatMap(result => result.status === "fulfilled" ? [result.value] : [])
       for (const result of results) {
         for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
       }
