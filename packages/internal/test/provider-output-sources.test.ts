@@ -90,18 +90,24 @@ it("publishes absolute links into captured source trees without live checkout re
   const workspaceDir = join(rootDir, "server", "agents", "support", "workspace")
   const target = join(workspaceDir, "context.md")
   const link = join(workspaceDir, "linked.md")
+  const targetDir = join(workspaceDir, "context")
+  const directoryLink = join(workspaceDir, "linked-context")
   const retainedSourcesDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources")
   const stagedSourcesDir = join(rootDir, ".vitehub", "agent.next", "sources")
   const publishedSourcesDir = join(rootDir, ".vitehub", "agent", "sources")
   await mkdir(workspaceDir, { recursive: true })
   await writeFile(target, "captured\n")
+  await mkdir(targetDir)
+  await writeFile(join(targetDir, "details.md"), "directory captured\n")
   await symlink(target, link, "file")
+  await symlink(targetDir, directoryLink, process.platform === "win32" ? "junction" : "dir")
 
   const retained = await retainProviderOutputSources({
     artifactDir: retainedSourcesDir,
     paths: [workspaceDir],
     roots: [rootDir],
   })
+  expect(realpathSync(retained.resolve(directoryLink))).toBe(retained.resolve(targetDir))
   await cp(retainedSourcesDir, stagedSourcesDir, { recursive: true })
   await rebasePublishedProviderSourceLinks(stagedSourcesDir, retainedSourcesDir, publishedSourcesDir)
   await mkdir(dirname(publishedSourcesDir), { recursive: true })
@@ -110,8 +116,11 @@ it("publishes absolute links into captured source trees without live checkout re
   await rm(retainedSourcesDir, { force: true, recursive: true })
 
   const publishedLink = join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(link)))
+  const publishedDirectoryLink = join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(directoryLink)))
   await expect(readFile(publishedLink, "utf8")).resolves.toBe("captured\n")
+  await expect(readFile(join(publishedDirectoryLink, "details.md"), "utf8")).resolves.toBe("directory captured\n")
   expect((await readlink(publishedLink)).includes(rootDir)).toBe(false)
+  expect(realpathSync(publishedDirectoryLink)).toBe(join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(targetDir))))
 })
 
 it("retains absolute alias keys with their copied source trees", () => {
@@ -1304,18 +1313,32 @@ it("retains nested repositories for computed module.require calls", async () => 
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
 })
 
-it("retains nested repositories when createRequire may load a runtime target", async () => {
+it("retains nested repositories for bound createRequire calls", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-create-require-"))
   tempDirs.push(rootDir)
   const handler = join(rootDir, "server", "workflow.mjs")
   const requiredRepository = join(rootDir, "required-worktree")
   const required = join(requiredRepository, "workflow.cjs")
-  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  const literalRepository = join(rootDir, "literal-worktree")
+  const literal = join(literalRepository, "workflow.cjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(requiredRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
-    writeFile(handler, 'import { createRequire } from "node:module"\nconst module = "../required-worktree/workflow.cjs"\nexport const load = () => createRequire(import.meta.url)(module)\n'),
+    writeFile(handler, [
+      'import { createRequire } from "node:module"',
+      "const projectRequire = createRequire(import.meta.url)",
+      'const module = "../required-worktree/workflow.cjs"',
+      'export const load = () => ({ computed: projectRequire(module), literal: projectRequire("../literal-worktree/workflow.cjs") })',
+      "",
+    ].join("\n")),
     writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
-    writeFile(required, "module.exports = { required: true }\n"),
+    writeFile(required, "module.exports = { required: 'computed' }\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(literal, "module.exports = { required: 'literal' }\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -1325,8 +1348,10 @@ it("retains nested repositories when createRequire may load a runtime target", a
   })
 
   // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
-  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: () => { required: boolean } }
-  await expect(retainedHandler.load()).toMatchObject({ required: true })
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { computed: { required: string }, literal: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ computed: { required: "computed" }, literal: { required: "literal" } })
 })
 
 it("retains literal member-based require targets", async () => {

@@ -79,7 +79,11 @@ export async function rebasePublishedProviderSourceLinks(
   await visit(stagedSourcesDir)
 }
 
-async function rebaseCapturedAbsoluteSourceLinks(stagedSourcesDir: string, sourceRoot: string): Promise<void> {
+async function rebaseCapturedAbsoluteSourceLinks(
+  stagedSourcesDir: string,
+  sourceRoot: string,
+  publishedSourcesDir: string,
+): Promise<void> {
   const visit = async (directory: string): Promise<void> => {
     const entries = await readdir(directory, { withFileTypes: true })
     await Promise.all(entries.map(async (entry) => {
@@ -92,13 +96,14 @@ async function rebaseCapturedAbsoluteSourceLinks(stagedSourcesDir: string, sourc
       const link = await readlink(path)
       if (!isAbsolute(link) || !pathContains(sourceRoot, link)) return
       const target = resolve(stagedSourcesDir, relative(sourceRoot, link))
+      const publishedTarget = resolve(publishedSourcesDir, relative(sourceRoot, link))
       const targetType = await stat(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return undefined
         throw error
       })
       if (!targetType) return
       const type = targetType.isDirectory() ? (process.platform === "win32" ? "junction" : "dir") : "file"
-      const rebasedLink = type === "junction" ? target : relative(dirname(path), target) || "."
+      const rebasedLink = type === "junction" ? publishedTarget : relative(dirname(path), target) || "."
       await rm(path, { force: true, recursive: true })
       await symlink(rebasedLink, path, type)
     }))
@@ -247,6 +252,9 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     if (match[2] === "`" && match[3]!.includes("${")) continue
     bindings.set(match[1]!, match[3]!)
   }
+  const boundRequireNames = new Set<string>()
+  const boundRequireDeclarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*createRequire\s*\(/gi
+  for (const match of masked.matchAll(boundRequireDeclarations)) boundRequireNames.add(match[1]!)
 
   const paths: string[] = []
   const computedRequests = [
@@ -262,6 +270,14 @@ function traceComputedModuleSources(file: string, source: string): string[] {
       if (!imported) continue
       paths.push(imported)
     }
+  }
+  const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
+  for (const match of masked.matchAll(boundComputedRequests)) {
+    if (!boundRequireNames.has(match[1]!)) continue
+    const specifier = bindings.get(match[2]!)
+    if (!specifier || (!specifier.startsWith(".") && !isAbsolute(specifier))) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
   }
 
   const literalRequests = [
@@ -284,6 +300,17 @@ function traceComputedModuleSources(file: string, source: string): string[] {
       const imported = resolveComputedModuleSource(file, specifier)
       if (imported) paths.push(imported)
     }
+  }
+  const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
+  for (const match of source.matchAll(boundLiteralRequests)) {
+    if (!boundRequireNames.has(match[1]!)) continue
+    const quoteOffset = match[0].indexOf(match[2]!)
+    if (!/\b[A-Z_$][\w$]*\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    const specifier = match[3]!
+    if (match[2] === "`" && specifier.includes("${")) continue
+    if (!specifier.startsWith(".") && !isAbsolute(specifier)) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
   }
 
   return paths
@@ -722,7 +749,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           },
         })
       }
-      await rebaseCapturedAbsoluteSourceLinks(stagedContainer, captureRoot)
+      await rebaseCapturedAbsoluteSourceLinks(stagedContainer, captureRoot, retainedContainer)
       await mkdir(dirname(retainedContainer), { recursive: true })
       try {
         await rename(stagedContainer, retainedContainer)
