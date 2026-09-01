@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
@@ -9,6 +9,7 @@ import { promisify } from "node:util"
 
 import { Message } from "chat"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { build as viteBuild } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
@@ -83,7 +84,6 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
-const agentRuntimeExternals = ["@t3tools/provider-runtime", ...optionalAgentRuntimeExternals]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -500,9 +500,46 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect(result).toMatchObject({
-      resolve: { noExternal: ["existing", "@vite-hub/agent"] },
+      resolve: { noExternal: ["existing", "@vite-hub/agent", "@t3tools/provider-runtime"] },
     })
   })
+
+  it("bundles the provider runtime into hosted Vite server output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-hosted-vite-output-"))
+    const outDir = join(root, "dist")
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}\n", "utf8")
+      await writeFile(
+        join(root, "server.ts"),
+        'export { createProviderRuntime } from "@t3tools/provider-runtime"\n',
+        "utf8",
+      )
+
+      await viteBuild({
+        build: {
+          minify: false,
+          outDir,
+          ssr: join(root, "server.ts"),
+        },
+        configFile: false,
+        logLevel: "silent",
+        plugins: [hubAgent({ providers: { state: { provider: "memory" } } })],
+        root,
+      })
+
+      const output = (await Promise.all(
+        (await readdir(outDir, { recursive: true }))
+          .filter(path => /\.[cm]?js$/.test(path))
+          .map(path => readFile(join(outDir, path), "utf8")),
+      )).join("\n")
+      expect(output).toContain("createProviderRuntime")
+      expect(output).not.toMatch(/\bfrom\s*["']@t3tools\/provider-runtime["']/)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 60_000)
 
   it("normalizes the final server environment externals for Rolldown", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -1041,7 +1078,20 @@ describe("agent Vite plugin", () => {
                     "@/\0vitehub-prefix:2": `${join(root, "duplicate")}/`,
                     "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
                   },
-                  external: expect.arrayContaining(["@vite-hub/sandbox", "@vite-hub/shell/*", "@vite-hub/workflow"]),
+                  external: [
+                    "@ai-sdk/mcp",
+                    "@modelcontextprotocol/sdk/*",
+                    "@vite-hub/sandbox",
+                    "@vite-hub/sandbox/*",
+                    "@vite-hub/shell",
+                    "@vite-hub/shell/*",
+                    "@vite-hub/workflow",
+                    "@vite-hub/workflow/*",
+                    "agents",
+                    "evalite/*",
+                    ...optionalAgentRuntimeExternals,
+                    "vitest/*",
+                  ],
                 }),
                 config: expect.objectContaining({
                   path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
@@ -1157,7 +1207,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-            nitro: { externals: { inline: ["existing"] } },
+            nitro: { externals: { inline: ["existing"] }, noExternals: [/existing/] },
           } as never,
           { command: "build", mode: "production" },
         )
@@ -1166,10 +1216,11 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({
       nitro: {
         externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp"],
+          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
+        noExternals: [/existing/, "@t3tools/provider-runtime"],
         rollupConfig: {
-          external: agentRuntimeExternals,
+          external: optionalAgentRuntimeExternals,
         },
         replace: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(process.cwd()),
@@ -1740,7 +1791,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...agentRuntimeExternals],
+        external: ["existing", ...optionalAgentRuntimeExternals],
         input: "legacy-entry",
       },
     })
@@ -1923,7 +1974,7 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
     expect(output.build).toEqual({
-      rolldownOptions: { external: agentRuntimeExternals },
+      rolldownOptions: { external: optionalAgentRuntimeExternals },
     })
   })
 
