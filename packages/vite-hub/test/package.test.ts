@@ -431,6 +431,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain("scheduleAgentsRetry()");
     expect(consolePage).toContain("}, 5_000);");
+    expect(consolePage).toContain("isRetryableConsoleRequestError(detail.error.value)");
     expect(consoleSessionNavbar).toContain('class="vitehub-console__session-navbar"');
     expect(consolePage).toContain('class="vitehub-console__session-panel"');
     expect(consolePage).toContain('class="flex h-full min-h-0 w-full flex-col overflow-hidden"');

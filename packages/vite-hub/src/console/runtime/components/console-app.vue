@@ -23,7 +23,7 @@ import {
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../console-route";
-import { requestConsole } from "../client/request";
+import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -110,6 +110,9 @@ const initialSessionLoading = computed(() =>
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
+  if (detail.error.value) {
+    return isRetryableConsoleRequestError(detail.error.value) ? 3_000 : false;
+  }
   const detailStatus = selectedDetailStatus.value;
   const status =
     detailStatus?.id === selectedInvocationId.value

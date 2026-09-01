@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { appendUniqueConsoleKeys, loadConsoleKVPages, requestConsole } from "../src/console/runtime/client/request.ts"
+import {
+  appendUniqueConsoleKeys,
+  ConsoleRequestError,
+  isRetryableConsoleRequestError,
+  loadConsoleKVPages,
+  requestConsole,
+} from "../src/console/runtime/client/request.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 
 afterEach(() => {
@@ -23,6 +29,17 @@ describe("Console requests", () => {
     await expect(requestConsole("/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetch).toHaveBeenCalledWith("/api/_vitehub/console/sections", { method: "GET", signal: undefined })
+  })
+
+  it("preserves HTTP status and retries only transient request failures", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 502 })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(requestConsole("/api/_vitehub/console/invocations/selected"))
+      .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(404))).toBe(false)
+    expect(isRetryableConsoleRequestError(new TypeError("network unavailable"))).toBe(true)
   })
 
   it("sends read-only actions as JSON POST requests", async () => {
