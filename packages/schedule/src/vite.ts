@@ -34,6 +34,7 @@ const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
+const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
@@ -393,7 +394,7 @@ interface WriteNitroSchedulePluginOptions {
 async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedulePluginOptions): Promise<string> {
   const pluginFile = resolve(root, generatedNitroSchedulePlugin)
   const moduleFile = resolve(root, generatedNitroCloudflareModule)
-  const providerRegistryFile = resolve(root, registryImportAnchor)
+  const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const runtimeRegistryFile = resolve(root, generatedNitroRuntimeRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   await mkdir(dirname(pluginFile), { recursive: true })

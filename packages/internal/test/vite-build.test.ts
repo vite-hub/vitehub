@@ -14,7 +14,7 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
-  it("honors a project marker at the system temporary root", async () => {
+  it("ignores an ambient project marker at the system temporary root unless explicitly configured", async () => {
     const previousTemporaryDirectories = {
       TEMP: process.env.TEMP,
       TMP: process.env.TMP,
@@ -29,7 +29,8 @@ describe("Vite provider builds", () => {
       process.env.TMP = temporaryRoot
       process.env.TMPDIR = temporaryRoot
 
-      expect(resolveViteHubProjectRoot(projectRoot)).toBe(temporaryRoot)
+      expect(resolveViteHubProjectRoot(projectRoot)).toBe(projectRoot)
+      expect(resolveViteHubProjectRoot(projectRoot, { projectRoot: temporaryRoot })).toBe(temporaryRoot)
     }
     finally {
       for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
