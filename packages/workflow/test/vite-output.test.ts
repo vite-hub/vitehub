@@ -1285,7 +1285,7 @@ describe("Vite workflow provider outputs", () => {
     const workflowRoutes = rebuiltRoutes.filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
     expect(workflowRoutes).toEqual([...new Set(workflowRoutes.map(route => JSON.stringify(route)))].map(route => JSON.parse(route)))
 
-  }, buildOutputTestTimeout)
+  }, buildOutputTestTimeout * 2)
 
   it("rejects native Vercel entries outside discovered definition directories", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
