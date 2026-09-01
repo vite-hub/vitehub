@@ -464,6 +464,11 @@ describe("Vite schedule integration", () => {
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.not.toContain("\"5 0 * * *\"")
+    const registry = await readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")
+    expect(registry).toContain("./sources/")
+    expect(registry).not.toContain("schedule-generations")
+    await expect(readFile(join(root, ".vitehub", "schedule", "sources", "0", "src", "cleanup.schedule.ts"), "utf8"))
+      .resolves.toContain("cron: '0 0 * * *'")
   })
 
   it("resets pending Provider Output when schedule preparation fails", async () => {

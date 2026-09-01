@@ -896,9 +896,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
-    resolve(rootDir, ".vitehub/schedule/cloudflare-output.json"),
-    resolve(rootDir, ".vitehub/schedule/deno-cron.mjs"),
-    resolve(rootDir, ".vitehub/schedule/registry.mjs"),
+    resolve(rootDir, ".vitehub/schedule"),
     resolve(rootDir, ".vitehub/workflow"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))

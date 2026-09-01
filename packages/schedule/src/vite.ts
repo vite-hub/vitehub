@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -108,6 +108,42 @@ function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleVitePlug
     projectRoot: options.projectRoot,
   })
   return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
+}
+
+async function publishRetainedScheduleProviderSources(rootDir: string, retainedSourcesDir: string, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  const generatedDir = resolve(rootDir, ".vitehub", "schedule")
+  const publishedSourcesDir = resolve(generatedDir, "sources")
+  const nextDir = `${generatedDir}.${randomUUID()}.next`
+  const previousDir = `${generatedDir}.${randomUUID()}.previous`
+  let movedPrevious = false
+  try {
+    await cp(generatedDir, nextDir, { recursive: true })
+    await rm(resolve(nextDir, "sources"), { force: true, recursive: true })
+    await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+    const registryFile = resolve(nextDir, "registry.mjs")
+    const registryContents = await readFile(registryFile, "utf8")
+    await writeFile(registryFile, rewriteRetainedProviderSourcePaths(registryContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    signal.throwIfAborted()
+    await rename(generatedDir, previousDir)
+    movedPrevious = true
+    await rename(nextDir, generatedDir)
+    signal.throwIfAborted()
+    await rm(previousDir, { force: true, recursive: true })
+  }
+  catch (error) {
+    await rm(nextDir, { force: true, recursive: true })
+    if (movedPrevious) {
+      try {
+        await rm(generatedDir, { force: true, recursive: true })
+        await rename(previousDir, generatedDir)
+      }
+      catch (restoreError) {
+        throw new AggregateError([error, restoreError], "Generated Schedule artifact rollback failed")
+      }
+    }
+    throw error
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -687,7 +723,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           rootDir,
           write: async ({ signal }) => {
             signal.throwIfAborted()
-            await generateProviderOutputsWithinLock({
+            const artifacts = await generateProviderOutputsWithinLock({
               bundleAlias: retainedAliases,
               bundleExternal,
               clientOutDir: resolve(config.root, config.build.outDir),
@@ -700,6 +736,12 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
               sourceRootDir: retainedSources.resolve(rootDir),
               workflow,
             })
+            if (artifacts.definitions.length > 0) {
+              await publishRetainedScheduleProviderSources(rootDir, resolve(contributionArtifactDir, "sources"), signal)
+            }
+            else {
+              await rm(resolve(rootDir, ".vitehub", "schedule", "sources"), { force: true, recursive: true })
+            }
           },
         }, providerOutputGenerations.get(this))
       }

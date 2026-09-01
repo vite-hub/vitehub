@@ -974,6 +974,43 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(sourcesDir, "context.md"), "utf8")).resolves.toBe("old source")
   })
 
+  it("restores published Schedule sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const scheduleDir = join(rootDir, ".vitehub", "schedule")
+    const sourcesDir = join(scheduleDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(scheduleDir, "registry.mjs"), "old registry")
+    await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(scheduleDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(scheduleDir, "registry.mjs"), "new registry")
+            await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(scheduleDir, "registry.mjs"), "utf8")).resolves.toBe("old registry")
+    await expect(readFile(join(sourcesDir, "cleanup.schedule.ts"), "utf8")).resolves.toBe("old source")
+  })
+
   it("preserves the previous Vercel function when replacement bundling is cancelled", async () => {
     let bundlingStarted!: () => void
     const started = new Promise<void>(resolve => bundlingStarted = resolve)
