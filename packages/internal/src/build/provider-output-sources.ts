@@ -767,6 +767,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const dependencies of dependencyRoots(root)) {
         await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), resolveRetainedDependencyTarget)
       }
+      for (const source of escapedMaterializedSources) {
+        const sourceDirectory = statSync(source).isDirectory() ? source : dirname(source)
+        for (const dependencies of dependencyRoots(sourceDirectory)) {
+          const target = pathContains(captureRoot, dependencies)
+            ? resolve(retainedContainer, relative(captureRoot, dependencies))
+            : resolve(retainedContainer, "node_modules")
+          await linkDependencies(dependencies, target, resolveRetainedDependencyTarget)
+        }
+      }
       for (const [target, dependencies] of nestedDependencyRoots) {
         await linkDependencies(dependencies, target, resolveRetainedDependencyTarget)
       }
