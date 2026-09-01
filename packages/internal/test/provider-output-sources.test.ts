@@ -515,6 +515,45 @@ it("retains an aliased package with its relative import base", async () => {
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
 })
 
+it("bounds source roots that would contain provider staging", async () => {
+  const previousTemporaryDirectories = {
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    TMPDIR: process.env.TMPDIR,
+  }
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-staging-boundary-"))
+  tempDirs.push(workspace)
+  try {
+    process.env.TEMP = workspace
+    process.env.TMP = workspace
+    process.env.TMPDIR = workspace
+    const rootDir = join(workspace, "apps", "web")
+    const handler = join(rootDir, "server", "agent.ts")
+    const policy = join(workspace, "shared", "policy.md")
+    await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(policy), { recursive: true })])
+    await Promise.all([
+      writeFile(join(workspace, "package.json"), '{"private":true}\n'),
+      writeFile(handler, "export default {}\n"),
+      writeFile(policy, "Retained policy\n"),
+    ])
+
+    const retained = await retainProviderOutputSources({
+      artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+      paths: [handler, policy],
+      roots: [rootDir],
+    })
+
+    await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+    await expect(readFile(retained.resolve(policy), "utf8")).resolves.toBe("Retained policy\n")
+  }
+  finally {
+    for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
 it("retains package siblings imported by an aliased output entry", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-output-"))
   tempDirs.push(workspace)

@@ -1,14 +1,45 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
   hasNitroConfigContext,
   resolveNitroVercelFunctionName,
   resolveViteHubGeneratedRoot,
+  resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("ignores an ambient project marker at the system temporary root", async () => {
+    const previousTemporaryDirectories = {
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      TMPDIR: process.env.TMPDIR,
+    }
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "vitehub-project-root-boundary-"))
+    const projectRoot = join(temporaryRoot, "fixture")
+    try {
+      await mkdir(projectRoot)
+      await writeFile(join(temporaryRoot, "package.json"), '{"private":true}\n')
+      process.env.TEMP = temporaryRoot
+      process.env.TMP = temporaryRoot
+      process.env.TMPDIR = temporaryRoot
+
+      expect(resolveViteHubProjectRoot(projectRoot)).toBe(projectRoot)
+    }
+    finally {
+      for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await rm(temporaryRoot, { force: true, recursive: true })
+    }
+  })
+
   it("resolves the shared generated-artifact root", () => {
     expect(resolveViteHubGeneratedRoot({ root: "/app" })).toBe("/app/.vitehub")
     expect(resolveViteHubGeneratedRoot({

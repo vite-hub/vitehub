@@ -163,6 +163,11 @@ function packageRoot(file: string): string {
   }
 }
 
+function boundSourceRootOutsideTemporaryStaging(root: string, source: string): string {
+  if (!pathContains(root, resolve(tmpdir()))) return root
+  return statSync(source).isDirectory() ? source : dirname(source)
+}
+
 function dependencyRoots(root: string): string[] {
   const resolvedRoot = realpathSync(root)
   const roots: string[] = []
@@ -774,11 +779,14 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const nestedInRetainedOutput = pathSegments.includes(".vitehub") || pathSegments.includes("node_modules")
     const discoveredPackageRoot = packageRoot(path)
     const hasNestedPackage = Boolean(configuredRoot && nestedInRetainedOutput && discoveredPackageRoot !== configuredRoot)
-    const sourceRoot = configuredRoot && !hasNestedPackage ? sourceClosureRoot(configuredRoot) : discoveredPackageRoot
+    const discoveredSourceRoot = configuredRoot && !hasNestedPackage ? sourceClosureRoot(configuredRoot) : discoveredPackageRoot
+    const sourceRoot = boundSourceRootOutsideTemporaryStaging(discoveredSourceRoot, path)
     sourceRootByPath.set(path, sourceRoot)
     if (!configuredRoot || hasNestedPackage) packageRoots.add(sourceRoot)
   }
-  for (const root of configuredRoots) sourceRootByPath.set(root, sourceClosureRoot(root))
+  for (const root of configuredRoots) {
+    sourceRootByPath.set(root, boundSourceRootOutsideTemporaryStaging(sourceClosureRoot(root), root))
+  }
 
   const roots = [...new Set(sourceRootByPath.values())]
   const retainedRoots = new Map<string, string>()
