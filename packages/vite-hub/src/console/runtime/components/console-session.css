@@ -868,10 +868,11 @@
 .session-trace__detail {
   display: grid;
   flex: 1;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .session-trace__detail-head {
@@ -1000,8 +1001,6 @@
 
 .session-trace__fields {
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .session-trace__fields section {
