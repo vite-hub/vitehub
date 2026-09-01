@@ -334,6 +334,16 @@ function chatContextString(value: unknown, maxLength = 256): string | undefined 
 }
 
 export function resolveChatMessageRunMetadata(
+  run: AgentRunMetadata,
+  invoker: AgentInvoker | undefined,
+  messages: readonly Pick<Message, "createdAt">[],
+): AgentRunMetadata
+export function resolveChatMessageRunMetadata(
+  run: AgentRunMetadata | undefined,
+  invoker: AgentInvoker | undefined,
+  messages: readonly Pick<Message, "createdAt">[],
+): AgentRunMetadata | undefined
+export function resolveChatMessageRunMetadata(
   run: AgentRunMetadata | undefined,
   invoker: AgentInvoker | undefined,
   messages: readonly Pick<Message, "createdAt">[],
