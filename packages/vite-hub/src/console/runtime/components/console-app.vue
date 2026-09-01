@@ -836,21 +836,40 @@ onBeforeUnmount(() => {
     >
       <template #body>
         <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
-          <ConsoleSessionInspector
-            v-if="invocationView && isDesktop && detailsOpen && detailsMaximized"
-            :invocation="invocationView"
-            :maximized="true"
-            :workspace-base="`${hostBase}/api/invocations`"
-            v-model:tab="inspectorTab"
-            v-model:active-surface="inspectorActiveSurface"
-            v-model:open-views="inspectorOpenViews"
-            v-model:open-paths="inspectorOpenPaths"
-            v-model:selected-path="inspectorSelectedPath"
-            class="h-full"
-            @close="closeDetails"
-            @focus-activity="selectActivity"
-            @toggle-maximized="detailsMaximized = false"
-          />
+          <div
+            v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
+            class="h-full min-h-0 overflow-hidden"
+          >
+            <ConsoleSessionInspector
+              v-if="invocationView"
+              :invocation="invocationView"
+              :maximized="true"
+              :workspace-base="`${hostBase}/api/invocations`"
+              v-model:tab="inspectorTab"
+              v-model:active-surface="inspectorActiveSurface"
+              v-model:open-views="inspectorOpenViews"
+              v-model:open-paths="inspectorOpenPaths"
+              v-model:selected-path="inspectorSelectedPath"
+              class="h-full"
+              @close="closeDetails"
+              @focus-activity="selectActivity"
+              @toggle-maximized="detailsMaximized = false"
+            />
+            <ConsoleSessionLoading
+              v-else-if="detail.isLoading.value"
+              class="h-full min-h-0"
+            />
+            <UEmpty
+              v-else
+              class="h-full min-h-0"
+              icon="i-ph-cloud-slash-light"
+              title="Could not load this session"
+              :description="errorMessage(detail.error.value)"
+              :actions="[
+                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+              ]"
+            />
+          </div>
           <USplitter
             v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"

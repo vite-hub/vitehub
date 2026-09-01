@@ -341,6 +341,9 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(
       'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
     );
+    expect(consolePage).toContain(
+      'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
+    );
     expect(consolePage).toContain('v-if="detail.isLoading.value && !invocationView"');
     expect(consolePage).not.toContain("min-height: 32rem");
     expect(consoleFrame).toContain("min-height: 0");
