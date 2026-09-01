@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
@@ -320,7 +319,7 @@ function renderConsoleNitroPlugin(
         ]
       : []),
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations, installConsoleInvocations } from "vite-hub/console/server"`]
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`]
       : []),
     ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(kvEnabled
@@ -337,12 +336,12 @@ function renderConsoleNitroPlugin(
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
     ...(agentsEnabled
-      ? [
-          fixture
-            ? `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`
-            : `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(projectRoot)})`,
-          `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], vitehubConsoleInvocations)`,
-        ]
+      ? fixture
+        ? [
+            `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
+            `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { invocations: vitehubConsoleInvocations })`,
+          ]
+        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -470,7 +469,7 @@ async function installConsole(
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-  if (installInvocations && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot)
+  if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot)
   const routeRules = (nuxt.options.routeRules ??= {})
   for (const route of ["/_vitehub", "/_vitehub/**"]) {
     const rule = (routeRules[route] ??= {})
@@ -1035,7 +1034,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const effectiveAuth = viteAuth ?? options.auth
     if (!nuxt.options.vitehubCliDiscovery) {
       assertConsoleProductionAccess(configuredConsole, {
-        agentsEnabled: consoleSections.includes("agents"),
         auth: configuredConsole !== true && configuredConsole.access === "auth" && effectiveAuth
           ? resolveAuthViteConfig(
               effectiveAuth === true ? undefined : effectiveAuth,
@@ -1044,7 +1042,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
             )
           : undefined,
         development: Boolean(nuxt.options.dev),
-        preset: plan.preset,
       })
     }
     const fixture = nuxt.options.vitehubCliDiscovery

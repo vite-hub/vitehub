@@ -501,7 +501,10 @@ describe("Agent invocation console", () => {
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
-        `const vitehubConsoleInvocations = installConsoleInvocations(${JSON.stringify(root)})`,
+        `installConsoleAgentDefinitions([`,
+      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
+        `{ projectRoot: ${JSON.stringify(root)} }`,
       )
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `fallbackName: "review"`,
@@ -1248,8 +1251,8 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("rejects production console builds without durable local storage", async () => {
-    const plugin = consoleVitePlugin({ preset: "cloudflare", sections: ["agents"] })
+  it("allows host-managed production Console builds on non-Node hosts", async () => {
+    const plugin = consoleVitePlugin({ console: { exposure: "host-managed" }, preset: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a console config hook.")
     const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1257,7 +1260,7 @@ describe("Agent invocation console", () => {
     await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
       command: "build",
       mode: "production",
-    }])).rejects.toThrow('Console currently requires preset: "node" for production')
+    }])).resolves.toBeUndefined()
   })
 
   it("rejects a bare production Console boolean", async () => {
@@ -1844,7 +1847,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
-    ], invocations)
+    ], { invocations })
 
     expect(definition.invocations).toBe(invocations)
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
@@ -1866,7 +1869,7 @@ describe("Agent invocation console", () => {
     )
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
-    ], first)
+    ], { invocations: first })
     expect(definition.invocations).toBe(first)
 
     installConsoleInvocationFallback(
@@ -1886,14 +1889,14 @@ describe("Agent invocation console", () => {
     const definition: { invocations?: AgentInvocations, name: string } = { name: "support" }
     const entries = [{ definition: { default: definition }, fallbackName: "help" }]
 
-    installConsoleAgentDefinitions(entries, first)
+    installConsoleAgentDefinitions(entries, { invocations: first })
     expect(definition.invocations).toBe(first)
 
-    installConsoleAgentDefinitions(entries, second)
+    installConsoleAgentDefinitions(entries, { invocations: second })
     expect(definition.invocations).toBe(second)
 
     definition.invocations = explicit
-    installConsoleAgentDefinitions(entries, first)
+    installConsoleAgentDefinitions(entries, { invocations: first })
     expect(definition.invocations).toBe(explicit)
   })
 
@@ -1908,9 +1911,44 @@ describe("Agent invocation console", () => {
 
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
-    ], consoleInvocations)
+    ], { invocations: consoleInvocations })
 
     expect(definition.invocations).toBe(explicitInvocations)
+  })
+
+  it("installs a discovered Agent invocation journal as the Console journal", async () => {
+    const projectRoot = "/configured-journal"
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const definition = defineAgent({
+      driver: { run: () => "ok" },
+      invocations,
+      name: "support",
+    })
+
+    installConsoleAgentDefinitions([
+      { definition: { default: definition }, fallbackName: "help" },
+    ], { projectRoot })
+
+    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(invocations)
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+  })
+
+  it("rejects multiple discovered Agent invocation journals", () => {
+    const first = defineAgent({
+      driver: { run: () => "ok" },
+      invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
+      name: "first",
+    })
+    const second = defineAgent({
+      driver: { run: () => "ok" },
+      invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }),
+      name: "second",
+    })
+
+    expect(() => installConsoleAgentDefinitions([
+      { definition: { default: first }, fallbackName: "first" },
+      { definition: { default: second }, fallbackName: "second" },
+    ], { projectRoot: "/multiple-journals" })).toThrow("Console cannot inspect multiple Agent invocation journals")
   })
 
   it("preserves an Agent invocation journal assigned after definition", () => {
@@ -1921,7 +1959,7 @@ describe("Agent invocation console", () => {
 
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
-    ], consoleInvocations)
+    ], { invocations: consoleInvocations })
 
     expect(definition.invocations).toBe(explicitInvocations)
   })
@@ -1933,7 +1971,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
-    ], invocations)
+    ], { invocations })
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
   })

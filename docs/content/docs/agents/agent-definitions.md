@@ -65,6 +65,8 @@ export default defineAgent({
 
 Declaring a Workspace does not automatically grant model-backed or custom Drivers file access. Provider Drivers receive the selected Workspace as their working directory; Capabilities still control additional tools and invocation behavior.
 
+AI SDK Model Drivers make one output-only correction call when a known tool receives arguments that fail its input schema. The correction cannot select another tool or execute a provider-defined tool. Set `driver.execution.repairToolCall: false` to disable this behavior.
+
 ## Return structured output
 
 Set `driver.output` when downstream code needs validated data instead of free-form text.
@@ -89,7 +91,9 @@ export default defineAgent({
 
 Inline `runAgent()` execution returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output. Workflow-backed calls return an `AgentWorkflowRun` after the Workflow starts. Poll `getWorkflowRun(workflowName, run.id)` until its status is `completed`, then read `result` for the validated Agent value. Treat `failed`, `cancelled`, and `unknown` as terminal states instead of waiting indefinitely.
 
-When a model returns invalid native structured output, the Agent Driver makes one output-only correction call before failing validation. The correction keeps the invocation's prepared model and provider route, but it does not replay conversation messages or expose tools, so completed tool effects cannot run again. Tool results remain available as bounded evidence for the corrected output. Usage records include both model calls, with per-call attribution, aggregate token totals, and aggregate cost when provider metadata or configured pricing supplies it.
+When an AI SDK Model Driver returns invalid native structured output, it makes up to three total attempts by default: the original request and two output-only correction calls. Set `driver.output.maxAttempts` to a positive integer to choose the total attempt limit; `maxAttempts: 1` disables correction calls. Corrections keep the invocation's prepared model and provider route, but they do not replay conversation messages or expose tools, so completed tool effects cannot run again. Tool results remain available as bounded evidence for corrected output. Usage records include every model call, with per-call attribution, aggregate token totals, and aggregate cost when provider metadata or configured pricing supplies it.
+
+Provider Drivers such as `codex` and `claude-code`, and custom-run Drivers, validate their returned output once. They do not accept `maxAttempts` because a second provider session or application callback would replay work instead of performing an output-only Model Driver correction.
 
 ## Choose hosted execution
 

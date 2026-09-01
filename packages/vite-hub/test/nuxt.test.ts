@@ -562,10 +562,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/console-cli" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `const vitehubConsoleInvocations = installConsoleInvocations("/tmp/vitehub-nuxt")`,
-    )
-    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], vitehubConsoleInvocations)`,
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt" })`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,
@@ -1570,15 +1567,17 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("rejects non-Node production console storage while preserving development", async () => {
+  it("allows host-managed production Console on non-Node hosts", async () => {
     const development = createNuxt(true)
     await expect(viteHubNuxtModule({ agent: true, console: true, preset: "cloudflare" }, development.nuxt)).resolves.toBeUndefined()
     expect(development.nuxt.options.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/api/_vitehub/console/sections" }))
 
     const production = createNuxt(false)
-    await expect(viteHubNuxtModule({ agent: true, console: true, preset: "cloudflare" }, production.nuxt)).rejects.toThrow(
-      'Console currently requires preset: "node" for production',
-    )
+    await expect(viteHubNuxtModule({
+      agent: true,
+      console: { exposure: "host-managed" },
+      preset: "cloudflare",
+    }, production.nuxt)).resolves.toBeUndefined()
   })
 
   it("rejects bare production Console enablement", async () => {

@@ -1,4 +1,5 @@
 import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "../../internal.ts"
+import { installConsoleInvocations } from "./invocations.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 
@@ -9,11 +10,57 @@ export type ConsoleAgentDefinitionEntry = {
   fallbackName: string
 }
 
+export type ConsoleAgentDefinitionInstallation =
+  | { invocations: AgentInvocations, projectRoot?: never }
+  | { invocations?: never, projectRoot: string }
+
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentsKey]?: readonly string[]
 }
 
 const consoleAssignedInvocations = new WeakMap<object, AgentInvocations>()
+
+type ResolvedConsoleAgentDefinition = {
+  agent?: Record<string, unknown>
+  fallbackName: string
+}
+
+function resolveConsoleAgentDefinition(
+  entry: ConsoleAgentDefinitionEntry,
+): ResolvedConsoleAgentDefinition {
+  const { definition, fallbackName } = entry
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can import arbitrary JavaScript definitions, so inspect their runtime shape at this boundary.
+  // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module namespace.
+  const module = definition && typeof definition === "object" ? definition as Record<string, unknown> : undefined
+  let agent = module
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can provide an arbitrary default export, so inspect its runtime shape at this boundary.
+  if (module?.default && typeof module.default === "object") {
+    // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module default export.
+    agent = module.default as Record<string, unknown>
+  }
+  return { agent, fallbackName }
+}
+
+function explicitAgentInvocations(agent: Record<string, unknown> | undefined): AgentInvocations | undefined {
+  if (!agent || Reflect.get(agent, consoleInvocationsFallbackKey) === true) return undefined
+  const assigned = consoleAssignedInvocations.get(agent)
+  const invocations = agent.invocations
+  if (invocations === undefined || invocations === assigned) return undefined
+  // SAFETY: Agent Definitions own this field; Console passes the discovered value only to the Agent invocation journal boundary that defined it.
+  return invocations as AgentInvocations
+}
+
+function resolveConsoleAgentInvocations(
+  definitions: readonly ResolvedConsoleAgentDefinition[],
+  installation: ConsoleAgentDefinitionInstallation,
+): AgentInvocations {
+  if (installation.invocations) return installation.invocations
+  const configured = [...new Set(definitions.map(({ agent }) => explicitAgentInvocations(agent)).filter(Boolean))]
+  if (configured.length > 1) {
+    throw new TypeError("[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions.")
+  }
+  return installConsoleInvocations(installation.projectRoot, configured[0])
+}
 
 export function installConsoleAgents(
   agentNames: readonly string[],
@@ -28,18 +75,11 @@ export function installConsoleAgents(
 
 export function installConsoleAgentDefinitions(
   entries: readonly ConsoleAgentDefinitionEntry[],
-  invocations: AgentInvocations,
+  installation: ConsoleAgentDefinitionInstallation,
 ): readonly string[] {
-  return installConsoleAgents(entries.map(({ definition, fallbackName }) => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can import arbitrary JavaScript definitions, so inspect their runtime shape at this boundary.
-    // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module namespace.
-    const module = definition && typeof definition === "object" ? definition as Record<string, unknown> : undefined
-    let agent = module
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Generated plugins can provide an arbitrary default export, so inspect its runtime shape at this boundary.
-    if (module?.default && typeof module.default === "object") {
-      // SAFETY: The object check establishes the string-keyed record needed to inspect a generated module default export.
-      agent = module.default as Record<string, unknown>
-    }
+  const definitions = entries.map(resolveConsoleAgentDefinition)
+  const invocations = resolveConsoleAgentInvocations(definitions, installation)
+  return installConsoleAgents(definitions.map(({ agent, fallbackName }) => {
     if (agent && Reflect.get(agent, consoleInvocationsFallbackKey) !== true) {
       const assigned = consoleAssignedInvocations.get(agent)
       if (agent.invocations === undefined || agent.invocations === assigned) {
