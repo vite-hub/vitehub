@@ -1425,6 +1425,8 @@ async function generateProviderOutputsWithinLock(
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
+  let commitGeneratedArtifacts = async (): Promise<void> => {}
+  let rollbackGeneratedArtifacts = async (): Promise<void> => {}
   const publishGeneratedArtifacts = async (): Promise<GeneratedWorkflowArtifacts> => {
     const generatedDir = resolve(options.rootDir, ".vitehub", productName)
     if (resolve(artifacts.generatedDir) === generatedDir) return artifacts
@@ -1472,7 +1474,18 @@ async function generateProviderOutputsWithinLock(
       }
       throw error
     }
-    await rm(previousDir, { force: true, recursive: true })
+    let publicationSettled = false
+    commitGeneratedArtifacts = async () => {
+      if (publicationSettled) return
+      await rm(previousDir, { force: true, recursive: true })
+      publicationSettled = true
+    }
+    rollbackGeneratedArtifacts = async () => {
+      if (publicationSettled) return
+      await rm(generatedDir, { force: true, recursive: true })
+      if (hadPrevious) await rename(previousDir, generatedDir)
+      publicationSettled = true
+    }
     const publishedFile = (file: string) => resolve(generatedDir, relative(artifacts.generatedDir, file))
     return {
       ...artifacts,
@@ -1560,8 +1573,20 @@ async function generateProviderOutputsWithinLock(
       }
     }
   }
-  if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
-  else await writeOutputs()
+  try {
+    if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
+    else await writeOutputs()
+    await commitGeneratedArtifacts()
+  }
+  catch (error) {
+    try {
+      await rollbackGeneratedArtifacts()
+    }
+    catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Generated Workflow artifact rollback failed")
+    }
+    throw error
+  }
   return artifacts
 }
 

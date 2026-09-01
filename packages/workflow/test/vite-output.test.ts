@@ -334,6 +334,28 @@ it("removes partial staged Workflow publication when preparation fails", async (
   expect(viteHubEntries.some(entry => entry.endsWith(".next"))).toBe(false)
 })
 
+it("restores published Workflow artifacts when standalone output fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-publication-rollback-")
+  const generatedDir = join(rootDir, ".vitehub", "workflow")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  await Promise.all([mkdir(generatedDir, { recursive: true }), mkdir(retainedRoot, { recursive: true })])
+  await writeFile(join(generatedDir, "previous.txt"), "previous\n")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
+  await writeFile(artifacts.cloudflareWorkerFile, `${await readFile(artifacts.cloudflareWorkerFile, "utf8")}\nimport "missing-workflow-rollback-fixture"\n`)
+
+  await expect(generateWorkflowProviderOutputs({
+    artifacts,
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow(/missing-workflow-rollback-fixture/)
+
+  await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).resolves.toBe("previous\n")
+  await expect(readFile(join(generatedDir, "cloudflare-worker.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("preserves staged Workflow imports from configured external server directories", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-external-")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
