@@ -45,6 +45,7 @@ export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
+const mergeProviderRuntimeNoExternal = createNoExternalMerger("@t3tools/provider-runtime")
 const generatedAgentDenoServer = "agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
 const generatedAgentDiscordGatewayPlugin = "agent/discord-gateway-plugin.ts"
@@ -2794,7 +2795,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         // SAFETY: Vite passes its environment build configuration, which this adapter augments without changing its owned fields.
         build: mergeBuildExternal(config as BuildWithRolldownOptions, []),
         resolve: {
-          noExternal: mergeNoExternal(config.resolve?.noExternal),
+          noExternal: mergeProviderRuntimeNoExternal(mergeNoExternal(config.resolve?.noExternal)),
         },
       }
     },

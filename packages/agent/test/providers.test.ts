@@ -500,7 +500,7 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect(result).toMatchObject({
-      resolve: { noExternal: ["existing", "@vite-hub/agent"] },
+      resolve: { noExternal: ["existing", "@vite-hub/agent", "@t3tools/provider-runtime"] },
     })
   })
 
