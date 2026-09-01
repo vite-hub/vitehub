@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 
 const outputSchema = {
   "~standard": {
@@ -13,8 +14,8 @@ const outputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
-        ? { value: value as { text: string } }
+      return isRuntimeRecord(value) && hasRuntimeType(value.text, "string")
+        ? { value: { text: value.text } }
         : { issues: [{ message: "Expected text to be a string" }] }
     },
     vendor: "vitehub-test",
@@ -33,7 +34,7 @@ function model(responses: Array<ModelContent | string>) {
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
       return {
-        content: typeof response === "string" ? [{ text: response, type: "text" }] : response,
+        content: hasRuntimeType(response, "string") ? [{ text: response, type: "text" }] : response,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -69,13 +70,25 @@ const toolInputSchema = {
       output: () => ({ type: "object" }),
     },
     validate(value: unknown) {
-      return value && typeof value === "object" && typeof (value as { query?: unknown }).query === "string"
-        ? { value: value as { query: string } }
+      return isRuntimeRecord(value) && hasRuntimeType(value.query, "string")
+        ? { value: { query: value.query } }
         : { issues: [{ message: "Expected query to be a string" }] }
     },
     vendor: "vitehub-test",
     version: 1 as const,
   },
+}
+
+function languageModel(fakeModel: ReturnType<typeof model>) {
+  // SAFETY: This test double implements the AI SDK language model methods exercised by Agent generation.
+  return fakeModel as never
+}
+
+function textResult(result: unknown): { text: string } {
+  if (!isRuntimeRecord(result) || !hasRuntimeType(result.text, "string")) {
+    throw new TypeError("Expected a text Agent result")
+  }
+  return { text: result.text }
 }
 
 function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: unknown) => string, repairToolCall?: boolean) {
@@ -92,7 +105,7 @@ function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: 
     })],
     driver: {
       execution: repairToolCall === undefined ? undefined : { repairToolCall },
-      model: fakeModel as never,
+      model: languageModel(fakeModel),
     },
     runtime: false,
   })
@@ -102,7 +115,7 @@ describe("AI SDK recovery", () => {
   it("repairs structured output with three total attempts by default", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"repaired\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { schema: outputSchema } },
+      driver: { model: languageModel(fakeModel), output: { schema: outputSchema } },
       runtime: false,
     })
 
@@ -113,7 +126,7 @@ describe("AI SDK recovery", () => {
   it("allows structured-output repair to be disabled", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":\"must not run\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { maxAttempts: 1, schema: outputSchema } },
+      driver: { model: languageModel(fakeModel), output: { maxAttempts: 1, schema: outputSchema } },
       runtime: false,
     })
 
@@ -124,7 +137,7 @@ describe("AI SDK recovery", () => {
   it("rejects invalid structured-output attempt limits", async () => {
     const fakeModel = model(["{\"text\":\"unused\"}"])
     const agent = defineAgent({
-      driver: { model: fakeModel as never, output: { maxAttempts: 0, schema: outputSchema } },
+      driver: { model: languageModel(fakeModel), output: { maxAttempts: 0, schema: outputSchema } },
       runtime: false,
     })
 
@@ -140,7 +153,7 @@ describe("AI SDK recovery", () => {
       "Finished",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }) as { text: string }
+    const result = textResult(await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }))
 
     expect(result.text).toBe("Finished")
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
@@ -155,7 +168,7 @@ describe("AI SDK recovery", () => {
       "Could not call the tool",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions, false), runtime, { prompt: "Search" }) as { text: string }
+    const result = textResult(await runAgentInline(toolCallingAgent(fakeModel, executions, false), runtime, { prompt: "Search" }))
 
     expect(result.text).toBe("Could not call the tool")
     expect(executions).not.toHaveBeenCalled()
@@ -169,7 +182,7 @@ describe("AI SDK recovery", () => {
       "Unknown tool",
     ])
 
-    const result = await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }) as { text: string }
+    const result = textResult(await runAgentInline(toolCallingAgent(fakeModel, executions), runtime, { prompt: "Search" }))
 
     expect(result.text).toBe("Unknown tool")
     expect(executions).not.toHaveBeenCalled()
