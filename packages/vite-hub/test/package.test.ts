@@ -389,6 +389,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
+    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
+    expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
     const consoleClientMain = readFileSync(
@@ -402,6 +404,8 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(sessionInspector).toContain("Workspace unavailable");
+    expect(sessionInspector).toContain(':show-status="false"');
+    expect(sessionInspector).toContain(':show-timeline="false"');
     expect(sessionInspector).toContain('...(props.workspaceBase ? (["workspace"] as const) : [])');
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
@@ -435,6 +439,8 @@ describe("framework package contract", () => {
     expect(sessionTraceModel).toContain('"error",');
     expect(sessionTraceModel).toContain('"failed",');
     expect(sessionTrace).toContain("traceSpanEndMs(");
+    expect(sessionTrace).toContain("const traceWindowMs = computed");
+    expect(sessionTrace).not.toContain("const traceDurationMs = computed");
     expect(sessionTrace).toContain("isTerminalToolObservation");
     expect(
       readFileSync(
@@ -442,6 +448,9 @@ describe("framework package contract", () => {
         "utf8",
       ),
     ).toContain("highlightingFailed");
+    expect(consoleSessionCss).toMatch(
+      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.6875rem;/,
+    );
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
     ).toContain("<h1>Health</h1>");

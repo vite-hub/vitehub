@@ -66,7 +66,7 @@ const traceEndMs = computed(() =>
     ...spans.value.map((span) => traceSpanEndMs(span.startMs, span.endMs, span.durationMs)),
   ),
 );
-const traceDurationMs = computed(() => Math.max(1, traceEndMs.value - traceStartMs.value));
+const traceWindowMs = computed(() => Math.max(1, traceEndMs.value - traceStartMs.value));
 const filteredSpans = computed(() => {
   const query = spanQuery.value.trim().toLowerCase();
   if (!query) return spans.value;
@@ -104,7 +104,7 @@ const filteredAttributes = computed(() => {
 });
 const ticks = computed(() =>
   [0, 0.25, 0.5, 0.75, 1].map((position) => ({
-    label: formatAxis(traceDurationMs.value * position),
+    label: formatAxis(traceWindowMs.value * position),
     position,
   })),
 );
@@ -422,9 +422,9 @@ function spanIcon(operation: string) {
 function barStyle(span: TraceSpan) {
   const left = Math.max(
     0,
-    Math.min(100, ((span.startMs - traceStartMs.value) / traceDurationMs.value) * 100),
+    Math.min(100, ((span.startMs - traceStartMs.value) / traceWindowMs.value) * 100),
   );
-  const width = Math.max(0, Math.min(100 - left, (span.durationMs / traceDurationMs.value) * 100));
+  const width = Math.max(0, Math.min(100 - left, (span.durationMs / traceWindowMs.value) * 100));
   return { left: `${left}%`, width: `max(3px, ${width}%)` };
 }
 
@@ -588,7 +588,7 @@ async function copyAttributes() {
                 />
                 <span
                   class="session-trace__bar"
-                  :data-wide="span.durationMs / traceDurationMs > 0.16"
+                  :data-wide="span.durationMs / traceWindowMs > 0.16"
                   :style="barStyle(span)"
                   ><span>{{ formatDuration(span.durationMs) }}</span></span
                 >

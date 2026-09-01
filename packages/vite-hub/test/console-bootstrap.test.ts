@@ -30,7 +30,10 @@ describe.each(["agents-first", "invocations-first"] as const)(
       const initialBootstrapPending = ref(true);
       const selectedAgentName = ref<string>();
       let preservedAgentSelection: string | undefined;
+      let refreshAfterPreservedAgentSelection = false;
+      let refreshQueued = false;
       const requests: Array<{
+        path: string;
         resolve: (value: unknown) => void;
         signal: AbortSignal;
       }> = [];
@@ -42,12 +45,20 @@ describe.each(["agents-first", "invocations-first"] as const)(
             ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
             limit: 10,
           })),
-          request: (_path, { signal }) =>
+          request: (path, { signal }) =>
             new Promise((resolve) => {
-              requests.push({ resolve, signal: signal! });
+              requests.push({ path, resolve, signal: signal! });
             }),
           watch: false,
         });
+        const scheduleRefresh = () => {
+          if (refreshQueued) return;
+          refreshQueued = true;
+          void nextTick(() => {
+            refreshQueued = false;
+            void resource.refresh();
+          });
+        };
         watch(agentNames, (names) => {
           if (!names.length || initialBootstrapPending.value || selectedAgentName.value) return;
           selectedAgentName.value = names[0];
@@ -64,9 +75,19 @@ describe.each(["agents-first", "invocations-first"] as const)(
         watch(selectedAgentName, (agentName) => {
           if (agentName && preservedAgentSelection === agentName) {
             preservedAgentSelection = undefined;
+            refreshAfterPreservedAgentSelection = true;
+            if (!resource.isLoading.value) {
+              refreshAfterPreservedAgentSelection = false;
+              scheduleRefresh();
+            }
             return;
           }
-          void resource.refresh();
+          scheduleRefresh();
+        });
+        watch(resource.isLoading, (loading) => {
+          if (loading || !refreshAfterPreservedAgentSelection) return;
+          refreshAfterPreservedAgentSelection = false;
+          scheduleRefresh();
         });
         return resource;
       })!;
@@ -100,8 +121,11 @@ describe.each(["agents-first", "invocations-first"] as const)(
       await nextTick();
 
       expect(selectedAgentName.value).toBe("alpha");
-      expect(requests).toHaveLength(1);
+      expect(requests).toHaveLength(2);
       expect(requests[0]!.signal.aborted).toBe(false);
+      expect(requests[1]!.path).toContain("agent=alpha");
+      requests[1]!.resolve(invocationResponse);
+      await nextTick();
       scope.stop();
     });
   },

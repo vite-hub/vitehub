@@ -81,6 +81,7 @@ let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
 let preservedAgentSelection: string | undefined;
+let refreshAfterPreservedAgentSelection = false;
 let usageSessionBootstrap = false;
 const sessionPollingEnabled = computed(
   () =>
@@ -647,10 +648,24 @@ watch(
 watch(selectedAgentName, (agentName) => {
   if (agentName && preservedAgentSelection === agentName) {
     preservedAgentSelection = undefined;
+    refreshAfterPreservedAgentSelection = true;
+    if (!list.isLoading.value) {
+      refreshAfterPreservedAgentSelection = false;
+      scheduleInvocationListRefresh();
+    }
     return;
   }
   scheduleInvocationListRefresh();
 });
+
+watch(
+  () => list.isLoading.value,
+  (loading) => {
+    if (loading || !refreshAfterPreservedAgentSelection) return;
+    refreshAfterPreservedAgentSelection = false;
+    scheduleInvocationListRefresh();
+  },
+);
 
 if (pageVisible.value) void loadAgents();
 

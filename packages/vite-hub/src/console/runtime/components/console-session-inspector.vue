@@ -562,6 +562,8 @@ function message(error: unknown) {
     <AgentInvocationInspector
       v-else-if="tab === 'details'"
       :invocation="invocation"
+      :show-status="false"
+      :show-timeline="false"
       class="session-inspector__details"
       @select-activity="emit('focusActivity', $event)"
     >
