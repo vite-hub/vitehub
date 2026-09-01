@@ -66,12 +66,14 @@ defineEmits<{
           @click="$emit('refresh')"
         />
       </UTooltip>
-      <UTooltip v-if="hasSelection" text="Session details">
+      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
         <UButton
+          data-slot="session-details-toggle"
           icon="i-lucide-panel-right"
           color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="sm"
+          :disabled="!hasSelection"
           aria-label="Session details"
           :aria-pressed="detailsOpen"
           @click="$emit('toggleDetails')"

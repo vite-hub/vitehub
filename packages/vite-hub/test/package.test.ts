@@ -335,17 +335,31 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('label="Load older sessions"');
     expect(consolePage).not.toContain('@end-reached="list.loadMore()"');
     expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
-    expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
-    expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");
-    expect(consolePage).toContain("if (names.length && !isUsageRoute.value)");
+    expect(consolePage).toContain("immediate: pageVisible.value && !isUsageRoute.value");
+    expect(consolePage).not.toContain("initialListPending");
+    expect(consolePage).toMatch(
+      /await Promise\.all\(\[[\s\S]*?agents,[\s\S]*?list\.refresh\(\),/,
+    );
+    expect(consolePage).toContain("const initialBootstrapPending = ref(!selectedAgentName.value)");
+    expect(consolePage).toContain("!requestedAgent && !agentName && firstInvocation?.agentName");
+    expect(consolePage).toContain("selectedInvocationId.value = firstInvocation.id");
+    expect(consolePage).toContain("invocation: firstInvocation.id");
+    expect(consolePage).toContain("if (!requestedAgent && bootstrapPending) return");
+    expect(consolePage).toContain("currentAgent && names.includes(currentAgent)");
+    expect(consolePage.indexOf("if (pageVisible.value) void loadAgents();")).toBeLessThan(
+      consolePage.indexOf("onMounted(() =>"),
+    );
+    expect(consolePage).toMatch(
+      /if \(!usageRoute\) \{[\s\S]*?void nextTick\(\(\) => \{[\s\S]*?!list\.isLoading\.value[\s\S]*?void list\.refresh\(\);/,
+    );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
+      'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',
     );
     expect(consolePage).toContain(
       'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
     );
-    expect(consolePage).toContain('v-if="detail.isLoading.value && !invocationView"');
-    expect(consolePage).toContain("Show conversation");
+    expect(consolePage).toContain("detail.isLoading.value || initialSessionLoading");
+    expect(consolePage).toContain('@toggle-maximized="detailsMaximized = false"');
     expect(consolePage).not.toContain("min-height: 32rem");
     expect(consoleFrame).toContain("min-height: 0");
     expect(consoleFrame).not.toContain("min-height: 32rem");
@@ -362,7 +376,19 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleSessionLoading).toContain('aria-label="Loading session"');
-    expect(consoleSessionNavbar).toContain('v-if="hasSelection" text="Session details"');
+    expect(consoleSessionLoading).toContain('surface === \'inspector\'');
+    expect(consoleSessionLoading).toContain('icon="i-lucide-panel-right-close"');
+    expect(consoleSessionLoading).toContain("emit('toggleMaximized')");
+    expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
+    expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
+    expect(consolePage).toMatch(/scrollbar-width: none;/);
+    expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
+    const consoleClientMain = readFileSync(
+      `${packageRoot}/src/console/runtime/client/main.js`,
+      "utf8",
+    );
+    expect(consoleClientMain).toContain("void loadSections().then((installed) => {");
+    expect(consoleClientMain).not.toContain("const installed = await loadSections()");
     const sessionInspector = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
       "utf8",
