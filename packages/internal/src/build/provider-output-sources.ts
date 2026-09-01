@@ -279,6 +279,8 @@ function traceComputedModuleSources(
     }
   }
   const createRequireNamespaceNames = new Set<string>()
+  const defaultImports = /\bimport\s+([A-Z_$][\w$]*)\s*(?:,\s*(?:\{[^}]*\}|\*\s+as\s+[A-Z_$][\w$]*))?\s+from\s*([`"'])(?:node:)?module\2/gis
+  for (const match of source.matchAll(defaultImports)) createRequireNamespaceNames.add(match[1]!)
   const namespaceImports = /\bimport\s*\*\s*as\s*([A-Z_$][\w$]*)\s*from\s*([`"'])(?:node:)?module\2/gis
   for (const match of source.matchAll(namespaceImports)) createRequireNamespaceNames.add(match[1]!)
   const namespaceRequires = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*require\s*\(\s*([`"'])(?:node:)?module\2\s*\)/gis

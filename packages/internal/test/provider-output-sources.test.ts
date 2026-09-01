@@ -1533,6 +1533,46 @@ it("retains nested repositories for namespace-required createRequire calls", asy
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
 })
 
+it("retains nested repositories for default-imported createRequire calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-default-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nodeRepository = join(rootDir, "node-worktree")
+  const legacyRepository = join(rootDir, "legacy-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(nodeRepository, { recursive: true }),
+    mkdir(legacyRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import NodeModule from "node:module"',
+      'import LegacyModule from "module"',
+      "const nodeRequire = NodeModule.createRequire(import.meta.url)",
+      "const legacyRequire = LegacyModule.createRequire(import.meta.url)",
+      'export const load = () => ({ legacy: legacyRequire("../legacy-worktree"), node: nodeRequire("../node-worktree") })',
+      "",
+    ].join("\n")),
+    writeFile(join(nodeRepository, ".git"), "gitdir: /tmp/node.git\n"),
+    writeFile(join(nodeRepository, "index.js"), "module.exports = { required: 'node' }\n"),
+    writeFile(join(legacyRepository, ".git"), "gitdir: /tmp/legacy.git\n"),
+    writeFile(join(legacyRepository, "index.js"), "module.exports = { required: 'legacy' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { legacy: { required: string }, node: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ legacy: { required: "legacy" }, node: { required: "node" } })
+})
+
 it("retains nested repositories referenced through require.resolve", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-require-resolve-"))
   tempDirs.push(rootDir)
@@ -1608,6 +1648,7 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
     roots: [rootDir],
   })
 
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { resolveTargets: () => Record<keyof typeof targets, string> }
   const resolved = retainedHandler.resolveTargets()
   await expect(import(pathToFileURL(resolved.boundComputed).href)).resolves.toMatchObject({ value: "boundComputed" })
@@ -1671,6 +1712,7 @@ it("retains package targets referenced only through runtime resolution", async (
     roots: [rootDir],
   })
 
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
     resolveTargets: () => { imported: string, packageImported: string, packageRequired: string, required: string }
   }
