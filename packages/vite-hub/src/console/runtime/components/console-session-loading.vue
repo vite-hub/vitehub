@@ -2,10 +2,11 @@
 const props = withDefaults(
   defineProps<{
     error?: string;
+    maximizable?: boolean;
     maximized?: boolean;
     surface?: "thread" | "inspector";
   }>(),
-  { error: undefined, maximized: false, surface: "thread" },
+  { error: undefined, maximizable: true, maximized: false, surface: "thread" },
 );
 
 const emit = defineEmits<{
@@ -17,46 +18,52 @@ const emit = defineEmits<{
 
 <template>
   <div
-    aria-label="Loading session"
+    :aria-label="props.error ? 'Session load failed' : 'Loading session'"
     class="h-full overflow-hidden"
-    role="status"
+    :role="props.error ? 'alert' : 'status'"
   >
     <template v-if="surface === 'inspector'">
-      <div class="flex h-13 items-center justify-between gap-3 border-b border-default px-3">
-        <USkeleton class="h-6 w-28 rounded-md" />
-        <div class="flex items-center gap-0.5">
+      <header class="session-inspector__header">
+        <div class="session-inspector__tabstrip">
+          <USkeleton class="h-6 w-28 rounded-md" />
           <UTooltip text="Open inspector view">
             <UButton
+              class="session-inspector__icon-button"
               icon="i-lucide-plus"
               color="neutral"
               variant="ghost"
-              size="sm"
+              size="xs"
               disabled
               aria-label="Open inspector view"
             />
           </UTooltip>
+        </div>
+        <div class="session-inspector__actions">
           <UTooltip :text="props.maximized ? 'Restore split view' : 'Maximize details'">
             <UButton
+              class="session-inspector__icon-button"
               :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
               color="neutral"
               variant="ghost"
-              size="sm"
+              size="xs"
+              :disabled="!props.maximizable"
               :aria-label="props.maximized ? 'Restore split view' : 'Maximize details'"
               @click="emit('toggleMaximized')"
             />
           </UTooltip>
           <UTooltip text="Close details">
             <UButton
+              class="session-inspector__icon-button"
               icon="i-lucide-panel-right-close"
               color="neutral"
               variant="ghost"
-              size="sm"
+              size="xs"
               aria-label="Close details"
               @click="emit('close')"
             />
           </UTooltip>
         </div>
-      </div>
+      </header>
       <UEmpty
         v-if="props.error"
         class="h-[calc(100%-3.25rem)] min-h-0"

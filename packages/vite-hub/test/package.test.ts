@@ -375,10 +375,16 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-loading.vue`,
       "utf8",
     );
-    expect(consoleSessionLoading).toContain('aria-label="Loading session"');
-    expect(consoleSessionLoading).toContain('surface === \'inspector\'');
+    expect(consoleSessionLoading).toContain(
+      ":aria-label=\"props.error ? 'Session load failed' : 'Loading session'\"",
+    );
+    expect(consoleSessionLoading).toContain(":role=\"props.error ? 'alert' : 'status'\"");
+    expect(consoleSessionLoading).toContain("surface === 'inspector'");
     expect(consoleSessionLoading).toContain('icon="i-lucide-panel-right-close"');
+    expect(consoleSessionLoading).toContain(':disabled="!props.maximizable"');
+    expect(consoleSessionLoading).toContain('class="session-inspector__header"');
     expect(consoleSessionLoading).toContain("emit('toggleMaximized')");
+    expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);

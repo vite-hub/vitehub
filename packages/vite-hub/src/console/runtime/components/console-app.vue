@@ -1012,6 +1012,7 @@ onBeforeUnmount(() => {
               <ConsoleSessionLoading
                 v-else-if="detail.isLoading.value || initialSessionLoading"
                 class="h-full min-h-0"
+                :maximizable="Boolean(selectedInvocationId)"
                 surface="inspector"
                 @close="closeDetails"
                 @toggle-maximized="detailsMaximized = true"
