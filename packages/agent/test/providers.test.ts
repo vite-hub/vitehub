@@ -15805,15 +15805,17 @@ describe("server helpers", () => {
               transient: true,
               type: "data-progress-summary",
             }
-            yield { id: "intermediate-1", messageId: "intermediate-message", phase: "final", type: "text-start" }
-            yield { delta: "I’ll check the connected tools directly.", id: "intermediate-1", messageId: "intermediate-message", type: "text-delta" }
-            yield { id: "intermediate-1", messageId: "intermediate-message", type: "text-end" }
-            yield { id: "answer-1", messageId: "answer-message", phase: "final", type: "text-start" }
-            yield { delta: "Yes—", id: "answer-1", messageId: "answer-message", type: "text-delta" }
-            yield { id: "answer-1", messageId: "answer-message", type: "text-end" }
-            yield { id: "answer-2", messageId: "answer-message", phase: "final", type: "text-start" }
-            yield { delta: "I have working access.", id: "answer-2", messageId: "answer-message", type: "text-delta" }
-            yield { id: "answer-2", messageId: "answer-message", type: "text-end" }
+            yield { messageId: "intermediate-message", type: "start" }
+            yield { id: "intermediate-1", phase: "final", type: "text-start" }
+            yield { delta: "I’ll check the connected tools directly.", id: "intermediate-1", type: "text-delta" }
+            yield { id: "intermediate-1", type: "text-end" }
+            yield { messageId: "answer-message", type: "start" }
+            yield { id: "answer-1", phase: "final", type: "text-start" }
+            yield { delta: "Yes—", id: "answer-1", type: "text-delta" }
+            yield { id: "answer-1", type: "text-end" }
+            yield { id: "answer-2", phase: "final", type: "text-start" }
+            yield { delta: "I have working access.", id: "answer-2", type: "text-delta" }
+            yield { id: "answer-2", type: "text-end" }
             yield { finishReason: "stop", type: "finish" }
           })(),
         }),

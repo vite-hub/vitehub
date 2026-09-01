@@ -3772,11 +3772,12 @@ function maybeTraceAgentStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   return (async function* () {
     try {
       for await (const event of stream) {
-        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
+        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities, messageState)
         if (normalized) {
           await tracer?.write(normalized)
           await context.activity?.event(normalized)
@@ -4458,6 +4459,7 @@ function withStreamedResult(
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   let explicitTextPhaseSeen = false
   let finalText = ""
   let finalTextId: string | undefined
@@ -4480,7 +4482,7 @@ function withStreamedResult(
     },
     stream: (async function* () {
       for await (const chunk of stream) {
-        const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities)
+        const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities, messageState)
         if (toolResults && event?.type === "tool-result" && !event.error) {
           appendAgentToolResult(toolResults, {
             output: event.output,
@@ -4586,6 +4588,7 @@ function traceUiMessageStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   let finished = false
   let released = false
@@ -4605,7 +4608,7 @@ function traceUiMessageStream<
           controller.close()
           return
         }
-        const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
+        const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities, messageState)
         if (event) {
           if (event.type === "finish") finished = true
           await tracer?.write(event)
