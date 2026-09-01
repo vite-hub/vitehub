@@ -1284,7 +1284,11 @@ describe("agent Vite plugin", () => {
       expect(copyNodeRuntimePackages).toHaveBeenCalledWith({
         outputNodeModules: join(root, ".output", "server", "node_modules"),
         packages: [
-          { includePeerDependencies: true, name: "@t3tools/provider-runtime" },
+          {
+            includePeerDependencies: true,
+            name: "@t3tools/provider-runtime",
+            resolveFrom: pathToFileURL(resolve(import.meta.dirname, "../src/vite.ts")).href,
+          },
           { name: "@openai/codex", resolveFrom: join(root, "package.json") },
           { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
           {

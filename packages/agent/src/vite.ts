@@ -778,7 +778,7 @@ function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro:
     if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
     nitro.hooks.hook("compiled", async () => {
       const packages = [
-        { includePeerDependencies: true, name: "@t3tools/provider-runtime" },
+        { includePeerDependencies: true, name: "@t3tools/provider-runtime", resolveFrom: import.meta.url },
         ...resolveProviderRuntimePackages({ rootDir }),
       ]
       await copyNodeRuntimePackages({
