@@ -1573,6 +1573,47 @@ it("retains nested repositories for default-imported createRequire calls", async
   expect(retainedHandler.load()).toEqual({ legacy: { required: "legacy" }, node: { required: "node" } })
 })
 
+it("retains direct createRequire targets with nested resolver bases", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-direct-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const computedRepository = join(rootDir, "computed-worktree")
+  const literalRepository = join(rootDir, "literal-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import { createRequire } from "node:module"',
+      'const target = "../../../computed-worktree"',
+      'export const load = () => ({',
+      '  computed: createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))(target),',
+      '  literal: createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))("../../../literal-worktree"),',
+      '})',
+      "",
+    ].join("\n")),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(join(computedRepository, "index.js"), "module.exports = { required: 'computed' }\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(join(literalRepository, "index.js"), "module.exports = { required: 'literal' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { computed: { required: string }, literal: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ computed: { required: "computed" }, literal: { required: "literal" } })
+})
+
 it("retains nested repositories referenced through require.resolve", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-require-resolve-"))
   tempDirs.push(rootDir)

@@ -347,26 +347,23 @@ function traceComputedModuleSources(
       if (specifier) recordRequest(specifier, request.kind)
     }
   }
-  const createdComputedRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
-  for (const match of masked.matchAll(createdComputedRequests)) {
-    if (!isCreateRequireExpression(match[1]!)) continue
-    const specifier = bindings.get(match[2]!)
-    if (specifier) recordRequest(specifier, "require-call")
-  }
-  const createdResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
-  for (const match of masked.matchAll(createdResolveRequests)) {
+  const createdRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
+  for (const match of masked.matchAll(createdRequests)) {
     if (!isCreateRequireExpression(match[1]!)) continue
     const openParen = match.index + match[0].lastIndexOf("(")
     const closeParen = findMatching(masked, openParen, "(", ")")
     if (closeParen === undefined) continue
-    const resolveCall = /^\s*\.\s*resolve\s*\(/i.exec(masked.slice(closeParen + 1))
-    if (!resolveCall) continue
-    const resolveOpenParen = closeParen + 1 + resolveCall[0].lastIndexOf("(")
-    const resolveCloseParen = findMatching(masked, resolveOpenParen, "(", ")")
-    if (resolveCloseParen === undefined) continue
-    const [target] = splitTopLevel(source.slice(resolveOpenParen + 1, resolveCloseParen))
+    const invocation = /^\s*(?:\.\s*resolve\s*)?\(/i.exec(masked.slice(closeParen + 1))
+    if (!invocation) continue
+    const invocationOpenParen = closeParen + 1 + invocation[0].lastIndexOf("(")
+    const invocationCloseParen = findMatching(masked, invocationOpenParen, "(", ")")
+    if (invocationCloseParen === undefined) continue
+    const [target] = splitTopLevel(source.slice(invocationOpenParen + 1, invocationCloseParen))
     const specifier = target ? staticModuleSpecifier(target) : undefined
-    if (specifier) recordRequest(specifier, "require-resolve", createRequireBase(source.slice(openParen + 1, closeParen)))
+    if (specifier) {
+      const kind = /\.\s*resolve/i.test(invocation[0]) ? "require-resolve" : "require-call"
+      recordRequest(specifier, kind, createRequireBase(source.slice(openParen + 1, closeParen)))
+    }
   }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedRequests)) {
@@ -408,15 +405,6 @@ function traceComputedModuleSources(
       if (match[1] === "`" && specifier.includes("${")) continue
       recordRequest(specifier, request.kind)
     }
-  }
-  const createdLiteralRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\(\s*([`"'])(.*?)\2/gis
-  for (const match of source.matchAll(createdLiteralRequests)) {
-    if (!isCreateRequireExpression(match[1]!)) continue
-    const quoteOffset = match[0].indexOf(match[2]!)
-    if (!/\b[A-Z_$][\w$]*(?:\s*\.\s*createRequire)?\s*\([^)]*\)\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
-    const specifier = match[3]!
-    if (match[2] === "`" && specifier.includes("${")) continue
-    recordRequest(specifier, "require-call")
   }
   const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralRequests)) {
