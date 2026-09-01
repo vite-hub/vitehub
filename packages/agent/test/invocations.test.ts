@@ -4159,6 +4159,7 @@ describe("Agent Invocations", () => {
   it("retries failed invocation summary backfills on later summary reads", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-summary-retry-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    let failFirstBackfill: (() => void) | undefined
     try {
       await client.execute(`CREATE TABLE vitehub_agent_invocations (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4188,6 +4189,9 @@ describe("Agent Invocations", () => {
       })
 
       let summaryBackfillAttempts = 0
+      const firstBackfillFailure = new Promise<never>((_resolve, reject) => {
+        failFirstBackfill = () => reject(new Error("temporarily unavailable"))
+      })
       // SAFETY: The proxy forwards every Client member and fails only the first summary-backfill batch.
       const transientClient = new Proxy(client, {
         get(target, property) {
@@ -4202,7 +4206,7 @@ describe("Agent Invocations", () => {
                 && statement.sql.includes("SET summary = json_remove")
             })
             if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
-              throw new Error("temporarily unavailable")
+              return await firstBackfillFailure
             }
             // SAFETY: The proxy receives Client.batch arguments and forwards them unchanged.
             return await (client.batch as (...batchArgs: unknown[]) => Promise<unknown>)(...args)
@@ -4214,11 +4218,12 @@ describe("Agent Invocations", () => {
       await expect(store.list()).resolves.toEqual({
         invocations: [expect.objectContaining({ id: "legacy-summary-retry" })],
       })
-      await vi.waitFor(() => expect(summaryBackfillAttempts).toBe(1))
-      await expect(store.getSummary?.("legacy-summary-retry")).resolves.toMatchObject({
-        id: "legacy-summary-retry",
-      })
+      expect(summaryBackfillAttempts).toBe(1)
+      failFirstBackfill()
       await vi.waitFor(async () => {
+        await expect(store.getSummary?.("legacy-summary-retry")).resolves.toMatchObject({
+          id: "legacy-summary-retry",
+        })
         expect(summaryBackfillAttempts).toBe(2)
         const persisted = await client.execute(
           "SELECT summary FROM vitehub_agent_invocations WHERE id = 'legacy-summary-retry'",
@@ -4227,6 +4232,7 @@ describe("Agent Invocations", () => {
       })
     }
     finally {
+      failFirstBackfill?.()
       client.close()
       await rm(directory, { force: true, recursive: true })
     }
