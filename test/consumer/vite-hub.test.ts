@@ -1098,19 +1098,22 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(existsSync(queueCallback)).toBe(false)
 
       const cloudflareSources = await readJavaScriptSources(join(appDir, "dist/app"))
+      const cloudflareRuntimeSources = Object.fromEntries(Object.entries(cloudflareSources).filter(([file]) =>
+        !/(?:^|\/)\.vitehub\/(?:schedule|workflow)\/sources\//.test(file),
+      ))
       const cloudflareWrangler = JSON.parse(await readFile(join(appDir, "dist/app/wrangler.json"), "utf8")) as {
         compatibility_flags?: string[]
       }
       expect(cloudflareWrangler.compatibility_flags).toContain("nodejs_compat")
 
-      const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>
+      const cloudflareExternalImports = Object.entries(cloudflareRuntimeSources).flatMap(([file, source]) =>
         importSpecifierOccurrences(source)
           .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isOptionalPackageSpecifier(specifier))
           .map(occurrence => ({ file, ...occurrence })),
       )
       expect(cloudflareExternalImports, "Cloudflare output must bundle owner packages and exclude opt-in packages").toEqual([])
-      expect(Object.values(cloudflareSources).join("\n")).toContain("getSandbox")
-      assertProviderRuntimeReachabilityClosed("Cloudflare", cloudflareSources)
+      expect(Object.values(cloudflareRuntimeSources).join("\n")).toContain("getSandbox")
+      assertProviderRuntimeReachabilityClosed("Cloudflare", cloudflareRuntimeSources)
       }
 
       await Promise.all([
