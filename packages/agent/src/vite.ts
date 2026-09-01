@@ -1527,7 +1527,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     : []
   return [
     "",
-    `const viteHubChatStateOptions = ${JSON.stringify(stateOptions)}`,
+    `const viteHubChatStateOptions${typescript ? ": Parameters<typeof createLibsqlAgentState>[0]" : ""} = ${JSON.stringify(stateOptions)}`,
     `let viteHubChatState${typescript ? ": ReturnType<typeof createLibsqlAgentState> | undefined" : ""}`,
     "",
     "function chatStateFromLibsql() {",

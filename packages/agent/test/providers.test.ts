@@ -2127,7 +2127,7 @@ export default defineAgent({
         const plugin = hubAgent(
           stateProvider === "libsql"
             ? {
-                providers: { state: { provider: "libsql", url: "libsql://state.example.test" } },
+                providers: { state: { provider: "libsql" } },
                 routes: { inspection: true },
               }
             : { routes: { inspection: true } },
@@ -2142,6 +2142,7 @@ export default defineAgent({
         expect(generatedRoute).toContain("abortSignal: request.signal")
         expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
+          expect(generatedRoute).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
         }
         await execFileAsync(
@@ -2209,7 +2210,7 @@ export default defineAgent({
       expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
       expect(webhookRoute).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
       expect(webhookRoute).toContain(
-        `const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".vitehub/data/agent-state.sqlite")).href)}}`,
+        `const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {"url":${JSON.stringify(pathToFileURL(join(root, ".vitehub/data/agent-state.sqlite")).href)}}`,
       )
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
@@ -2234,7 +2235,7 @@ export default defineAgent({
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("const viteHubChatStateOptions = {}")
+      expect(webhookRoute).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
       expect(webhookRoute).toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment")
       expect(webhookRoute).toContain("Agent state cannot use a file: URL on vercel because its filesystem is ephemeral")
       expect(webhookRoute).toContain("state: viteHubChatStateResolver")
@@ -2329,7 +2330,7 @@ export default defineAgent({
 
         expect(webhookRoute).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
-        expect(webhookRoute).toContain('const viteHubChatStateOptions = {"tablePrefix":"agent_state_","url":"file:build-state.sqlite"}')
+        expect(webhookRoute).toContain('const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {"tablePrefix":"agent_state_","url":"file:build-state.sqlite"}')
         expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("let viteHubChatState")
         expect(webhookRoute).toContain("viteHubChatState = createLibsqlAgentState({")
@@ -2513,6 +2514,7 @@ export default defineAgent({
       expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/chat$")')
       expect(denoServer).toContain('const webhookRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$")')
       expect(denoServer).toContain('import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"')
+      expect(denoServer).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
       expect(denoServer).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
       expect(denoServer).toContain(
         "return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }) : await handler(request, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver })",
