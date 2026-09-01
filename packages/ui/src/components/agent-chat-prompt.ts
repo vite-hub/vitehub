@@ -22,7 +22,7 @@ export const AgentChatPrompt = defineComponent({
     placeholder: { type: String },
     status: { default: "ready", type: String as PropType<ChatStatus> },
   },
-  emits: ["reload", "submit", "stop", "update:files", "update:modelValue"],
+  emits: ["error", "reload", "submit", "stop", "update:files", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
     const input = ref<HTMLInputElement | null>(null);
     const UButton = resolveComponent("UButton");
@@ -34,11 +34,15 @@ export const AgentChatPrompt = defineComponent({
         props.files.filter((_, current) => current !== index),
       );
     const addFiles = async (input: FileList | Iterable<File>) => {
-      const rawFiles = Array.from(input);
-      const acceptedFiles = props.filterFiles?.(rawFiles) ?? rawFiles;
-      if (acceptedFiles.length === 0) return;
-      const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
-      emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+      try {
+        const rawFiles = Array.from(input);
+        const acceptedFiles = props.filterFiles?.(rawFiles) ?? rawFiles;
+        if (acceptedFiles.length === 0) return;
+        const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
+        emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+      } catch (error) {
+        emit("error", error);
+      }
     };
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;

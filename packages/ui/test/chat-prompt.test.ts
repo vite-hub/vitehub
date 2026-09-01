@@ -178,6 +178,28 @@ describe("AgentChatPrompt", () => {
     expect(wrapper.emitted("update:files")).toBeUndefined();
   });
 
+  it("reports attachment preparation errors", async () => {
+    const error = new Error("could not prepare attachment");
+    const wrapper = mount(AgentChatPrompt, {
+      global,
+      props: {
+        filterFiles: () => {
+          throw error;
+        },
+      },
+    });
+    const input = wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      configurable: true,
+      value: [new File(["image"], "broken.png", { type: "image/png" })],
+    });
+
+    await input.trigger("change");
+    await flushPromises();
+
+    expect(wrapper.emitted("error")).toEqual([[error]]);
+  });
+
   it("previews image attachments above the editor", () => {
     const wrapper = mount(AgentChatPrompt, {
       global,

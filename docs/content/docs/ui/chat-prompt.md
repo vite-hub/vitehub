@@ -27,6 +27,7 @@ icon: i-ph-paper-plane-tilt-light
 
 | Event               | Payload                                                     |
 | ------------------- | ----------------------------------------------------------- |
+| `error`             | Attachment filtering or conversion error.                   |
 | `update:modelValue` | Current prompt text.                                        |
 | `update:files`      | Current `FileUIPart[]`.                                     |
 | `submit`            | `{ text, files }`. Empty text is accepted when files exist. |
