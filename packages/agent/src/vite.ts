@@ -1641,6 +1641,7 @@ interface GeneratedAgentDeploymentCatalog {
 const retainedColocatedInstructions = Symbol("vitehub.retainedColocatedInstructions")
 
 async function resolveDeploymentColocatedInstructions(definition: DiscoveredAgentDefinition): Promise<string | undefined> {
+  // SAFETY: Provider Output preparation attaches this private symbol only to retained Agent Definitions.
   const retainedDefinition = definition as DiscoveredAgentDefinition & {
     [retainedColocatedInstructions]?: string
   }

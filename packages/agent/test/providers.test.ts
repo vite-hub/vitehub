@@ -1004,6 +1004,7 @@ describe("agent Vite plugin", () => {
       ])
       const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
       const schedulePlugin = hubSchedule({ providerOutput: false })
+      // SAFETY: This test invokes hubAgent's configResolved hook with the Vite fields used by this fixture.
       const configResolved = plugin.configResolved as (config: {
         build: { outDir: string }
         command: "build"

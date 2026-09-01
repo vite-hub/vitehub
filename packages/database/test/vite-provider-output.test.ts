@@ -37,9 +37,12 @@ it("finalizes Database Provider Output from the captured application root", asyn
 
   const plugin = hubDb()
   const config = { build: { outDir: "dist/client" }, command: "build", root: rootDir }
+  // SAFETY: This test invokes hubDb's configResolved hook with the Vite fields used by this fixture.
   await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
   const context = {}
+  // SAFETY: hubDb exposes buildStart as a callable Vite hook for Provider Output preparation.
   await Reflect.apply(plugin.buildStart as () => void, context, [])
+  // SAFETY: hubDb exposes buildEnd as a callable Vite hook for Provider Output preparation.
   await Reflect.apply(plugin.buildEnd as () => Promise<void>, context, [])
   await writeFile(applicationEntry, "changed application\n")
 

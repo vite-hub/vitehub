@@ -83,7 +83,11 @@ function dependencyRoots(root: string): string[] {
   return [...new Set(roots)]
 }
 
-async function linkDependencies(source: string, target: string): Promise<void> {
+async function linkDependencies(
+  source: string,
+  target: string,
+  resolveLinkTarget: (source: string) => string = source => source,
+): Promise<void> {
   await mkdir(target, { recursive: true })
   for (const entry of await readdir(source, { withFileTypes: true })) {
     if (entry.name === ".bin" || entry.name === ".pnpm") continue
@@ -93,11 +97,11 @@ async function linkDependencies(source: string, target: string): Promise<void> {
     const resolvedSourceEntry = realpathSync(sourceEntry)
     if (!statSync(resolvedSourceEntry).isDirectory()) continue
     if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
-      await linkDependencies(sourceEntry, targetEntry)
+      await linkDependencies(sourceEntry, targetEntry, resolveLinkTarget)
       continue
     }
     if (existsSync(targetEntry)) continue
-    await symlink(resolvedSourceEntry, targetEntry, process.platform === "win32" ? "junction" : "dir")
+    await symlink(resolveLinkTarget(resolvedSourceEntry), targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
 }
 
@@ -233,6 +237,14 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
               if (!request.importer) return undefined
               const source = resolveComputedModuleSource(request.importer, request.path)
               if (source) importedSourceHints.add(source)
+              return undefined
+            })
+            traceBuild.onResolve({ filter: /^[^./#]/ }, (request) => {
+              if (!request.importer) return undefined
+              const source = resolveComputedModuleSource(request.importer, request.path)
+              if (source
+                && pathContains(root, source)
+                && !relative(root, source).split(sep).includes("node_modules")) importedSourceHints.add(source)
               return undefined
             })
             traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
@@ -411,6 +423,7 @@ async function tsconfigSourcesForPaths(root: string, paths: string[]): Promise<s
     if (sources.has(config)) continue
     sources.add(config)
     try {
+      // SAFETY: TypeScript config inheritance only reads the optional string or string-array `extends` field.
       const parsed = parseJsonWithComments(await readFile(config, "utf8")) as { extends?: string | string[] }
       const references = Array.isArray(parsed.extends) ? parsed.extends : parsed.extends ? [parsed.extends] : []
       for (const reference of references) {
@@ -593,7 +606,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         await cp(stagedContainer, retainedContainer, { recursive: true })
       }
       for (const dependencies of dependencyRoots(root)) {
-        await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"))
+        await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), (source) => {
+          if (!pathContains(root, source) || relative(root, source).split(sep).includes("node_modules")) return source
+          const retainedSource = resolve(retainedRoot, relative(root, source))
+          return existsSync(retainedSource) ? retainedSource : source
+        })
       }
       for (const [target, dependencies] of nestedDependencyRoots) {
         await linkDependencies(dependencies, target)

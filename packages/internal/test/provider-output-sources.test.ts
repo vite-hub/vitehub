@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process"
+import { realpathSync } from "node:fs"
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
@@ -1185,6 +1186,39 @@ it("preserves dependency resolution for a workspace-linked package", async () =>
   })
 
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
+it("snapshots workspace packages imported by bare name", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-bare-workspace-package-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const packageDir = join(workspace, "packages", "fixture-package")
+  const packageEntry = join(packageDir, "index.mjs")
+  const dependencyLink = join(workspace, "node_modules", "fixture-package")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(packageDir, { recursive: true }),
+    mkdir(dirname(dependencyLink), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "fixture-package"\n'),
+    writeFile(join(packageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"fixture-package\",\"type\":\"module\"}\n"),
+    writeFile(packageEntry, 'export const value = "captured"\n'),
+    symlink(packageDir, dependencyLink, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(packageEntry, 'export const value = "changed"\n')
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
+  expect(realpathSync(retained.resolve(dependencyLink))).toBe(retained.resolve(packageDir))
 })
 
 it("preserves workspace dependencies beyond a package-local dependency tree", async () => {
