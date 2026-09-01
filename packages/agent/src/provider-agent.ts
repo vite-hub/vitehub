@@ -324,6 +324,18 @@ interface ProviderLaunchDiagnostic {
   stderrTruncated?: boolean
 }
 
+function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnostic | undefined {
+  if (!isRuntimeRecord(value) || Array.isArray(value)) return
+  const diagnostic: ProviderLaunchDiagnostic = {}
+  if (hasRuntimeType(value.exitCode, "number")) diagnostic.exitCode = value.exitCode
+  if (hasRuntimeType(value.signal, "string")) diagnostic.signal = value.signal
+  if (hasRuntimeType(value.spawnError, "string")) diagnostic.spawnError = value.spawnError
+  if (hasRuntimeType(value.stderr, "string")) diagnostic.stderr = value.stderr
+  if (hasRuntimeType(value.stderrBytes, "number")) diagnostic.stderrBytes = value.stderrBytes
+  if (hasRuntimeType(value.stderrTruncated, "boolean")) diagnostic.stderrTruncated = value.stderrTruncated
+  return diagnostic
+}
+
 const providerSecretEnvironmentKeyPattern = /(?:^|_)(?:API_KEY|AUTH_JSON|PASSWORD|PRIVATE_KEY|SECRET|TOKEN)(?:$|_)/i
 
 function providerSecretEnvironmentKeys(environment: NodeJS.ProcessEnv, requiredEnvironment: readonly string[]): string[] {
@@ -479,7 +491,7 @@ function redactProviderDiagnostic(
 ): string {
   let redacted = value
   const secrets = [...new Set(secretEnvironmentKeys.map(key => environment[key])
-    .filter((item): item is string => typeof item === "string" && item.length >= 4))]
+    .filter((item): item is string => hasRuntimeType(item, "string") && item.length >= 4))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
   return redacted
@@ -496,12 +508,15 @@ async function providerLaunchFailure(
   if (!diagnosticPath || !environment) return
   let diagnostic: ProviderLaunchDiagnostic
   try {
-    diagnostic = JSON.parse(await readFile(diagnosticPath, "utf8")) as ProviderLaunchDiagnostic
+    const serialized: unknown = JSON.parse(await readFile(diagnosticPath, "utf8"))
+    const parsed = parsedProviderLaunchDiagnostic(serialized)
+    if (!parsed) return
+    diagnostic = parsed
   }
   catch {
     return
   }
-  const stderr = typeof diagnostic.stderr === "string"
+  const stderr = hasRuntimeType(diagnostic.stderr, "string")
     ? redactProviderDiagnostic(diagnostic.stderr, environment, secretEnvironmentKeys).trim()
     : undefined
   const requestId = `provider-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
@@ -509,11 +524,11 @@ async function providerLaunchFailure(
     cause,
     details: {
       phase: "launch",
-      ...(typeof diagnostic.exitCode === "number" ? { exitCode: diagnostic.exitCode } : {}),
-      ...(typeof diagnostic.signal === "string" ? { signal: diagnostic.signal } : {}),
-      ...(typeof diagnostic.spawnError === "string" ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment, secretEnvironmentKeys) } : {}),
+      ...(hasRuntimeType(diagnostic.exitCode, "number") ? { exitCode: diagnostic.exitCode } : {}),
+      ...(hasRuntimeType(diagnostic.signal, "string") ? { signal: diagnostic.signal } : {}),
+      ...(hasRuntimeType(diagnostic.spawnError, "string") ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment, secretEnvironmentKeys) } : {}),
       ...(stderr ? { stderr } : {}),
-      ...(typeof diagnostic.stderrBytes === "number" ? { stderrBytes: diagnostic.stderrBytes } : {}),
+      ...(hasRuntimeType(diagnostic.stderrBytes, "number") ? { stderrBytes: diagnostic.stderrBytes } : {}),
       ...(diagnostic.stderrTruncated === true ? { stderrTruncated: true } : {}),
     },
     requestId,
