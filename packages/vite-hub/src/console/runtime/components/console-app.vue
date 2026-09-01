@@ -403,7 +403,7 @@ async function loadAgents(): Promise<void> {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
     if (agentsRequest === controller) {
       agentsError.value = error;
-      scheduleAgentsRetry();
+      if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();
     }
   } finally {
     if (agentsRequest === controller) {

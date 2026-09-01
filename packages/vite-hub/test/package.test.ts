@@ -429,7 +429,9 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("content: 'md:hidden'");
     expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
     expect(consolePage).toContain("}, 60_000);");
-    expect(consolePage).toContain("scheduleAgentsRetry()");
+    expect(consolePage).toContain(
+      "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",
+    );
     expect(consolePage).toContain("}, 5_000);");
     expect(consolePage).toContain("isRetryableConsoleRequestError(selectedDetailError.value)");
     expect(consolePage.indexOf("const selectedDetailError")).toBeLessThan(
