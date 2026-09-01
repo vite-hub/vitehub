@@ -65,9 +65,40 @@ export async function rebasePublishedProviderSourceLinks(
       if (!pathContains(retainedSourcesDir, retainedTarget)) return
       const target = resolve(publishedSourcesDir, relative(retainedSourcesDir, retainedTarget))
       const publishedLink = resolve(publishedSourcesDir, relative(stagedSourcesDir, path))
-      const targetType = await stat(retainedTarget)
+      const targetType = await stat(retainedTarget).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (!targetType) return
       const type = targetType.isDirectory() ? (process.platform === "win32" ? "junction" : "dir") : "file"
       const rebasedLink = type === "junction" ? target : relative(dirname(publishedLink), target) || "."
+      await rm(path, { force: true, recursive: true })
+      await symlink(rebasedLink, path, type)
+    }))
+  }
+  await visit(stagedSourcesDir)
+}
+
+async function rebaseCapturedAbsoluteSourceLinks(stagedSourcesDir: string, sourceRoot: string): Promise<void> {
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true })
+    await Promise.all(entries.map(async (entry) => {
+      const path = resolve(directory, entry.name)
+      if (entry.isDirectory()) {
+        await visit(path)
+        return
+      }
+      if (!entry.isSymbolicLink()) return
+      const link = await readlink(path)
+      if (!isAbsolute(link) || !pathContains(sourceRoot, link)) return
+      const target = resolve(stagedSourcesDir, relative(sourceRoot, link))
+      const targetType = await stat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (!targetType) return
+      const type = targetType.isDirectory() ? (process.platform === "win32" ? "junction" : "dir") : "file"
+      const rebasedLink = type === "junction" ? target : relative(dirname(path), target) || "."
       await rm(path, { force: true, recursive: true })
       await symlink(rebasedLink, path, type)
     }))
@@ -261,8 +292,10 @@ function traceComputedModuleSources(file: string, source: string): string[] {
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
+  const physicalRoot = realpathSync(root)
   const traceBuildVariants = [
     { platform: "node" as const },
+    { platform: "neutral" as const },
     { conditions: ["workerd", "worker", "browser", "default"], platform: "neutral" as const },
     { conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"], platform: "neutral" as const },
     { conditions: ["vitehub-hosted", "node", "default"], platform: "node" as const },
@@ -286,7 +319,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         logLevel: "silent",
         metafile: true,
         outdir: resolve(root, ".vitehub-provider-trace"),
-        packages: "external",
+        packages: "bundle",
         ...variant,
         plugins: [{
           name: "vitehub-provider-vite-resource-query",
@@ -313,13 +346,29 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
               }
               return undefined
             })
-            traceBuild.onResolve({ filter: /^[^./#]/ }, (request) => {
+            const resolvingBarePackageHint = "vitehubResolvingBarePackageHint"
+            traceBuild.onResolve({ filter: /^[^./#]/ }, async (request) => {
+              if (request.pluginData?.[resolvingBarePackageHint]) return undefined
               if (!request.importer) return undefined
-              const source = resolveComputedModuleSource(request.importer, request.path)
-              if (source
-                && pathContains(root, source)
-                && !relative(root, source).split(sep).includes("node_modules")) importedSourceHints.add(source)
-              return undefined
+              const resolution = await traceBuild.resolve(request.path, {
+                importer: request.importer,
+                kind: request.kind,
+                namespace: request.namespace,
+                pluginData: { ...request.pluginData, [resolvingBarePackageHint]: true },
+                resolveDir: request.resolveDir,
+                with: request.with,
+              })
+              const source = pathContains(root, resolution.path)
+                ? resolution.path
+                : pathContains(physicalRoot, resolution.path)
+                  ? resolve(root, relative(physicalRoot, resolution.path))
+                  : undefined
+              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file"
+                && source && existsSync(source)
+                && !relative(root, source).split(sep).includes("node_modules")) {
+                importedSourceHints.add(source)
+              }
+              return { external: true, path: request.path }
             })
             traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
               if (request.pluginData?.[resolvingPackageImportHint]) return undefined
@@ -673,6 +722,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
           },
         })
       }
+      await rebaseCapturedAbsoluteSourceLinks(stagedContainer, captureRoot)
       await mkdir(dirname(retainedContainer), { recursive: true })
       try {
         await rename(stagedContainer, retainedContainer)
