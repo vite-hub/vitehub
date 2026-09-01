@@ -14,30 +14,31 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
-  it("honors a project marker at the system temporary root", async () => {
+  it("continues project discovery above a repository-local temporary directory", async () => {
     const previousTemporaryDirectories = {
       TEMP: process.env.TEMP,
       TMP: process.env.TMP,
       TMPDIR: process.env.TMPDIR,
     }
-    const temporaryRoot = await mkdtemp(join(tmpdir(), "vitehub-project-root-boundary-"))
-    const projectRoot = join(temporaryRoot, "fixture")
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-project-root-boundary-"))
+    const temporaryRoot = join(projectRoot, ".tmp")
+    const nestedRoot = join(temporaryRoot, "fixture")
     try {
-      await mkdir(projectRoot)
-      await writeFile(join(temporaryRoot, "package.json"), '{"private":true}\n')
+      await mkdir(nestedRoot, { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), '{"private":true}\n')
       process.env.TEMP = temporaryRoot
       process.env.TMP = temporaryRoot
       process.env.TMPDIR = temporaryRoot
 
-      expect(resolveViteHubProjectRoot(projectRoot)).toBe(temporaryRoot)
-      expect(resolveViteHubProjectRoot(projectRoot, { projectRoot: temporaryRoot })).toBe(temporaryRoot)
+      expect(resolveViteHubProjectRoot(nestedRoot)).toBe(projectRoot)
+      expect(resolveViteHubProjectRoot(nestedRoot, { projectRoot })).toBe(projectRoot)
     }
     finally {
       for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
         if (value === undefined) delete process.env[name]
         else process.env[name] = value
       }
-      await rm(temporaryRoot, { force: true, recursive: true })
+      await rm(projectRoot, { force: true, recursive: true })
     }
   })
 
