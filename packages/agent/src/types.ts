@@ -1215,6 +1215,7 @@ export interface AgentModelExecutionOptions<
   attachments?: AgentAttachmentExecutionOptions
   callSettings?: Record<string, unknown>
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
+  repairToolCall?: boolean
   stepLimit?: number
   workspaceFallback?: boolean | {
     enabled?: boolean
@@ -1223,6 +1224,10 @@ export interface AgentModelExecutionOptions<
 }
 
 export type AgentProviderPermissions = "allow-all" | "allow-edits" | "ask"
+
+type SingleAttemptAgentOutputDefinition<TOutput> = Omit<AgentOutputDefinition<TOutput>, "maxAttempts"> & {
+  maxAttempts?: never
+}
 
 export interface AgentProviderDriverOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1237,7 +1242,7 @@ export interface AgentProviderDriverOptions<
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
-  output?: AgentOutputDefinition<TOutput>
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
   /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
   providerSettings?: Record<string, unknown>
@@ -1350,7 +1355,7 @@ export interface AgentRunDriver<
   kind?: never
   launch?: never
   model?: never
-  output?: AgentOutputDefinition<TOutput>
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
   providerSettings?: never
@@ -1387,6 +1392,7 @@ export interface AgentDefinitionCliOptions {
 }
 
 export interface AgentOutputDefinition<TOutput = unknown> {
+  maxAttempts?: number
   schema: StandardSchemaV1<unknown, TOutput>
 }
 
