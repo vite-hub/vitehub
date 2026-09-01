@@ -1,7 +1,7 @@
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -142,6 +142,7 @@ export default defineEventHandler(async () => {
     await runPnpm(["exec", "nuxt", "build"], root)
 
     const outputServer = join(root, ".output", "server")
+    await expect(access(join(outputServer, "node_modules", "@t3tools", "provider-runtime", "package.json"))).resolves.toBeUndefined()
     const output = await readTree(outputServer)
     expect(output).toContain("createMCPClient")
     expect(output).not.toContain('["@ai-sdk", "mcp"].join("/")')

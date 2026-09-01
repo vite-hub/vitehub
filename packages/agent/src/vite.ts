@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
@@ -778,7 +778,7 @@ function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro:
     if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
     nitro.hooks.hook("compiled", async () => {
       const packages = [
-        { includePeerDependencies: true, name: "@t3tools/provider-runtime", resolveFrom: import.meta.url },
+        { includePeerDependencies: true, name: "@t3tools/provider-runtime", resolveFrom: fileURLToPath(import.meta.url) },
         ...resolveProviderRuntimePackages({ rootDir }),
       ]
       await copyNodeRuntimePackages({

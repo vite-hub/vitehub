@@ -1287,7 +1287,7 @@ describe("agent Vite plugin", () => {
           {
             includePeerDependencies: true,
             name: "@t3tools/provider-runtime",
-            resolveFrom: pathToFileURL(resolve(import.meta.dirname, "../src/vite.ts")).href,
+            resolveFrom: resolve(import.meta.dirname, "../src/vite.ts"),
           },
           { name: "@openai/codex", resolveFrom: join(root, "package.json") },
           { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
