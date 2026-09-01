@@ -1458,7 +1458,7 @@ describe("Agent Invocation UI", () => {
         { attributes: { "tool.id": "tool", "tool.input": { query: "agent UI" }, "tool.name": "search", "tool.title": "airtable · search" }, name: "agent.tool.start", sequence: 1, timestamp, type: "lifecycle" as const },
         { attributes: { "tool.id": "tool", "tool.name": "search" }, name: "agent.tool.start", sequence: 2, timestamp, type: "lifecycle" as const },
         { attributes: { "tool.durationMs": 42, "tool.error": "Search unavailable", "tool.id": "tool" }, name: "agent.tool.error", sequence: 3, timestamp, type: "error" as const },
-        { attributes: { "error.message": "Recoverable stream error" }, name: "agent.stream.error", sequence: 4, timestamp, type: "error" as const },
+        { attributes: { "error.message": "Recoverable stream error", "error.recoverable": true }, name: "agent.stream.error", sequence: 4, timestamp, type: "error" as const },
         { attributes: { "approval.id": "approval", "approval.name": "Run command" }, name: "agent.approval.request", sequence: 5, timestamp, type: "approval" as const },
         { attributes: { "approval.approved": false, "approval.id": "approval", "approval.reason": "Command is destructive" }, name: "agent.approval.decision", sequence: 6, timestamp, type: "approval" as const },
       ],
@@ -1470,7 +1470,6 @@ describe("Agent Invocation UI", () => {
     const activities = invocationActivities(invocation);
     expect(activities.map(activity => [invocationActivityTitle(activity), activity.body, activity.status])).toEqual([
       ["Airtable · search", "Search unavailable", "failed"],
-      ["Agent stream", "Recoverable stream error", "failed"],
       ["Approval denied", "Command is destructive", "failed"],
     ]);
   });
