@@ -2451,6 +2451,7 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
   let movedPrevious = false
   let movedPreviousNetlifySources = false
   let netlifyFunctionContents: string | undefined
+  let publicationSettled = false
   try {
     await cp(generatedAgentDir, nextAgentDir, { recursive: true })
     await rm(resolve(nextAgentDir, "sources"), { force: true, recursive: true })
@@ -2493,10 +2494,14 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
       retained: netlifyFunction,
     }), "utf8")
     signal?.throwIfAborted()
-    await rm(previousAgentDir, { force: true, recursive: true })
-    await rm(previousNetlifySourcesDir, { force: true, recursive: true })
+    publicationSettled = true
+    await Promise.all([
+      removeProviderOutputArtifactDir(previousAgentDir).catch(() => undefined),
+      removeProviderOutputArtifactDir(previousNetlifySourcesDir).catch(() => undefined),
+    ])
   }
   catch (error) {
+    if (publicationSettled) throw error
     await rm(nextAgentDir, { force: true, recursive: true })
     await rm(nextNetlifySourcesDir, { force: true, recursive: true })
     if (installedNext) await rm(generatedAgentDir, { force: true, recursive: true })

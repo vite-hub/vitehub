@@ -313,6 +313,34 @@ describe("schedule provider output", () => {
     expect(existsSync(`${denoCron}.vitehub-tmp`)).toBe(false)
   })
 
+  it("restores published Schedule sources when provider output generation fails", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-sources-rollback-")
+    const generatedDir = join(rootDir, ".vitehub", "schedule")
+    const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const publishedRegistry = await readFile(join(generatedDir, "registry.mjs"), "utf8")
+
+    await rm(join(rootDir, "src", "cleanup.schedule.ts"))
+    await Promise.all([
+      mkdir(retainedSourcesDir, { recursive: true }),
+      writeFile(join(rootDir, "src", "replacement.schedule.ts"), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'replacement' })",
+        "",
+      ].join("\n"), "utf8"),
+    ])
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      retainedSourcesDir,
+      rootDir,
+      runtimeImport: "./missing-runtime.mjs",
+    })).rejects.toThrow()
+
+    await expect(readFile(join(generatedDir, "registry.mjs"), "utf8")).resolves.toBe(publishedRegistry)
+    expect(existsSync(join(generatedDir, "sources"))).toBe(false)
+  })
+
   it("can route Deno cron provider wake output through a preset facade", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-facade-output-")
 
