@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -4151,6 +4151,82 @@ describe("Agent Invocations", () => {
     }
     finally {
       releaseBackfill?.()
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("retries failed invocation summary backfills on later summary reads", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-summary-retry-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    try {
+      await client.execute(`CREATE TABLE vitehub_agent_invocations (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`)
+      const timestamp = "2026-01-01T00:00:00.000Z"
+      const record = {
+        agentName: "review",
+        createdAt: timestamp,
+        id: "legacy-summary-retry",
+        observations: [{ name: "legacy", timestamp, type: "run" }],
+        status: "completed",
+        traceId: "legacy-summary-retry-trace",
+        updatedAt: timestamp,
+      }
+      await client.execute({
+        args: [record.id, record.status, record.agentName, "review", 3, timestamp, JSON.stringify(record)],
+        sql: `INSERT INTO vitehub_agent_invocations
+          (id, status, agent_name, search, search_version, updated_at, record)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      })
+
+      let summaryBackfillAttempts = 0
+      // SAFETY: The proxy forwards every Client member and fails only the first summary-backfill batch.
+      const transientClient = new Proxy(client, {
+        get(target, property) {
+          const value = Reflect.get(target, property)
+          if (property !== "batch") return value instanceof Function ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            const statements = Array.isArray(args[0]) ? args[0] : []
+            const isSummaryBackfill = statements.some((statement) => {
+              return isRuntimeRecord(statement)
+                && "sql" in statement
+                && hasRuntimeType(statement.sql, "string")
+                && statement.sql.includes("SET summary = json_remove")
+            })
+            if (isSummaryBackfill && summaryBackfillAttempts++ === 0) {
+              throw new Error("temporarily unavailable")
+            }
+            // SAFETY: The proxy receives Client.batch arguments and forwards them unchanged.
+            return await (client.batch as (...batchArgs: unknown[]) => Promise<unknown>)(...args)
+          }
+        },
+      }) as Client
+      const store = createLibsqlAgentInvocationStore({ client: transientClient, maxAgeMs: false, maxRecords: false })
+
+      await expect(store.list()).resolves.toEqual({
+        invocations: [expect.objectContaining({ id: "legacy-summary-retry" })],
+      })
+      await vi.waitFor(() => expect(summaryBackfillAttempts).toBe(1))
+      await expect(store.getSummary?.("legacy-summary-retry")).resolves.toMatchObject({
+        id: "legacy-summary-retry",
+      })
+      await vi.waitFor(async () => {
+        expect(summaryBackfillAttempts).toBe(2)
+        const persisted = await client.execute(
+          "SELECT summary FROM vitehub_agent_invocations WHERE id = 'legacy-summary-retry'",
+        )
+        expect(persisted.rows[0]?.summary).toEqual(expect.any(String))
+      })
+    }
+    finally {
       client.close()
       await rm(directory, { force: true, recursive: true })
     }

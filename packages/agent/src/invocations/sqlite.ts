@@ -425,6 +425,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const readSummary = async (id: string): Promise<AgentInvocationSummary | undefined> => {
     await initialize()
+    startSummaryBackfill()
     const result = await client.execute({
       args: [id],
       sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
@@ -523,6 +524,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     getSummary: readSummary,
     async list(listOptions: AgentInvocationListOptions = {}): Promise<AgentInvocationListResult> {
       await initialize()
+      startSummaryBackfill()
       const limit = listLimit(listOptions.limit)
       const statuses = listOptions.status === undefined
         ? []
