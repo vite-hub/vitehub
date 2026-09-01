@@ -1,0 +1,23 @@
+diff --git a/package.json b/package.json
+index 70c839508ff888bbee0f292aacb32dec34575568..3d04d5dfeeea540ccd023d1cd12e4fb2b6fd18d5 100644
+--- a/package.json
++++ b/package.json
+@@ -38,7 +38,10 @@
+     "./config": "./dist/runtime/config.mjs",
+     "./context": "./dist/runtime/context.mjs",
+     "./database": "./dist/runtime/database.mjs",
+-    "./h3": "./lib/h3.mjs",
++    "./h3": {
++      "types": "./h3.d.ts",
++      "default": "./lib/h3.mjs"
++    },
+     "./meta": "./dist/runtime/meta.mjs",
+     "./package.json": "./package.json",
+     "./runtime-config": "./dist/runtime/runtime-config.mjs",
+diff --git a/h3.d.ts b/h3.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3092049d901e20894fe19df326f9a8f2904d9313
+--- /dev/null
++++ b/h3.d.ts
+@@ -0,0 +1 @@
++export * from './lib/h3.mjs'

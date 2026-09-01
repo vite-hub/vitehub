@@ -27,6 +27,7 @@ icon: i-ph-paper-plane-tilt-light
 
 | Event               | Payload                                                     |
 | ------------------- | ----------------------------------------------------------- |
+| `error`             | Attachment filtering or conversion error.                   |
 | `update:modelValue` | Current prompt text.                                        |
 | `update:files`      | Current `FileUIPart[]`.                                     |
 | `submit`            | `{ text, files }`. Empty text is accepted when files exist. |
@@ -34,3 +35,5 @@ icon: i-ph-paper-plane-tilt-light
 | `stop`              | No payload. Connect it to the AI SDK `stop()` helper.       |
 
 Use `#files`, `#actions`, and `#submit` to replace each built-in section without rebuilding keyboard behavior. The composer, attachment picker, and status-aware submit action have default accessible names; pass `aria-label` to override the composer name.
+
+The picker and clipboard paste share the same file path. Pasted images become attachments even when the clipboard also contains text. Other pasted files become attachments only when the clipboard contains no text. `filter-files` receives the raw files before ViteHub converts them to AI SDK file parts. Return the accepted files in their desired order, or return `[]` to reject the batch.

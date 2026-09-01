@@ -129,6 +129,8 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
+`useChat()` also exposes a reactive `invocationId`. It is populated when the generated route accepts a request so an application can link to `/_vitehub/agents/~support/invocations/${invocationId.value}`.
+
 Add `route.admission.authenticate` when the generated route needs authentication. ViteHub reads the raw body once, verifies the shared UI-message contract, and copies only fields named in `route.input.trust` after authentication.
 
 Agent chat and webhook routes accept at most 1 MiB by default. Set `route.maxBodyBytes` to a smaller limit or raise it as high as 10 MiB for a web chat with larger JSON payloads. ViteHub checks `Content-Length` and the streamed byte count, so chunked requests cannot bypass the limit.

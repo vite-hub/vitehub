@@ -2855,7 +2855,7 @@ describe("server helpers", () => {
   })
 
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {
-    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationId, defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
@@ -2909,6 +2909,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    expect(response.headers.get("x-vitehub-invocation-id")).toBe(
+      await agentInvocationId(run.mock.calls[0]![0].run.runId, "support"),
+    )
     await expect(response.text()).resolves.toContain("echo hello for customer:acme via http on unknown from portal-user after anonymous:http")
     await expect(
       handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/chat"), {

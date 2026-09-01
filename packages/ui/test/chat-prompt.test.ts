@@ -1,15 +1,16 @@
 // @vitest-environment happy-dom
 
 import type { ChatStatus } from "ai";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
 import { AgentSession } from "../src/components/agent-session.ts";
 import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
 
 const TrimGuardPrompt = defineComponent({
+  inheritAttrs: false,
   props: { modelValue: { default: "", type: String } },
   emits: ["submit", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
@@ -35,10 +36,11 @@ const TrimGuardPrompt = defineComponent({
               submit(event);
             }
           },
+          onPaste: attrs.onPaste,
           value: props.modelValue,
         }),
         slots.header?.(),
-        slots.footer?.(),
+        h("div", { "data-slot": "footer" }, slots.footer?.()),
       ]);
   },
 });
@@ -112,7 +114,112 @@ describe("AgentChatPrompt", () => {
       "aria-label": "Add attachment",
       tabindex: "-1",
     });
-    expect(wrapper.get('button[aria-label="Add attachment"]')).toBeDefined();
+    expect(
+      wrapper.get(
+        '[data-slot="footer"] button[aria-label="Add attachment"] + button[aria-label="Send prompt"]',
+      ),
+    ).toBeDefined();
+  });
+
+  it("adds pasted images to the controlled files", async () => {
+    const wrapper = mount(AgentChatPrompt, { global });
+    const image = new File(["image"], "clipboard.png", { type: "image/png" });
+
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: [image], getData: () => "clipboard image" },
+    });
+    wrapper.get("textarea").element.dispatchEvent(event);
+    await vi.waitFor(() => expect(wrapper.emitted("update:files")).toHaveLength(1));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(wrapper.emitted("update:files")?.at(-1)?.[0]).toEqual([
+      {
+        filename: "clipboard.png",
+        mediaType: "image/png",
+        type: "file",
+        url: "data:image/png;base64,aW1hZ2U=",
+      },
+    ]);
+  });
+
+  it("leaves generic clipboard files alone when text is present", async () => {
+    const wrapper = mount(AgentChatPrompt, { global });
+    const document = new File(["notes"], "notes.txt", { type: "text/plain" });
+
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: [document], getData: () => "keep this text" },
+    });
+    wrapper.get("textarea").element.dispatchEvent(event);
+    await flushPromises();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(wrapper.emitted("update:files")).toBeUndefined();
+  });
+
+  it("filters picker and pasted files before conversion", async () => {
+    const filterFiles = vi.fn((): File[] => []);
+    const wrapper = mount(AgentChatPrompt, { global, props: { filterFiles } });
+    const picked = new File(["picked"], "picked.png", { type: "image/png" });
+    const pasted = new File(["pasted"], "pasted.png", { type: "image/png" });
+    const input = wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element, "files", { configurable: true, value: [picked] });
+
+    await input.trigger("change");
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: [pasted], getData: () => "keep this text" },
+    });
+    wrapper.get("textarea").element.dispatchEvent(event);
+    await flushPromises();
+
+    expect(filterFiles.mock.calls).toEqual([[[picked]], [[pasted]]]);
+    expect(event.defaultPrevented).toBe(false);
+    expect(wrapper.emitted("update:files")).toBeUndefined();
+  });
+
+  it("reports attachment preparation errors", async () => {
+    const error = new Error("could not prepare attachment");
+    const wrapper = mount(AgentChatPrompt, {
+      global,
+      props: {
+        filterFiles: () => {
+          throw error;
+        },
+      },
+    });
+    const input = wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      configurable: true,
+      value: [new File(["image"], "broken.png", { type: "image/png" })],
+    });
+
+    await input.trigger("change");
+    await flushPromises();
+
+    expect(wrapper.emitted("error")).toEqual([[error]]);
+  });
+
+  it("previews image attachments above the editor", () => {
+    const wrapper = mount(AgentChatPrompt, {
+      global,
+      props: {
+        files: [
+          {
+            filename: "preview.png",
+            mediaType: "image/png",
+            type: "file",
+            url: "data:image/png;base64,aW1hZ2U=",
+          },
+        ],
+      },
+    });
+
+    expect(wrapper.get(".vh-prompt__attachment--image img").attributes()).toMatchObject({
+      alt: "preview.png",
+      src: "data:image/png;base64,aW1hZ2U=",
+    });
   });
 
   it.each([

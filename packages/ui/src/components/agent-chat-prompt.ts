@@ -1,5 +1,5 @@
 import type { ChatStatus, FileUIPart } from "ai";
-import { defineComponent, h, type PropType, ref, resolveComponent } from "vue";
+import { defineComponent, h, mergeProps, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
 
@@ -16,12 +16,13 @@ export const AgentChatPrompt = defineComponent({
   props: {
     accept: { type: String },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
+    filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
     modelValue: { default: "", type: String },
     multiple: { default: true, type: Boolean },
     placeholder: { type: String },
     status: { default: "ready", type: String as PropType<ChatStatus> },
   },
-  emits: ["reload", "submit", "stop", "update:files", "update:modelValue"],
+  emits: ["error", "reload", "submit", "stop", "update:files", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
     const input = ref<HTMLInputElement | null>(null);
     const UButton = resolveComponent("UButton");
@@ -32,14 +33,39 @@ export const AgentChatPrompt = defineComponent({
         "update:files",
         props.files.filter((_, current) => current !== index),
       );
+    const addFiles = async (
+      input: FileList | Iterable<File>,
+      onAccepted?: () => void,
+    ) => {
+      try {
+        const rawFiles = Array.from(input);
+        const acceptedFiles = props.filterFiles?.(rawFiles) ?? rawFiles;
+        if (acceptedFiles.length === 0) return;
+        onAccepted?.();
+        const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
+        emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+      } catch (error) {
+        emit("error", error);
+      }
+    };
+    const paste = async (event: ClipboardEvent) => {
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      const hasText = clipboard.getData("text/plain").length > 0;
+      const files = Array.from(clipboard.files).filter(
+        (file) => file.type.startsWith("image/") || !hasText,
+      );
+      if (files.length === 0) return;
+      await addFiles(files, () => event.preventDefault());
+    };
     return () =>
       h(
         UChatPrompt,
-        {
-          ...attrs,
+        mergeProps(attrs, {
           "aria-label": attrs["aria-label"] ?? "Message",
-          class: ["vh-prompt", attrs.class],
+          class: "vh-prompt",
           modelValue: props.modelValue || (props.files.length > 0 ? attachmentSubmitSentinel : ""),
+          onPaste: paste,
           placeholder: props.placeholder,
           "onUpdate:modelValue": (value: string) =>
             emit("update:modelValue", value.replace(attachmentSubmitSentinel, "")),
@@ -48,7 +74,7 @@ export const AgentChatPrompt = defineComponent({
             if (!text && props.files.length === 0) return;
             emit("submit", { files: props.files, text } satisfies AgentChatPromptSubmit);
           },
-        },
+        }),
         {
           header: () =>
             props.files.length > 0 || slots.files
@@ -56,12 +82,23 @@ export const AgentChatPrompt = defineComponent({
                   "div",
                   { class: "vh-prompt__attachments" },
                   slots.files?.({ files: props.files, remove }) ??
-                    props.files.map((file, index) =>
-                      h(
+                    props.files.map((file, index) => {
+                      const image = file.mediaType.startsWith("image/");
+                      const label = file.filename ?? file.mediaType;
+                      return h(
                         "span",
-                        { class: "vh-prompt__attachment", key: `${file.filename}-${index}` },
+                        {
+                          class: ["vh-prompt__attachment", image && "vh-prompt__attachment--image"],
+                          key: `${file.filename}-${index}`,
+                        },
                         [
-                          h("span", file.filename ?? file.mediaType),
+                          image
+                            ? h("img", {
+                                alt: label,
+                                class: "vh-prompt__attachment-preview",
+                                src: file.url,
+                              })
+                            : h("span", label),
                           h(
                             "button",
                             {
@@ -72,8 +109,8 @@ export const AgentChatPrompt = defineComponent({
                             "×",
                           ),
                         ],
-                      ),
-                    ),
+                      );
+                    }),
                 )
               : null,
           footer: () =>
@@ -84,16 +121,16 @@ export const AgentChatPrompt = defineComponent({
                 class: "vh-visually-hidden",
                 multiple: props.multiple,
                 onChange: async (event: Event) => {
-                  const files = await Promise.all(
-                    Array.from((event.target as HTMLInputElement).files ?? []).map(fileToUIPart),
-                  );
-                  emit("update:files", nextPromptFiles(props.files, files, props.multiple));
-                  (event.target as HTMLInputElement).value = "";
+                  const target = event.currentTarget;
+                  if (!(target instanceof HTMLInputElement)) return;
+                  await addFiles(target.files ?? []);
+                  target.value = "";
                 },
                 ref: input,
                 tabindex: -1,
                 type: "file",
               }),
+              h("span", { class: "vh-prompt__spacer" }),
               slots.actions?.() ??
                 h(UButton, {
                   "aria-label": "Add attachment",
@@ -103,7 +140,6 @@ export const AgentChatPrompt = defineComponent({
                   type: "button",
                   variant: "ghost",
                 }),
-              h("span", { class: "vh-prompt__spacer" }),
               slots.submit?.({ status: props.status }) ??
                 h(UChatPromptSubmit, {
                   "aria-label": {

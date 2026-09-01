@@ -31,6 +31,7 @@ describe("Agent Vue client types", () => {
     expectTypeOf(chat.id).toEqualTypeOf<ComputedRef<string>>()
     expectTypeOf(chat.messages).toEqualTypeOf<ShallowRef<UIMessage[]>>()
     expectTypeOf(chat.data).toEqualTypeOf<ComputedRef<import("../src/messages.ts").AgentChatData>>()
+    expectTypeOf(chat.invocationId).toEqualTypeOf<ComputedRef<string | undefined>>()
     expectTypeOf(chat.status.value).toEqualTypeOf<"submitted" | "streaming" | "ready" | "error">()
     expectTypeOf(chat.sendMessage).toBeFunction()
     expectTypeOf(useChat).toBeCallableWith(agent, (() => init) satisfies MaybeRefOrGetter<AgentChatReactiveInit>)

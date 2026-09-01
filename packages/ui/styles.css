@@ -218,6 +218,37 @@
   font: inherit;
 }
 
+.vh-prompt__attachment--image {
+  border-radius: calc(var(--vh-ui-radius) * 1.25);
+  flex: 0 0 4rem;
+  height: 4rem;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  width: 4rem;
+}
+
+.vh-prompt__attachment-preview {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.vh-prompt__attachment--image button {
+  align-items: center;
+  background: color-mix(in oklab, black 65%, transparent);
+  border-radius: 9999px;
+  color: white;
+  display: flex;
+  height: 1.25rem;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 0.25rem;
+  top: 0.25rem;
+  width: 1.25rem;
+}
+
 .vh-prompt__footer {
   align-items: center;
   display: flex;

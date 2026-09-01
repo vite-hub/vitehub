@@ -127,12 +127,14 @@ function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart
   if (!type || !mediaType) return []
 
   const id = firstString(part.id)
-  const data = isAttachmentData(part.data) ? part.data : undefined
+  const url = typeof part.url === "string" && part.url ? part.url : undefined
+  const data = isAttachmentData(part.data)
+    ? part.data
+    : url?.startsWith("data:") ? url : undefined
   const fetchData = typeof part.fetchData === "function"
     ? part.fetchData as () => AttachmentData | Promise<AttachmentData>
     : undefined
   const name = firstString(part.name, part.filename)
-  const url = typeof part.url === "string" && part.url ? part.url : undefined
   if (!data && !fetchData && !url) return []
   const attachment = {
     ...(data ? { data } : {}),
@@ -143,7 +145,7 @@ function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart
     ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
     mediaType,
     type,
-    ...(url ? { url } : {}),
+    ...(url && !data ? { url } : {}),
   } satisfies AttachmentPart
   return [attachment]
 }
