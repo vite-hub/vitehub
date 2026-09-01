@@ -648,8 +648,6 @@
 }
 
 .session-trace {
-  display: grid;
-  grid-template-columns: minmax(20rem, 1.45fr) minmax(15rem, 0.95fr);
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -657,6 +655,7 @@
 
 .session-trace__waterfall {
   display: grid;
+  flex: 1;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
@@ -867,12 +866,13 @@
 }
 
 .session-trace__detail {
-  border-inline-start: 1px solid var(--ui-border);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  flex: 1;
+  grid-template-rows: auto auto auto auto;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .session-trace__detail-head {
@@ -1001,8 +1001,6 @@
 
 .session-trace__fields {
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .session-trace__fields section {
@@ -1479,10 +1477,5 @@
   }
   .session-inspector__breadcrumbs {
     padding-inline: 0.65rem;
-  }
-  .session-trace {
-    grid-template-columns: 18rem 14rem;
-    min-width: 32rem;
-    overflow-x: auto;
   }
 }
