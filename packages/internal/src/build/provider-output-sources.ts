@@ -228,15 +228,26 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         plugins: [{
           name: "vitehub-provider-vite-resource-query",
           setup(traceBuild) {
+            const resolvingPackageImportHint = "vitehubResolvingPackageImportHint"
             traceBuild.onResolve({ filter: /^\.\.?\// }, (request) => {
               const source = request.resolveDir && resolve(request.resolveDir, request.path.split(/[?#]/, 1)[0]!)
               if (source && existsSync(source)) importedSourceHints.add(source)
               return undefined
             })
-            traceBuild.onResolve({ filter: /^#/ }, (request) => {
+            traceBuild.onResolve({ filter: /^#/ }, async (request) => {
+              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
               if (!request.importer) return undefined
-              const source = resolveComputedModuleSource(request.importer, request.path)
-              if (source) importedSourceHints.add(source)
+              const resolution = await traceBuild.resolve(request.path, {
+                importer: request.importer,
+                kind: request.kind,
+                namespace: request.namespace,
+                pluginData: { ...request.pluginData, [resolvingPackageImportHint]: true },
+                resolveDir: request.resolveDir,
+                with: request.with,
+              })
+              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file" && existsSync(resolution.path)) {
+                importedSourceHints.add(resolution.path)
+              }
               return undefined
             })
             traceBuild.onResolve({ filter: /^[^./#]/ }, (request) => {
@@ -248,6 +259,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
               return undefined
             })
             traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
+              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
               const resourcePath = request.path.split(/[?#]/, 1)[0]!
               let resourceSource: string | undefined
               if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {

@@ -757,6 +757,49 @@ it("snapshots a symlinked configured root", async () => {
   expect(execution.status).toBe(0)
 })
 
+it("resolves conditional package imports with their calling semantics", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-conditional-imports-"))
+  tempDirs.push(rootDir)
+  const esmHandler = join(rootDir, "server", "workflow.mjs")
+  const commonjsHandler = join(rootDir, "server", "required.cjs")
+  const importTarget = join(rootDir, "import-worktree", "index.mjs")
+  const requireTarget = join(rootDir, "require-worktree", "index.cjs")
+  await Promise.all([
+    mkdir(dirname(esmHandler), { recursive: true }),
+    mkdir(dirname(importTarget), { recursive: true }),
+    mkdir(dirname(requireTarget), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      imports: { "#conditional": { import: "./import-worktree/index.mjs", require: "./require-worktree/index.cjs" } },
+      type: "module",
+    })),
+    writeFile(esmHandler, 'export { value } from "#conditional"\n'),
+    writeFile(commonjsHandler, 'exports.value = require("#conditional").value\n'),
+    writeFile(join(dirname(importTarget), ".git"), "gitdir: /tmp/import-worktree.git\n"),
+    writeFile(importTarget, 'export const value = "imported"\n'),
+    writeFile(join(dirname(requireTarget), ".git"), "gitdir: /tmp/require-worktree.git\n"),
+    writeFile(requireTarget, 'exports.value = "required"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [esmHandler, commonjsHandler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `import(${JSON.stringify(pathToFileURL(retained.resolve(esmHandler)).href)}).then(module => { if (module.value !== "imported") process.exit(1) })`,
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "if (require(process.argv[1]).value !== 'required') process.exit(1)",
+    retained.resolve(commonjsHandler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
 it("retains the tsconfig chain for a symlinked configured root", async () => {
   const projectSource = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-target-"))
   const rootContainer = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-source-"))
