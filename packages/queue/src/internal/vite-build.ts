@@ -543,6 +543,9 @@ async function writeVercelQueueFunctions(
   const stagedQueueRoot = resolve(stagedOutputRoot, "functions", "api", "vitehub", "queues", "vercel")
   const backupQueueRoot = `${queueRoot}.previous`
   const queueConfig = resolveOutputQueueConfig(queue, "vercel")
+  const callbackAliases = Object.hasOwn(providerRuntimeAliases, queuePackageName)
+    ? providerRuntimeAliases
+    : { ...providerRuntimeAliases, [queuePackageName]: packageRequire.resolve(queuePackageName) }
 
   await rm(stagedOutputRoot, { force: true, recursive: true })
   signal?.throwIfAborted()
@@ -566,7 +569,7 @@ async function writeVercelQueueFunctions(
     signal?.throwIfAborted()
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
-      alias: providerRuntimeAliases,
+      alias: callbackAliases,
       format: "esm",
       platform: "node",
       rootDir: sourceRootDir ?? rootDir,
