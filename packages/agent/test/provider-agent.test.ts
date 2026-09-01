@@ -297,6 +297,79 @@ describe("Provider Agent Driver", () => {
     expect(JSON.stringify(shape)).not.toContain(secret)
   })
 
+  it("reports a custom launcher that exits successfully before the provider handshake", async () => {
+    const threadId = "thread-zero-exit-launch-diagnostic"
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(0)
+        throw new Error("Codex App Server process exited before the handshake")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", 'process.stderr.write("launcher stopped before handshake\\n")'],
+          command: process.execPath,
+        },
+        provider: "codex",
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(getViteHubErrorShape(failure)).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 0,
+        phase: "launch",
+        stderr: "launcher stopped before handshake",
+      },
+    })
+  })
+
+  it("bounds diagnostics while forwarding high-volume provider stderr", async () => {
+    const threadId = "thread-launch-stderr-backpressure"
+    const stderrBytes = 256 * 1024
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(9)
+        expect(Buffer.byteLength(launched.stderr)).toBe(stderrBytes)
+        throw new Error("Codex App Server process exited with code 9")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", `process.stderr.write("x".repeat(${stderrBytes}));process.exit(9)`],
+          command: process.execPath,
+        },
+        provider: "codex",
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(getViteHubErrorShape(failure)).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 9,
+        stderrBytes,
+        stderrTruncated: true,
+      },
+    })
+    expect(getViteHubErrorShape(failure)?.details?.stderr).toHaveLength(16_384)
+  })
+
   it("stops signal-ignoring descendants before a provider launcher exits", async () => {
     const threadId = "thread-launch-process-group"
     const heartbeatPath = join(tmpdir(), `vitehub-launch-heartbeat-${crypto.randomUUID()}`)

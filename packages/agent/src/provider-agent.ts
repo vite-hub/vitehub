@@ -357,9 +357,12 @@ function recordDiagnostic(diagnostic) {
 }
 
 child.stderr.on("data", (chunk) => {
-  process.stderr.write(chunk)
   stderrBytes += chunk.length
   stderr = Buffer.concat([stderr, chunk]).subarray(-${providerLaunchStderrMaxBytes})
+  if (!process.stderr.write(chunk)) {
+    child.stderr.pause()
+    process.stderr.once("drain", () => child.stderr.resume())
+  }
 })
 
 function signalProcessGroup(signal) {
@@ -412,7 +415,7 @@ child.once("exit", (code, signal) => {
 })
 child.once("close", (code, signal) => {
   childClosed = true
-  if (code !== 0 || signal) recordDiagnostic({ exitCode: code ?? undefined, signal: signal ?? undefined })
+  recordDiagnostic({ exitCode: code ?? undefined, signal: signal ?? undefined })
   finish()
 })
 
