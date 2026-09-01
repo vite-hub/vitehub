@@ -5215,7 +5215,10 @@ describe("server helpers", () => {
     await Promise.all(waitUntilTasks)
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       run: expect.objectContaining({
-        annotations: { triggeredBy: "Maxi" },
+        annotations: {
+          "channel.sentAt": "2026-06-10T12:00:00.000Z",
+          triggeredBy: "Maxi",
+        },
       }),
     }))
     expect(agent.chat).toMatchObject({ stream: false })
