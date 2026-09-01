@@ -35,7 +35,7 @@ defineEmits<{
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"
-          class="lg:hidden"
+          class="md:hidden"
           icon="i-lucide-panel-left"
           color="neutral"
           variant="ghost"

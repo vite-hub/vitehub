@@ -405,8 +405,8 @@ describe("framework package contract", () => {
     ).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
-    expect(consoleSessionNavbar).toContain('class="lg:hidden"');
-    expect(consoleSessionNavbar).not.toContain('class="xl:hidden"');
+    expect(consoleSessionNavbar).toContain('class="md:hidden"');
+    expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
     expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
@@ -424,7 +424,9 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)");
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)");
     expect(consoleSessionNavbar).toContain('data-slot="mobile-session-navigation"');
-    expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")');
+    expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
+    expect(consolePage).toContain("root: 'md:flex'");
+    expect(consolePage).toContain("content: 'md:hidden'");
     expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain("scheduleAgentsRetry()");

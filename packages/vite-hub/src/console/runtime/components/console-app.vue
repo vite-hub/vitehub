@@ -563,7 +563,7 @@ watch(
 );
 
 onMounted(() => {
-  media = window.matchMedia("(min-width: 1024px)");
+  media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
   detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
@@ -595,7 +595,13 @@ onBeforeUnmount(() => {
       :min-size="13"
       :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
+      :ui="{
+        root: 'md:flex',
+        body: 'gap-0 overflow-hidden p-0',
+        footer: 'px-2 py-1',
+        content: 'md:hidden',
+        overlay: 'md:hidden',
+      }"
       collapsible
       resizable
     >
@@ -777,7 +783,7 @@ onBeforeUnmount(() => {
           </UTooltip>
           <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
             <UButton
-              class="ml-auto max-lg:hidden"
+              class="ml-auto max-md:hidden"
               icon="i-ph-sidebar-simple-light"
               color="neutral"
               variant="ghost"
