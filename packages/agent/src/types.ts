@@ -1271,6 +1271,8 @@ export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeC
   command: string
   cwd: string
   environment: Readonly<AgentProviderEnvironment>
+  /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
+  requiredEnvironment: readonly string[]
 }
 
 export type AgentProviderLaunchResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =

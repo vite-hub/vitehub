@@ -221,6 +221,13 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
         ...(requestId ? { requestId } : {}),
       }
     }
+    if (viteHubError?.code === "PROVIDER_LAUNCH_FAILED") {
+      const requestId = identifier(viteHubError.requestId)
+      return {
+        ...publicError("PROVIDER_UNAVAILABLE", "I couldn't start the agent runtime. Please try again."),
+        ...(requestId ? { requestId } : {}),
+      }
+    }
     if (viteHubError?.code === "TRANSCRIPTION_AUTHENTICATION_FAILED") {
       return publicError(viteHubError.code, "Audio transcription is unavailable because its provider credentials were rejected.")
     }

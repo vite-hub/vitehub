@@ -8,7 +8,7 @@ import { join, resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
@@ -203,7 +203,7 @@ describe("Provider Agent Driver", () => {
     const outputPath = join(outputRoot, "args.json")
     let launcherPath: string | undefined
     const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PATH: undefined, PROVIDER_SELECTED: "selected" }))
-    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>> }) => {
+    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>>, requiredEnvironment: readonly string[] }) => {
       expect(launchContext).toMatchObject({
         command: "/app/node_modules/@openai/codex/bin/codex.js",
         environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
@@ -211,6 +211,8 @@ describe("Provider Agent Driver", () => {
       expect(launchContext.environment).not.toHaveProperty("PATH")
       expect(launchContext.cwd).toContain("vitehub-provider-")
       expect(Object.isFrozen(launchContext.environment)).toBe(true)
+      expect(launchContext.requiredEnvironment).toEqual([])
+      expect(Object.isFrozen(launchContext.requiredEnvironment)).toBe(true)
       return {
         args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
         command: process.execPath,
@@ -239,6 +241,60 @@ describe("Provider Agent Driver", () => {
     finally {
       await rm(outputRoot, { force: true, recursive: true })
     }
+  })
+
+  it("declares late framework environment required by provider tools", async () => {
+    const threadId = "thread-required-launch-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const launch = vi.fn(({ command }: { command: string, requiredEnvironment: readonly string[] }) => ({ command }))
+    const invocation = context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } })
+
+    await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      requiredEnvironment: ["T3_MCP_BEARER_TOKEN"],
+    }))
+  })
+
+  it("retains a redacted launch stderr tail when a custom launcher exits", async () => {
+    const threadId = "thread-launch-diagnostic"
+    const secret = "launch-secret-value"
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(5)
+        throw new Error("Codex App Server process exited with code 5")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        env: { PROVIDER_SECRET: secret },
+        launch: {
+          args: ["-e", `process.stderr.write("runner failed token=${secret}\\n");process.exit(5)`],
+          command: process.execPath,
+        },
+        provider: "codex",
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    const shape = getViteHubErrorShape(failure)
+    expect(shape).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 5,
+        phase: "launch",
+        stderr: "runner failed token=[REDACTED]",
+      },
+    })
+    expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
+    expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
+    expect(JSON.stringify(shape)).not.toContain(secret)
   })
 
   it("stops signal-ignoring descendants before a provider launcher exits", async () => {

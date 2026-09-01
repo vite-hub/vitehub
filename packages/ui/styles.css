@@ -1664,6 +1664,28 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   margin: 0.2rem 0 0;
 }
 
+.vh-invocation-error__details {
+  color: inherit;
+  font-size: 0.6875rem;
+  margin-block-start: 0.45rem;
+}
+
+.vh-invocation-error__details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vh-invocation-error__details pre {
+  background: color-mix(in oklab, currentColor 6%, transparent);
+  border-radius: calc(var(--vh-ui-radius) * 0.75);
+  margin: 0.45rem 0 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .vh-invocation-inspector__metrics {
   display: grid;
   gap: 0.375rem;

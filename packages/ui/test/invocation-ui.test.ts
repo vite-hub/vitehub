@@ -1639,6 +1639,32 @@ describe("Agent Invocation UI", () => {
     );
   });
 
+  it("reveals structured terminal diagnostics for operators", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      error: {
+        cause: { code: 5, message: "Process exited", name: "ProcessExitError" },
+        code: "PROVIDER_LAUNCH_FAILED",
+        details: { phase: "launch", stderr: "No user exists for uid 10001" },
+        message: "Provider launch command failed.",
+        name: "ViteHubError",
+        requestId: "provider-a1b2c3d4e5f6",
+      },
+      failedAt: "2026-08-22T00:00:05.000Z",
+      id: "failed-diagnostic",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "failed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-error__details").text()).toContain("PROVIDER_LAUNCH_FAILED");
+    expect(wrapper.get(".vh-invocation-error__details").text()).toContain("No user exists for uid 10001");
+    expect(wrapper.get(".vh-invocation-error__details").text()).toContain("provider-a1b2c3d4e5f6");
+  });
+
   it("uses the cancellation timestamp for terminal duration", () => {
     const invocation: AgentInvocationView = {
       cancelledAt: "2026-08-22T00:01:05.000Z",

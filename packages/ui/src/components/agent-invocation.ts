@@ -19,6 +19,7 @@ import {
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
+import type { RuntimeDiagnosticError } from "@vite-hub/runtime";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -112,6 +113,23 @@ function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
+}
+
+function diagnosticDetails(error: RuntimeDiagnosticError) {
+  const details = {
+    ...(error.code !== undefined ? { code: error.code } : {}),
+    ...(error.requestId ? { requestId: error.requestId } : {}),
+    ...(error.status !== undefined ? { status: error.status } : {}),
+    ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+    ...(error.details ? { details: error.details } : {}),
+    ...(error.cause ? { cause: error.cause } : {}),
+    ...(error.errors?.length ? { errors: error.errors } : {}),
+  };
+  if (!Object.keys(details).length) return null;
+  return h("details", { class: "vh-invocation-error__details" }, [
+    h("summary", "Diagnostic details"),
+    h("pre", payloadText(details)),
+  ]);
 }
 
 function jsonValueLabel(value: unknown): string {
@@ -1196,6 +1214,7 @@ export const AgentInvocation = defineComponent({
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
                   h("strong", props.invocation.error.name ?? "Invocation failed"),
                   h("span", props.invocation.error.message),
+                  diagnosticDetails(props.invocation.error),
                 ])
               : null,
             h("div", {
@@ -1360,6 +1379,7 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__error" }, [
                     h("strong", props.invocation.error.name ?? "Invocation failed"),
                     h("p", props.invocation.error.message),
+                    diagnosticDetails(props.invocation.error),
                   ])
                 : null,
             ]),

@@ -7,7 +7,7 @@ import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -308,19 +308,59 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   return launch
 }
 
-function providerLauncherSource(launch: AgentProviderLaunchCommand): string {
+const providerLaunchStderrMaxBytes = 16_384
+
+interface MaterializedProviderLauncher {
+  diagnosticPath: string
+  path: string
+}
+
+interface ProviderLaunchDiagnostic {
+  exitCode?: number
+  signal?: string
+  spawnError?: string
+  stderr?: string
+  stderrBytes?: number
+  stderrTruncated?: boolean
+}
+
+function providerLauncherSource(launch: AgentProviderLaunchCommand, diagnosticPath: string): string {
   return `import { spawn } from "node:child_process"
+import { writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
   cwd: process.cwd(),
   detached: true,
   env: process.env,
-  stdio: "inherit",
+  stdio: ["inherit", "inherit", "pipe"],
 })
 
 const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
 let termination
+let childClosed = false
+let childExit
+let processGroupTerminated = false
+let stderr = Buffer.alloc(0)
+let stderrBytes = 0
+
+function recordDiagnostic(diagnostic) {
+  try {
+    writeFileSync(${JSON.stringify(diagnosticPath)}, JSON.stringify({
+      ...diagnostic,
+      stderr: stderr.toString("utf8"),
+      stderrBytes,
+      stderrTruncated: stderrBytes > stderr.length,
+    }), { mode: 0o600 })
+  }
+  catch {}
+}
+
+child.stderr.on("data", (chunk) => {
+  process.stderr.write(chunk)
+  stderrBytes += chunk.length
+  stderr = Buffer.concat([stderr, chunk]).subarray(-${providerLaunchStderrMaxBytes})
+})
 
 function signalProcessGroup(signal) {
   if (!child.pid) return false
@@ -356,32 +396,89 @@ const handlers = new Map(signals.map(signal => [signal, () => {
 for (const signal of signals) process.on(signal, handlers.get(signal))
 
 child.once("error", (error) => {
+  recordDiagnostic({ spawnError: error?.code || error?.message || String(error) })
   console.error(error)
   process.exit(1)
 })
 child.once("exit", (code, signal) => {
+  childExit = { code, signal }
   void terminateProcessGroup().then(() => {
-    for (const name of signals) process.off(name, handlers.get(name))
-    if (signal) process.kill(process.pid, signal)
-    else process.exit(code ?? 1)
+    processGroupTerminated = true
+    finish()
   }, (error) => {
     console.error(error)
     process.exit(1)
   })
 })
+child.once("close", (code, signal) => {
+  childClosed = true
+  if (code !== 0 || signal) recordDiagnostic({ exitCode: code ?? undefined, signal: signal ?? undefined })
+  finish()
+})
+
+function finish() {
+  if (!childClosed || !childExit || !processGroupTerminated) return
+  for (const name of signals) process.off(name, handlers.get(name))
+  if (childExit.signal) process.kill(process.pid, childExit.signal)
+  else process.exit(childExit.code ?? 1)
+}
 `
 }
 
-async function materializeProviderLauncher(root: string, launch: AgentProviderLaunchCommand): Promise<string> {
+async function materializeProviderLauncher(root: string, launch: AgentProviderLaunchCommand): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
   }
   const sourcePath = join(root, "provider-launcher.mjs")
   const path = join(root, "provider-launcher")
+  const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
-  return path
+  return { diagnosticPath, path }
+}
+
+function redactProviderDiagnostic(value: string, environment: NodeJS.ProcessEnv): string {
+  let redacted = value
+  const secrets = [...new Set(Object.values(environment)
+    .filter((item): item is string => typeof item === "string" && item.length >= 4))]
+    .sort((left, right) => right.length - left.length)
+  for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
+  return redacted
+    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
+    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
+}
+
+async function providerLaunchFailure(
+  diagnosticPath: string | undefined,
+  environment: NodeJS.ProcessEnv | undefined,
+  cause: unknown,
+): Promise<ViteHubError<"PROVIDER_LAUNCH_FAILED"> | undefined> {
+  if (!diagnosticPath || !environment) return
+  let diagnostic: ProviderLaunchDiagnostic
+  try {
+    diagnostic = JSON.parse(await readFile(diagnosticPath, "utf8")) as ProviderLaunchDiagnostic
+  }
+  catch {
+    return
+  }
+  const stderr = typeof diagnostic.stderr === "string"
+    ? redactProviderDiagnostic(diagnostic.stderr, environment).trim()
+    : undefined
+  const requestId = `provider-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
+  return new ViteHubError("PROVIDER_LAUNCH_FAILED", "[vitehub] Provider launch command failed.", {
+    cause,
+    details: {
+      phase: "launch",
+      ...(typeof diagnostic.exitCode === "number" ? { exitCode: diagnostic.exitCode } : {}),
+      ...(typeof diagnostic.signal === "string" ? { signal: diagnostic.signal } : {}),
+      ...(typeof diagnostic.spawnError === "string" ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment) } : {}),
+      ...(stderr ? { stderr } : {}),
+      ...(typeof diagnostic.stderrBytes === "number" ? { stderrBytes: diagnostic.stderrBytes } : {}),
+      ...(diagnostic.stderrTruncated === true ? { stderrTruncated: true } : {}),
+    },
+    requestId,
+  })
 }
 
 interface CodexCredentialHome {
@@ -661,7 +758,8 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
 }
 
 async function ensureCodexProfileHome(profile: string): Promise<string> {
-  const dataRoot = resolve(process.cwd(), ".vitehub", "data", "codex")
+  const configuredHome = process.env.CODEX_HOME?.trim()
+  const dataRoot = configuredHome ? resolve(configuredHome) : resolve(process.cwd(), ".vitehub", "data", "codex")
   let current = process.cwd()
   for (const segment of relative(current, join(dataRoot, profile)).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
@@ -1664,6 +1762,8 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
+  let providerLaunchDiagnosticPath: string | undefined
+  let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
@@ -1896,7 +1996,7 @@ async function* runProvider<
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
-    const providerRuntimeEnvironment = providerEnvironment({
+    providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
     })
@@ -1910,13 +2010,16 @@ async function* runProvider<
         command: providerCommand,
         cwd: root,
         environment: Object.freeze({ ...providerRuntimeEnvironment }),
+        requiredEnvironment: Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
       }
       const launch = normalizedProviderLaunch(await waitForProviderOperation(
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
       if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
-      providerLauncher = await waitForProviderOperation(materializeProviderLauncher(launchRoot, launch), effectiveSignal)
+      const materializedLauncher = await waitForProviderOperation(materializeProviderLauncher(launchRoot, launch), effectiveSignal)
+      providerLauncher = materializedLauncher.path
+      providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
@@ -2069,8 +2172,9 @@ async function* runProvider<
     }
   }
   catch (error) {
-    caught = error
-    throw error
+    const launchFailure = await providerLaunchFailure(providerLaunchDiagnosticPath, providerRuntimeEnvironment, error)
+    caught = launchFailure ?? error
+    throw caught
   }
   finally {
     unregister?.()
