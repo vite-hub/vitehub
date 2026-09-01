@@ -37,6 +37,8 @@ describe("Console requests", () => {
 
     await expect(requestConsole("/api/_vitehub/console/invocations/selected"))
       .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(408))).toBe(true)
+    expect(isRetryableConsoleRequestError(new ConsoleRequestError(429))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(404))).toBe(false)
     expect(isRetryableConsoleRequestError(new TypeError("network unavailable"))).toBe(true)

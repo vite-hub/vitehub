@@ -9,7 +9,10 @@ export class ConsoleRequestError extends Error {
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  return !(error instanceof ConsoleRequestError) || error.status >= 500
+  return !(error instanceof ConsoleRequestError)
+    || error.status === 408
+    || error.status === 429
+    || error.status >= 500
 }
 
 export async function requestConsole(
