@@ -937,6 +937,43 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
   })
 
+  it("restores published Agent sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const agentDir = join(rootDir, ".vitehub", "agent")
+    const sourcesDir = join(agentDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(agentDir, "netlify-function.mjs"), "old handler")
+    await writeFile(join(sourcesDir, "context.md"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(agentDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(agentDir, "netlify-function.mjs"), "new handler")
+            await writeFile(join(sourcesDir, "context.md"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(agentDir, "netlify-function.mjs"), "utf8")).resolves.toBe("old handler")
+    await expect(readFile(join(sourcesDir, "context.md"), "utf8")).resolves.toBe("old source")
+  })
+
   it("preserves the previous Vercel function when replacement bundling is cancelled", async () => {
     let bundlingStarted!: () => void
     const started = new Promise<void>(resolve => bundlingStarted = resolve)
