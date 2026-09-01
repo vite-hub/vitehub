@@ -246,15 +246,17 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/vercel-vite"`)
 
+  const publishedDir = join(rootDir, ".vitehub", "workflow")
   await generateWorkflowProviderOutputs({
     artifacts,
     clientOutDir: join(rootDir, "dist", "client"),
-    hosting: "node-server",
     rootDir,
-    workflow: false,
-  }, async options => await options.afterWrite?.())
+    workflow: {},
+  }, async options => {
+    expect(options.cloudflare?.bundleEntry).toBe(join(publishedDir, "cloudflare-worker.mjs"))
+    expect(options.vercel?.bundleEntry).toBe(join(publishedDir, "vercel-server.mjs"))
+  })
 
-  const publishedDir = join(rootDir, ".vitehub", "workflow")
   const publishedWorkflowFile = join(publishedDir, "sources", "server", "workflows", "cleanup", "01-cleanup.ts")
   const publishedAppFile = join(publishedDir, "sources", "src", "server.ts")
   await expect(readFile(join(publishedDir, "registry.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)

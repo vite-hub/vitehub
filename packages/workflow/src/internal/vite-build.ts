@@ -1403,7 +1403,7 @@ async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
+  let artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
@@ -1422,24 +1422,12 @@ async function generateProviderOutputsWithinLock(
     : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
       ? inferredWorkflowConfig
       : false
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
-    ? createCloudflareOutput(options.rootDir, artifacts, {
-        ...options.providerImportAliases,
-        ...options.providerRuntimeImportAliases?.cloudflare,
-      })
-    : undefined
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
-  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
-        ...options.providerImportAliases,
-        ...options.providerRuntimeImportAliases?.vercel,
-      }, options.serverFunctionName)
-    : undefined
-  const publishGeneratedArtifacts = async () => {
+  const publishGeneratedArtifacts = async (): Promise<GeneratedWorkflowArtifacts> => {
     const generatedDir = resolve(options.rootDir, ".vitehub", productName)
-    if (resolve(artifacts.generatedDir) === generatedDir) return
+    if (resolve(artifacts.generatedDir) === generatedDir) return artifacts
     const nextDir = `${generatedDir}.${randomUUID()}.next`
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
     const hadPrevious = existsSync(generatedDir)
@@ -1485,7 +1473,29 @@ async function generateProviderOutputsWithinLock(
       throw error
     }
     await rm(previousDir, { force: true, recursive: true })
+    const publishedFile = (file: string) => resolve(generatedDir, relative(artifacts.generatedDir, file))
+    return {
+      ...artifacts,
+      cloudflareWorkerFile: publishedFile(artifacts.cloudflareWorkerFile),
+      generatedDir,
+      registryFile: publishedFile(artifacts.registryFile),
+      vercelNativeFiles: artifacts.vercelNativeFiles.map(publishedFile),
+      vercelServerFile: publishedFile(artifacts.vercelServerFile),
+    }
   }
+  artifacts = await publishGeneratedArtifacts()
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+    ? createCloudflareOutput(options.rootDir, artifacts, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.cloudflare,
+      })
+    : undefined
+  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, options.serverFunctionName)
+    : undefined
   const writeOutputs = async () => {
     const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
     const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
@@ -1515,8 +1525,6 @@ async function generateProviderOutputsWithinLock(
           cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
         },
         afterWrite: async (signal) => {
-          signal?.throwIfAborted()
-          await publishGeneratedArtifacts()
           signal?.throwIfAborted()
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {

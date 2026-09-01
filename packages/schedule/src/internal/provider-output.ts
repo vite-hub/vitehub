@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
@@ -9,6 +10,7 @@ import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { rebasePublishedProviderSourceLinks, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
 import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
@@ -62,10 +64,53 @@ interface GenerateProviderOutputsOptions {
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
+  retainedSourcesDir?: string
   signal?: AbortSignal
   source?: DiscoveredScheduleDefinition["source"]
   sourceRootDir?: string
   workflow?: ScheduleWorkflowRuntime
+}
+
+async function publishRetainedProviderSources(artifacts: GeneratedScheduleArtifacts, retainedSourcesDir: string, signal?: AbortSignal): Promise<GeneratedScheduleArtifacts> {
+  signal?.throwIfAborted()
+  const generatedDir = artifacts.generatedDir
+  const publishedSourcesDir = resolve(generatedDir, "sources")
+  const nextDir = `${generatedDir}.${randomUUID()}.next`
+  const previousDir = `${generatedDir}.${randomUUID()}.previous`
+  let movedPrevious = false
+  try {
+    await cp(generatedDir, nextDir, { recursive: true })
+    await rm(resolve(nextDir, "sources"), { force: true, recursive: true })
+    const nextSourcesDir = resolve(nextDir, "sources")
+    await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
+    const registryFile = resolve(nextDir, generatedRegistryFileName)
+    const registryContents = await readFile(registryFile, "utf8")
+    await writeFile(registryFile, rewriteRetainedProviderSourcePaths(registryContents, retainedSourcesDir, publishedSourcesDir, {
+      published: resolve(generatedDir, generatedRegistryFileName),
+      retained: artifacts.registryFile,
+    }), "utf8")
+    signal?.throwIfAborted()
+    await rename(generatedDir, previousDir)
+    movedPrevious = true
+    await rename(nextDir, generatedDir)
+    signal?.throwIfAborted()
+    await rm(previousDir, { force: true, recursive: true })
+  }
+  catch (error) {
+    await rm(nextDir, { force: true, recursive: true })
+    if (movedPrevious) {
+      try {
+        await rm(generatedDir, { force: true, recursive: true })
+        await rename(previousDir, generatedDir)
+      }
+      catch (restoreError) {
+        throw new AggregateError([error, restoreError], "Generated Schedule artifact rollback failed")
+      }
+    }
+    throw error
+  }
+  return { ...artifacts, registryFile: resolve(generatedDir, generatedRegistryFileName) }
 }
 
 export interface ScheduleWorkflowRuntime {
@@ -709,7 +754,10 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   options.signal?.throwIfAborted()
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
-  const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
+  let artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
+  if (options.retainedSourcesDir && artifacts.definitions.length > 0) {
+    artifacts = await publishRetainedProviderSources(artifacts, options.retainedSourcesDir, options.signal)
+  }
   options.signal?.throwIfAborted()
   const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
   const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))

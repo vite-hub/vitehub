@@ -7,7 +7,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
@@ -467,6 +467,14 @@ describe("Vite schedule integration", () => {
     const registry = await readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")
     expect(registry).toContain("./sources/")
     expect(registry).not.toContain("schedule-generations")
+    const cloudflareConfig = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")) as { main: string }
+    const providerOutputs = await Promise.all([
+      readFile(join(createDefaultCloudflareOutputRoot(root), cloudflareConfig.main), "utf8"),
+      readFile(join(root, ".vitehub", "schedule", "deno-cron.mjs"), "utf8"),
+      readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8"),
+      readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8"),
+    ])
+    expect(providerOutputs.join("\n")).not.toContain("schedule-generations")
     await expect(readFile(join(root, ".vitehub", "schedule", "sources", "0", "src", "cleanup.schedule.ts"), "utf8"))
       .resolves.toContain("cron: '0 0 * * *'")
   })
