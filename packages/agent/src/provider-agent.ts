@@ -374,7 +374,7 @@ function redactDiagnostic(value) {
   let redacted = String(value)
   const secrets = [...new Set(secretEnvironmentKeys
     .map(key => process.env[key])
-    .filter(item => typeof item === "string" && item.length >= 4))]
+    .filter(item => typeof item === "string" && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
   return redacted
@@ -491,7 +491,7 @@ function redactProviderDiagnostic(
 ): string {
   let redacted = value
   const secrets = [...new Set(secretEnvironmentKeys.map(key => environment[key])
-    .filter((item): item is string => hasRuntimeType(item, "string") && item.length >= 4))]
+    .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
   return redacted
@@ -812,8 +812,7 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
 }
 
 async function ensureCodexProfileHome(profile: string): Promise<string> {
-  const configuredHome = process.env.CODEX_HOME?.trim()
-  const dataRoot = configuredHome ? resolve(configuredHome) : resolve(process.cwd(), ".vitehub", "data", "codex")
+  const dataRoot = resolve(process.cwd(), ".vitehub", "data", "codex")
   let current = process.cwd()
   for (const segment of relative(current, join(dataRoot, profile)).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)

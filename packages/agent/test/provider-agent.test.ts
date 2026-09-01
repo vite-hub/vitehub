@@ -259,6 +259,7 @@ describe("Provider Agent Driver", () => {
   it("retains a redacted launch stderr tail when a custom launcher exits", async () => {
     const threadId = "thread-launch-diagnostic"
     const secret = "launch-secret-value"
+    const shortSecret = "x7z"
     runtime(threadId, [], {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
@@ -278,9 +279,9 @@ describe("Provider Agent Driver", () => {
     let failure: unknown
     try {
       await createProviderAgentAdapter({
-        env: { PROVIDER_LABEL: "ordinary-value" },
+        env: { PROVIDER_LABEL: "ordinary-value", SHORT_TOKEN: shortSecret },
         launch: {
-          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
@@ -296,12 +297,13 @@ describe("Provider Agent Driver", () => {
       details: {
         exitCode: 5,
         phase: "launch",
-        stderr: "runner failed token=[REDACTED] label=ordinary-value",
+        stderr: "runner failed token=[REDACTED] short=[REDACTED] label=ordinary-value",
       },
     })
     expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
     expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
     expect(JSON.stringify(shape)).not.toContain(secret)
+    expect(JSON.stringify(shape)).not.toContain(shortSecret)
   })
 
   it("reports a custom launcher that exits successfully before the provider handshake", async () => {
@@ -503,6 +505,30 @@ describe("Provider Agent Driver", () => {
 
       expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
         environment: expect.objectContaining({ CODEX_HOME: "/var/lib/ambient-codex" }),
+      }))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("keeps named credential profiles under the ViteHub data root", async () => {
+    const threadId = "thread-profile-ignores-ambient-codex-home"
+    const profile = `provider-profile-${crypto.randomUUID()}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CODEX_HOME", join(tmpdir(), `ambient-codex-${crypto.randomUUID()}`))
+    try {
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+        settings: expect.objectContaining({
+          homePath: resolve(process.cwd(), ".vitehub", "data", "codex", profile),
+        }),
       }))
     }
     finally {
