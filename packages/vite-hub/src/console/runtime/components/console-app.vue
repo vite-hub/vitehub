@@ -35,6 +35,7 @@ import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
+import { usePreservedAgentSelectionRefresh } from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -80,8 +81,6 @@ let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
-let preservedAgentSelection: string | undefined;
-let refreshAfterPreservedAgentSelection = false;
 let usageSessionBootstrap = false;
 const sessionPollingEnabled = computed(
   () =>
@@ -109,6 +108,11 @@ const list = useAgentInvocations({
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
+const { preserveInvocationListFor } = usePreservedAgentSelectionRefresh({
+  isLoading: list.isLoading,
+  scheduleRefresh: scheduleInvocationListRefresh,
+  selectedAgentName,
+});
 const selectedDetailStatus = ref<{
   id: string;
   status: AgentInvocationListItem["status"];
@@ -419,7 +423,7 @@ async function loadAgents(): Promise<void> {
 
 function updateSelectedAgentName(name: string, preserveInvocationList = false): void {
   if (name === selectedAgentName.value) return;
-  if (preserveInvocationList) preservedAgentSelection = name;
+  if (preserveInvocationList) preserveInvocationListFor(name);
   selectedAgentName.value = name;
 }
 
@@ -643,28 +647,6 @@ watch(
     }
   },
   { immediate: true },
-);
-
-watch(selectedAgentName, (agentName) => {
-  if (agentName && preservedAgentSelection === agentName) {
-    preservedAgentSelection = undefined;
-    refreshAfterPreservedAgentSelection = true;
-    if (!list.isLoading.value) {
-      refreshAfterPreservedAgentSelection = false;
-      scheduleInvocationListRefresh();
-    }
-    return;
-  }
-  scheduleInvocationListRefresh();
-});
-
-watch(
-  () => list.isLoading.value,
-  (loading) => {
-    if (loading || !refreshAfterPreservedAgentSelection) return;
-    refreshAfterPreservedAgentSelection = false;
-    scheduleInvocationListRefresh();
-  },
 );
 
 if (pageVisible.value) void loadAgents();

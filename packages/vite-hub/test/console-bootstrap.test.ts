@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
+import { usePreservedAgentSelectionRefresh } from "../src/console/runtime/components/console-session-bootstrap";
 import { computed, effectScope, nextTick, ref, watch } from "vue";
 import { describe, expect, it } from "vitest";
 
@@ -29,8 +30,6 @@ describe.each(["agents-first", "invocations-first"] as const)(
       const agentNames = ref<string[]>([]);
       const initialBootstrapPending = ref(true);
       const selectedAgentName = ref<string>();
-      let preservedAgentSelection: string | undefined;
-      let refreshAfterPreservedAgentSelection = false;
       let refreshQueued = false;
       const requests: Array<{
         path: string;
@@ -59,6 +58,11 @@ describe.each(["agents-first", "invocations-first"] as const)(
             void resource.refresh();
           });
         };
+        const { preserveInvocationListFor } = usePreservedAgentSelectionRefresh({
+          isLoading: resource.isLoading,
+          scheduleRefresh,
+          selectedAgentName,
+        });
         watch(agentNames, (names) => {
           if (!names.length || initialBootstrapPending.value || selectedAgentName.value) return;
           selectedAgentName.value = names[0];
@@ -67,28 +71,11 @@ describe.each(["agents-first", "invocations-first"] as const)(
           () => resource.invocations.value[0],
           (invocation) => {
             if (!invocation?.agentName || selectedAgentName.value) return;
-            preservedAgentSelection = invocation.agentName;
+            preserveInvocationListFor(invocation.agentName);
             selectedAgentName.value = invocation.agentName;
             initialBootstrapPending.value = false;
           },
         );
-        watch(selectedAgentName, (agentName) => {
-          if (agentName && preservedAgentSelection === agentName) {
-            preservedAgentSelection = undefined;
-            refreshAfterPreservedAgentSelection = true;
-            if (!resource.isLoading.value) {
-              refreshAfterPreservedAgentSelection = false;
-              scheduleRefresh();
-            }
-            return;
-          }
-          scheduleRefresh();
-        });
-        watch(resource.isLoading, (loading) => {
-          if (loading || !refreshAfterPreservedAgentSelection) return;
-          refreshAfterPreservedAgentSelection = false;
-          scheduleRefresh();
-        });
         return resource;
       })!;
 
