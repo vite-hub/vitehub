@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { createProviderRuntime, createSqliteProviderRuntimeSessionStore } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
@@ -1862,7 +1863,6 @@ async function* runProvider<
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
       throw new TypeError("[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS.")
     }
-    const { createProviderRuntime, createSqliteProviderRuntimeSessionStore } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
