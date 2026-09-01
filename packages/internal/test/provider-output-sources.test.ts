@@ -817,14 +817,16 @@ it("resolves conditional package imports with their calling semantics", async ()
   const commonjsHandler = join(rootDir, "server", "required.cjs")
   const importTarget = join(rootDir, "import-worktree", "index.mjs")
   const requireTarget = join(rootDir, "require-worktree", "index.cjs")
+  const workerdTarget = join(rootDir, "workerd-worktree", "index.mjs")
   await Promise.all([
     mkdir(dirname(esmHandler), { recursive: true }),
     mkdir(dirname(importTarget), { recursive: true }),
     mkdir(dirname(requireTarget), { recursive: true }),
+    mkdir(dirname(workerdTarget), { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, "package.json"), JSON.stringify({
-      imports: { "#conditional": { import: "./import-worktree/index.mjs", require: "./require-worktree/index.cjs" } },
+      imports: { "#conditional": { workerd: "./workerd-worktree/index.mjs", import: "./import-worktree/index.mjs", require: "./require-worktree/index.cjs" } },
       type: "module",
     })),
     writeFile(esmHandler, 'export { value } from "#conditional"\n'),
@@ -833,6 +835,8 @@ it("resolves conditional package imports with their calling semantics", async ()
     writeFile(importTarget, 'export const value = "imported"\n'),
     writeFile(join(dirname(requireTarget), ".git"), "gitdir: /tmp/require-worktree.git\n"),
     writeFile(requireTarget, 'exports.value = "required"\n'),
+    writeFile(join(dirname(workerdTarget), ".git"), "gitdir: /tmp/workerd-worktree.git\n"),
+    writeFile(workerdTarget, 'export const value = "workerd"\n'),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -851,6 +855,13 @@ it("resolves conditional package imports with their calling semantics", async ()
     "if (require(process.argv[1]).value !== 'required') process.exit(1)",
     retained.resolve(commonjsHandler),
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+  const workerdBundle = join(rootDir, ".vitehub", "workerd-bundle.mjs")
+  await bundleEsmEntry(retained.resolve(esmHandler), workerdBundle, {
+    conditions: ["workerd", "worker", "browser", "default"],
+    platform: "neutral",
+    rootDir: retained.resolve(rootDir),
+  })
+  await expect(readFile(workerdBundle, "utf8")).resolves.toContain('value = "workerd"')
 })
 
 it("retains the tsconfig chain for a symlinked configured root", async () => {

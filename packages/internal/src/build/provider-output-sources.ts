@@ -261,6 +261,12 @@ function traceComputedModuleSources(file: string, source: string): string[] {
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
+  const traceBuildVariants = [
+    { platform: "node" as const },
+    { conditions: ["workerd", "worker", "browser", "default"], platform: "neutral" as const },
+    { conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"], platform: "neutral" as const },
+    { conditions: ["vitehub-hosted", "node", "default"], platform: "node" as const },
+  ]
   try {
     const importedSources = new Set<string>()
     const scannedModuleRequestSources = new Set<string>()
@@ -272,7 +278,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
       const importedSourceHints = new Set<string>()
-      const result = await build({
+      const results = await Promise.all(traceBuildVariants.map(async variant => await build({
         absWorkingDir: root,
         bundle: true,
         entryPoints: tracedBatch,
@@ -281,7 +287,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         metafile: true,
         outdir: resolve(root, ".vitehub-provider-trace"),
         packages: "external",
-        platform: "node",
+        ...variant,
         plugins: [{
           name: "vitehub-provider-vite-resource-query",
           setup(traceBuild) {
@@ -336,8 +342,10 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
           },
         }],
         write: false,
-      })
-      for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
+      })))
+      for (const result of results) {
+        for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
+      }
       for (const path of importedSourceHints) {
         importedSources.add(path)
         if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path)
