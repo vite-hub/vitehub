@@ -4108,6 +4108,7 @@ describe("Agent Invocations", () => {
       const backfillReleased = new Promise<void>((resolve) => {
         releaseBackfill = resolve
       })
+      let summaryBackfillQueries = 0
       // SAFETY: The proxy forwards every Client member and only pauses the summary-backfill query.
       const stalledClient = new Proxy(client, {
         get(target, property) {
@@ -4119,6 +4120,7 @@ describe("Agent Invocations", () => {
               ? input.sql
               : ""
             if (sql.includes("WHERE summary IS NULL") && sql.includes("ORDER BY sequence DESC")) {
+              summaryBackfillQueries++
               markBackfillStarted()
               await backfillReleased
             }
@@ -4147,7 +4149,11 @@ describe("Agent Invocations", () => {
           "SELECT summary FROM vitehub_agent_invocations WHERE id = 'legacy-summary'",
         )
         expect(persisted.rows[0]?.summary).toEqual(expect.any(String))
+        expect(summaryBackfillQueries).toBe(2)
       })
+      await store.list()
+      await store.getSummary?.("legacy-summary")
+      expect(summaryBackfillQueries).toBe(2)
     }
     finally {
       releaseBackfill?.()

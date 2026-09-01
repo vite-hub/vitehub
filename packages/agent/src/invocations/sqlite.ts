@@ -225,8 +225,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const startSummaryBackfill = () => {
     if (summaryBackfill) return
-    summaryBackfill = backfillSummaries().finally(() => {
+    summaryBackfill = backfillSummaries().catch((error) => {
       summaryBackfill = undefined
+      throw error
     })
     void summaryBackfill.catch(() => undefined)
   }
