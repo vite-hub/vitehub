@@ -28,7 +28,7 @@ import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTel
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
-import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
@@ -3329,6 +3329,11 @@ async function createAgentInvocationContext<
       context.run,
       invocationContext.get(scheduledAgentTurnContextKey) === true,
     )
+    if (context.run && invocationContext.get("agent.trigger")?.id === "chat.message") {
+      const run = resolveChatMessageRunMetadata(context.run, invoker, input.messages || [])
+      await invocationJournal?.setAnnotations(run.annotations)
+      context = { ...context, run }
+    }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -3497,10 +3502,12 @@ async function createAgentInvocationContext<
     const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
       ? configuredWorkspace.commit
       : undefined
-    const instructions = workspaceOptions && activeWorkspace
+    const workspaceInstructions = workspaceOptions && activeWorkspace
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
+    const channelInstructions = resolveChatMessageContextInstructions(invocationContext, invoker, capabilities.messages)
+    const instructions = [workspaceInstructions, channelInstructions].filter(value => value !== undefined).join("\n\n") || undefined
     const workspaceInstructionBindings = activeWorkspaceDefinition
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)

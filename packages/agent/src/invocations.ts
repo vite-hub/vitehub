@@ -90,6 +90,7 @@ export interface AgentInvocationStoreCreateResult {
 }
 
 export interface AgentInvocationStoreUpdateInput {
+  annotations?: AgentInvocationRecord["annotations"]
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
   observationsTruncated?: boolean
@@ -141,6 +142,7 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   context: AgentRuntimeContext<TRuntimeConfig>
   finish(status: Extract<AgentInvocationRecordStatus, "completed" | "failed" | "cancelled">, error?: unknown): Promise<void>
   running(): Promise<void>
+  setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
 }
 
 function cloneObservation(observation: TraceEventLogEntry): TraceEventLogEntry {
@@ -860,7 +862,7 @@ export function applyAgentInvocationStoreUpdate(
           ].sort((left, right) => left.sequence - right.sequence)
         })()
     : record.observations
-  return {
+  const updated: AgentInvocationRecord = {
     ...record,
     ...(configuredAnnotations
       ? { annotations: mergeConfigurationAnnotations(record.annotations, configuredAnnotations) }
@@ -877,6 +879,12 @@ export function applyAgentInvocationStoreUpdate(
     status,
     updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
   }
+  if (Object.hasOwn(input, "annotations")) {
+    const annotations = normalizeAnnotations(input.annotations)
+    if (annotations) updated.annotations = annotations
+    else delete updated.annotations
+  }
+  return updated
 }
 
 export function createMemoryAgentInvocationStore(): AgentInvocationStore {
@@ -1524,6 +1532,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })()
           registerAgentInvocationRecovery(context, runningRetry)
+        },
+        async setAnnotations(annotations) {
+          if (finished || finishing) return
+          await update({ annotations: normalizeAnnotations(annotations), timestamp: new Date().toISOString() })
         },
       }
     },

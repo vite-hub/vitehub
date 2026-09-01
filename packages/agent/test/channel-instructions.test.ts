@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
 import { discord, telegram } from "../src/channels.ts"
-import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgentTrigger } from "../src/index.ts"
+import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgent, runAgentTrigger } from "../src/index.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -271,6 +272,8 @@ describe("Channel instructions", () => {
       telegramInstructions,
       outputInstructions,
     ])
+    expect(systemMessages[0]!.content).not.toContain("Sender:")
+    expect(systemMessages[0]!.content).not.toContain("Sent at:")
     expect(modelCall.responseFormat).toEqual({
       schema: {
         ...outputSchema["~standard"].jsonSchema.input(),
@@ -278,6 +281,95 @@ describe("Channel instructions", () => {
       type: "json",
     })
     expect(modelCall.prompt.map(message => message.role)).toEqual(["system", "user", "assistant", "user"])
+  })
+
+  it("adds current chat sender and source time to trusted instructions and invocation annotations", async () => {
+    const model = createModel()
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: { support: telegram() },
+      driver: {
+        instructions: agentInstructions,
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
+        model: model as never,
+      },
+      invoker: {
+        resolve: () => ({
+          id: "resolved-user-1",
+          kind: "chat",
+          label: "Resolved Maxi",
+          meta: { username: "resolved-maxi" },
+        }),
+      },
+      invocations,
+      name: "support",
+    })
+    const sentAt = "2026-09-01T14:42:00.000Z"
+
+    await runAgentTrigger(agent, runtime, "chat.message", {
+      messages: [{
+        createdAt: new Date(sentAt),
+        id: "message-1",
+        parts: [{ text: "What changed for me this week?", type: "text" }],
+        role: "user",
+      }],
+      run: {
+        annotations: {
+          "channel.sentAt": "spoofed",
+          source: "portal",
+          triggeredBy: "spoofed",
+        },
+        channelId: "support",
+        messageId: "message-1",
+        origin: "telegram",
+        runId: "telegram:message-1",
+        threadId: "thread-1",
+      },
+      user: { id: "user-1", name: "Maxi", username: "maxi" },
+    })
+
+    const prompt = model.doGenerateCalls[0]!.prompt
+    const system = prompt.find(message => message.role === "system")?.content
+    expect(system).toEqual(expect.any(String))
+    expect(system).toContain("Current channel message")
+    expect(system).toContain("Channel: \"telegram\"")
+    expect(system).toContain("Sender: \"Resolved Maxi\"")
+    expect(system).toContain("Username: \"resolved-maxi\"")
+    expect(system).toContain(`Sent at: "${sentAt}"`)
+    expect(prompt.find(message => message.role === "user")?.content)
+      .toEqual([{ text: "What changed for me this week?", type: "text" }])
+    await expect(invocations.getByRunId("telegram:message-1", "support")).resolves.toMatchObject({
+      annotations: {
+        "channel.sentAt": sentAt,
+        source: "portal",
+        triggeredBy: "Resolved Maxi",
+      },
+    })
+  })
+
+  it("does not add chat metadata instructions to ordinary Agent runs", async () => {
+    const model = createModel()
+    const agent = defineAgent({
+      driver: {
+        instructions: agentInstructions,
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
+        model: model as never,
+      },
+    })
+
+    await runAgent(agent, runtime, {
+      context: {
+        channel: {
+          run: { origin: "spoofed", runId: "spoofed" },
+          user: { id: "user-1", name: "Spoofed" },
+        },
+      },
+      messages: [createMessage({ createdAt: "2026-09-01T14:42:00.000Z", role: "user", text: "Hello" })],
+    })
+
+    const system = model.doGenerateCalls[0]!.prompt.find(message => message.role === "system")?.content
+    expect(system).not.toContain("Current channel message")
+    expect(system).not.toContain("Spoofed")
   })
 
   it("only adds Telegram response guidance to Telegram turns", async () => {
