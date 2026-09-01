@@ -125,6 +125,8 @@ Fixtures often contain prompts and model output. Use synthetic or scrubbed recor
 
 The Console registers the page under `/_vitehub/**` and its read API under `/api/_vitehub/console/**`. A production build rejects bare `console: true` so these inspection routes cannot be exposed accidentally.
 
+ViteHub sends `X-Robots-Tag: noindex, nofollow` on both route groups and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
+
 If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard both route groups in the Primary Auth Definition. The host decides what makes a user an administrator.
 
 ```ts [vite.config.ts]
@@ -171,6 +173,19 @@ export default defineConfig({
 ```
 
 `host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
+
+Nuxt does not need an SEO module for the `X-Robots-Tag` default. If the app already uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route metadata so its robots and sitemap modules also know that Console pages are not indexable:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  routeRules: {
+    '/_vitehub': { robots: false },
+    '/_vitehub/**': { robots: false },
+  },
+})
+```
+
+Do not use `robots.txt` as access control. A crawler can ignore it, and a disallowed URL may still be listed without its contents.
 
 Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in redirects and the complete callback contract.
 

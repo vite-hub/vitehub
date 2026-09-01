@@ -10,6 +10,7 @@ const page = `<!doctype html>
     <meta name="theme-color" content="#fdfdfd" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
     <meta name="description" content="Read-only ViteHub project inspection">
+    <meta name="robots" content="noindex, nofollow">
     <title>ViteHub Console</title>
     <link rel="stylesheet" href="/_vitehub/assets/console.css">
   </head>

@@ -134,6 +134,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       }> | undefined,
       modules: undefined as unknown[] | undefined,
       nitro: {} as Record<string, unknown>,
+      routeRules: {} as Record<string, { headers?: Record<string, string>; [key: string]: unknown }>,
       rootDir: "/tmp/vitehub-nuxt",
       serverDir: "/tmp/vitehub-nuxt/custom-server" as string | undefined,
       srcDir: "/tmp/vitehub-nuxt/app",
@@ -509,6 +510,10 @@ describe("ViteHub Nuxt integration", () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()
     development.nuxt.options.devServerHandlers = [{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }]
+    development.nuxt.options.routeRules["/_vitehub/**"] = {
+      headers: { "cache-control": "private" },
+      swr: false,
+    }
     await viteHubNuxtModule({ agent: true, blob: true, console: true, kv: true, preset: "node" }, development.nuxt)
     const pages: Array<{ file: string; name: string; path: string }> = []
     development.runPagesHook(pages)
@@ -540,6 +545,13 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/usage" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
+    })
+    expect(development.nuxt.options.routeRules).toMatchObject({
+      "/_vitehub": { headers: { "x-robots-tag": "noindex, nofollow" } },
+      "/_vitehub/**": {
+        headers: { "cache-control": "private", "x-robots-tag": "noindex, nofollow" },
+        swr: false,
+      },
     })
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -600,6 +612,10 @@ describe("ViteHub Nuxt integration", () => {
         { route: "/api/_vitehub/console/usage" },
       ],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
+    })
+    expect(production.nuxt.options.routeRules).toMatchObject({
+      "/_vitehub": { headers: { "x-robots-tag": "noindex, nofollow" } },
+      "/_vitehub/**": { headers: { "x-robots-tag": "noindex, nofollow" } },
     })
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
     expect(production.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -1683,6 +1699,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.uiModule).not.toHaveBeenCalled()
     expect(pageHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(nuxt.options.routeRules).toEqual({})
   })
 
   it("does not install the console when explicitly disabled", async () => {
@@ -1692,6 +1709,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.uiModule).not.toHaveBeenCalled()
     expect(pageHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(nuxt.options.routeRules).toEqual({})
     expect(nuxt.options.vite.plugins).not.toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
     )
