@@ -628,10 +628,13 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-usage.vue`)).toBe(
       true,
     );
-    const consoleClient = readFileSync(
-      `${packageRoot}/dist/console/runtime/public/console/console.js`,
-      "utf8",
-    );
+    const consoleClientFiles = globSync("dist/console/runtime/public/console/console-*.js", {
+      cwd: packageRoot,
+    });
+    expect(consoleClientFiles).toHaveLength(1);
+    const [consoleClientFile] = consoleClientFiles;
+    if (!consoleClientFile) throw new TypeError("Expected one hashed Console client asset.");
+    const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"robot-light":{"width":256');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("prefers-color-scheme: dark");
@@ -648,13 +651,23 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/sandboxes");
     expect(consoleClient).toContain("/workspaces");
     expect(consoleClient).toContain("currentRoute.value");
-    const consoleCss = readFileSync(
-      `${packageRoot}/dist/console/runtime/public/console/console.css`,
-      "utf8",
-    );
+    const consoleCssFiles = globSync("dist/console/runtime/public/console/console-*.css", {
+      cwd: packageRoot,
+    });
+    expect(consoleCssFiles).toHaveLength(1);
+    const [consoleCssFile] = consoleCssFiles;
+    if (!consoleCssFile) throw new TypeError("Expected one hashed Console stylesheet asset.");
+    const consoleCss = readFileSync(`${packageRoot}/${consoleCssFile}`, "utf8");
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:#fdfdfd");
     expect(consoleCss).toContain("--ui-text:#27272a");
+    const consolePageSource = readFileSync(
+      `${packageRoot}/dist/console/runtime/server/page.get.js`,
+      "utf8",
+    );
+    expect(consolePageSource).toContain(`/_vitehub/assets/${consoleClientFile.split("/").at(-1)}`);
+    expect(consolePageSource).toContain(`/_vitehub/assets/${consoleCssFile.split("/").at(-1)}`);
+    expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
   });
 

@@ -42,10 +42,10 @@ export default defineConfig({
       input: resolve(clientRoot, "main.js"),
       output: {
         assetFileNames: asset => asset.names.some(name => name.endsWith(".css"))
-          ? "console.css"
+          ? "console-[hash][extname]"
           : "assets/[name]-[hash][extname]",
         chunkFileNames: "chunks/[name]-[hash].js",
-        entryFileNames: "console.js",
+        entryFileNames: "console-[hash].js",
       },
     },
   },
