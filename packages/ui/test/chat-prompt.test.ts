@@ -49,13 +49,7 @@ describe("AgentSession", () => {
   it("keeps session header and footer slots out of message rendering", () => {
     const session = {
       id: "session-1",
-      messages: [
-        {
-          id: "message-1",
-          parts: [{ text: "Hello", type: "text" as const }],
-          role: "assistant" as const,
-        },
-      ],
+      messages: [{ id: "message-1", parts: [{ text: "Hello", type: "text" as const }], role: "assistant" as const }],
       title: "Session",
     };
     const wrapper = mount(AgentSession, {
@@ -70,8 +64,7 @@ describe("AgentSession", () => {
       },
       props: { session },
       slots: {
-        header: ({ session: value }: { session: typeof session }) =>
-          h("div", { class: "session-header" }, value.title),
+        header: ({ session: value }: { session: typeof session }) => h("div", { class: "session-header" }, value.title),
       },
     });
 
@@ -91,18 +84,16 @@ const ChatPromptSubmitStub = defineComponent({
   props: { status: { default: "ready", type: String } },
   emits: ["reload", "stop"],
   setup(props, { attrs, emit }) {
-    return () =>
-      h("button", {
-        ...attrs,
-        "data-submit": "",
-        onClick:
-          props.status === "error"
-            ? () => emit("reload")
-            : props.status === "ready"
-              ? undefined
-              : () => emit("stop"),
-        type: "button",
-      });
+    return () => h("button", {
+      ...attrs,
+      "data-submit": "",
+      onClick: props.status === "error"
+        ? () => emit("reload")
+        : props.status === "ready"
+          ? undefined
+          : () => emit("stop"),
+      type: "button",
+    });
   },
 });
 
@@ -236,26 +227,13 @@ describe("AgentChatPrompt", () => {
     ]);
 
     expect(attachments.inputProps.value.multiple).toBe(true);
-    expect(attachments.files.value.map(({ file }) => file.name)).toEqual([
-      "first.txt",
-      "second.txt",
-    ]);
+    expect(attachments.files.value.map(({ file }) => file.name)).toEqual(["first.txt", "second.txt"]);
     scope.stop();
   });
 
   it("replaces the controlled attachment when multiple files are disabled", () => {
-    const oldFile = {
-      filename: "old.txt",
-      mediaType: "text/plain",
-      type: "file" as const,
-      url: "data:,old",
-    };
-    const newFile = {
-      filename: "new.txt",
-      mediaType: "text/plain",
-      type: "file" as const,
-      url: "data:,new",
-    };
+    const oldFile = { filename: "old.txt", mediaType: "text/plain", type: "file" as const, url: "data:,old" };
+    const newFile = { filename: "new.txt", mediaType: "text/plain", type: "file" as const, url: "data:,new" };
 
     expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
   });
