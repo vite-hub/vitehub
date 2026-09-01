@@ -423,6 +423,16 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
+    expect(sessionInspector).toContain("list: 'w-max min-w-0 gap-1 bg-transparent p-0'");
+    expect(consoleSessionCss).toMatch(
+      /\.session-inspector__tabstrip \{[\s\S]*?display: flex;[\s\S]*?overflow: hidden;/,
+    );
+    expect(consoleSessionCss).toMatch(
+      /\.session-inspector__tabs \{[\s\S]*?flex: 0 1 auto;[\s\S]*?max-width: calc\(100% - 2rem\);[\s\S]*?width: max-content;/,
+    );
+    expect(consoleSessionCss).toMatch(
+      /\.session-inspector__tabs \[data-slot="list"\] \{[\s\S]*?min-width: 0;[\s\S]*?width: max-content;/,
+    );
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
       "utf8",
@@ -479,7 +489,10 @@ describe("framework package contract", () => {
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
     expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
-    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"');
+    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout-v2"');
+    expect(consolePage).toMatch(
+      /id: "thread",[\s\S]*?defaultSize: 720,[\s\S]*?id: "details",[\s\S]*?defaultSize: 440,/,
+    );
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
     expect(consolePage).not.toContain(':retry-key="invocationPaginationKey"');
     expect(consolePage).toContain("list.loadMoreError.value");
@@ -519,9 +532,9 @@ describe("framework package contract", () => {
       /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
     );
     expect(consolePage).toContain("minSize: 360");
-    expect(consolePage).toContain("defaultSize: 680");
+    expect(consolePage).toContain("defaultSize: 720");
     expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 540");
+    expect(consolePage).toContain("defaultSize: 440");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
