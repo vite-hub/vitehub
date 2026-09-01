@@ -300,6 +300,10 @@ describe("framework package contract", () => {
       /\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/,
     );
     expect(consolePage).toContain('from "../console-route"');
+    expect(consolePage).toContain('from "./console-session-bootstrap"');
+    expect(
+      existsSync(`${packageRoot}/dist/console/runtime/components/console-session-bootstrap.ts`),
+    ).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/console-route.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
