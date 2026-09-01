@@ -820,7 +820,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const retainedRoots = new Map<string, string>()
   const retainedPaths = new Map<string, string>()
   const pendingRoots = roots.entries()
+  let firstFailure: { error: unknown } | undefined
   const retainNextRoot = async (): Promise<void> => {
+    if (firstFailure) return
     const next = pendingRoots.next()
     if (next.done) return
     const [index, root] = next.value
@@ -995,7 +997,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     await retainNextRoot()
   }
   // Each root fans out across several esbuild traces. Two workers bound memory without serializing large consumer builds.
-  await Promise.all(Array.from({ length: Math.min(2, roots.length) }, async () => await retainNextRoot()))
+  await Promise.all(Array.from({ length: Math.min(2, roots.length) }, async () => {
+    try {
+      await retainNextRoot()
+    }
+    catch (error) {
+      firstFailure ??= { error }
+    }
+  }))
+  if (firstFailure) throw firstFailure.error
 
   return {
     resolve(path) {
