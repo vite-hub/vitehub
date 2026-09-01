@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import {
@@ -75,6 +76,26 @@ const filteredSpans = computed(() => {
 const selectedSpan = computed(
   () => spans.value.find((span) => span.id === selectedSpanId.value) ?? spans.value[0],
 );
+const tracePanels = computed<SplitterItem[]>(() => [
+  {
+    id: "waterfall",
+    slot: "waterfall",
+    defaultSize: selectedSpan.value ? 65 : 100,
+    minSize: 25,
+    class: "h-full min-h-0 min-w-0 overflow-hidden",
+  },
+  ...(selectedSpan.value
+    ? [
+        {
+          id: "detail",
+          slot: "detail",
+          defaultSize: 35,
+          minSize: 20,
+          class: "h-full min-h-0 min-w-0 overflow-hidden",
+        },
+      ]
+    : []),
+]);
 const selectedAttributes = computed(() =>
   selectedSpan.value
     ? {
@@ -530,127 +551,145 @@ async function copyAttributes() {
 </script>
 
 <template>
-  <section class="session-trace">
-    <div class="session-trace__waterfall">
-      <div class="session-trace__search">
-        <UInput
-          v-model="spanQuery"
-          icon="i-lucide-search"
-          placeholder="Search spans"
-          size="sm"
-          variant="outline"
-          :ui="{ base: 'w-full' }"
-        />
-        <span>{{ filteredSpans.length }} spans</span>
-      </div>
+  <USplitter
+    id="session-trace-layout"
+    auto-save-id="vitehub-session-trace-layout"
+    :items="tracePanels"
+    orientation="vertical"
+    class="session-trace"
+  >
+    <template #waterfall>
+      <div class="session-trace__waterfall">
+        <div class="session-trace__search">
+          <UInput
+            v-model="spanQuery"
+            icon="i-lucide-search"
+            placeholder="Search spans"
+            size="sm"
+            variant="outline"
+            :ui="{ base: 'w-full' }"
+          />
+          <span>{{ filteredSpans.length }} spans</span>
+        </div>
 
-      <div class="session-trace__table-scroll">
-        <div class="session-trace__table">
-          <div class="session-trace__table-head">
-            <strong>Name</strong>
-            <div class="session-trace__axis">
-              <span
-                v-for="tick in ticks"
-                :key="tick.position"
-                :style="{ left: `${tick.position * 100}%` }"
-                >{{ tick.label }}</span
-              >
-            </div>
-          </div>
-          <div class="session-trace__rows">
-            <button
-              v-for="span in filteredSpans"
-              :key="span.id"
-              type="button"
-              class="session-trace__row"
-              :data-selected="selectedSpan?.id === span.id"
-              :data-status="span.status"
-              @click="
-                selectedSpanId = span.id;
-                emit('focusActivity', span.activityId);
-              "
-            >
-              <span
-                class="session-trace__name"
-                :style="{ paddingInlineStart: `${0.75 + span.depth * 1.65}rem` }"
-              >
-                <UIcon :name="span.icon" />
+        <div class="session-trace__table-scroll">
+          <div class="session-trace__table">
+            <div class="session-trace__table-head">
+              <strong>Name</strong>
+              <div class="session-trace__axis">
                 <span
-                  ><strong>{{ span.name }}</strong
-                  ><small v-if="span.description">{{ span.description }}</small></span
-                >
-              </span>
-              <span class="session-trace__timeline">
-                <i
                   v-for="tick in ticks"
                   :key="tick.position"
                   :style="{ left: `${tick.position * 100}%` }"
-                />
-                <span
-                  class="session-trace__bar"
-                  :data-wide="span.durationMs / traceWindowMs > 0.16"
-                  :style="barStyle(span)"
-                  ><span>{{ formatDuration(span.durationMs) }}</span></span
+                  >{{ tick.label }}</span
                 >
-              </span>
-            </button>
-            <div v-if="filteredSpans.length === 0" class="session-trace__empty">
-              No spans match this search.
+              </div>
+            </div>
+            <div class="session-trace__rows">
+              <button
+                v-for="span in filteredSpans"
+                :key="span.id"
+                type="button"
+                class="session-trace__row"
+                :data-selected="selectedSpan?.id === span.id"
+                :data-status="span.status"
+                @click="
+                  selectedSpanId = span.id;
+                  emit('focusActivity', span.activityId);
+                "
+              >
+                <span
+                  class="session-trace__name"
+                  :style="{ paddingInlineStart: `${0.75 + span.depth * 1.65}rem` }"
+                >
+                  <UIcon :name="span.icon" />
+                  <span
+                    ><strong>{{ span.name }}</strong
+                    ><small v-if="span.description">{{ span.description }}</small></span
+                  >
+                </span>
+                <span class="session-trace__timeline">
+                  <i
+                    v-for="tick in ticks"
+                    :key="tick.position"
+                    :style="{ left: `${tick.position * 100}%` }"
+                  />
+                  <span
+                    class="session-trace__bar"
+                    :data-wide="span.durationMs / traceWindowMs > 0.16"
+                    :style="barStyle(span)"
+                    ><span>{{ formatDuration(span.durationMs) }}</span></span
+                  >
+                </span>
+              </button>
+              <div v-if="filteredSpans.length === 0" class="session-trace__empty">
+                No spans match this search.
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <aside v-if="selectedSpan" class="session-trace__detail">
-      <header class="session-trace__detail-head">
-        <strong><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong>
-        <button type="button" @click="copyAttributes">
-          <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
-            copied ? "Copied" : "Copy attributes"
-          }}
-        </button>
-      </header>
-      <section class="session-trace__summary">
-        <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
-        <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
-        <dl>
-          <div>
-            <dt>Duration</dt>
-            <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
-          </div>
-          <div>
-            <dt>Trace ID</dt>
-            <dd>
-              <code>{{ shortId(invocation.traceId) }}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Span ID</dt>
-            <dd>
-              <code>{{ shortId(selectedSpan.id) }}</code>
-            </dd>
-          </div>
-        </dl>
-      </section>
-      <div class="session-trace__field-search">
-        <UInput
-          v-model="fieldQuery"
-          icon="i-lucide-search"
-          placeholder="Search fields…"
-          size="sm"
-          variant="outline"
-        />
-      </div>
-      <div class="session-trace__fields">
-        <section v-for="[key, value] in filteredAttributes" :key="key">
-          <span>{{ key }}</span>
-          <pre>{{ displayValue(value) }}</pre>
+    <template #resize-handle>
+      <span
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary group-focus-visible:bg-primary"
+      />
+    </template>
+
+    <template #detail>
+      <aside v-if="selectedSpan" class="session-trace__detail">
+        <header class="session-trace__detail-head">
+          <strong
+            ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
+          >
+          <button type="button" @click="copyAttributes">
+            <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
+              copied ? "Copied" : "Copy attributes"
+            }}
+          </button>
+        </header>
+        <section class="session-trace__summary">
+          <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
+          <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
+          <dl>
+            <div>
+              <dt>Duration</dt>
+              <dd>{{ formatDuration(selectedSpan.durationMs) }}</dd>
+            </div>
+            <div>
+              <dt>Trace ID</dt>
+              <dd>
+                <code>{{ shortId(invocation.traceId) }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Span ID</dt>
+              <dd>
+                <code>{{ shortId(selectedSpan.id) }}</code>
+              </dd>
+            </div>
+          </dl>
         </section>
-        <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
-          No fields match this search.
+        <div class="session-trace__field-search">
+          <UInput
+            v-model="fieldQuery"
+            icon="i-lucide-search"
+            placeholder="Search fields…"
+            size="sm"
+            variant="outline"
+          />
         </div>
-      </div>
-    </aside>
-  </section>
+        <div class="session-trace__fields">
+          <section v-for="[key, value] in filteredAttributes" :key="key">
+            <span>{{ key }}</span>
+            <pre>{{ displayValue(value) }}</pre>
+          </section>
+          <div v-if="filteredAttributes.length === 0" class="session-trace__empty">
+            No fields match this search.
+          </div>
+        </div>
+      </aside>
+    </template>
+  </USplitter>
 </template>

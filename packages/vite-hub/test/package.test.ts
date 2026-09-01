@@ -435,6 +435,13 @@ describe("framework package contract", () => {
       existsSync(`${packageRoot}/dist/console/runtime/components/console-session-trace-model.ts`),
     ).toBe(true);
     expect(sessionTrace).toContain("session-trace__waterfall");
+    expect(sessionTrace).toContain("<USplitter");
+    expect(sessionTrace).toContain('orientation="vertical"');
+    expect(sessionTrace).toContain("<template #detail>");
+    expect(sessionTrace).toContain("<template #resize-handle>");
+    expect(consoleSessionCss).not.toContain(
+      "grid-template-columns: minmax(20rem, 1.45fr) minmax(15rem, 0.95fr);",
+    );
     expect(sessionTrace).toContain('start.name === "agent.approval.request"');
     expect(sessionTraceModel).toContain('"completed",');
     expect(sessionTraceModel).toContain('"error",');
