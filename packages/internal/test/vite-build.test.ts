@@ -14,7 +14,7 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
-  it("ignores an ambient project marker at the system temporary root unless explicitly configured", async () => {
+  it("honors a project marker at the system temporary root", async () => {
     const previousTemporaryDirectories = {
       TEMP: process.env.TEMP,
       TMP: process.env.TMP,
@@ -29,7 +29,7 @@ describe("Vite provider builds", () => {
       process.env.TMP = temporaryRoot
       process.env.TMPDIR = temporaryRoot
 
-      expect(resolveViteHubProjectRoot(projectRoot)).toBe(projectRoot)
+      expect(resolveViteHubProjectRoot(projectRoot)).toBe(temporaryRoot)
       expect(resolveViteHubProjectRoot(projectRoot, { projectRoot: temporaryRoot })).toBe(temporaryRoot)
     }
     finally {
@@ -38,6 +38,23 @@ describe("Vite provider builds", () => {
         else process.env[name] = value
       }
       await rm(temporaryRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("prefers a marked parent for app roots", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-project-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await Promise.all([
+        writeFile(join(projectRoot, "package.json"), '{"private":true}\n'),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(projectRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
     }
   })
 
