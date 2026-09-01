@@ -1021,12 +1021,18 @@ describe("agent Vite plugin", () => {
       await runProviderOutputHooks(plugin)
 
       const publishedAgentRoot = join(root, ".vitehub", "agent", "sources", "0", "server", "agents", "support", "workspace")
+      const deployedAgentRoot = join(root, ".netlify", "v1", "agent", "sources", "0", "server", "agents", "support", "workspace")
       await expect(readFile(join(publishedAgentRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
       await expect(readFile(join(publishedAgentRoot, "guide.md"), "utf8")).resolves.toBe("Retained Workspace guide.\n")
+      await expect(readFile(join(deployedAgentRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
+      await expect(readFile(join(deployedAgentRoot, "guide.md"), "utf8")).resolves.toBe("Retained Workspace guide.\n")
       const wrapper = await readFile(join(root, ".vitehub", "agent", "netlify-function.mjs"), "utf8")
       const generated = await readFile(join(root, ".netlify", "v1", "functions", "vitehub-agent.mjs"), "utf8")
       expect(wrapper).toContain(publishedAgentRoot)
-      expect(generated).toContain(publishedAgentRoot)
+      expect(generated).toContain(".netlify/v1/agent/sources/0/server/agents/support/workspace")
+      expect(generated).toContain('"includedFiles": [')
+      expect(generated).toContain('".netlify/v1/agent/sources/**"')
+      expect(generated).not.toContain(publishedAgentRoot)
       expect(wrapper).not.toContain("agent-generations")
       expect(generated).not.toContain("agent-generations")
     }
@@ -1191,8 +1197,11 @@ describe("agent Vite plugin", () => {
         root: string
       }) => Promise<void>
       const staleFunction = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
+      const staleSources = join(root, ".netlify/v1/agent/sources/stale.md")
       await mkdir(join(root, ".netlify/v1/functions"), { recursive: true })
+      await mkdir(join(root, ".netlify/v1/agent/sources"), { recursive: true })
       await writeFile(staleFunction, "export default {}\n", "utf8")
+      await writeFile(staleSources, "stale\n", "utf8")
 
       await configResolved({
         build: { outDir: "dist/client" },
@@ -1203,6 +1212,7 @@ describe("agent Vite plugin", () => {
       await runProviderOutputHooks(plugin)
 
       await expect(readFile(staleFunction, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(staleSources, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING

@@ -2369,7 +2369,7 @@ async function writeAgentNetlifyFunctionRouteHandler(
   return handlerPath
 }
 
-function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, webhookRoute?: false | string }): object {
+function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, includedFiles?: string[], inspectionRoute?: false | string, webhookRoute?: false | string }): object {
   const paths = [
     normalizeNitroRoute(defaultAgentChatRoute),
     options.webhookRoute ? normalizeNitroRoute(options.webhookRoute) : undefined,
@@ -2378,6 +2378,7 @@ function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false
   ].filter((path): path is string => Boolean(path))
 
   return {
+    ...(options.includedFiles?.length ? { includedFiles: options.includedFiles } : {}),
     path: paths.length === 1 ? paths[0] : paths,
     name: netlifyAgentFunctionName,
     nodeBundler: "esbuild",
@@ -2393,6 +2394,8 @@ async function writeNetlifyAgentProviderOutput(
   retainedDefinitions?: DiscoveredAgentDefinition[],
   retainedSourcesDir?: string,
 ): Promise<void> {
+  const netlifySourcesDir = resolve(createDefaultNetlifyOutputRoot(config.root), "agent", "sources")
+  const deployedSourcesDir = relative(config.root, netlifySourcesDir).replace(/\\/g, "/")
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
     discordGatewayRoute: options.routes.discordGateway,
@@ -2419,6 +2422,7 @@ async function writeNetlifyAgentProviderOutput(
         },
         config: createNetlifyAgentFunctionConfig({
           discordGatewayRoute: options.routes.discordGateway,
+          includedFiles: retainedSourcesDir ? [`${deployedSourcesDir}/**`] : undefined,
           inspectionRoute: options.routes.inspection,
           webhookRoute: options.routes.webhooks,
         }),
@@ -2434,17 +2438,27 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
   signal?.throwIfAborted()
   const generatedAgentDir = resolve(resolveViteHubGeneratedRoot(config), "agent")
   const publishedSourcesDir = resolve(generatedAgentDir, "sources")
+  const netlifySourcesDir = resolve(createDefaultNetlifyOutputRoot(config.root), "agent", "sources")
+  const deployedSourcesDir = relative(config.root, netlifySourcesDir).replace(/\\/g, "/")
   const nextAgentDir = `${generatedAgentDir}.${randomUUID()}.next`
   const previousAgentDir = `${generatedAgentDir}.${randomUUID()}.previous`
+  const nextNetlifySourcesDir = `${netlifySourcesDir}.${randomUUID()}.next`
+  const previousNetlifySourcesDir = `${netlifySourcesDir}.${randomUUID()}.previous`
   const netlifyFunction = resolve(createDefaultNetlifyOutputRoot(config.root), "functions", `${netlifyAgentFunctionName}.mjs`)
   let installedNext = false
+  let installedNextNetlifySources = false
   let movedPrevious = false
+  let movedPreviousNetlifySources = false
+  let netlifyFunctionContents: string | undefined
   try {
     await cp(generatedAgentDir, nextAgentDir, { recursive: true })
     await rm(resolve(nextAgentDir, "sources"), { force: true, recursive: true })
     const nextSourcesDir = resolve(nextAgentDir, "sources")
     await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
     await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
+    await mkdir(dirname(nextNetlifySourcesDir), { recursive: true })
+    await cp(retainedSourcesDir, nextNetlifySourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextNetlifySourcesDir, retainedSourcesDir, netlifySourcesDir)
     const nextHandler = resolve(nextAgentDir, "netlify-function.mjs")
     const publishedHandler = resolve(generatedAgentDir, "netlify-function.mjs")
     const nextHandlerContents = await readFile(nextHandler, "utf8")
@@ -2457,18 +2471,29 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
     movedPrevious = true
     await rename(nextAgentDir, generatedAgentDir)
     installedNext = true
-    const netlifyFunctionContents = await readFile(netlifyFunction, "utf8")
-    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, publishedSourcesDir, {
+    if (existsSync(netlifySourcesDir)) {
+      await rename(netlifySourcesDir, previousNetlifySourcesDir)
+      movedPreviousNetlifySources = true
+    }
+    await rename(nextNetlifySourcesDir, netlifySourcesDir)
+    installedNextNetlifySources = true
+    netlifyFunctionContents = await readFile(netlifyFunction, "utf8")
+    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, deployedSourcesDir, {
       published: netlifyFunction,
       retained: netlifyFunction,
     }), "utf8")
     signal?.throwIfAborted()
     await rm(previousAgentDir, { force: true, recursive: true })
+    await rm(previousNetlifySourcesDir, { force: true, recursive: true })
   }
   catch (error) {
     await rm(nextAgentDir, { force: true, recursive: true })
+    await rm(nextNetlifySourcesDir, { force: true, recursive: true })
     if (installedNext) await rm(generatedAgentDir, { force: true, recursive: true })
     if (movedPrevious) await rename(previousAgentDir, generatedAgentDir)
+    if (installedNextNetlifySources) await rm(netlifySourcesDir, { force: true, recursive: true })
+    if (movedPreviousNetlifySources) await rename(previousNetlifySourcesDir, netlifySourcesDir)
+    if (netlifyFunctionContents !== undefined) await writeFile(netlifyFunction, netlifyFunctionContents, "utf8")
     throw error
   }
 }
@@ -2478,6 +2503,7 @@ async function cleanupNetlifyAgentProviderOutput(
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<void> {
   await write({
+    afterWrite: async () => await rm(resolve(createDefaultNetlifyOutputRoot(config.root), "agent"), { force: true, recursive: true }),
     clientOutDir: config.build?.outDir ?? "dist",
     cleanup: {
       netlify: {
