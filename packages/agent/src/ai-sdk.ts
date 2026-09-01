@@ -1334,6 +1334,7 @@ async function createAgent(
           } as never)
           // SAFETY: The one-step repair agent accepts the normalized generation callback contract supplied here.
           const result = await toolRepairAgent.generate({
+            abortSignal: context.input.abortSignal,
             onEnd: usageCapture.onEnd,
             onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
             onStepEnd: usageCapture.onStepEnd,
@@ -1342,6 +1343,7 @@ async function createAgent(
           return { ...toolCall, input: JSON.stringify(result.output) }
         }
         catch {
+          context.input.abortSignal?.throwIfAborted()
           return null
         }
       }

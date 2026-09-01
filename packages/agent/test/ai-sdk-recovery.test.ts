@@ -24,17 +24,20 @@ const outputSchema = {
 }
 
 type ModelContent = Array<Record<string, unknown>>
+type ModelOptions = { abortSignal?: AbortSignal, prompt: unknown, responseFormat?: unknown }
+type ModelResponse = ModelContent | string | ((options: ModelOptions) => Promise<ModelContent | string>)
 
-function model(responses: Array<ModelContent | string>) {
-  const calls: Array<{ prompt: unknown, responseFormat?: unknown }> = []
+function model(responses: ModelResponse[]) {
+  const calls: ModelOptions[] = []
   return {
     calls,
-    async doGenerate(options: { prompt: unknown, responseFormat?: unknown }) {
+    async doGenerate(options: ModelOptions) {
       calls.push(options)
       const response = responses[calls.length - 1]
       if (response === undefined) throw new Error("Unexpected model call")
+      const resolved = hasRuntimeType(response, "function") ? await response(options) : response
       return {
-        content: hasRuntimeType(response, "string") ? [{ text: response, type: "text" }] : response,
+        content: hasRuntimeType(resolved, "string") ? [{ text: resolved, type: "text" }] : resolved,
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -159,6 +162,36 @@ describe("AI SDK recovery", () => {
     expect(executions).toHaveBeenCalledWith({ query: "fixed" }, expect.anything())
     expect(fakeModel.calls).toHaveLength(3)
     expect(fakeModel.calls[1]?.responseFormat).toBeDefined()
+  })
+
+  it("cancels a pending tool-call repair with its invocation", async () => {
+    const abort = new AbortController()
+    const abortError = new Error("Invocation cancelled")
+    let markRepairStarted = () => {}
+    const repairStarted = new Promise<void>((resolve) => {
+      markRepairStarted = resolve
+    })
+    const fakeModel = model([
+      [{ input: "{\"query\":1}", toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      async ({ abortSignal }) => {
+        markRepairStarted()
+        if (!abortSignal) throw new Error("Expected repair call to receive an abort signal")
+        return await new Promise((_resolve, reject) => {
+          if (abortSignal.aborted) reject(abortSignal.reason)
+          else abortSignal.addEventListener("abort", () => reject(abortSignal.reason), { once: true })
+        })
+      },
+    ])
+
+    const invocation = runAgentInline(toolCallingAgent(fakeModel, vi.fn(() => "found")), runtime, {
+      abortSignal: abort.signal,
+      prompt: "Search",
+    })
+    await repairStarted
+    abort.abort(abortError)
+
+    await expect(invocation).rejects.toBe(abortError)
+    expect(fakeModel.calls).toHaveLength(2)
   })
 
   it("allows tool-call repair to be disabled", async () => {
