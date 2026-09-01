@@ -1617,6 +1617,8 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
   const targets = {
     boundComputed: join(rootDir, "bound-computed-worktree", "plugin.mjs"),
     boundLiteral: join(rootDir, "bound-literal-worktree", "plugin.mjs"),
+    inlineComputed: join(rootDir, "inline-computed-worktree", "plugin.mjs"),
+    inlineLiteral: join(rootDir, "inline-literal-worktree", "plugin.mjs"),
     metaComputed: join(rootDir, "meta-computed-worktree", "plugin.mjs"),
     metaLiteral: join(rootDir, "meta-literal-worktree", "plugin.mjs"),
   }
@@ -1624,13 +1626,17 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, [
+      'import { createRequire } from "node:module"',
       'import * as Module from "node:module"',
       "const projectRequire = Module.createRequire(import.meta.url)",
       'const boundTarget = "../bound-computed-worktree/plugin.mjs"',
+      'const inlineTarget = "../inline-computed-worktree/plugin.mjs"',
       'const metaTarget = "../meta-computed-worktree/plugin.mjs"',
       'export const resolveTargets = () => ({',
       "  boundComputed: projectRequire.resolve(boundTarget),",
       '  boundLiteral: projectRequire.resolve("../bound-literal-worktree/plugin.mjs"),',
+      "  inlineComputed: Module.createRequire(import.meta.url).resolve(inlineTarget),",
+      '  inlineLiteral: createRequire(import.meta.url).resolve("../inline-literal-worktree/plugin.mjs"),',
       "  metaComputed: import.meta.resolve(metaTarget),",
       '  metaLiteral: import.meta.resolve("../meta-literal-worktree/plugin.mjs"),',
       "})",
@@ -1653,6 +1659,8 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
   const resolved = retainedHandler.resolveTargets()
   await expect(import(pathToFileURL(resolved.boundComputed).href)).resolves.toMatchObject({ value: "boundComputed" })
   await expect(import(pathToFileURL(resolved.boundLiteral).href)).resolves.toMatchObject({ value: "boundLiteral" })
+  await expect(import(pathToFileURL(resolved.inlineComputed).href)).resolves.toMatchObject({ value: "inlineComputed" })
+  await expect(import(pathToFileURL(resolved.inlineLiteral).href)).resolves.toMatchObject({ value: "inlineLiteral" })
   await expect(import(resolved.metaComputed)).resolves.toMatchObject({ value: "metaComputed" })
   await expect(import(resolved.metaLiteral)).resolves.toMatchObject({ value: "metaLiteral" })
 })

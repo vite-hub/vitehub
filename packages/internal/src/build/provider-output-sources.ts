@@ -325,6 +325,12 @@ function traceComputedModuleSources(
     const specifier = bindings.get(match[2]!)
     if (specifier) recordRequest(specifier, "require-call")
   }
+  const createdComputedResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
+  for (const match of masked.matchAll(createdComputedResolveRequests)) {
+    if (!isCreateRequireExpression(match[1]!)) continue
+    const specifier = bindings.get(match[2]!)
+    if (specifier) recordRequest(specifier, "require-resolve")
+  }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedRequests)) {
     if (!boundRequireNames.has(match[1]!)) continue
@@ -372,6 +378,15 @@ function traceComputedModuleSources(
     const specifier = match[3]!
     if (match[2] === "`" && specifier.includes("${")) continue
     recordRequest(specifier, "require-call")
+  }
+  const createdLiteralResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\2/gis
+  for (const match of source.matchAll(createdLiteralResolveRequests)) {
+    if (!isCreateRequireExpression(match[1]!)) continue
+    const quoteOffset = match[0].indexOf(match[2]!)
+    if (!/\b[A-Z_$][\w$]*(?:\s*\.\s*createRequire)?\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    const specifier = match[3]!
+    if (match[2] === "`" && specifier.includes("${")) continue
+    recordRequest(specifier, "require-resolve")
   }
   const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralRequests)) {
