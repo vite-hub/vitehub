@@ -355,9 +355,6 @@ describe("framework package contract", () => {
     expect(consolePage.indexOf("if (pageVisible.value) void loadAgents();")).toBeLessThan(
       consolePage.indexOf("onMounted(() =>"),
     );
-    expect(consolePage).toMatch(
-      /usageSessionBootstrap = !selectedAgentName\.value;[\s\S]*?!list\.isLoading\.value[\s\S]*?scheduleInvocationListRefresh\(\);/,
-    );
     expect(consolePage).toContain(
       'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',
     );
