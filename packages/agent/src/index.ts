@@ -27,7 +27,7 @@ import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
-import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -3772,11 +3772,12 @@ function maybeTraceAgentStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   return (async function* () {
     try {
       for await (const event of stream) {
-        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities)
+        const normalized = toAgentStreamEvent(event, toolNames, textPhases, toolActivities, messageState)
         if (normalized) {
           await tracer?.write(normalized)
           await context.activity?.event(normalized)
@@ -4458,8 +4459,10 @@ function withStreamedResult(
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   let explicitTextPhaseSeen = false
   let finalText = ""
+  let finalTextId: string | undefined
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   let finalizedUsageRecord: AgentUsageRecord | undefined
@@ -4479,7 +4482,7 @@ function withStreamedResult(
     },
     stream: (async function* () {
       for await (const chunk of stream) {
-        const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities)
+        const event = toAgentStreamEvent(chunk, toolNames, textPhases, toolActivities, messageState)
         if (toolResults && event?.type === "tool-result" && !event.error) {
           appendAgentToolResult(toolResults, {
             output: event.output,
@@ -4497,7 +4500,11 @@ function withStreamedResult(
           unphasedText = ""
         }
         if (event?.type === "text-delta" && event.text) {
-          if (event.phase === "final") finalText += event.text
+          if (event.phase === "final") {
+            const next = appendLatestFinalText(finalText, finalTextId, event)
+            finalText = next.text
+            finalTextId = next.identity
+          }
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
         const attachedUsageRecord = chunk && hasRuntimeType(chunk, "object") && "usageRecord" in chunk
@@ -4581,6 +4588,7 @@ function traceUiMessageStream<
   const toolNames = new Map<string, string>()
   const toolActivities = agentToolActivities(context.tools)
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  const messageState: { messageId?: string } = {}
   const tracer = context.runtimeContext.traceLog ? createAgentStreamEventTracer(toTraceContext(context)) : undefined
   let finished = false
   let released = false
@@ -4600,7 +4608,7 @@ function traceUiMessageStream<
           controller.close()
           return
         }
-        const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities)
+        const event = toAgentStreamEvent(result.value, toolNames, textPhases, toolActivities, messageState)
         if (event) {
           if (event.type === "finish") finished = true
           await tracer?.write(event)

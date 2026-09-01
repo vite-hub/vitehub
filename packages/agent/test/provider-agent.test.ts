@@ -8,7 +8,7 @@ import { join, resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
@@ -64,6 +64,7 @@ import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
@@ -203,7 +204,7 @@ describe("Provider Agent Driver", () => {
     const outputPath = join(outputRoot, "args.json")
     let launcherPath: string | undefined
     const env = vi.fn(() => ({ LAUNCH_OUTPUT: outputPath, PATH: undefined, PROVIDER_SELECTED: "selected" }))
-    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>> }) => {
+    const launch = vi.fn((launchContext: { command: string, cwd: string, environment: Readonly<Record<string, string | undefined>>, requiredEnvironment: readonly string[] }) => {
       expect(launchContext).toMatchObject({
         command: "/app/node_modules/@openai/codex/bin/codex.js",
         environment: expect.objectContaining({ LAUNCH_OUTPUT: outputPath, PROVIDER_SELECTED: "selected" }),
@@ -211,6 +212,8 @@ describe("Provider Agent Driver", () => {
       expect(launchContext.environment).not.toHaveProperty("PATH")
       expect(launchContext.cwd).toContain("vitehub-provider-")
       expect(Object.isFrozen(launchContext.environment)).toBe(true)
+      expect(launchContext.requiredEnvironment).toEqual([])
+      expect(Object.isFrozen(launchContext.requiredEnvironment)).toBe(true)
       return {
         args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
         command: process.execPath,
@@ -239,6 +242,198 @@ describe("Provider Agent Driver", () => {
     finally {
       await rm(outputRoot, { force: true, recursive: true })
     }
+  })
+
+  it("declares late framework environment required by provider tools", async () => {
+    const threadId = "thread-required-launch-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const launch = vi.fn(({ command }: { command: string, requiredEnvironment: readonly string[] }) => ({ command }))
+    const invocation = context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } })
+
+    // SAFETY: This fixture supplies the minimal provider invocation context needed to expose tool-owned launch environment.
+    await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      requiredEnvironment: ["T3_MCP_BEARER_TOKEN"],
+    }))
+  })
+
+  it("retains a redacted launch stderr tail when a custom launcher exits", async () => {
+    const threadId = "thread-launch-diagnostic"
+    const secret = "launch-secret-value"
+    const shortSecret = "x7z"
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = String(options?.settings?.binaryPath)
+        const launched = spawnSync(binaryPath, [], {
+          encoding: "utf8",
+          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: secret },
+        })
+        expect(launched.status).toBe(5)
+        const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
+        expect(persisted).not.toContain(secret)
+        expect(persisted).toContain("token=[REDACTED] short=[REDACTED] label=ordinary-value")
+        expect(persisted).not.toContain(shortSecret)
+        throw new Error("Codex App Server process exited with code 5")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        env: { SHORT_TOKEN: shortSecret },
+        launch: {
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the exact tool-bearing provider invocation context exercised by the launcher.
+      }).generate(context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } }) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    const shape = getViteHubErrorShape(failure)
+    expect(shape).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 5,
+        phase: "launch",
+        stderr: "runner failed token=[REDACTED] short=[REDACTED] label=ordinary-value",
+      },
+    })
+    expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
+    // SAFETY: The adapter rejection under test is an Error whose optional cause preserves the provider runtime failure.
+    expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
+    expect(JSON.stringify(shape)).not.toContain(secret)
+    expect(JSON.stringify(shape)).not.toContain(shortSecret)
+  })
+
+  it("redacts arbitrary provider credentials before truncating launch stderr", async () => {
+    const threadId = "thread-launch-diagnostic-boundary"
+    const databaseUrl = "postgres://quiver:boundary-secret@database/quiver"
+    const leakedSuffix = databaseUrl.slice(-8)
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const binaryPath = String(options?.settings?.binaryPath)
+        const launched = spawnSync(binaryPath, [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(5)
+        const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
+        const persistedDiagnostic: unknown = JSON.parse(persisted)
+        expect(persisted).not.toContain(databaseUrl)
+        expect(persisted).not.toContain(leakedSuffix)
+        if (!isRuntimeRecord(persistedDiagnostic) || !hasRuntimeType(persistedDiagnostic.stderr, "string")) {
+          throw new TypeError("Expected the persisted provider launch diagnostic to contain stderr.")
+        }
+        expect(Buffer.byteLength(persistedDiagnostic.stderr)).toBeLessThanOrEqual(stderrLimit)
+        throw new Error("Codex App Server process exited with code 5")
+      },
+    })
+
+    const stderrLimit = 16_384
+    const repeatedCredentials = 100
+    const trailingBytes = stderrLimit + databaseUrl.length - leakedSuffix.length - databaseUrl.length * repeatedCredentials
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        env: { DATABASE_URL: databaseUrl },
+        launch: {
+          args: ["-e", `process.stderr.write("x".repeat(128)+process.env.DATABASE_URL+process.env.DATABASE_URL.repeat(${repeatedCredentials})+"y".repeat(${trailingBytes}));process.exit(5)`],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture places a provider credential across the retained stderr boundary.
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    const shape = getViteHubErrorShape(failure)
+    expect(shape).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: { exitCode: 5, phase: "launch", stderrBytes: 128 + databaseUrl.length * (repeatedCredentials + 1) + trailingBytes, stderrTruncated: true },
+    })
+    expect(JSON.stringify(shape)).not.toContain(databaseUrl)
+    expect(JSON.stringify(shape)).not.toContain(leakedSuffix)
+  })
+
+  it("reports a custom launcher that exits successfully before the provider handshake", async () => {
+    const threadId = "thread-zero-exit-launch-diagnostic"
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(0)
+        throw new Error("Codex App Server process exited before the handshake")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", 'process.stderr.write("launcher stopped before handshake\\n")'],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise an early launcher exit.
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(getViteHubErrorShape(failure)).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 0,
+        phase: "launch",
+        stderr: "launcher stopped before handshake",
+      },
+    })
+  })
+
+  it("bounds diagnostics while forwarding high-volume provider stderr", async () => {
+    const threadId = "thread-launch-stderr-backpressure"
+    const stderrBytes = 256 * 1024
+    runtime(threadId, [], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        expect(launched.status).toBe(9)
+        expect(Buffer.byteLength(launched.stderr)).toBe(stderrBytes)
+        throw new Error("Codex App Server process exited with code 9")
+      },
+    })
+
+    let failure: unknown
+    try {
+      await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", `process.stderr.write("x".repeat(${stderrBytes}),()=>process.exit(9))`],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise bounded stderr forwarding.
+      }).generate(context(threadId) as never)
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(getViteHubErrorShape(failure)).toMatchObject({
+      code: "PROVIDER_LAUNCH_FAILED",
+      details: {
+        exitCode: 9,
+        stderrBytes,
+        stderrTruncated: true,
+      },
+    })
+    expect(getViteHubErrorShape(failure)?.details?.stderr).toHaveLength(16_384)
   })
 
   it("stops signal-ignoring descendants before a provider launcher exits", async () => {
@@ -367,6 +562,30 @@ describe("Provider Agent Driver", () => {
 
       expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
         environment: expect.objectContaining({ CODEX_HOME: "/var/lib/ambient-codex" }),
+      }))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("keeps named credential profiles under the ViteHub data root", async () => {
+    const threadId = "thread-profile-ignores-ambient-codex-home"
+    const profile = `provider-profile-${crypto.randomUUID()}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CODEX_HOME", join(tmpdir(), `ambient-codex-${crypto.randomUUID()}`))
+    try {
+      await createProviderAgentAdapter({
+        credentialProfile: profile,
+        credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
+        provider: "codex",
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+        settings: expect.objectContaining({
+          homePath: resolve(process.cwd(), ".vitehub", "data", "codex", profile),
+        }),
       }))
     }
     finally {

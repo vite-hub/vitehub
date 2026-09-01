@@ -1229,6 +1229,7 @@ export interface AgentProviderDriverOptions<
   TOutput = unknown,
 > {
   capacity?: AgentDriverCapacityOptions
+  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: {
     attachments?: AgentAttachmentExecutionOptions
@@ -1271,6 +1272,8 @@ export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeC
   command: string
   cwd: string
   environment: Readonly<AgentProviderEnvironment>
+  /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
+  requiredEnvironment: readonly string[]
 }
 
 export type AgentProviderLaunchResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =

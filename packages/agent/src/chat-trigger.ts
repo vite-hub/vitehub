@@ -109,7 +109,11 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
-  if (args.publicError.code !== "INTERNAL") return args.publicError.error
+  if (args.publicError.code !== "INTERNAL") {
+    return args.publicError.requestId
+      ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
+      : args.publicError.error
+  }
   return hasRuntimeType(fallback, "string") ? fallback : defaultChatErrorFallbackText
 }
 

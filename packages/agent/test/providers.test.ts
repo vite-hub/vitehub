@@ -15780,6 +15780,67 @@ describe("server helpers", () => {
     })
   })
 
+  it("uses only the latest final message for a manual final reply", { timeout: 30_000 }, async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Loading…",
+            stream: false,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              data: { revision: 1, summary: "Checking connected tools.", type: "progress-summary" },
+              transient: true,
+              type: "data-progress-summary",
+            }
+            yield { messageId: "intermediate-message", type: "start" }
+            yield { id: "intermediate-1", phase: "final", type: "text-start" }
+            yield { delta: "I’ll check the connected tools directly.", id: "intermediate-1", type: "text-delta" }
+            yield { id: "intermediate-1", type: "text-end" }
+            yield { messageId: "answer-message", type: "start" }
+            yield { id: "answer-1", phase: "final", type: "text-start" }
+            yield { delta: "Yes—", id: "answer-1", type: "text-delta" }
+            yield { id: "answer-1", type: "text-end" }
+            yield { id: "answer-2", phase: "final", type: "text-start" }
+            yield { delta: "I have working access.", id: "answer-2", type: "text-delta" }
+            yield { id: "answer-2", type: "text-end" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply(event.text ?? ""),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(99_917), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Loading…")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", {
+      markdown: "Checking connected tools.",
+    })
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: "Yes—I have working access.",
+    })
+  })
+
   it("does not block manual completion on a hanging progress edit", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
