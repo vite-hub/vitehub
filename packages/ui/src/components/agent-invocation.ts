@@ -114,6 +114,22 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
+function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
+  const details: Record<string, unknown> = {};
+  if (error.code !== undefined) details.code = error.code;
+  if (error.requestId) details.requestId = error.requestId;
+  if (error.status !== undefined) details.status = error.status;
+  if (error.statusCode !== undefined) details.statusCode = error.statusCode;
+  if (error.details) details.details = error.details;
+  if (error.cause) details.cause = error.cause;
+  if (error.errors?.length) details.errors = error.errors;
+  if (!Object.keys(details).length) return null;
+  return h("details", { class: "vh-invocation-error__details" }, [
+    h("summary", "Diagnostic details"),
+    h("pre", payloadText(details)),
+  ]);
+}
+
 function jsonValueLabel(value: unknown): string {
   if (hasRuntimeType(value, "string")) return JSON.stringify(value);
   if (value === null) return "null";
@@ -338,13 +354,13 @@ function renderMessage(
 }
 
 type ActivityIcon =
+  | "activity"
   | "action"
   | "approval"
-  | "bot"
   | "change"
   | "check"
   | "command"
-  | "error"
+  | "cpu"
   | "eye"
   | "folder"
   | "github"
@@ -355,13 +371,13 @@ type ActivityIcon =
   | "tool";
 
 function activityIcon(activity: InvocationActivity): ActivityIcon {
-  if (activity.status === "failed" || activity.kind === "error") return "error";
   const name = String(activity.attributes["tool.name"] ?? "").toLocaleLowerCase();
   if (activity.command) return "command";
+  if (activity.kind === "error") return "activity";
   if (activity.kind === "change") return "change";
   if (name.includes("read") || name.includes("image") || name.includes("view")) return "eye";
   if (name.includes("search") || name.includes("find")) return "search";
-  if (activity.kind === "reasoning" || activity.kind === "model") return "bot";
+  if (activity.kind === "reasoning" || activity.kind === "model" || activity.kind === "run") return "activity";
   if (activity.kind === "approval") return "approval";
   if (activity.kind === "delivery") {
     const delivery = String(activity.attributes["channel.effect.kind"] ?? "").toLocaleLowerCase();
@@ -375,22 +391,22 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
     if (title.includes("pull request")) return "pull-request";
     if (title.includes("github")) return "github";
     if (title.includes("workspace")) return "folder";
-    if (title.includes("agent")) return "bot";
+    if (title.includes("agent")) return "cpu";
     if (title.includes("prompt")) return "message";
     return "check";
   }
-  if (activity.kind === "system") return "bot";
-  return "tool";
+  if (activity.kind === "system") return "cpu";
+  return activity.kind === "tool" ? "tool" : "activity";
 }
 
 const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
+  activity: ["M12 12h.01"],
   action: ["M13 2 3 14h9l-1 8 10-12h-9z"],
   approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
-  bot: ["M12 8V4H8", "M4 8h16v10H4z", "M8 12h.01", "M16 12h.01"],
   change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
   check: ["m5 12 4 4L19 6"],
   command: ["m4 17 6-6-6-6", "M12 19h8"],
-  error: ["M18 6 6 18", "m6 6 12 12"],
+  cpu: ["M9 9h6v6H9z", "M9 2v3", "M15 2v3", "M9 19v3", "M15 19v3", "M2 9h3", "M2 15h3", "M19 9h3", "M19 15h3", "M5 5h14v14H5z"],
   eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6"],
   folder: ["M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
   github: ["M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.28-.36 6.72-1.61 6.72-7A5.4 5.4 0 0 0 19.22 3.77 5.07 5.07 0 0 0 19.13.32S17.95-.04 15 1.8a13.38 13.38 0 0 0-6 0C6.05-.04 4.87.32 4.87.32A5.07 5.07 0 0 0 4.78 3.77a5.4 5.4 0 0 0-1.5 3.78c0 5.42 3.44 6.61 6.72 7A4.8 4.8 0 0 0 9 18v4", "M9 18c-4.51 2-5-2-7-2"],
@@ -403,21 +419,46 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
     "M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",
   ],
   search: ["m21 21-4.35-4.35", "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16"],
-  tool: ["M9 7V5h6v2", "M4 8h16v11H4z", "M4 12h5v2h6v-2h5"],
+  tool: ["M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.5 2.5-3-3Z"],
 };
 
 function renderActivityIcon(activity: InvocationActivity) {
-  return renderNamedActivityIcon(activityIcon(activity));
+  return h("span", {
+    class: "vh-invocation-event__icon",
+    "data-failed": activity.status === "failed" ? "true" : undefined,
+    "data-icon": activityIcon(activity),
+    "aria-hidden": "true",
+  }, [
+    renderActivityIconSvg(activityIcon(activity)),
+    activity.status === "failed"
+      ? h("svg", {
+          class: "vh-invocation-event__failure-icon",
+          fill: "currentColor",
+          viewBox: "0 0 24 24",
+        }, [
+          h("path", {
+            "clip-rule": "evenodd",
+            d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1 5h2v7h-2V7Zm0 9h2v2h-2v-2Z",
+            "fill-rule": "evenodd",
+            stroke: "none",
+          }),
+        ])
+      : null,
+  ]);
 }
 
 function renderNamedActivityIcon(icon: ActivityIcon) {
   return h("span", { class: "vh-invocation-event__icon", "data-icon": icon, "aria-hidden": "true" }, [
-    h("svg", { fill: "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
-      d: path,
-      "stroke-linecap": "round",
-      "stroke-linejoin": "round",
-    }))),
+    renderActivityIconSvg(icon),
   ]);
+}
+
+function renderActivityIconSvg(icon: ActivityIcon) {
+  return h("svg", { fill: "none", viewBox: "0 0 24 24" }, activityIconPaths[icon].map(path => h("path", {
+    d: path,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+  })));
 }
 
 function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
@@ -546,7 +587,7 @@ function renderPreparationAction(activity: InvocationActivity, inspect: (target:
     class: "vh-invocation-preparation__action",
     onClick: () => inspect(target),
     type: "button",
-  }, [renderNamedActivityIcon(target === "workspace" ? "folder" : "bot")]);
+  }, [renderNamedActivityIcon(target === "workspace" ? "folder" : "cpu")]);
 }
 
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
@@ -597,15 +638,15 @@ function renderPreparationGroup(
   inspect: (target: InspectTarget) => void,
 ) {
   const url = agentInvocationExternalUrl(invocation);
-  const failed = activities.some(activity => activity.status === "failed");
+  const failedActivity = activities.find(activity => activity.status === "failed");
   return h("li", {
     class: "vh-invocation-preparation",
     key: `preparation:${activities[0]?.id}`,
   }, [
     h("details", { class: "vh-invocation-preparation__details" }, [
       h("summary", { class: "vh-invocation-preparation__summary" }, [
-        renderNamedActivityIcon(failed ? "error" : "check"),
-        h("strong", failed ? "Session preparation failed" : "Session prepared"),
+        failedActivity ? renderActivityIcon(failedActivity) : renderNamedActivityIcon("check"),
+        h("strong", failedActivity ? "Session preparation failed" : "Session prepared"),
         renderPreparationContext(invocation, url),
         h("small", `${activities.length} steps`),
         renderChevronDown("vh-invocation-preparation__disclosure"),
@@ -1057,6 +1098,33 @@ function renderWorkSummary(
   ]);
 }
 
+function orderSessionThread(activities: readonly InvocationActivity[]): readonly InvocationActivity[] {
+  const firstPreparation = activities.findIndex(activity => activity.kind === "preparation");
+  if (firstPreparation < 0) return activities;
+  const firstRuntimeWork = activities.findIndex(activity =>
+    activity.kind === "reasoning"
+    || activity.kind === "model"
+    || activity.kind === "tool"
+    || (
+      activity.kind === "message"
+      && activity.role === "assistant"
+      && activity.name !== "agent.input.message"
+    ),
+  );
+  if (firstRuntimeWork >= 0 && firstPreparation > firstRuntimeWork) return activities;
+
+  let preparationEnd = firstPreparation + 1;
+  while (activities[preparationEnd]?.kind === "preparation") preparationEnd += 1;
+  const initialConfiguration = activities.findIndex((activity, index) =>
+    index < firstPreparation && activity.name === "vitehub.agent.configured",
+  );
+  return [
+    ...activities.slice(firstPreparation, preparationEnd),
+    ...activities.slice(0, firstPreparation).filter((_activity, index) => index !== initialConfiguration),
+    ...activities.slice(preparationEnd),
+  ];
+}
+
 function renderInvocationActivities(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1066,28 +1134,29 @@ function renderInvocationActivities(
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
 ) {
+  const orderedActivities = orderSessionThread(activities);
   if (invocation.status === "pending" || invocation.status === "running") {
-    return renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect);
+    return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
   }
-  const firstUser = activities.findIndex(activity => activity.kind === "message" && activity.role === "user");
+  const firstUser = orderedActivities.findIndex(activity => activity.kind === "message" && activity.role === "user");
   let lastUser = -1;
-  for (let index = activities.length - 1; index >= 0; index -= 1) {
-    if (activities[index]!.kind === "message" && activities[index]!.role === "user") {
+  for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
+    if (orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "user") {
       lastUser = index;
       break;
     }
   }
   let lastAssistant = -1;
-  for (let index = activities.length - 1; index >= 0; index -= 1) {
-    if (index > lastUser && activities[index]!.kind === "message" && activities[index]!.role === "assistant") {
+  for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
+    if (index > lastUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
       lastAssistant = index;
       break;
     }
   }
-  if (firstUser < 0) return renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect);
+  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
 
-  const prefix = activities.slice(0, firstUser + 1);
-  const tail = activities.slice(firstUser + 1);
+  const prefix = orderedActivities.slice(0, firstUser + 1);
+  const tail = orderedActivities.slice(firstUser + 1);
   const terminal = tail.filter(activity => activity.name === "vitehub.observation.truncated");
   const visibleBeforeFinal = tail.filter((activity, offset) =>
     activity.name !== "vitehub.observation.truncated"
@@ -1109,7 +1178,7 @@ function renderInvocationActivities(
     ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
     renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect),
-    ...(lastAssistant >= 0 ? [renderInvocationActivity(activities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
+    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
     ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
     ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
   ].filter(item => item !== null);
@@ -1196,6 +1265,7 @@ export const AgentInvocation = defineComponent({
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
                   h("strong", props.invocation.error.name ?? "Invocation failed"),
                   h("span", props.invocation.error.message),
+                  diagnosticDetails(props.invocation.error),
                 ])
               : null,
             h("div", {
@@ -1229,6 +1299,8 @@ export const AgentInvocationInspector = defineComponent({
   },
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
+    showStatus: { default: true, type: Boolean },
+    showTimeline: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1327,7 +1399,7 @@ export const AgentInvocationInspector = defineComponent({
                 ? `${copyError.value === "trace" ? "Trace" : "Invocation"} ID could not be copied`
                 : ""),
             h("section", { class: "vh-invocation-inspector__identity" }, [
-              h(
+              props.showStatus ? h(
                 "div",
                 {
                   "aria-atomic": "true",
@@ -1342,7 +1414,7 @@ export const AgentInvocationInspector = defineComponent({
                   h("strong", statusLabel(props.invocation.status)),
                   h("small", duration),
                 ],
-              ),
+              ) : null,
               h("h4", agentInvocationTitle(props.invocation)),
               agentInvocationContext(props.invocation) !== props.invocation.id
                 ? h("p", agentInvocationContext(props.invocation))
@@ -1360,6 +1432,7 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__error" }, [
                     h("strong", props.invocation.error.name ?? "Invocation failed"),
                     h("p", props.invocation.error.message),
+                    diagnosticDetails(props.invocation.error),
                   ])
                 : null,
             ]),
@@ -1379,7 +1452,9 @@ export const AgentInvocationInspector = defineComponent({
                   : null,
               ]),
             ),
-            traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id)),
+            props.showTimeline
+              ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
+              : null,
             ...(configuration ? renderConfiguration(configuration) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(

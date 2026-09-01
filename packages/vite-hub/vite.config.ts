@@ -62,6 +62,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-session-bootstrap.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-blob.vue",
         to: "dist/console/runtime/components",
       },
