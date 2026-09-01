@@ -276,6 +276,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   const paths: string[] = []
   const computedRequests = [
     /\b(?:import|require)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
+    /\brequire\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
     /\bmodule\s*\.\s*require\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
   ]
   for (const request of computedRequests) {
@@ -305,6 +306,10 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   }
 
   const literalRequests = [
+    {
+      pattern: /\brequire\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\1/gi,
+      prefix: /\brequire\s*\.\s*resolve\s*\(\s*$/i,
+    },
     {
       pattern: /\bmodule\s*\.\s*require\s*\(\s*([`"'])(.*?)\1/gi,
       prefix: /\bmodule\s*\.\s*require\s*\(\s*$/i,

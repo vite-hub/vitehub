@@ -1449,6 +1449,43 @@ it("retains literal member-based require targets", async () => {
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
 })
 
+it("retains nested repositories referenced through require.resolve", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-require-resolve-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const computedRepository = join(rootDir, "computed-worktree")
+  const literalRepository = join(rootDir, "literal-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const target = "../computed-worktree/plugin.cjs"',
+      'exports.resolve = () => ({ computed: require.resolve(target), literal: require.resolve("../literal-worktree/plugin.cjs") })',
+      "",
+    ].join("\n")),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(join(computedRepository, "plugin.cjs"), "module.exports = 'computed'\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(join(literalRepository, "plugin.cjs"), "module.exports = 'literal'\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const result = require(process.argv[1]).resolve(); if (require(result.computed) !== 'computed' || require(result.literal) !== 'literal') process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
 it("preserves dependency resolution for a workspace-linked package", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
   tempDirs.push(workspace)
