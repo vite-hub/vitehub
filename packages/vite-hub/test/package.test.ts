@@ -337,11 +337,13 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':loading="list.isLoading.value || list.isLoadingMore.value"');
     expect(consolePage).toContain("immediate: pageVisible.value && !isUsageRoute.value");
     expect(consolePage).not.toContain("initialListPending");
-    expect(consolePage).toMatch(
-      /await Promise\.all\(\[[\s\S]*?agents,[\s\S]*?list\.refresh\(\),/,
+    expect(consolePage).toContain(
+      "isUsageRoute.value ? Promise.resolve() : list.refresh()",
     );
+    expect(consolePage).toContain("watch: false");
     expect(consolePage).toContain("const initialBootstrapPending = ref(!selectedAgentName.value)");
-    expect(consolePage).toContain("!requestedAgent && !agentName && firstInvocation?.agentName");
+    expect(consolePage).toContain("if (!requestedAgent && !agentName)");
+    expect(consolePage).toContain("if (!firstInvocation) return");
     expect(consolePage).toContain("selectedInvocationId.value = firstInvocation.id");
     expect(consolePage).toContain("invocation: firstInvocation.id");
     expect(consolePage).toContain("if (!requestedAgent && bootstrapPending) return");
@@ -350,7 +352,7 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toMatch(
-      /if \(!usageRoute\) \{[\s\S]*?void nextTick\(\(\) => \{[\s\S]*?!list\.isLoading\.value[\s\S]*?void list\.refresh\(\);/,
+      /usageSessionBootstrap = !selectedAgentName\.value;[\s\S]*?!list\.isLoading\.value[\s\S]*?scheduleInvocationListRefresh\(\);/,
     );
     expect(consolePage).toContain(
       'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',

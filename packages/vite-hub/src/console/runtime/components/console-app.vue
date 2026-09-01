@@ -79,6 +79,9 @@ let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
 let refreshCount = 0;
+let invocationListRefreshQueued = false;
+let preservedAgentSelection: string | undefined;
+let usageSessionBootstrap = false;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -96,6 +99,7 @@ const list = useAgentInvocations({
   pollInterval: listPollInterval,
   request: requestConsole,
   requestSummaries: requestConsole,
+  watch: false,
   query: computed(() => ({
     ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
     limit: 10,
@@ -332,7 +336,7 @@ async function selectInvocation(
   if (!agentName) return;
   showSessions();
   sessionsOpen.value = false;
-  selectedAgentName.value = agentName;
+  updateSelectedAgentName(agentName);
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
@@ -342,7 +346,7 @@ async function selectInvocation(
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
   showSessions();
-  selectedAgentName.value = name;
+  updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
@@ -412,6 +416,21 @@ async function loadAgents(): Promise<void> {
   }
 }
 
+function updateSelectedAgentName(name: string, preserveInvocationList = false): void {
+  if (name === selectedAgentName.value) return;
+  if (preserveInvocationList) preservedAgentSelection = name;
+  selectedAgentName.value = name;
+}
+
+function scheduleInvocationListRefresh(): void {
+  if (invocationListRefreshQueued) return;
+  invocationListRefreshQueued = true;
+  void nextTick(() => {
+    invocationListRefreshQueued = false;
+    if (pageVisible.value && !isUsageRoute.value) void list.refresh();
+  });
+}
+
 async function refresh(): Promise<void> {
   refreshCount++;
   refreshing.value = true;
@@ -420,7 +439,7 @@ async function refresh(): Promise<void> {
     await Promise.all([
       detectHostCapabilities(),
       agents,
-      list.refresh(),
+      isUsageRoute.value ? Promise.resolve() : list.refresh(),
       selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
     ]);
   } finally {
@@ -496,9 +515,12 @@ watch(
       if (!firstInvocation) return;
       if (!firstInvocation.agentName) {
         initialBootstrapPending.value = false;
+        usageSessionBootstrap = false;
         return;
       }
       selectedInvocationId.value = firstInvocation.id;
+      updateSelectedAgentName(firstInvocation.agentName, usageSessionBootstrap);
+      usageSessionBootstrap = false;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
@@ -507,7 +529,6 @@ watch(
             invocation: firstInvocation.id,
           },
         });
-        selectedAgentName.value = firstInvocation.agentName;
       } finally {
         initialBootstrapPending.value = false;
       }
@@ -539,7 +560,11 @@ watch(
         : currentAgent && names.includes(currentAgent)
           ? currentAgent
           : names[0];
-    selectedAgentName.value = agentName;
+    updateSelectedAgentName(
+      agentName,
+      usageSessionBootstrap && !requestedAgent && !currentAgent,
+    );
+    usageSessionBootstrap = false;
     if (requestedAgent !== agentName) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
@@ -606,20 +631,26 @@ watch(
   isUsageRoute,
   (usageRoute) => {
     rememberConsoleSection(usageRoute ? "usage" : "agents");
-    if (!usageRoute) {
-      void nextTick(() => {
-        if (
-          pageVisible.value &&
-          !list.isLoading.value &&
-          list.invocations.value.length === 0
-        ) {
-          void list.refresh();
-        }
-      });
+    if (usageRoute) {
+      usageSessionBootstrap = false;
+    } else {
+      usageSessionBootstrap = !selectedAgentName.value;
+      if (!selectedAgentName.value) initialBootstrapPending.value = true;
+      if (!list.isLoading.value && list.invocations.value.length === 0) {
+        scheduleInvocationListRefresh();
+      }
     }
   },
   { immediate: true },
 );
+
+watch(selectedAgentName, (agentName) => {
+  if (agentName && preservedAgentSelection === agentName) {
+    preservedAgentSelection = undefined;
+    return;
+  }
+  scheduleInvocationListRefresh();
+});
 
 if (pageVisible.value) void loadAgents();
 
