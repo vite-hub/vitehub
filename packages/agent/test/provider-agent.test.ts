@@ -262,8 +262,15 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [], {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
-        const launched = spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        const binaryPath = String(options?.settings?.binaryPath)
+        const launched = spawnSync(binaryPath, [], {
+          encoding: "utf8",
+          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: secret },
+        })
         expect(launched.status).toBe(5)
+        const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
+        expect(persisted).not.toContain(secret)
+        expect(persisted).toContain("token=[REDACTED] label=ordinary-value")
         throw new Error("Codex App Server process exited with code 5")
       },
     })
@@ -271,13 +278,13 @@ describe("Provider Agent Driver", () => {
     let failure: unknown
     try {
       await createProviderAgentAdapter({
-        env: { PROVIDER_SECRET: secret },
+        env: { PROVIDER_LABEL: "ordinary-value" },
         launch: {
-          args: ["-e", `process.stderr.write("runner failed token=${secret}\\n");process.exit(5)`],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
-      }).generate(context(threadId) as never)
+      }).generate(context(threadId, { tools: { lookup: { execute: vi.fn(), inputSchema: {} } } }) as never)
     }
     catch (error) {
       failure = error
@@ -289,7 +296,7 @@ describe("Provider Agent Driver", () => {
       details: {
         exitCode: 5,
         phase: "launch",
-        stderr: "runner failed token=[REDACTED]",
+        stderr: "runner failed token=[REDACTED] label=ordinary-value",
       },
     })
     expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
@@ -349,7 +356,7 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         launch: {
-          args: ["-e", `process.stderr.write("x".repeat(${stderrBytes}));process.exit(9)`],
+          args: ["-e", `process.stderr.write("x".repeat(${stderrBytes}),()=>process.exit(9))`],
           command: process.execPath,
         },
         provider: "codex",

@@ -324,7 +324,20 @@ interface ProviderLaunchDiagnostic {
   stderrTruncated?: boolean
 }
 
-function providerLauncherSource(launch: AgentProviderLaunchCommand, diagnosticPath: string): string {
+const providerSecretEnvironmentKeyPattern = /(?:^|_)(?:API_KEY|AUTH_JSON|PASSWORD|PRIVATE_KEY|SECRET|TOKEN)(?:$|_)/i
+
+function providerSecretEnvironmentKeys(environment: NodeJS.ProcessEnv, requiredEnvironment: readonly string[]): string[] {
+  const required = new Set(requiredEnvironment)
+  return Object.keys(environment)
+    .concat(requiredEnvironment.filter(key => !(key in environment)))
+    .filter((key, index, keys) => keys.indexOf(key) === index && (required.has(key) || providerSecretEnvironmentKeyPattern.test(key)))
+}
+
+function providerLauncherSource(
+  launch: AgentProviderLaunchCommand,
+  diagnosticPath: string,
+  secretEnvironmentKeys: readonly string[],
+): string {
   return `import { spawn } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
@@ -343,12 +356,26 @@ let childExit
 let processGroupTerminated = false
 let stderr = Buffer.alloc(0)
 let stderrBytes = 0
+const secretEnvironmentKeys = ${JSON.stringify(secretEnvironmentKeys)}
+
+function redactDiagnostic(value) {
+  let redacted = String(value)
+  const secrets = [...new Set(secretEnvironmentKeys
+    .map(key => process.env[key])
+    .filter(item => typeof item === "string" && item.length >= 4))]
+    .sort((left, right) => right.length - left.length)
+  for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
+  return redacted
+    .replace(/\\b(Bearer|Basic)\\s+[^\\s]+/gi, "$1 [REDACTED]")
+    .replace(/\\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\\s]+)/g, "$1=[REDACTED]")
+}
 
 function recordDiagnostic(diagnostic) {
   try {
     writeFileSync(${JSON.stringify(diagnosticPath)}, JSON.stringify({
       ...diagnostic,
-      stderr: stderr.toString("utf8"),
+      ...(diagnostic.spawnError ? { spawnError: redactDiagnostic(diagnostic.spawnError) } : {}),
+      stderr: redactDiagnostic(stderr.toString("utf8")),
       stderrBytes,
       stderrTruncated: stderrBytes > stderr.length,
     }), { mode: 0o600 })
@@ -428,7 +455,11 @@ function finish() {
 `
 }
 
-async function materializeProviderLauncher(root: string, launch: AgentProviderLaunchCommand): Promise<MaterializedProviderLauncher> {
+async function materializeProviderLauncher(
+  root: string,
+  launch: AgentProviderLaunchCommand,
+  secretEnvironmentKeys: readonly string[],
+): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
   }
@@ -436,14 +467,18 @@ async function materializeProviderLauncher(root: string, launch: AgentProviderLa
   const path = join(root, "provider-launcher")
   const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return { diagnosticPath, path }
 }
 
-function redactProviderDiagnostic(value: string, environment: NodeJS.ProcessEnv): string {
+function redactProviderDiagnostic(
+  value: string,
+  environment: NodeJS.ProcessEnv,
+  secretEnvironmentKeys: readonly string[],
+): string {
   let redacted = value
-  const secrets = [...new Set(Object.values(environment)
+  const secrets = [...new Set(secretEnvironmentKeys.map(key => environment[key])
     .filter((item): item is string => typeof item === "string" && item.length >= 4))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
@@ -455,6 +490,7 @@ function redactProviderDiagnostic(value: string, environment: NodeJS.ProcessEnv)
 async function providerLaunchFailure(
   diagnosticPath: string | undefined,
   environment: NodeJS.ProcessEnv | undefined,
+  secretEnvironmentKeys: readonly string[],
   cause: unknown,
 ): Promise<ViteHubError<"PROVIDER_LAUNCH_FAILED"> | undefined> {
   if (!diagnosticPath || !environment) return
@@ -466,7 +502,7 @@ async function providerLaunchFailure(
     return
   }
   const stderr = typeof diagnostic.stderr === "string"
-    ? redactProviderDiagnostic(diagnostic.stderr, environment).trim()
+    ? redactProviderDiagnostic(diagnostic.stderr, environment, secretEnvironmentKeys).trim()
     : undefined
   const requestId = `provider-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
   return new ViteHubError("PROVIDER_LAUNCH_FAILED", "[vitehub] Provider launch command failed.", {
@@ -475,7 +511,7 @@ async function providerLaunchFailure(
       phase: "launch",
       ...(typeof diagnostic.exitCode === "number" ? { exitCode: diagnostic.exitCode } : {}),
       ...(typeof diagnostic.signal === "string" ? { signal: diagnostic.signal } : {}),
-      ...(typeof diagnostic.spawnError === "string" ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment) } : {}),
+      ...(typeof diagnostic.spawnError === "string" ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment, secretEnvironmentKeys) } : {}),
       ...(stderr ? { stderr } : {}),
       ...(typeof diagnostic.stderrBytes === "number" ? { stderrBytes: diagnostic.stderrBytes } : {}),
       ...(diagnostic.stderrTruncated === true ? { stderrTruncated: true } : {}),
@@ -1766,6 +1802,7 @@ async function* runProvider<
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
+  let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
@@ -2008,19 +2045,24 @@ async function* runProvider<
       if (!hasRuntimeType(providerCommand, "string")) {
         throw new TypeError("[vitehub] driver.providerSettings.binaryPath must be a string.")
       }
+      const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerRuntimeEnvironment, requiredEnvironment)
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,
         command: providerCommand,
         cwd: root,
         environment: Object.freeze({ ...providerRuntimeEnvironment }),
-        requiredEnvironment: Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+        requiredEnvironment,
       }
       const launch = normalizedProviderLaunch(await waitForProviderOperation(
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
       if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
-      const materializedLauncher = await waitForProviderOperation(materializeProviderLauncher(launchRoot, launch), effectiveSignal)
+      const materializedLauncher = await waitForProviderOperation(
+        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys),
+        effectiveSignal,
+      )
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
@@ -2175,7 +2217,12 @@ async function* runProvider<
     }
   }
   catch (error) {
-    const launchFailure = await providerLaunchFailure(providerLaunchDiagnosticPath, providerRuntimeEnvironment, error)
+    const launchFailure = await providerLaunchFailure(
+      providerLaunchDiagnosticPath,
+      providerRuntimeEnvironment,
+      providerLaunchSecretEnvironmentKeys,
+      error,
+    )
     caught = launchFailure ?? error
     throw caught
   }
