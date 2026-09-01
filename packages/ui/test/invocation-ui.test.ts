@@ -1641,6 +1641,33 @@ describe("Agent Invocation UI", () => {
     );
   });
 
+  it("keeps bounded runtime diagnostics available behind a disclosure", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z",
+      error: {
+        cause: { message: "The upstream socket closed.", name: "SocketError" },
+        code: "provider_unavailable",
+        message: "The provider stopped before returning a result.",
+        name: "Provider error",
+        requestId: "request-123",
+        statusCode: 503,
+      },
+      failedAt: "2026-08-22T00:00:05.000Z",
+      id: "failed-with-diagnostics",
+      observations: [],
+      startedAt: "2026-08-22T00:00:00.000Z",
+      status: "failed",
+      traceId: "trace",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    expect(wrapper.get(".vh-invocation-error__details summary").text()).toBe("Diagnostic details");
+    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"code": "provider_unavailable"');
+    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"requestId": "request-123"');
+    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain("The upstream socket closed.");
+  });
+
   it("uses the cancellation timestamp for terminal duration", () => {
     const invocation: AgentInvocationView = {
       cancelledAt: "2026-08-22T00:01:05.000Z",

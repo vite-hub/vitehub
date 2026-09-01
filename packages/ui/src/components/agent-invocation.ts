@@ -114,6 +114,22 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
+function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
+  const details: Record<string, unknown> = {};
+  if (error.code !== undefined) details.code = error.code;
+  if (error.requestId) details.requestId = error.requestId;
+  if (error.status !== undefined) details.status = error.status;
+  if (error.statusCode !== undefined) details.statusCode = error.statusCode;
+  if (error.details) details.details = error.details;
+  if (error.cause) details.cause = error.cause;
+  if (error.errors?.length) details.errors = error.errors;
+  if (!Object.keys(details).length) return null;
+  return h("details", { class: "vh-invocation-error__details" }, [
+    h("summary", "Diagnostic details"),
+    h("pre", payloadText(details)),
+  ]);
+}
+
 function jsonValueLabel(value: unknown): string {
   if (hasRuntimeType(value, "string")) return JSON.stringify(value);
   if (value === null) return "null";
@@ -1249,6 +1265,7 @@ export const AgentInvocation = defineComponent({
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
                   h("strong", props.invocation.error.name ?? "Invocation failed"),
                   h("span", props.invocation.error.message),
+                  diagnosticDetails(props.invocation.error),
                 ])
               : null,
             h("div", {
@@ -1415,6 +1432,7 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__error" }, [
                     h("strong", props.invocation.error.name ?? "Invocation failed"),
                     h("p", props.invocation.error.message),
+                    diagnosticDetails(props.invocation.error),
                   ])
                 : null,
             ]),

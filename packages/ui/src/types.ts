@@ -79,7 +79,7 @@ export interface AgentInvocationView {
   completedAt?: string;
   configuration?: AgentInvocationConfiguration;
   createdAt: string;
-  error?: { message: string; name?: string };
+  error?: import("@vite-hub/runtime").RuntimeDiagnosticError;
   failedAt?: string;
   id: string;
   observations: readonly import("@vite-hub/runtime").TraceEventLogEntry[];
