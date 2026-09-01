@@ -937,6 +937,34 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
   })
 
+  it("restores standalone provider output when post-write finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "old worker\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), '{"main":"worker.mjs"}\n')
+
+    await expect(writeProviderDeploymentOutputs({
+      afterWrite: async () => {
+        throw new Error("post-write finalization failed")
+      },
+      clientOutDir: "dist/client",
+      cloudflare: {
+        files: { "worker.mjs": "new worker\n" },
+        wranglerConfig: { main: "worker.mjs" },
+      },
+      rootDir,
+    })).rejects.toThrow("post-write finalization failed")
+
+    await expect(readFile(workerFile, "utf8")).resolves.toBe("old worker\n")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
   it("restores published Agent sources when finalization fails", async () => {
     const rootDir = await createTempProject()
     const agentDir = join(rootDir, ".vitehub", "agent")

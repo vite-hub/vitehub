@@ -1273,7 +1273,10 @@ export async function withProviderDeploymentOutputLock<T>(
   rootDir: string,
   operation: (write: (options: ProviderDeploymentOutputOptions) => Promise<void>) => Promise<T>,
 ): Promise<T> {
-  return await withProviderDeploymentOutputRootLock(rootDir, async () => await operation(writeProviderDeploymentOutputsNow))
+  return await withProviderDeploymentOutputRootLock(rootDir, async () => await withProviderDeploymentOutputRootTransaction(
+    rootDir,
+    async transaction => await operation(async options => await writeProviderDeploymentOutputsNow(options, undefined, transaction)),
+  ))
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {

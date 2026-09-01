@@ -367,12 +367,24 @@ it("removes partial staged Workflow publication when preparation fails", async (
 it("restores published Workflow artifacts when standalone output fails", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-publication-rollback-")
   const generatedDir = join(rootDir, ".vitehub", "workflow")
+  const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  const cloudflareWorkerFile = join(cloudflareOutputRoot, "worker.mjs")
+  const cloudflareConfigFile = join(cloudflareOutputRoot, "wrangler.json")
+  const vercelWorkflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
-  await Promise.all([mkdir(generatedDir, { recursive: true }), mkdir(retainedRoot, { recursive: true })])
+  await Promise.all([
+    mkdir(cloudflareOutputRoot, { recursive: true }),
+    mkdir(generatedDir, { recursive: true }),
+    mkdir(join(rootDir, ".vercel", "output", "config.json"), { recursive: true }),
+    mkdir(retainedRoot, { recursive: true }),
+    mkdir(vercelWorkflowRoot, { recursive: true }),
+  ])
+  await writeFile(cloudflareWorkerFile, "previous worker\n")
+  await writeFile(cloudflareConfigFile, '{"main":"worker.mjs"}\n')
   await writeFile(join(generatedDir, "previous.txt"), "previous\n")
+  await writeFile(join(vercelWorkflowRoot, ".vitehub-owned"), '{"files":{},"routes":[],"version":1}\n')
   const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
-  await writeFile(artifacts.cloudflareWorkerFile, `${await readFile(artifacts.cloudflareWorkerFile, "utf8")}\nimport "missing-workflow-rollback-fixture"\n`)
 
   await expect(generateWorkflowProviderOutputs({
     artifacts,
@@ -380,10 +392,12 @@ it("restores published Workflow artifacts when standalone output fails", async (
     hosting: "cloudflare-module",
     rootDir,
     workflow: {},
-  })).rejects.toThrow(/missing-workflow-rollback-fixture/)
+  })).rejects.toThrow()
 
   await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).resolves.toBe("previous\n")
   await expect(readFile(join(generatedDir, "cloudflare-worker.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(cloudflareWorkerFile, "utf8")).resolves.toBe("previous worker\n")
+  await expect(readFile(cloudflareConfigFile, "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
 })
 
 it("keeps published Workflow artifacts when backup retirement fails after partial deletion", async () => {

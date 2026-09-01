@@ -48,6 +48,27 @@ describe("schedule provider output", () => {
     expect(existsSync(join(rootDir, ".cloudflare", "workers"))).toBe(false)
   })
 
+  it("restores Cloudflare output when standalone Schedule generation fails later", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-rollback-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const cloudflareWorker = join(cloudflareRoot, "index.js")
+    const cloudflareConfig = join(cloudflareRoot, "wrangler.json")
+    await Promise.all([
+      mkdir(cloudflareRoot, { recursive: true }),
+      mkdir(join(rootDir, ".vercel", "output", "config.json"), { recursive: true }),
+    ])
+    await writeFile(cloudflareWorker, "old worker\n")
+    await writeFile(cloudflareConfig, '{"main":"index.js"}\n')
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow()
+
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toBe("old worker\n")
+    await expect(readFile(cloudflareConfig, "utf8").then(JSON.parse)).resolves.toEqual({ main: "index.js" })
+  })
+
   it("serializes Schedule output with other provider output writers", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-lock-")
     const configFile = join(rootDir, ".vercel", "output", "config.json")
