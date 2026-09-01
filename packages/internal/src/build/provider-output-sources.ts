@@ -819,8 +819,11 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const roots = [...new Set(sourceRootByPath.values())]
   const retainedRoots = new Map<string, string>()
   const retainedPaths = new Map<string, string>()
-  // Each root fans out across several esbuild traces, so retain roots sequentially to bound memory use.
-  for (const [index, root] of roots.entries()) {
+  const pendingRoots = roots.entries()
+  const retainNextRoot = async (): Promise<void> => {
+    const next = pendingRoots.next()
+    if (next.done) return
+    const [index, root] = next.value
     const requested = paths.filter(path => path !== root && pathContains(root, path))
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
@@ -989,7 +992,10 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     finally {
       await rm(temporaryRoot, { force: true, recursive: true })
     }
+    await retainNextRoot()
   }
+  // Each root fans out across several esbuild traces. Two workers bound memory without serializing large consumer builds.
+  await Promise.all(Array.from({ length: Math.min(2, roots.length) }, async () => await retainNextRoot()))
 
   return {
     resolve(path) {
