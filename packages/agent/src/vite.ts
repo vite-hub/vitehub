@@ -2395,7 +2395,8 @@ async function writeNetlifyAgentProviderOutput(
   retainedSourcesDir?: string,
 ): Promise<void> {
   const netlifySourcesDir = resolve(createDefaultNetlifyOutputRoot(config.root), "agent", "sources")
-  const deployedSourcesDir = relative(config.root, netlifySourcesDir).replace(/\\/g, "/")
+  const netlifyFunctionsDir = resolve(createDefaultNetlifyOutputRoot(config.root), "functions")
+  const includedSourcesDir = relative(netlifyFunctionsDir, netlifySourcesDir).replace(/\\/g, "/")
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
     discordGatewayRoute: options.routes.discordGateway,
@@ -2422,7 +2423,7 @@ async function writeNetlifyAgentProviderOutput(
         },
         config: createNetlifyAgentFunctionConfig({
           discordGatewayRoute: options.routes.discordGateway,
-          includedFiles: retainedSourcesDir ? [`${deployedSourcesDir}/**`] : undefined,
+          includedFiles: retainedSourcesDir ? [`${includedSourcesDir}/**`] : undefined,
           inspectionRoute: options.routes.inspection,
           webhookRoute: options.routes.webhooks,
         }),

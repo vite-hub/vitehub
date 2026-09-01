@@ -1,8 +1,8 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -1027,11 +1027,19 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(deployedAgentRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
       await expect(readFile(join(deployedAgentRoot, "guide.md"), "utf8")).resolves.toBe("Retained Workspace guide.\n")
       const wrapper = await readFile(join(root, ".vitehub", "agent", "netlify-function.mjs"), "utf8")
-      const generated = await readFile(join(root, ".netlify", "v1", "functions", "vitehub-agent.mjs"), "utf8")
+      const generatedFunction = join(root, ".netlify", "v1", "functions", "vitehub-agent.mjs")
+      const generated = await readFile(generatedFunction, "utf8")
       expect(wrapper).toContain(publishedAgentRoot)
       expect(generated).toContain(".netlify/v1/agent/sources/0/server/agents/support/workspace")
-      expect(generated).toContain('"includedFiles": [')
-      expect(generated).toContain('".netlify/v1/agent/sources/**"')
+      const includedFiles = generated.match(/"includedFiles":\s*\[\s*"([^"]+)"\s*\]/)?.[1]
+      expect(includedFiles).toBe("../agent/sources/**")
+      if (!includedFiles) throw new TypeError("Expected the Netlify Agent includedFiles glob")
+      const packagedFiles: string[] = []
+      for await (const file of glob(includedFiles, { cwd: dirname(generatedFunction) })) packagedFiles.push(file)
+      expect(packagedFiles).toEqual(expect.arrayContaining([
+        "../agent/sources/0/server/agents/support/workspace/context.md",
+        "../agent/sources/0/server/agents/support/workspace/guide.md",
+      ]))
       expect(generated).not.toContain(publishedAgentRoot)
       expect(wrapper).not.toContain("agent-generations")
       expect(generated).not.toContain("agent-generations")
