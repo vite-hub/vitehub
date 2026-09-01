@@ -2467,6 +2467,15 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
       published: publishedHandler,
       retained: publishedHandler,
     }), "utf8")
+    const nextScheduleRegistry = resolve(nextAgentDir, "schedule-registry.js")
+    if (existsSync(nextScheduleRegistry)) {
+      const publishedScheduleRegistry = resolve(generatedAgentDir, "schedule-registry.js")
+      const scheduleRegistryContents = await readFile(nextScheduleRegistry, "utf8")
+      await writeFile(nextScheduleRegistry, rewriteRetainedProviderSourcePaths(scheduleRegistryContents, retainedSourcesDir, publishedSourcesDir, {
+        published: publishedScheduleRegistry,
+        retained: publishedScheduleRegistry,
+      }), "utf8")
+    }
     signal?.throwIfAborted()
     await rename(generatedAgentDir, previousAgentDir)
     movedPrevious = true

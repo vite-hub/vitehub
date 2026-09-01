@@ -1102,6 +1102,8 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("Handle support requests.")
       expect(scheduleRegistry).toContain("Follow the shared parent policy.")
       expect(scheduleRegistry).toContain("Handle support requests.")
+      expect(scheduleRegistry).toContain(".vitehub/agent/sources")
+      expect(scheduleRegistry).not.toContain("agent-generations")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
