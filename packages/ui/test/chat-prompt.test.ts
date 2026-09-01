@@ -159,7 +159,7 @@ describe("AgentChatPrompt", () => {
   });
 
   it("filters picker and pasted files before conversion", async () => {
-    const filterFiles = vi.fn(() => [] as File[]);
+    const filterFiles = vi.fn((): File[] => []);
     const wrapper = mount(AgentChatPrompt, { global, props: { filterFiles } });
     const picked = new File(["picked"], "picked.png", { type: "image/png" });
     const pasted = new File(["pasted"], "pasted.png", { type: "image/png" });

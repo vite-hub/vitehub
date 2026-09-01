@@ -121,8 +121,10 @@ export const AgentChatPrompt = defineComponent({
                 class: "vh-visually-hidden",
                 multiple: props.multiple,
                 onChange: async (event: Event) => {
-                  await addFiles((event.target as HTMLInputElement).files ?? []);
-                  (event.target as HTMLInputElement).value = "";
+                  const target = event.currentTarget;
+                  if (!(target instanceof HTMLInputElement)) return;
+                  await addFiles(target.files ?? []);
+                  target.value = "";
                 },
                 ref: input,
                 tabindex: -1,

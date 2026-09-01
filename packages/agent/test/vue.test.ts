@@ -7,6 +7,7 @@ import { updateAgentChatStreamedParts } from "../src/internal/chat-data.ts"
 import { useAgent, useChat } from "../src/vue.ts"
 
 import type { ChatTransport, UIMessage } from "ai"
+import type { AgentChatInit } from "../src/vue.ts"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -581,15 +582,16 @@ describe("Agent Vue clients", () => {
         : [{ text: "Hello", type: "text" }],
       role: "assistant",
     }] as UIMessage[]
-    const chat = scope.run(() => useChat(useAgent("support"), {
+    const options: AgentChatInit = {
       api: "/chat/support",
       id: "chat-1",
       messages,
       resume: true,
-      ...(trigger === "submit-message"
-        ? { sendAutomaticallyWhen: vi.fn().mockReturnValueOnce(true).mockReturnValue(false) }
-        : {}),
-    }))!
+    }
+    if (trigger === "submit-message") {
+      options.sendAutomaticallyWhen = vi.fn().mockReturnValueOnce(true).mockReturnValue(false)
+    }
+    const chat = scope.run(() => useChat(useAgent("support"), options))!
 
     const request = trigger === "regenerate-message" ? chat.regenerate({ messageId }) : undefined
     if (trigger === "submit-message") await chat.addToolOutput({ output: "sunny", tool: "weather", toolCallId: "tool-1" })
