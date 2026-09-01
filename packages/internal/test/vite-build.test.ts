@@ -62,9 +62,9 @@ describe("Vite provider builds", () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-parent-root-"))
     const appRoot = join(projectRoot, "app")
     try {
+      await mkdir(appRoot)
       await Promise.all([
         mkdir(join(projectRoot, "server", "agents"), { recursive: true }),
-        mkdir(appRoot),
         writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
       ])
 
