@@ -41,13 +41,30 @@ describe("Vite provider builds", () => {
     }
   })
 
-  it("prefers a marked parent for app roots", async () => {
+  it("keeps ordinary app packages at their nearest project marker", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-project-root-"))
     const appRoot = join(projectRoot, "app")
     try {
       await mkdir(appRoot)
       await Promise.all([
         writeFile(join(projectRoot, "package.json"), '{"private":true}\n'),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(appRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("prefers a parent with ViteHub directories for app roots", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-parent-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await Promise.all([
+        mkdir(join(projectRoot, "server", "agents"), { recursive: true }),
+        mkdir(appRoot),
         writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
       ])
 

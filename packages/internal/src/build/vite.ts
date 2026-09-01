@@ -117,7 +117,7 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
 
   if (basename(resolvedRoot) === "app") {
     const parent = dirname(resolvedRoot)
-    if (hasProjectRootMarker(parent)) return parent
+    if (hasProjectRootDirectoryMarker(parent)) return parent
   }
 
   let current = resolvedRoot
