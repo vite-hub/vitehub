@@ -86,6 +86,10 @@ type NuxtLike = {
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
+    routeRules?: Record<string, {
+      headers?: Record<string, string>
+      [key: string]: unknown
+    }>
     rootDir?: string
     serverDir?: string
     srcDir?: string
@@ -467,6 +471,11 @@ async function installConsole(
   installConsoleSections(projectRoot, sections)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot)
+  const routeRules = (nuxt.options.routeRules ??= {})
+  for (const route of ["/_vitehub", "/_vitehub/**"]) {
+    const rule = (routeRules[route] ??= {})
+    rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
+  }
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
   const hookPages = nuxt.hook as unknown as ((name: "pages:extend", callback: (pages: NuxtPage[]) => void) => void) | undefined
   hookPages?.("pages:extend", (pages) => {

@@ -102,6 +102,7 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
   const headers = {
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
+    "x-robots-tag": "noindex, nofollow",
   }
   for (const [name, value] of Object.entries(headers)) {
     event.res?.headers?.set(name, value)

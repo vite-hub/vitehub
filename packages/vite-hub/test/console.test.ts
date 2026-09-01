@@ -3838,7 +3838,7 @@ describe("Agent invocation console", () => {
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
   })
 
-  it("marks every console API response as non-cacheable", () => {
+  it("marks every console API response as non-cacheable and non-indexable", () => {
     const responseHeaders = new Map<string, string>()
     const requestEvent = event("127.0.0.1")
     requestEvent.node!.res = {
@@ -3850,16 +3850,18 @@ describe("Agent invocation console", () => {
     expect(responseHeaders).toEqual(new Map([
       ["cache-control", "no-store"],
       ["x-content-type-options", "nosniff"],
+      ["x-robots-tag", "noindex, nofollow"],
     ]))
   })
 
-  it("serves the standalone shell with a restrictive non-cacheable policy", () => {
+  it("serves the standalone shell with a restrictive non-cacheable policy", async () => {
     const response = consolePageHandler(event("127.0.0.1"))
 
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("content-security-policy")).toContain("base-uri 'none'")
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
+    expect(await response.text()).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
   })
 
