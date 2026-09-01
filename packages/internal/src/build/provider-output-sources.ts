@@ -519,7 +519,11 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
       const importedSourceHints = new Set<string>()
-      const results = (await Promise.allSettled(traceBuildVariants.map(async variant => await build({
+      const results = []
+      // A retained root can pull in the full application graph. Run its host-condition variants
+      // sequentially so the two-root worker limit also bounds concurrent esbuild graphs.
+      for (const variant of traceBuildVariants) {
+        const [result] = await Promise.allSettled([build({
         absWorkingDir: root,
         bundle: true,
         entryPoints: tracedBatch,
@@ -637,7 +641,9 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
           },
         }],
         write: false,
-      })))).flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+        })])
+        if (result?.status === "fulfilled") results.push(result.value)
+      }
       for (const result of results) {
         for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path))
       }
