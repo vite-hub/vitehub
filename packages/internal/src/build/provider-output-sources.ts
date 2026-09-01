@@ -605,15 +605,16 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error
         await cp(stagedContainer, retainedContainer, { recursive: true })
       }
+      const resolveRetainedDependencyTarget = (source: string): string => {
+        if (!pathContains(root, source) || relative(root, source).split(sep).includes("node_modules")) return source
+        const retainedSource = resolve(retainedRoot, relative(root, source))
+        return existsSync(retainedSource) ? retainedSource : source
+      }
       for (const dependencies of dependencyRoots(root)) {
-        await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), (source) => {
-          if (!pathContains(root, source) || relative(root, source).split(sep).includes("node_modules")) return source
-          const retainedSource = resolve(retainedRoot, relative(root, source))
-          return existsSync(retainedSource) ? retainedSource : source
-        })
+        await linkDependencies(dependencies, resolve(retainedRoot, "node_modules"), resolveRetainedDependencyTarget)
       }
       for (const [target, dependencies] of nestedDependencyRoots) {
-        await linkDependencies(dependencies, target)
+        await linkDependencies(dependencies, target, resolveRetainedDependencyTarget)
       }
     }
     finally {

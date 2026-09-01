@@ -1195,10 +1195,15 @@ it("snapshots workspace packages imported by bare name", async () => {
   const handler = join(rootDir, "server", "workflow.mjs")
   const packageDir = join(workspace, "packages", "fixture-package")
   const packageEntry = join(packageDir, "index.mjs")
+  const nestedPackageDir = join(workspace, "packages", "nested-package")
+  const nestedPackageEntry = join(nestedPackageDir, "index.mjs")
+  const nestedDependencyLink = join(packageDir, "node_modules", "nested-package")
   const dependencyLink = join(workspace, "node_modules", "fixture-package")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(packageDir, { recursive: true }),
+    mkdir(nestedPackageDir, { recursive: true }),
+    mkdir(dirname(nestedDependencyLink), { recursive: true }),
     mkdir(dirname(dependencyLink), { recursive: true }),
   ])
   await Promise.all([
@@ -1206,7 +1211,10 @@ it("snapshots workspace packages imported by bare name", async () => {
     writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
     writeFile(handler, 'export { value } from "fixture-package"\n'),
     writeFile(join(packageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"fixture-package\",\"type\":\"module\"}\n"),
-    writeFile(packageEntry, 'export const value = "captured"\n'),
+    writeFile(packageEntry, 'export { value } from "nested-package"\n'),
+    writeFile(join(nestedPackageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"nested-package\",\"type\":\"module\"}\n"),
+    writeFile(nestedPackageEntry, 'export const value = "captured"\n'),
+    symlink(nestedPackageDir, nestedDependencyLink, process.platform === "win32" ? "junction" : "dir"),
     symlink(packageDir, dependencyLink, process.platform === "win32" ? "junction" : "dir"),
   ])
 
@@ -1215,10 +1223,11 @@ it("snapshots workspace packages imported by bare name", async () => {
     paths: [handler],
     roots: [rootDir],
   })
-  await writeFile(packageEntry, 'export const value = "changed"\n')
+  await writeFile(nestedPackageEntry, 'export const value = "changed"\n')
 
   await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
   expect(realpathSync(retained.resolve(dependencyLink))).toBe(retained.resolve(packageDir))
+  expect(realpathSync(retained.resolve(nestedDependencyLink))).toBe(retained.resolve(nestedPackageDir))
 })
 
 it("preserves workspace dependencies beyond a package-local dependency tree", async () => {
