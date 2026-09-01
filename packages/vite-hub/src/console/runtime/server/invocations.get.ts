@@ -67,13 +67,16 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     })
   }
   if (ids.length > 0) {
-    const records = await Promise.all(ids.map(id => getConsoleInvocations().get(id)))
+    const invocations = getConsoleInvocations()
+    const records = await Promise.all(ids.map(async (id) => {
+      if (invocations.getSummary) return await invocations.getSummary(id)
+      const record = await invocations.get(id)
+      if (!record) return
+      const { observations: _observations, ...summary } = record
+      return summary
+    }))
     return {
-      invocations: records.flatMap((record) => {
-        if (!record) return []
-        const { observations: _observations, ...summary } = record
-        return [summary]
-      }),
+      invocations: records.filter(record => record !== undefined),
     }
   }
   const cursor = decodeCursor(query.get("cursor") || undefined)

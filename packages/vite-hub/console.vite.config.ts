@@ -23,6 +23,13 @@ export default defineConfig({
       comark: false,
       nuxtUI: {
         dts: false,
+        icon: {
+          clientBundle: {
+            scan: {
+              globInclude: ["src/console/**/*.{js,ts,vue}"],
+            },
+          },
+        },
         ui: consoleAppConfig,
       },
     }),

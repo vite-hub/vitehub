@@ -292,6 +292,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-app.vue`,
       "utf8",
     );
+    const consoleFrame = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-frame.vue`,
+      "utf8",
+    );
     expect(consolePage).toMatch(
       /\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/,
     );
@@ -321,8 +325,9 @@ describe("framework package contract", () => {
       "[() => detail.invocation.value?.id, () => detail.invocation.value?.status]",
     );
     expect(consolePage).toMatch(
-      /const detailStatus = selectedDetailStatus\.value;[\s\S]*?detailStatus\?\.id === selectedInvocationId\.value[\s\S]*?\? detailStatus\.status[\s\S]*?: selectedSummary\.value\?\.status/,
+      /const detailStatus = selectedDetailStatus\.value;[\s\S]*?detailStatus\?\.id === selectedInvocationId\.value[\s\S]*?\? detailStatus\.status[\s\S]*?: undefined/,
     );
+    expect(consolePage).not.toContain(": selectedSummary.value?.status");
     expect(consolePage).toContain('v-if="initialSessionLoading"');
     expect(consolePage).toContain(':loading="refreshing"');
     expect(consolePage).toContain("<template #loading />");
@@ -333,7 +338,17 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("immediate: pageVisible.value && !initialListPending");
     expect(consolePage).toContain("if (initialListPending && !selectedAgentName.value)");
     expect(consolePage).toContain("if (names.length && !isUsageRoute.value)");
-    expect(consolePage).toContain('v-else-if="invocationView && isDesktop && detailsOpen"');
+    expect(consolePage).toContain(
+      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
+    );
+    expect(consolePage).toContain(
+      'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
+    );
+    expect(consolePage).toContain('v-if="detail.isLoading.value && !invocationView"');
+    expect(consolePage).toContain("Show conversation");
+    expect(consolePage).not.toContain("min-height: 32rem");
+    expect(consoleFrame).toContain("min-height: 0");
+    expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
     expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
     expect(consolePage).toContain('@inspect="inspectSession"');
@@ -404,8 +419,8 @@ describe("framework package contract", () => {
     ).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
-    expect(consoleSessionNavbar).toContain('class="lg:hidden"');
-    expect(consoleSessionNavbar).not.toContain('class="xl:hidden"');
+    expect(consoleSessionNavbar).toContain('class="md:hidden"');
+    expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
     expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
@@ -423,12 +438,33 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("encodeAgentRouteParam(agentName)");
     expect(consolePage).toContain("decodeAgentRouteParam(route.params.agent)");
     expect(consoleSessionNavbar).toContain('data-slot="mobile-session-navigation"');
-    expect(consolePage).toContain('window.matchMedia("(min-width: 1024px)")');
+    expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
+    expect(consolePage).toContain("root: 'md:flex'");
+    expect(consolePage).toContain("content: 'md:hidden'");
+    expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
+    expect(consolePage).toContain("}, 60_000);");
+    expect(consolePage).toContain(
+      "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",
+    );
+    expect(consolePage).toContain("}, 5_000);");
+    expect(consolePage).toContain("isRetryableConsoleRequestError(selectedDetailError.value)");
+    expect(consolePage.indexOf("const selectedDetailError")).toBeLessThan(
+      consolePage.indexOf("const detailPollInterval"),
+    );
+    expect(consolePage.indexOf("const detailPollInterval")).toBeLessThan(
+      consolePage.indexOf("const detail = useAgentInvocation"),
+    );
+    expect(consolePage).toContain('{ flush: "sync", immediate: true }');
     expect(consoleSessionNavbar).toContain('class="vitehub-console__session-navbar"');
-    expect(consolePage).toContain("minSize: 220");
+    expect(consolePage).toContain('class="vitehub-console__session-panel"');
+    expect(consolePage).toContain('class="flex h-full min-h-0 w-full flex-col overflow-hidden"');
+    expect(consolePage).toMatch(
+      /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
+    );
+    expect(consolePage).toContain("minSize: 360");
     expect(consolePage).toContain("defaultSize: 680");
     expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 560");
+    expect(consolePage).toContain("defaultSize: 540");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
@@ -539,6 +575,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/public/console/console.js`,
       "utf8",
     );
+    expect(consoleClient).toContain('"robot-light":{"width":256');
+    expect(consoleClient).toContain('"folder-tree":{"width":24');
+    expect(consoleClient).toContain("prefers-color-scheme: dark");
+    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
     expect(consoleClient).toContain("ViteHub");
     expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
     expect(consoleClient).toContain("/blob");
@@ -551,9 +591,13 @@ describe("framework package contract", () => {
     expect(consoleClient).toContain("/sandboxes");
     expect(consoleClient).toContain("/workspaces");
     expect(consoleClient).toContain("currentRoute.value");
-    expect(
-      readFileSync(`${packageRoot}/dist/console/runtime/public/console/console.css`, "utf8"),
-    ).toContain("vitehub-console");
+    const consoleCss = readFileSync(
+      `${packageRoot}/dist/console/runtime/public/console/console.css`,
+      "utf8",
+    );
+    expect(consoleCss).toContain("vitehub-console");
+    expect(consoleCss).toContain("--ui-bg:#fdfdfd");
+    expect(consoleCss).toContain("--ui-text:#27272a");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
   });
 

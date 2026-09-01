@@ -13,6 +13,42 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("groups long message streams without losing delta order", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const observationCount = 32_768;
+    const invocation = {
+      createdAt: timestamp,
+      id: "long-message-stream",
+      observations: Array.from({ length: observationCount }, (_, index) => {
+        const sequence = observationCount - index;
+        return {
+          attributes: {
+            "message.content": String.fromCharCode(97 + (sequence - 1) % 26),
+            "message.id": "assistant",
+            "message.role": "assistant",
+          },
+          name: "agent.message.delta",
+          sequence,
+          timestamp,
+          type: "run" as const,
+        };
+      }),
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)).toEqual([
+      expect.objectContaining({
+        body: Array.from(
+          { length: observationCount },
+          (_, index) => String.fromCharCode(97 + index % 26),
+        ).join(""),
+        sequence: 1,
+      }),
+    ]);
+  });
+
   it("mounts the session log before the first activity", async () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

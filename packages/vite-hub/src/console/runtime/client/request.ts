@@ -1,3 +1,20 @@
+export class ConsoleRequestError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`Console request failed with status ${status}.`)
+    this.name = "ConsoleRequestError"
+    this.status = status
+  }
+}
+
+export function isRetryableConsoleRequestError(error: unknown): boolean {
+  return !(error instanceof ConsoleRequestError)
+    || error.status === 408
+    || error.status === 429
+    || error.status >= 500
+}
+
 export async function requestConsole(
   path: string,
   options: { body?: unknown, method?: "GET" | "POST", query?: Record<string, unknown>, signal?: AbortSignal } = {},
@@ -17,7 +34,7 @@ export async function requestConsole(
     request.headers = { "content-type": "application/json" }
   }
   const response = await fetch(`${url.pathname}${url.search}`, request)
-  if (!response.ok) throw new Error(`Console request failed with status ${response.status}.`)
+  if (!response.ok) throw new ConsoleRequestError(response.status)
   return response.json()
 }
 

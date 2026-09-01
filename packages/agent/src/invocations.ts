@@ -104,6 +104,8 @@ export interface AgentInvocationStore {
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  /** Reads invocation metadata without observation payloads when the adapter can do so efficiently. */
+  getSummary?(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
@@ -122,6 +124,8 @@ export interface AgentInvocations {
   readonly [agentInvocationsBrand]: true
   get(id: string): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
+  /** Reads invocation metadata without observation payloads when the store supports it. */
+  getSummary?(id: string): Promise<AgentInvocationSummary | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
 }
@@ -900,6 +904,12 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const record = records.get(id)
       return record ? cloneRecord(record) : undefined
     },
+    getSummary(id) {
+      const record = records.get(id)
+      if (!record) return
+      const { observations: _observations, ...summary } = cloneRecord(record)
+      return summary
+    },
     getClaimToken(id) {
       return claims.get(id)?.token
     },
@@ -1523,6 +1533,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async getByRunId(runId, agentName) {
       return await store.get(await agentInvocationId(runId, agentName))
+    },
+    async getSummary(id) {
+      assertInvocationId(id)
+      if (store.getSummary) return await store.getSummary(id)
+      const record = await store.get(id)
+      if (!record) return
+      const { observations: _observations, ...summary } = record
+      return summary
     },
     async list(options = {}) {
       const search = normalizeSearch(options.search)

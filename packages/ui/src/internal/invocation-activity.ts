@@ -325,7 +325,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       anonymousMessagePhase = undefined;
     }
     const key = activityKey(observation, anonymousMessageKey);
-    groups.set(key, [...(groups.get(key) ?? []), { ...observation, attributes }]);
+    const group = groups.get(key);
+    const groupedObservation = { ...observation, attributes };
+    if (group) group.push(groupedObservation);
+    else groups.set(key, [groupedObservation]);
   }
 
   const activities = [...groups.entries()]

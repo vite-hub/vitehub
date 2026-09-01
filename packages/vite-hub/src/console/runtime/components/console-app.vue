@@ -23,7 +23,7 @@ import {
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../console-route";
-import { requestConsole } from "../client/request";
+import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -73,6 +73,7 @@ const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
 const refreshing = ref(false);
 let clock: ReturnType<typeof setInterval> | undefined;
+let agentsRetry: ReturnType<typeof setTimeout> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
@@ -104,16 +105,20 @@ const selectedDetailStatus = ref<{
   id: string;
   status: AgentInvocationListItem["status"];
 }>();
+const selectedDetailError = ref<unknown>();
 const initialSessionLoading = computed(() =>
   !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
+  if (selectedDetailError.value) {
+    return isRetryableConsoleRequestError(selectedDetailError.value) ? 3_000 : false;
+  }
   const detailStatus = selectedDetailStatus.value;
   const status =
     detailStatus?.id === selectedInvocationId.value
       ? detailStatus.status
-      : selectedSummary.value?.status;
+      : undefined;
   return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {
@@ -122,6 +127,13 @@ const detail = useAgentInvocation(selectedInvocationId, {
   pollInterval: detailPollInterval,
   request: requestConsole,
 });
+watch(
+  () => detail.error.value,
+  (error) => {
+    selectedDetailError.value = error;
+  },
+  { flush: "sync", immediate: true },
+);
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
@@ -203,7 +215,7 @@ const splitterItems: SplitterItem[] = [
   {
     id: "thread",
     slot: "thread",
-    minSize: 220,
+    minSize: 360,
     defaultSize: 680,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
@@ -211,9 +223,9 @@ const splitterItems: SplitterItem[] = [
   {
     id: "details",
     slot: "details",
-    minSize: 300,
+    minSize: 360,
     maxSize: 1080,
-    defaultSize: 560,
+    defaultSize: 540,
     sizeUnit: "px",
     class: "h-full min-h-0 min-w-0 overflow-hidden",
   },
@@ -354,7 +366,22 @@ async function toggleUsage(): Promise<void> {
   }
   await router.push({ name: resolveConsoleRouteName(route.name, "vitehub-console-usage") });
 }
+function clearAgentsRetry(): void {
+  if (agentsRetry) clearTimeout(agentsRetry);
+  agentsRetry = undefined;
+}
+
+function scheduleAgentsRetry(): void {
+  clearAgentsRetry();
+  if (!pageVisible.value) return;
+  agentsRetry = setTimeout(() => {
+    agentsRetry = undefined;
+    if (pageVisible.value && agentsError.value) void loadAgents();
+  }, 5_000);
+}
+
 async function loadAgents(): Promise<void> {
+  clearAgentsRetry();
   agentsRequest?.abort();
   const controller = new AbortController();
   agentsRequest = controller;
@@ -374,7 +401,10 @@ async function loadAgents(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (agentsRequest === controller) agentsError.value = error;
+    if (agentsRequest === controller) {
+      agentsError.value = error;
+      if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();
+    }
   } finally {
     if (agentsRequest === controller) {
       agentsRequest = undefined;
@@ -436,13 +466,14 @@ function syncClock(): void {
   nowMs.value = Date.now();
   clock = setInterval(() => {
     nowMs.value = Date.now();
-  }, 1_000);
+  }, 60_000);
 }
 
 function updatePageVisibility(): void {
   const wasVisible = pageVisible.value;
   pageVisible.value = document.visibilityState !== "hidden";
   syncClock();
+  if (!pageVisible.value) clearAgentsRetry();
   if (!wasVisible && pageVisible.value) void refresh();
 }
 
@@ -543,8 +574,9 @@ watch(
 );
 
 onMounted(() => {
-  media = window.matchMedia("(min-width: 1024px)");
+  media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
+  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
@@ -555,6 +587,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   capabilitiesRequest?.abort();
+  clearAgentsRetry();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
   document.removeEventListener("visibilitychange", updatePageVisibility);
@@ -565,14 +598,21 @@ onBeforeUnmount(() => {
   <ConsoleFrame>
     <UDashboardSidebar
       id="agent-sessions"
+      class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
       v-model:collapsed="sessionsCollapsed"
-      :default-size="20"
-      :collapsed-size="4"
-      :min-size="16"
+      :default-size="16"
+      :collapsed-size="3"
+      :min-size="13"
       :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'px-2 py-1' }"
+      :ui="{
+        root: 'md:flex',
+        body: 'gap-0 overflow-hidden p-0',
+        footer: 'px-2 py-1',
+        content: 'md:hidden',
+        overlay: 'md:hidden',
+      }"
       collapsible
       resizable
     >
@@ -754,7 +794,7 @@ onBeforeUnmount(() => {
           </UTooltip>
           <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
             <UButton
-              class="ml-auto max-lg:hidden"
+              class="ml-auto max-md:hidden"
               icon="i-ph-sidebar-simple-light"
               color="neutral"
               variant="ghost"
@@ -788,33 +828,63 @@ onBeforeUnmount(() => {
       <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
     </UDashboardPanel>
 
-    <UDashboardPanel v-else id="agent-session" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel
+      v-else
+      id="agent-session"
+      class="vitehub-console__session-panel"
+      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
+    >
       <template #body>
         <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
-          <ConsoleSessionInspector
-            v-if="invocationView && isDesktop && detailsOpen && detailsMaximized"
-            :invocation="invocationView"
-            :maximized="true"
-            :workspace-base="`${hostBase}/api/invocations`"
-            v-model:tab="inspectorTab"
-            v-model:active-surface="inspectorActiveSurface"
-            v-model:open-views="inspectorOpenViews"
-            v-model:open-paths="inspectorOpenPaths"
-            v-model:selected-path="inspectorSelectedPath"
-            class="h-full"
-            @close="closeDetails"
-            @focus-activity="selectActivity"
-            @toggle-maximized="detailsMaximized = false"
-          />
+          <div
+            v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
+            class="h-full min-h-0 overflow-hidden"
+          >
+            <ConsoleSessionInspector
+              v-if="invocationView"
+              :invocation="invocationView"
+              :maximized="true"
+              :workspace-base="`${hostBase}/api/invocations`"
+              v-model:tab="inspectorTab"
+              v-model:active-surface="inspectorActiveSurface"
+              v-model:open-views="inspectorOpenViews"
+              v-model:open-paths="inspectorOpenPaths"
+              v-model:selected-path="inspectorSelectedPath"
+              class="h-full"
+              @close="closeDetails"
+              @focus-activity="selectActivity"
+              @toggle-maximized="detailsMaximized = false"
+            />
+            <ConsoleSessionLoading
+              v-else-if="detail.isLoading.value"
+              class="h-full min-h-0"
+            />
+            <UEmpty
+              v-else
+              class="h-full min-h-0"
+              icon="i-ph-cloud-slash-light"
+              title="Could not load this session"
+              :description="errorMessage(detail.error.value)"
+              :actions="[
+                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                {
+                  label: 'Show conversation',
+                  icon: 'i-lucide-panel-right-close',
+                  variant: 'ghost',
+                  onClick: () => (detailsMaximized = false),
+                },
+              ]"
+            />
+          </div>
           <USplitter
-            v-else-if="invocationView && isDesktop && detailsOpen"
+            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout"
             :items="splitterItems"
             class="h-full min-h-0 overflow-hidden"
           >
             <template #thread>
-              <div class="flex h-full min-h-0 flex-col overflow-hidden">
+              <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
                 <ConsoleSessionNavbar
                   :details-open="detailsOpen"
                   :external-url="selectedExternalUrl"
@@ -828,7 +898,7 @@ onBeforeUnmount(() => {
                   @toggle-details="detailsOpen = !detailsOpen"
                 />
                 <UAlert
-                  v-if="errorMessage(detail.error.value)"
+                  v-if="invocationView && errorMessage(detail.error.value)"
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
@@ -839,7 +909,22 @@ onBeforeUnmount(() => {
                     { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
                   ]"
                 />
+                <ConsoleSessionLoading
+                  v-if="detail.isLoading.value && !invocationView"
+                  class="min-h-0 flex-1"
+                />
+                <UEmpty
+                  v-else-if="errorMessage(detail.error.value) && !invocationView"
+                  class="min-h-0 flex-1"
+                  icon="i-ph-cloud-slash-light"
+                  title="Could not load this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  ]"
+                />
                 <AgentInvocation
+                  v-else-if="invocationView"
                   :header="false"
                   :invocation="invocationView"
                   :selected-activity-id="selectedActivityId"
@@ -850,6 +935,7 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
+                v-if="invocationView"
                 :invocation="invocationView"
                 :workspace-base="`${hostBase}/api/invocations`"
                 v-model:tab="inspectorTab"
@@ -861,6 +947,20 @@ onBeforeUnmount(() => {
                 @close="closeDetails"
                 @focus-activity="selectActivity"
                 @toggle-maximized="detailsMaximized = true"
+              />
+              <ConsoleSessionLoading
+                v-else-if="detail.isLoading.value"
+                class="h-full min-h-0"
+              />
+              <UEmpty
+                v-else
+                class="h-full min-h-0"
+                icon="i-ph-cloud-slash-light"
+                title="Could not load session details"
+                :description="errorMessage(detail.error.value)"
+                :actions="[
+                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                ]"
               />
             </template>
             <template #resize-handle>
@@ -959,8 +1059,9 @@ onBeforeUnmount(() => {
 
 <style>
 .vitehub-console {
+  --ui-header-height: 3.25rem;
   height: 100dvh;
-  min-height: 32rem;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -974,6 +1075,23 @@ onBeforeUnmount(() => {
   border-inline-start: 0;
 }
 
+.vitehub-console__sessions[data-slot="root"] {
+  background: var(--ui-bg-muted);
+}
+
+.vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: #fff;
+}
+
+.dark .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
+  background: var(--ui-bg-elevated);
+}
+
+.vitehub-console__session-panel > [data-slot="body"] {
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
 .vitehub-console__session-navbar {
   background: var(--ui-bg) !important;
   height: 3.25rem !important;
@@ -982,6 +1100,11 @@ onBeforeUnmount(() => {
   padding: 0 1.25rem !important;
   position: relative;
   z-index: 10;
+}
+
+.vitehub-console__session-navbar svg,
+.session-inspector__header svg {
+  opacity: 0.8;
 }
 
 .vitehub-console__session-navbar::after {
