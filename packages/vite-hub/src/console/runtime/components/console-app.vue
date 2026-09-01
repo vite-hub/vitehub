@@ -105,13 +105,14 @@ const selectedDetailStatus = ref<{
   id: string;
   status: AgentInvocationListItem["status"];
 }>();
+const selectedDetailError = ref<unknown>();
 const initialSessionLoading = computed(() =>
   !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
-  if (detail.error.value) {
-    return isRetryableConsoleRequestError(detail.error.value) ? 3_000 : false;
+  if (selectedDetailError.value) {
+    return isRetryableConsoleRequestError(selectedDetailError.value) ? 3_000 : false;
   }
   const detailStatus = selectedDetailStatus.value;
   const status =
@@ -126,6 +127,13 @@ const detail = useAgentInvocation(selectedInvocationId, {
   pollInterval: detailPollInterval,
   request: requestConsole,
 });
+watch(
+  () => detail.error.value,
+  (error) => {
+    selectedDetailError.value = error;
+  },
+  { flush: "sync", immediate: true },
+);
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
