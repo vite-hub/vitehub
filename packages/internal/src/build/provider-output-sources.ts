@@ -819,7 +819,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   const roots = [...new Set(sourceRootByPath.values())]
   const retainedRoots = new Map<string, string>()
   const retainedPaths = new Map<string, string>()
-  await Promise.all(roots.map(async (root, index) => {
+  // Each root fans out across several esbuild traces, so retain roots sequentially to bound memory use.
+  for (const [index, root] of roots.entries()) {
     const requested = paths.filter(path => path !== root && pathContains(root, path))
     const nestedConfiguredRoots = configuredRoots.filter(path => pathContains(root, path))
     const importedSources = await traceImportedSources(requested, root, nestedConfiguredRoots)
@@ -988,7 +989,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     finally {
       await rm(temporaryRoot, { force: true, recursive: true })
     }
-  }))
+  }
 
   return {
     resolve(path) {
