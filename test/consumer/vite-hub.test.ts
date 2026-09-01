@@ -1076,7 +1076,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/schedule/provider-registry.d.ts"), "utf8"),
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>

@@ -10,6 +10,7 @@ export default defineConfig({
     env: {
       VITEHUB_CONSUMER_CONTRACT: "1",
     },
+    fileParallelism: false,
     include: testLayerIncludes.consumer,
     root: resolve(import.meta.dirname, "../.."),
   },
