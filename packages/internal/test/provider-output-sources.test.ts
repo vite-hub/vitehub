@@ -541,7 +541,7 @@ it("retains an aliased package with its relative import base", async () => {
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
 })
 
-it("bounds source roots that would contain provider staging", async () => {
+it("bounds provider staging while retaining temporary-root package metadata", async () => {
   const previousTemporaryDirectories = {
     TEMP: process.env.TEMP,
     TMP: process.env.TMP,
@@ -555,12 +555,14 @@ it("bounds source roots that would contain provider staging", async () => {
     process.env.TMPDIR = workspace
     const rootDir = join(workspace, "apps", "web")
     const handler = join(rootDir, "server", "agent.ts")
-    const policy = join(workspace, "shared", "policy.md")
+    const policy = join(workspace, "shared", "policy.js")
+    const unrelated = join(workspace, "unrelated.txt")
     await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(policy), { recursive: true })])
     await Promise.all([
-      writeFile(join(workspace, "package.json"), '{"private":true}\n'),
+      writeFile(join(workspace, "package.json"), '{"private":true,"type":"commonjs"}\n'),
       writeFile(handler, "export default {}\n"),
-      writeFile(policy, "Retained policy\n"),
+      writeFile(policy, 'module.exports = "retained policy"\n'),
+      writeFile(unrelated, "not retained\n"),
     ])
 
     const retained = await retainProviderOutputSources({
@@ -568,9 +570,15 @@ it("bounds source roots that would contain provider staging", async () => {
       paths: [handler, policy],
       roots: [rootDir],
     })
+    await writeFile(join(workspace, "package.json"), '{"private":true,"type":"module"}\n')
 
     await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
-    await expect(readFile(retained.resolve(policy), "utf8")).resolves.toBe("Retained policy\n")
+    const retainedPackageJson = retained.resolve(join(workspace, "package.json"))
+    await expect(readFile(retainedPackageJson, "utf8")).resolves.toContain('"type":"commonjs"')
+    await expect(readFile(join(dirname(retainedPackageJson), "unrelated.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const execution = spawnSync(process.execPath, [retained.resolve(policy)], { encoding: "utf8" })
+    expect(execution.stderr).toBe("")
+    expect(execution.status).toBe(0)
   }
   finally {
     for (const [name, value] of Object.entries(previousTemporaryDirectories)) {

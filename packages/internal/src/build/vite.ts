@@ -1,5 +1,4 @@
 import { statSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { basename, dirname, resolve } from "node:path"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
@@ -111,7 +110,6 @@ export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): W
 
 export function resolveViteHubProjectRoot(root: string, options: { projectRoot?: string } = {}): string {
   const resolvedRoot = resolve(root)
-  const temporaryRoot = resolve(tmpdir())
   if (options.projectRoot) return resolve(resolvedRoot, options.projectRoot)
 
   if (basename(resolvedRoot) === "app") {
@@ -121,7 +119,6 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
 
   let current = resolvedRoot
   while (true) {
-    if (current === temporaryRoot && resolvedRoot !== temporaryRoot) return resolvedRoot
     if (hasProjectRootMarker(current)) return current
 
     const parent = dirname(current)

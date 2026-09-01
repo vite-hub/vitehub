@@ -826,12 +826,15 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const materializedSourcePaths = [...requested, ...importedSources]
     const tsconfigSources = await tsconfigSourcesForPaths(root, materializedSourcePaths)
     materializedSourcePaths.push(...tsconfigSources)
-    const captureRoot = commonSourceRoot(root, [...importedSources, ...tsconfigSources])
+    const governingPackageMetadata = materializedSourcePaths
+      .flatMap(path => packageMetadataSourcesForPath(packageRoot(path), path))
+    const captureRoot = commonSourceRoot(root, [...importedSources, ...tsconfigSources, ...governingPackageMetadata])
     const retainedContainer = resolve(artifactDir, String(index))
     const retainedRoot = resolve(retainedContainer, relative(captureRoot, root))
     retainedRoots.set(root, retainedRoot)
     const materializedSources = [...new Set([
       ...materializedSourcePaths,
+      ...governingPackageMetadata,
       ...materializedSourcePaths.flatMap(path => packageMetadataSourcesForPath(captureRoot, path)),
     ])]
     for (const source of materializedSources.filter(source => !pathContains(root, source))) {
