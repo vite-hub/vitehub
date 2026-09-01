@@ -64,6 +64,7 @@ import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
@@ -321,11 +322,13 @@ describe("Provider Agent Driver", () => {
         const launched = spawnSync(binaryPath, [], { encoding: "utf8", env: options?.environment })
         expect(launched.status).toBe(5)
         const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
-        const persistedDiagnostic = JSON.parse(persisted) as { stderr?: unknown }
+        const persistedDiagnostic: unknown = JSON.parse(persisted)
         expect(persisted).not.toContain(databaseUrl)
         expect(persisted).not.toContain(leakedSuffix)
-        expect(persistedDiagnostic.stderr).toEqual(expect.any(String))
-        expect(Buffer.byteLength(String(persistedDiagnostic.stderr))).toBeLessThanOrEqual(stderrLimit)
+        if (!isRuntimeRecord(persistedDiagnostic) || !hasRuntimeType(persistedDiagnostic.stderr, "string")) {
+          throw new TypeError("Expected the persisted provider launch diagnostic to contain stderr.")
+        }
+        expect(Buffer.byteLength(persistedDiagnostic.stderr)).toBeLessThanOrEqual(stderrLimit)
         throw new Error("Codex App Server process exited with code 5")
       },
     })
