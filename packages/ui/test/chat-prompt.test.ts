@@ -169,12 +169,13 @@ describe("AgentChatPrompt", () => {
     await input.trigger("change");
     const event = new Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(event, "clipboardData", {
-      value: { files: [pasted], getData: () => "" },
+      value: { files: [pasted], getData: () => "keep this text" },
     });
     wrapper.get("textarea").element.dispatchEvent(event);
     await flushPromises();
 
     expect(filterFiles.mock.calls).toEqual([[[picked]], [[pasted]]]);
+    expect(event.defaultPrevented).toBe(false);
     expect(wrapper.emitted("update:files")).toBeUndefined();
   });
 

@@ -33,11 +33,15 @@ export const AgentChatPrompt = defineComponent({
         "update:files",
         props.files.filter((_, current) => current !== index),
       );
-    const addFiles = async (input: FileList | Iterable<File>) => {
+    const addFiles = async (
+      input: FileList | Iterable<File>,
+      onAccepted?: () => void,
+    ) => {
       try {
         const rawFiles = Array.from(input);
         const acceptedFiles = props.filterFiles?.(rawFiles) ?? rawFiles;
         if (acceptedFiles.length === 0) return;
+        onAccepted?.();
         const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
         emit("update:files", nextPromptFiles(props.files, files, props.multiple));
       } catch (error) {
@@ -52,8 +56,7 @@ export const AgentChatPrompt = defineComponent({
         (file) => file.type.startsWith("image/") || !hasText,
       );
       if (files.length === 0) return;
-      event.preventDefault();
-      await addFiles(files);
+      await addFiles(files, () => event.preventDefault());
     };
     return () =>
       h(
