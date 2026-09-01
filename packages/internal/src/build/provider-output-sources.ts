@@ -324,6 +324,20 @@ function traceComputedModuleSources(
     const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
     boundRequireBases.set(match[1]!, base)
   }
+  const boundResolveBases = new Map<string, string>()
+  const boundResolveDeclarations = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
+  for (const match of masked.matchAll(boundResolveDeclarations)) {
+    if (!isCreateRequireExpression(match[2]!)) continue
+    const resolveBinding = match[1]!
+      .split(",")
+      .map(property => /^\s*resolve(?:\s*:\s*([A-Z_$][\w$]*))?\s*$/i.exec(property))
+      .find(Boolean)
+    if (!resolveBinding) continue
+    const openParen = match.index + match[0].lastIndexOf("(")
+    const closeParen = findMatching(masked, openParen, "(", ")")
+    const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
+    boundResolveBases.set(resolveBinding[1] ?? "resolve", base)
+  }
 
   const paths: string[] = []
   const recordRequest = (specifier: string, kind: RuntimeModuleRequestKind, resolveFrom = file): void => {
@@ -367,10 +381,12 @@ function traceComputedModuleSources(
   }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedRequests)) {
-    const resolveFrom = boundRequireBases.get(match[1]!)
-    if (!resolveFrom) continue
     const specifier = bindings.get(match[2]!)
-    if (specifier) recordRequest(specifier, "require-call", resolveFrom)
+    if (!specifier) continue
+    const requireFrom = boundRequireBases.get(match[1]!)
+    if (requireFrom) recordRequest(specifier, "require-call", requireFrom)
+    const resolveFrom = boundResolveBases.get(match[1]!)
+    if (resolveFrom) recordRequest(specifier, "require-resolve", resolveFrom)
   }
   const boundComputedResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedResolveRequests)) {
@@ -379,7 +395,6 @@ function traceComputedModuleSources(
     const specifier = bindings.get(match[2]!)
     if (specifier) recordRequest(specifier, "require-resolve", resolveFrom)
   }
-
   const literalRequests = [
     {
       kind: "dynamic-import" as const,
@@ -408,13 +423,15 @@ function traceComputedModuleSources(
   }
   const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralRequests)) {
-    const resolveFrom = boundRequireBases.get(match[1]!)
-    if (!resolveFrom) continue
+    const requireFrom = boundRequireBases.get(match[1]!)
+    const resolveFrom = boundResolveBases.get(match[1]!)
+    if (!requireFrom && !resolveFrom) continue
     const quoteOffset = match[0].indexOf(match[2]!)
     if (!/\b[A-Z_$][\w$]*\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
     const specifier = match[3]!
     if (match[2] === "`" && specifier.includes("${")) continue
-    recordRequest(specifier, "require-call", resolveFrom)
+    if (requireFrom) recordRequest(specifier, "require-call", requireFrom)
+    if (resolveFrom) recordRequest(specifier, "require-resolve", resolveFrom)
   }
   const boundLiteralResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralResolveRequests)) {
@@ -426,7 +443,6 @@ function traceComputedModuleSources(
     if (match[2] === "`" && specifier.includes("${")) continue
     recordRequest(specifier, "require-resolve", resolveFrom)
   }
-
   return paths
 }
 
