@@ -431,6 +431,9 @@ patchedDependencies:
   '@vercel/blob@2.8.0':
     hash: 015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25
     path: patches/@vercel__blob@2.8.0.patch
+  nitro@3.0.260610-beta:
+    hash: c9de7f8985f39c0733c1fbeb992d7fbabd2fa5e68f44efff313ffee0abc418bf
+    path: patches/nitro@3.0.260610-beta.patch
 
 importers:
 
@@ -26784,7 +26787,7 @@ snapshots:
   eve@0.46.1(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(@vercel/queue@0.0.0-alpha.40)(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.58(zod@4.4.3))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.126.0(@cloudflare/workers-types@4.20260509.1)):
     dependencies:
       ai: 7.0.58(zod@4.4.3)
-      nitro: 3.0.260610-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(@vercel/queue@0.0.0-alpha.40)(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.126.0(@cloudflare/workers-types@4.20260509.1))
+      nitro: 3.0.260610-beta(patch_hash=c9de7f8985f39c0733c1fbeb992d7fbabd2fa5e68f44efff313ffee0abc418bf)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(@vercel/queue@0.0.0-alpha.40)(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.126.0(@cloudflare/workers-types@4.20260509.1))
       undici: 8.9.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
@@ -29263,7 +29266,7 @@ snapshots:
       - uploadthing
       - wrangler
 
-  nitro@3.0.260610-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(@vercel/queue@0.0.0-alpha.40)(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.126.0(@cloudflare/workers-types@4.20260509.1)):
+  nitro@3.0.260610-beta(patch_hash=c9de7f8985f39c0733c1fbeb992d7fbabd2fa5e68f44efff313ffee0abc418bf)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.17.4)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.3))(@vercel/queue@0.0.0-alpha.40)(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.62.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.126.0(@cloudflare/workers-types@4.20260509.1)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.10(srvx@0.11.22)
