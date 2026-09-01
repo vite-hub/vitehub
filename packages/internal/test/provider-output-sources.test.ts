@@ -1411,7 +1411,7 @@ it("retains nested repositories for bound createRequire calls", async () => {
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, [
-      'import { createRequire as makeRequire } from "node:module"',
+      'import { createRequire as makeRequire } from "module"',
       "const projectRequire = makeRequire(import.meta.url)",
       'const module = "../required-worktree/workflow.cjs"',
       'export const load = () => ({ computed: projectRequire(module), literal: projectRequire("../literal-worktree/workflow.cjs") })',

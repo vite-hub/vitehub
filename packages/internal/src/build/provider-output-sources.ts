@@ -253,14 +253,14 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     bindings.set(match[1]!, match[3]!)
   }
   const createRequireNames = new Set(["createRequire"])
-  const namedImports = /\bimport\s*\{([^}]*)\}\s*from\s*([`"'])node:module\2/gis
+  const namedImports = /\bimport\s*\{([^}]*)\}\s*from\s*([`"'])(?:node:)?module\2/gis
   for (const match of source.matchAll(namedImports)) {
     for (const specifier of match[1]!.split(",")) {
       const binding = /^\s*createRequire(?:\s+as\s+([A-Z_$][\w$]*))?\s*$/i.exec(specifier)?.[1]
       if (binding) createRequireNames.add(binding)
     }
   }
-  const destructuredRequires = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*([`"'])node:module\2\s*\)/gis
+  const destructuredRequires = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*([`"'])(?:node:)?module\2\s*\)/gis
   for (const match of source.matchAll(destructuredRequires)) {
     for (const property of match[1]!.split(",")) {
       const binding = /^\s*createRequire(?:\s*:\s*([A-Z_$][\w$]*))?\s*$/i.exec(property)?.[1]
