@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -120,10 +120,16 @@ async function publishRetainedScheduleProviderSources(rootDir: string, retainedS
   try {
     await cp(generatedDir, nextDir, { recursive: true })
     await rm(resolve(nextDir, "sources"), { force: true, recursive: true })
-    await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+    const nextSourcesDir = resolve(nextDir, "sources")
+    await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
     const registryFile = resolve(nextDir, "registry.mjs")
+    const publishedRegistryFile = resolve(generatedDir, "registry.mjs")
     const registryContents = await readFile(registryFile, "utf8")
-    await writeFile(registryFile, rewriteRetainedProviderSourcePaths(registryContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    await writeFile(registryFile, rewriteRetainedProviderSourcePaths(registryContents, retainedSourcesDir, publishedSourcesDir, {
+      published: publishedRegistryFile,
+      retained: publishedRegistryFile,
+    }), "utf8")
     signal.throwIfAborted()
     await rename(generatedDir, previousDir)
     movedPrevious = true

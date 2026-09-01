@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { realpathSync } from "node:fs"
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -8,7 +8,7 @@ import { dirname, join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
-import { retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
+import { rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
@@ -29,6 +29,44 @@ it("rewrites JSON-escaped paths when publishing retained Provider Output sources
     .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
   expect(rewriteRetainedProviderSourcePaths(`${retainedSourcesDir}-external\\agent.ts`, retainedSourcesDir, publishedSourcesDir))
     .toBe(`${retainedSourcesDir}-external\\agent.ts`)
+})
+
+it("rewrites relative imports when publishing retained Provider Output sources", () => {
+  const generatedFile = "/project/.vitehub/agent/netlify-function.mjs"
+  const retainedSourcesDir = "/project/.vitehub/agent-generations/test/sources"
+  const publishedSourcesDir = "/project/.vitehub/agent/sources"
+  const contents = 'import agent from "../agent-generations/test/sources/0/server/agents/support/agent.ts"'
+
+  expect(rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir, {
+    published: generatedFile,
+    retained: generatedFile,
+  })).toBe('import agent from "./sources/0/server/agents/support/agent.ts"')
+})
+
+it("rebases published dependency links before retained generation cleanup", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-published-provider-links-"))
+  tempDirs.push(rootDir)
+  const retainedSourcesDir = join(rootDir, "agent-generations", "one", "sources")
+  const retainedPackageDir = join(retainedSourcesDir, "0", "packages", "fixture")
+  const retainedLink = join(retainedSourcesDir, "0", "node_modules", "fixture")
+  const stagedSourcesDir = join(rootDir, "agent.next", "sources")
+  const publishedSourcesDir = join(rootDir, "agent", "sources")
+  await Promise.all([
+    mkdir(retainedPackageDir, { recursive: true }),
+    mkdir(dirname(retainedLink), { recursive: true }),
+  ])
+  await writeFile(join(retainedPackageDir, "index.mjs"), 'export const value = "published"\n')
+  await symlink(retainedPackageDir, retainedLink, process.platform === "win32" ? "junction" : "dir")
+  await cp(retainedSourcesDir, stagedSourcesDir, { recursive: true })
+
+  await rebasePublishedProviderSourceLinks(stagedSourcesDir, retainedSourcesDir, publishedSourcesDir)
+  await mkdir(dirname(publishedSourcesDir), { recursive: true })
+  await rename(stagedSourcesDir, publishedSourcesDir)
+  await rm(join(rootDir, "agent-generations"), { force: true, recursive: true })
+
+  expect(realpathSync(join(publishedSourcesDir, "0", "node_modules", "fixture"))).toBe(join(publishedSourcesDir, "0", "packages", "fixture"))
+  await expect(readFile(join(publishedSourcesDir, "0", "node_modules", "fixture", "index.mjs"), "utf8"))
+    .resolves.toContain("published")
 })
 
 it("retains absolute alias keys with their copied source trees", () => {

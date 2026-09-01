@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2442,17 +2442,26 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
   try {
     await cp(generatedAgentDir, nextAgentDir, { recursive: true })
     await rm(resolve(nextAgentDir, "sources"), { force: true, recursive: true })
-    await cp(retainedSourcesDir, resolve(nextAgentDir, "sources"), { recursive: true })
+    const nextSourcesDir = resolve(nextAgentDir, "sources")
+    await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
     const nextHandler = resolve(nextAgentDir, "netlify-function.mjs")
+    const publishedHandler = resolve(generatedAgentDir, "netlify-function.mjs")
     const nextHandlerContents = await readFile(nextHandler, "utf8")
-    await writeFile(nextHandler, rewriteRetainedProviderSourcePaths(nextHandlerContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    await writeFile(nextHandler, rewriteRetainedProviderSourcePaths(nextHandlerContents, retainedSourcesDir, publishedSourcesDir, {
+      published: publishedHandler,
+      retained: publishedHandler,
+    }), "utf8")
     signal?.throwIfAborted()
     await rename(generatedAgentDir, previousAgentDir)
     movedPrevious = true
     await rename(nextAgentDir, generatedAgentDir)
     installedNext = true
     const netlifyFunctionContents = await readFile(netlifyFunction, "utf8")
-    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, publishedSourcesDir), "utf8")
+    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, publishedSourcesDir, {
+      published: netlifyFunction,
+      retained: netlifyFunction,
+    }), "utf8")
     signal?.throwIfAborted()
     await rm(previousAgentDir, { force: true, recursive: true })
   }

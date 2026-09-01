@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 
+import { createImportPath } from "./paths.ts"
 import { maskSourceLiterals } from "../source-scanner.ts"
 
 interface RetainProviderOutputSourcesOptions {
@@ -20,17 +21,58 @@ interface RetainedProviderOutputSources {
 }
 
 /** Rewrites retained source paths after their snapshot is published to a durable generated directory. */
-export function rewriteRetainedProviderSourcePaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
+export function rewriteRetainedProviderSourcePaths(
+  contents: string,
+  retainedSourcesDir: string,
+  publishedSourcesDir: string,
+  importers?: { published: string, retained: string },
+): string {
   const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
   const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
-  const replacements = [
+  const replacements: Array<readonly [string, string]> = [
     [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
     [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
     [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
     [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
     [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
-  ] as const
+  ]
+  if (importers) {
+    replacements.push([
+      `${createImportPath(importers.retained, retainedSourcesDir)}/`,
+      `${createImportPath(importers.published, publishedSourcesDir)}/`,
+    ])
+  }
   return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
+}
+
+/** Repoints retained-tree symlinks at the matching paths in their durable published tree. */
+export async function rebasePublishedProviderSourceLinks(
+  stagedSourcesDir: string,
+  retainedSourcesDir: string,
+  publishedSourcesDir: string,
+): Promise<void> {
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await readdir(directory, { withFileTypes: true })
+    await Promise.all(entries.map(async (entry) => {
+      const path = resolve(directory, entry.name)
+      if (entry.isDirectory()) {
+        await visit(path)
+        return
+      }
+      if (!entry.isSymbolicLink()) return
+      const link = await readlink(path)
+      const retainedTarget = resolve(dirname(path), link)
+      if (!pathContains(retainedSourcesDir, retainedTarget)) return
+      const target = resolve(publishedSourcesDir, relative(retainedSourcesDir, retainedTarget))
+      const publishedLink = resolve(publishedSourcesDir, relative(stagedSourcesDir, path))
+      const targetType = await stat(retainedTarget)
+      const type = targetType.isDirectory() ? (process.platform === "win32" ? "junction" : "dir") : "file"
+      const rebasedLink = type === "junction" ? target : relative(dirname(publishedLink), target) || "."
+      await rm(path, { force: true, recursive: true })
+      await symlink(rebasedLink, path, type)
+    }))
+  }
+  await visit(stagedSourcesDir)
 }
 
 /** Rewrites both sides of absolute aliases and retains the original key for imports that still use it. */

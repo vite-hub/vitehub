@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withP
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
-import { rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
+import { rebasePublishedProviderSourceLinks, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -1449,22 +1449,21 @@ async function generateProviderOutputsWithinLock(
       const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
       if (existsSync(retainedSourcesDir)) {
         const publishedSourcesDir = resolve(generatedDir, "sources")
-        await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+        const nextSourcesDir = resolve(nextDir, "sources")
+        await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+        await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
         const rewriteRetainedSourceImports = async (file: string) => {
           const contents = await readFile(file, "utf8")
-          const rewritten = rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir)
+          const relativeFile = relative(nextDir, file)
+          const rewritten = rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir, {
+            published: resolve(generatedDir, relativeFile),
+            retained: resolve(artifacts.generatedDir, relativeFile),
+          })
           if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
         }
         await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
         await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
-        for (const spec of providerEntrySpecs) {
-          const entryFile = resolve(nextDir, spec.entryFile)
-          const contents = await readFile(entryFile, "utf8")
-          const stagedSourcesImport = createImportPath(resolve(artifacts.generatedDir, spec.entryFile), retainedSourcesDir)
-          const publishedSourcesImport = createImportPath(resolve(generatedDir, spec.entryFile), publishedSourcesDir)
-          const rewritten = contents.replaceAll(`${JSON.stringify(stagedSourcesImport).slice(0, -1)}/`, `${JSON.stringify(publishedSourcesImport).slice(0, -1)}/`)
-          if (rewritten !== contents) await writeFile(entryFile, rewritten, "utf8")
-        }
+        await Promise.all(providerEntrySpecs.map(async spec => await rewriteRetainedSourceImports(resolve(nextDir, spec.entryFile))))
       }
       if (hadPrevious) {
         await rename(generatedDir, previousDir)
