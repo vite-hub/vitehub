@@ -31,6 +31,7 @@ import {
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { agentInvocationId } from "../invocations.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
@@ -51,6 +52,7 @@ import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl } from "../internal/chat-approvals.ts"
+import { agentChatInvocationIdHeader } from "../internal/routes.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
@@ -6304,6 +6306,17 @@ async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
+function withAgentChatInvocationId(response: Response, invocationId: string): Response {
+  const headers = new Headers(response.headers)
+  headers.set(agentChatInvocationIdHeader, invocationId)
+  headers.delete("content-length")
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
 function agentChatSessionBoundaryKey(invokerId: string, sessionId: string, manualId: string): string {
   return `invoker:${encodeURIComponent(invokerId)}:session:${encodeURIComponent(sessionId)}:manual:${encodeURIComponent(manualId)}:boundary`
 }
@@ -6544,7 +6557,10 @@ export function createChannelChatRouteHandler(
           }),
       )
       if (approvalCustody) result = approvalCustody.observe(result)
-      const response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
+      let response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
+      if (triggerInput.run?.runId) {
+        response = withAgentChatInvocationId(response, await agentInvocationId(triggerInput.run.runId, agentName))
+      }
       if (!resumableClaim) return response
       return resumableClaim.complete(response, {
         messageId: resumableMessageId,

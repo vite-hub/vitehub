@@ -2,7 +2,7 @@ import { useChat as useAiChat } from "@ai-sdk/vue"
 import { DefaultChatTransport } from "ai"
 import { computed, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
-import { defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
+import { agentChatInvocationIdHeader, defaultAgentChatRoute, resolveAgentRoutePath } from "./internal/routes.ts"
 import { updateAgentChatStreamedParts } from "./internal/chat-data.ts"
 import { createAgentChatData } from "./messages.ts"
 
@@ -34,6 +34,7 @@ export type AgentChatReactiveInit<UI_MESSAGE extends UIMessage = UIMessage> = Om
 
 export interface AgentChatHelpers<UI_MESSAGE extends UIMessage> extends UseChatHelpers<UI_MESSAGE> {
   readonly data: ComputedRef<AgentChatData>
+  readonly invocationId: ComputedRef<string | undefined>
 }
 
 export function useAgent(name: string): AgentClient {
@@ -67,6 +68,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
+  const invocationId = shallowRef<string>()
   const reconnecting = shallowRef(false)
   let resumableMessageId = initialOptions.messages?.at(-1)?.id
   let reconnectGeneration = 0
@@ -79,6 +81,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       api: route,
       async fetch(input, init) {
         const response = await globalThis.fetch(input, init)
+        invocationId.value = response.headers.get(agentChatInvocationIdHeader) || invocationId.value
         if (init?.method === "GET" && generation === reconnectGeneration) {
           resumableMessageId = response.headers.get("x-vitehub-message-id") || undefined
         }
@@ -108,6 +111,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       reconnectGeneration++
       reconnectStatusGeneration++
       reconnecting.value = false
+      invocationId.value = undefined
       resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
       return resolveTransport().sendMessages(...args)
     },
@@ -135,6 +139,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       reconnectStatusGeneration++
       constructorOptions.value = next
       streamedParts.value = []
+      invocationId.value = undefined
       resumableMessageId = undefined
       const shouldReconnect = Boolean(next.resume && isBrowserRuntime() && next.messages?.length)
       reconnecting.value = shouldReconnect
@@ -189,6 +194,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       ...chat.messages.value.flatMap(message => message.parts),
       ...streamedParts.value,
     ])),
+    invocationId: computed(() => invocationId.value),
   }
 }
 

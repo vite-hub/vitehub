@@ -30,6 +30,7 @@ describe("Agent Vue clients", () => {
 
   it("sends Agent chat requests to the generated route and streams reactive messages", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => createUIMessageStreamResponse({
+      headers: { "x-vitehub-invocation-id": "invocation-1" },
       stream: createUIMessageStream({
         execute({ writer }) {
           writer.write({ id: "answer", type: "text-start" })
@@ -53,6 +54,7 @@ describe("Agent Vue clients", () => {
       trigger: "submit-message",
     })
     expect(chat.status.value).toBe("ready")
+    expect(chat.invocationId.value).toBe("invocation-1")
     expect(chat.messages.value.at(-1)).toMatchObject({
       parts: [{ text: "Hello from ViteHub", type: "text" }],
       role: "assistant",
