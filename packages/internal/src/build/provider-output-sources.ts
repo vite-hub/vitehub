@@ -276,6 +276,7 @@ function traceComputedModuleSources(file: string, source: string): string[] {
   const paths: string[] = []
   const computedRequests = [
     /\b(?:import|require)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
+    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
     /\brequire\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
     /\bmodule\s*\.\s*require\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi,
   ]
@@ -304,8 +305,20 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     const imported = resolveComputedModuleSource(file, specifier)
     if (imported) paths.push(imported)
   }
+  const boundComputedResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
+  for (const match of masked.matchAll(boundComputedResolveRequests)) {
+    if (!boundRequireNames.has(match[1]!)) continue
+    const specifier = bindings.get(match[2]!)
+    if (!specifier || (!specifier.startsWith(".") && !isAbsolute(specifier))) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
+  }
 
   const literalRequests = [
+    {
+      pattern: /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\1/gi,
+      prefix: /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/i,
+    },
     {
       pattern: /\brequire\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\1/gi,
       prefix: /\brequire\s*\.\s*resolve\s*\(\s*$/i,
@@ -342,6 +355,17 @@ function traceComputedModuleSources(file: string, source: string): string[] {
     if (!boundRequireNames.has(match[1]!)) continue
     const quoteOffset = match[0].indexOf(match[2]!)
     if (!/\b[A-Z_$][\w$]*\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
+    const specifier = match[3]!
+    if (match[2] === "`" && specifier.includes("${")) continue
+    if (!specifier.startsWith(".") && !isAbsolute(specifier)) continue
+    const imported = resolveComputedModuleSource(file, specifier)
+    if (imported) paths.push(imported)
+  }
+  const boundLiteralResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\2/gis
+  for (const match of source.matchAll(boundLiteralResolveRequests)) {
+    if (!boundRequireNames.has(match[1]!)) continue
+    const quoteOffset = match[0].indexOf(match[2]!)
+    if (!/\b[A-Z_$][\w$]*\s*\.\s*resolve\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
     const specifier = match[3]!
     if (match[2] === "`" && specifier.includes("${")) continue
     if (!specifier.startsWith(".") && !isAbsolute(specifier)) continue
@@ -396,7 +420,9 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
             traceBuild.onResolve({ filter: /^#/ }, async (request) => {
               if (request.pluginData?.[resolvingPackageImportHint]) return undefined
               if (!request.importer) return undefined
-              const resolution = await traceBuild.resolve(request.path, {
+              const queryIndex = request.path.indexOf("?")
+              const packageImport = queryIndex === -1 ? request.path : request.path.slice(0, queryIndex)
+              const resolution = await traceBuild.resolve(packageImport, {
                 importer: request.importer,
                 kind: request.kind,
                 namespace: request.namespace,

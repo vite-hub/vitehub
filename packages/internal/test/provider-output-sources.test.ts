@@ -1128,6 +1128,34 @@ it("retains queried resources and their imports inside nested repositories", asy
   await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("resolves queried package imports before retaining resources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-package-import-query-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const prompt = join(resourceRepository, "prompt.md")
+  const bundleFile = join(rootDir, ".vitehub", "provider-output.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(resourceRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(join(rootDir, "package.json"), JSON.stringify({ imports: { "#prompt": "./prompt-worktree/prompt.md" }, type: "module" })),
+    writeFile(handler, 'import prompt from "#prompt?raw"\nexport default prompt\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/prompt.git\n"),
+    writeFile(prompt, "Retained package prompt\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(prompt, "Changed package prompt\n")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+
+  await expect(readFile(retained.resolve(prompt), "utf8")).resolves.toBe("Retained package prompt\n")
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({ default: "Retained package prompt\n" })
+})
+
 it("resolves Vite-root queried resources from the configured project root", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-root-import-trace-"))
   tempDirs.push(workspace)
@@ -1484,6 +1512,52 @@ it("retains nested repositories referenced through require.resolve", async () =>
     "const result = require(process.argv[1]).resolve(); if (require(result.computed) !== 'computed' || require(result.literal) !== 'literal') process.exit(1)",
     retained.resolve(handler),
   ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
+it("retains nested repositories referenced through ESM runtime resolution", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-esm-resolve-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const targets = {
+    boundComputed: join(rootDir, "bound-computed-worktree", "plugin.mjs"),
+    boundLiteral: join(rootDir, "bound-literal-worktree", "plugin.mjs"),
+    metaComputed: join(rootDir, "meta-computed-worktree", "plugin.mjs"),
+    metaLiteral: join(rootDir, "meta-literal-worktree", "plugin.mjs"),
+  }
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), ...Object.values(targets).map(target => mkdir(dirname(target), { recursive: true }))])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import { createRequire } from "node:module"',
+      "const projectRequire = createRequire(import.meta.url)",
+      'const boundTarget = "../bound-computed-worktree/plugin.mjs"',
+      'const metaTarget = "../meta-computed-worktree/plugin.mjs"',
+      'export const resolveTargets = () => ({',
+      "  boundComputed: projectRequire.resolve(boundTarget),",
+      '  boundLiteral: projectRequire.resolve("../bound-literal-worktree/plugin.mjs"),',
+      "  metaComputed: import.meta.resolve(metaTarget),",
+      '  metaLiteral: import.meta.resolve("../meta-literal-worktree/plugin.mjs"),',
+      "})",
+      "",
+    ].join("\n")),
+    ...Object.entries(targets).flatMap(([name, target]) => [
+      writeFile(join(dirname(target), ".git"), `gitdir: /tmp/${name}.git\n`),
+      writeFile(target, `export const value = ${JSON.stringify(name)}\n`),
+    ]),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { resolveTargets: () => Record<keyof typeof targets, string> }
+  const resolved = retainedHandler.resolveTargets()
+  await expect(import(pathToFileURL(resolved.boundComputed).href)).resolves.toMatchObject({ value: "boundComputed" })
+  await expect(import(pathToFileURL(resolved.boundLiteral).href)).resolves.toMatchObject({ value: "boundLiteral" })
+  await expect(import(resolved.metaComputed)).resolves.toMatchObject({ value: "metaComputed" })
+  await expect(import(resolved.metaLiteral)).resolves.toMatchObject({ value: "metaLiteral" })
 })
 
 it("preserves dependency resolution for a workspace-linked package", async () => {
