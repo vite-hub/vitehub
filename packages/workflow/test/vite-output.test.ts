@@ -1195,10 +1195,15 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
-    expect(await readFile(vercelServer, "utf8")).toContain("./.vitehub/workflow/sources/")
-    await expect(readFile(join(rootDir, "dist", "vite", ".vitehub", "workflow", "sources", "0", "server", "agents", "nuxt", "workspace", "context.md"), "utf8"))
+    const vercelServerContents = await readFile(vercelServer, "utf8")
+    expect(vercelServerContents).toContain("./.vitehub/workflow/sources/")
+    const cloudflareWorkspacePath = cloudflareWorkerBundleContents.match(/\.\/\.vitehub\/workflow\/sources\/[^"'\\\n]+\/server\/agents\/nuxt\/workspace/)?.[0]
+    const vercelWorkspacePath = vercelServerContents.match(/\.\/\.vitehub\/workflow\/sources\/[^"'\\\n]+\/server\/agents\/nuxt\/workspace/)?.[0]
+    expect(cloudflareWorkspacePath).toBeDefined()
+    expect(vercelWorkspacePath).toBeDefined()
+    await expect(readFile(resolve(dirname(cloudflareWorkerBundle), cloudflareWorkspacePath!, "context.md"), "utf8"))
       .resolves.toBe("Deployed workspace context.\n")
-    await expect(readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", ".vitehub", "workflow", "sources", "0", "server", "agents", "nuxt", "workspace", "context.md"), "utf8"))
+    await expect(readFile(resolve(dirname(vercelServer), vercelWorkspacePath!, "context.md"), "utf8"))
       .resolves.toBe("Deployed workspace context.\n")
     expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
     expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
