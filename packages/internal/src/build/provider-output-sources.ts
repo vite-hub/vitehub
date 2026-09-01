@@ -3,12 +3,12 @@ import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, syml
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 
 import { createImportPath } from "./paths.ts"
-import { maskSourceLiterals } from "../source-scanner.ts"
+import { findMatching, maskSourceLiterals, splitTopLevel } from "../source-scanner.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -236,12 +236,13 @@ type RuntimeModuleRequestKind = "dynamic-import" | "require-call" | "require-res
 
 interface RuntimeModuleRequest {
   kind: RuntimeModuleRequestKind
+  resolveFrom?: string
   specifier: string
 }
 
-function resolveComputedModuleSource(file: string, specifier: string): string | undefined {
+function resolveComputedModuleSource(file: string, specifier: string, resolveFrom = file): string | undefined {
   try {
-    const imported = createRequire(file).resolve(specifier)
+    const imported = createRequire(resolveFrom).resolve(specifier)
     return existsSync(imported) ? imported : undefined
   }
   catch {
@@ -291,19 +292,46 @@ function traceComputedModuleSources(
     const namespace = /^([A-Z_$][\w$]*)\.createRequire$/i.exec(normalized)?.[1]
     return Boolean(namespace && createRequireNamespaceNames.has(namespace))
   }
-  const boundRequireNames = new Set<string>()
+  const staticModuleSpecifier = (expression: string): string | undefined => {
+    const normalized = expression.trim()
+    const binding = /^([A-Z_$][\w$]*)$/i.exec(normalized)?.[1]
+    if (binding) return bindings.get(binding)
+    const literal = /^([`"'])([\s\S]*)\1$/.exec(normalized)
+    if (!literal || (literal[1] === "`" && literal[2]!.includes("${"))) return undefined
+    return literal[2]!
+  }
+  const createRequireBase = (expression: string): string => {
+    const normalized = expression.trim()
+    if (normalized === "import.meta.url" || normalized === "__filename") return file
+    const direct = staticModuleSpecifier(normalized)
+    if (direct) return direct
+    const newUrl = /^new\s+URL\s*\(/i.exec(normalized)
+    if (!newUrl) return file
+    const openParen = normalized.indexOf("(", newUrl.index)
+    const closeParen = findMatching(normalized, openParen, "(", ")")
+    if (closeParen === undefined || normalized.slice(closeParen + 1).trim()) return file
+    const [relativeUrl, baseUrl] = splitTopLevel(normalized.slice(openParen + 1, closeParen))
+    const relativePath = relativeUrl ? staticModuleSpecifier(relativeUrl) : undefined
+    if (!relativePath || baseUrl?.replace(/\s/g, "") !== "import.meta.url") return file
+    return fileURLToPath(new URL(relativePath, pathToFileURL(file)))
+  }
+  const boundRequireBases = new Map<string, string>()
   const boundRequireDeclarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
   for (const match of masked.matchAll(boundRequireDeclarations)) {
-    if (isCreateRequireExpression(match[2]!)) boundRequireNames.add(match[1]!)
+    if (!isCreateRequireExpression(match[2]!)) continue
+    const openParen = match.index + match[0].lastIndexOf("(")
+    const closeParen = findMatching(masked, openParen, "(", ")")
+    const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
+    boundRequireBases.set(match[1]!, base)
   }
 
   const paths: string[] = []
-  const recordRequest = (specifier: string, kind: RuntimeModuleRequestKind): void => {
+  const recordRequest = (specifier: string, kind: RuntimeModuleRequestKind, resolveFrom = file): void => {
     if (!specifier.startsWith(".") && !isAbsolute(specifier)) {
-      onRuntimePackageRequest?.({ kind, specifier })
+      onRuntimePackageRequest?.({ kind, resolveFrom, specifier })
       return
     }
-    const imported = resolveComputedModuleSource(file, specifier)
+    const imported = resolveComputedModuleSource(file, specifier, resolveFrom)
     if (imported) paths.push(imported)
   }
   const computedRequests = [
@@ -325,23 +353,34 @@ function traceComputedModuleSources(
     const specifier = bindings.get(match[2]!)
     if (specifier) recordRequest(specifier, "require-call")
   }
-  const createdComputedResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
-  for (const match of masked.matchAll(createdComputedResolveRequests)) {
+  const createdResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
+  for (const match of masked.matchAll(createdResolveRequests)) {
     if (!isCreateRequireExpression(match[1]!)) continue
-    const specifier = bindings.get(match[2]!)
-    if (specifier) recordRequest(specifier, "require-resolve")
+    const openParen = match.index + match[0].lastIndexOf("(")
+    const closeParen = findMatching(masked, openParen, "(", ")")
+    if (closeParen === undefined) continue
+    const resolveCall = /^\s*\.\s*resolve\s*\(/i.exec(masked.slice(closeParen + 1))
+    if (!resolveCall) continue
+    const resolveOpenParen = closeParen + 1 + resolveCall[0].lastIndexOf("(")
+    const resolveCloseParen = findMatching(masked, resolveOpenParen, "(", ")")
+    if (resolveCloseParen === undefined) continue
+    const [target] = splitTopLevel(source.slice(resolveOpenParen + 1, resolveCloseParen))
+    const specifier = target ? staticModuleSpecifier(target) : undefined
+    if (specifier) recordRequest(specifier, "require-resolve", createRequireBase(source.slice(openParen + 1, closeParen)))
   }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedRequests)) {
-    if (!boundRequireNames.has(match[1]!)) continue
+    const resolveFrom = boundRequireBases.get(match[1]!)
+    if (!resolveFrom) continue
     const specifier = bindings.get(match[2]!)
-    if (specifier) recordRequest(specifier, "require-call")
+    if (specifier) recordRequest(specifier, "require-call", resolveFrom)
   }
   const boundComputedResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi
   for (const match of masked.matchAll(boundComputedResolveRequests)) {
-    if (!boundRequireNames.has(match[1]!)) continue
+    const resolveFrom = boundRequireBases.get(match[1]!)
+    if (!resolveFrom) continue
     const specifier = bindings.get(match[2]!)
-    if (specifier) recordRequest(specifier, "require-resolve")
+    if (specifier) recordRequest(specifier, "require-resolve", resolveFrom)
   }
 
   const literalRequests = [
@@ -379,32 +418,25 @@ function traceComputedModuleSources(
     if (match[2] === "`" && specifier.includes("${")) continue
     recordRequest(specifier, "require-call")
   }
-  const createdLiteralResolveRequests = /\b([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\2/gis
-  for (const match of source.matchAll(createdLiteralResolveRequests)) {
-    if (!isCreateRequireExpression(match[1]!)) continue
-    const quoteOffset = match[0].indexOf(match[2]!)
-    if (!/\b[A-Z_$][\w$]*(?:\s*\.\s*createRequire)?\s*\([^)]*\)\s*\.\s*resolve\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
-    const specifier = match[3]!
-    if (match[2] === "`" && specifier.includes("${")) continue
-    recordRequest(specifier, "require-resolve")
-  }
   const boundLiteralRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralRequests)) {
-    if (!boundRequireNames.has(match[1]!)) continue
+    const resolveFrom = boundRequireBases.get(match[1]!)
+    if (!resolveFrom) continue
     const quoteOffset = match[0].indexOf(match[2]!)
     if (!/\b[A-Z_$][\w$]*\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
     const specifier = match[3]!
     if (match[2] === "`" && specifier.includes("${")) continue
-    recordRequest(specifier, "require-call")
+    recordRequest(specifier, "require-call", resolveFrom)
   }
   const boundLiteralResolveRequests = /\b([A-Z_$][\w$]*)\s*\.\s*resolve\s*\(\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(boundLiteralResolveRequests)) {
-    if (!boundRequireNames.has(match[1]!)) continue
+    const resolveFrom = boundRequireBases.get(match[1]!)
+    if (!resolveFrom) continue
     const quoteOffset = match[0].indexOf(match[2]!)
     if (!/\b[A-Z_$][\w$]*\s*\.\s*resolve\s*\(\s*$/i.test(masked.slice(match.index, match.index + quoteOffset))) continue
     const specifier = match[3]!
     if (match[2] === "`" && specifier.includes("${")) continue
-    recordRequest(specifier, "require-resolve")
+    recordRequest(specifier, "require-resolve", resolveFrom)
   }
 
   return paths
@@ -522,14 +554,15 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
               if (!source) return undefined
               const runtimeRequests = new Map<string, RuntimeModuleRequest>()
               traceComputedModuleSources(request.path, source, (runtimeRequest) => {
-                runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.specifier}`, runtimeRequest)
+                runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
               })
               await Promise.all([...runtimeRequests.values()].map(async runtimeRequest => {
+                const resolveFrom = runtimeRequest.resolveFrom ?? request.path
                 const resolution = await traceBuild.resolve(runtimeRequest.specifier, {
-                  importer: request.path,
+                  importer: resolveFrom,
                   kind: runtimeRequest.kind,
                   namespace: request.namespace,
-                  resolveDir: dirname(request.path),
+                  resolveDir: dirname(resolveFrom),
                 })
                 const resolvedSource = pathContains(root, resolution.path)
                   ? resolution.path
