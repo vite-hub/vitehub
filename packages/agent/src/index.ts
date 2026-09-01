@@ -4460,6 +4460,7 @@ function withStreamedResult(
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let explicitTextPhaseSeen = false
   let finalText = ""
+  let finalTextId: string | undefined
   let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   let finalizedUsageRecord: AgentUsageRecord | undefined
@@ -4497,7 +4498,11 @@ function withStreamedResult(
           unphasedText = ""
         }
         if (event?.type === "text-delta" && event.text) {
-          if (event.phase === "final") finalText += event.text
+          if (event.phase === "final") {
+            if (event.id && finalTextId && event.id !== finalTextId) finalText = ""
+            if (event.id) finalTextId = event.id
+            finalText += event.text
+          }
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
         const attachedUsageRecord = chunk && hasRuntimeType(chunk, "object") && "usageRecord" in chunk

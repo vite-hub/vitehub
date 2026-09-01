@@ -1633,6 +1633,7 @@ async function collectAgentOutput(
 
   let explicitPhaseSeen = false
   let finalText = ""
+  let finalTextId: string | undefined
   let unphasedText = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") {
@@ -1641,7 +1642,11 @@ async function collectAgentOutput(
       } else {
         explicitPhaseSeen = true
         unphasedText = ""
-        if (event.phase === "final") finalText += event.text
+        if (event.phase === "final") {
+          if (event.id && finalTextId && event.id !== finalTextId) finalText = ""
+          if (event.id) finalTextId = event.id
+          finalText += event.text
+        }
       }
     }
     const summary = progressSummaryFromEvent(event)
