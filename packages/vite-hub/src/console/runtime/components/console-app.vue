@@ -867,6 +867,12 @@ onBeforeUnmount(() => {
               :description="errorMessage(detail.error.value)"
               :actions="[
                 { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                {
+                  label: 'Show conversation',
+                  icon: 'i-lucide-panel-right-close',
+                  variant: 'ghost',
+                  onClick: () => (detailsMaximized = false),
+                },
               ]"
             />
           </div>
