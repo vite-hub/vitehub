@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
+import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -26,6 +27,11 @@ vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
+
+vi.mock("@vite-hub/internal/build/provider-output-sources", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/internal/build/provider-output-sources")>()
+  return { ...original, removeProviderOutputArtifactDir: vi.fn(original.removeProviderOutputArtifactDir) }
+})
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof import("../src/vite.ts").hubAgent>) {
   // SAFETY: hubAgent defines buildEnd as a callable Vite hook.
@@ -1212,6 +1218,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, ".netlify/v1/agent/sources"), { recursive: true })
       await writeFile(staleFunction, "export default {}\n", "utf8")
       await writeFile(staleSources, "stale\n", "utf8")
+      vi.mocked(removeProviderOutputArtifactDir).mockClear()
 
       await configResolved({
         build: { outDir: "dist/client" },
@@ -1223,6 +1230,7 @@ describe("agent Vite plugin", () => {
 
       await expect(readFile(staleFunction, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(staleSources, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      expect(removeProviderOutputArtifactDir).toHaveBeenCalledWith(join(root, ".netlify/v1/agent"))
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING

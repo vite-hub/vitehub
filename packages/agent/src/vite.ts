@@ -2518,7 +2518,7 @@ async function cleanupNetlifyAgentProviderOutput(
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<void> {
   await write({
-    afterWrite: async () => await rm(resolve(createDefaultNetlifyOutputRoot(config.root), "agent"), { force: true, recursive: true }),
+    afterWrite: async () => await removeProviderOutputArtifactDir(resolve(createDefaultNetlifyOutputRoot(config.root), "agent")),
     clientOutDir: config.build?.outDir ?? "dist",
     cleanup: {
       netlify: {

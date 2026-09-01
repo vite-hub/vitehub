@@ -7,6 +7,7 @@ import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
 import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
+import { removeProviderOutputArtifactDir } from "./provider-output-sources.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
@@ -961,7 +962,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   try {
     if (options.snapshotInitialRoots !== false) await transaction.snapshot(roots)
     const result = await operation(transaction)
-    await rm(transactionRoot, { force: true, recursive: true })
+    await removeProviderOutputArtifactDir(transactionRoot).catch(() => undefined)
     return result
   }
   catch (error) {

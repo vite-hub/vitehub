@@ -7,6 +7,7 @@ import { tmpdir } from "node:os"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { removeProviderOutputArtifactDir } from "../src/build/provider-output-sources.ts"
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>()
@@ -19,6 +20,11 @@ vi.mock("../src/build/esbuild.ts", () => ({
     await writeFile(outfile, "export default {}\n", "utf8")
   }),
 }))
+
+vi.mock("../src/build/provider-output-sources.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/build/provider-output-sources.ts")>()
+  return { ...original, removeProviderOutputArtifactDir: vi.fn(original.removeProviderOutputArtifactDir) }
+})
 
 const tempDirs: string[] = []
 
@@ -780,6 +786,31 @@ describe("provider deployment outputs", () => {
       redirects: [{ from: "/new", to: "/after" }],
     })
     expect(existsSync(previousOutputRoot)).toBe(true)
+  })
+
+  it("keeps committed provider output when transaction snapshot cleanup fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    vi.mocked(removeProviderOutputArtifactDir).mockClear()
+    vi.mocked(removeProviderOutputArtifactDir).mockRejectedValueOnce(new Error("snapshot cleanup failed"))
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: { redirects: [{ from: "/new", to: "/after" }] },
+        configKeys: ["redirects"],
+      },
+      rootDir,
+    })).resolves.toBeUndefined()
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      redirects: [{ from: "/new", to: "/after" }],
+    })
+    expect(removeProviderOutputArtifactDir).toHaveBeenCalledOnce()
   })
 
   it("removes owned Cloudflare config keys before merging new output", async () => {
