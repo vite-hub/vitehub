@@ -15,9 +15,14 @@ import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-o
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
 import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
-const workflowBackupRetirement = vi.hoisted(() => ({
+const workflowBackupRetirement = vi.hoisted<{
+  attempts: number
+  enabled: boolean
+  options: Parameters<typeof rm>[1] | undefined
+}>(() => ({
   attempts: 0,
   enabled: false,
+  options: undefined,
 }))
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -29,6 +34,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (workflowBackupRetirement.enabled
         && /[\\/]\.vitehub[\\/]workflow\.[^\\/]+\.previous$/.test(path)) {
         workflowBackupRetirement.attempts += 1
+        workflowBackupRetirement.options = args[1]
         if (workflowBackupRetirement.attempts === 1) {
           await fs.rm(join(path, "previous.txt"), { force: true })
         }
@@ -391,6 +397,7 @@ it("keeps published Workflow artifacts when backup retirement fails after partia
 
   workflowBackupRetirement.attempts = 0
   workflowBackupRetirement.enabled = true
+  workflowBackupRetirement.options = undefined
   try {
     await expect(generateWorkflowProviderOutputs({
       artifacts,
@@ -404,7 +411,13 @@ it("keeps published Workflow artifacts when backup retirement fails after partia
     workflowBackupRetirement.enabled = false
   }
 
-  expect(workflowBackupRetirement.attempts).toBeGreaterThan(1)
+  expect(workflowBackupRetirement.attempts).toBe(1)
+  expect(workflowBackupRetirement.options).toMatchObject({
+    force: true,
+    maxRetries: 5,
+    recursive: true,
+    retryDelay: 50,
+  })
   await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await expect(readFile(join(generatedDir, "registry.mjs"), "utf8")).resolves.toContain("export")
 })
