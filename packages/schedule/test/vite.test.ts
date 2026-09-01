@@ -935,7 +935,9 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     })
-    await runProviderOutputHooks(plugin)
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+    expect(existsSync(join(root, ".vitehub", "schedule-generations"))).toBe(false)
+    await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
 
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).toBe(false)
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")).resolves.toContain("server/schedules/sync.ts")

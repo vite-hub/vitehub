@@ -669,11 +669,13 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ...internalOptions.providerImportAliases,
           ...workflow?.bundleAlias,
         }
-        const retainedSources = await retainProviderOutputSources({
-          artifactDir: resolve(contributionArtifactDir, "sources"),
-          paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
-          roots: [rootDir],
-        })
+        const retainedSources = definitions.length || workflow
+          ? await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "sources"),
+              paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
+              roots: [rootDir],
+            })
+          : { resolve: (path: string) => path }
         const retainedDefinitions = definitions.map(definition => ({
           ...definition,
           handler: retainedSources.resolve(definition.handler),
