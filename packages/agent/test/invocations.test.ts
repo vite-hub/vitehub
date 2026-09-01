@@ -4159,7 +4159,7 @@ describe("Agent Invocations", () => {
   it("retries failed invocation summary backfills on later summary reads", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-summary-retry-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    let failFirstBackfill: (() => void) | undefined
+    let failFirstBackfill = (): void => {}
     try {
       await client.execute(`CREATE TABLE vitehub_agent_invocations (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4232,7 +4232,7 @@ describe("Agent Invocations", () => {
       })
     }
     finally {
-      failFirstBackfill?.()
+      failFirstBackfill()
       client.close()
       await rm(directory, { force: true, recursive: true })
     }
