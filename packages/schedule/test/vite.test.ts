@@ -467,9 +467,8 @@ describe("Vite schedule integration", () => {
     const registry = await readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")
     expect(registry).toContain("./sources/")
     expect(registry).not.toContain("schedule-generations")
-    const cloudflareConfig = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")) as { main: string }
     const providerOutputs = await Promise.all([
-      readFile(join(createDefaultCloudflareOutputRoot(root), cloudflareConfig.main), "utf8"),
+      readFile(join(createDefaultCloudflareOutputRoot(root), "index.js"), "utf8"),
       readFile(join(root, ".vitehub", "schedule", "deno-cron.mjs"), "utf8"),
       readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8"),
       readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8"),
