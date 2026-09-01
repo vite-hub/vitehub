@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from "vue";
+
+const props = defineProps<{
   detailsOpen: boolean;
   externalUrl?: string;
   hasDisplay: boolean;
@@ -8,6 +10,18 @@ defineProps<{
   project: string;
   title: string;
 }>();
+
+const externalTarget = computed(() => {
+  if (!props.externalUrl) return;
+  try {
+    const host = new URL(props.externalUrl).hostname.toLowerCase();
+    if (host === "github.com" || host.endsWith(".github.com"))
+      return { icon: "i-lucide-github", label: "Open on GitHub" };
+  } catch {
+    // Keep malformed or relative consumer links usable with the generic action.
+  }
+  return { icon: "i-lucide-external-link", label: "Open related page" };
+});
 
 defineEmits<{
   openSessions: [];
@@ -44,15 +58,15 @@ defineEmits<{
           @click="$emit('openSessions')"
         />
       </UTooltip>
-      <UTooltip v-if="externalUrl" text="Open related page">
+      <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"
           target="_blank"
-          icon="i-lucide-external-link"
+          :icon="externalTarget.icon"
           color="neutral"
           variant="ghost"
           size="sm"
-          aria-label="Open related page"
+          :aria-label="externalTarget.label"
         />
       </UTooltip>
       <UTooltip text="Refresh session">
@@ -66,12 +80,14 @@ defineEmits<{
           @click="$emit('refresh')"
         />
       </UTooltip>
-      <UTooltip v-if="hasSelection" text="Session details">
+      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
         <UButton
+          data-slot="session-details-toggle"
           icon="i-lucide-panel-right"
           color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
           size="sm"
+          :disabled="!hasSelection"
           aria-label="Session details"
           :aria-pressed="detailsOpen"
           @click="$emit('toggleDetails')"

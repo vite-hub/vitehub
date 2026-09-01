@@ -594,17 +594,21 @@
   min-width: max-content;
 }
 
-.session-code-preview .shiki {
+.session-code-preview .shiki,
+.session-code-preview__plain {
   background: transparent !important;
-  counter-reset: line;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  line-height: 1.45;
+  font-size: 0.6875rem;
+  line-height: 1.4;
   margin: 0;
   min-height: 100%;
   min-width: max-content;
   padding: 0.625rem 0 1.5rem;
   tab-size: 2;
+}
+
+.session-code-preview .shiki {
+  counter-reset: line;
 }
 
 .session-code-preview .line {
