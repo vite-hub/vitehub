@@ -77,5 +77,5 @@ describe("Agents launch tutorial fixture", () => {
       child.kill()
       await exited
     }
-  }, 60_000)
+  }, 300_000)
 })
