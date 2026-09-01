@@ -31,6 +31,15 @@ it("rewrites JSON-escaped paths when publishing retained Provider Output sources
     .toBe(`${retainedSourcesDir}-external\\agent.ts`)
 })
 
+it("normalizes Windows source separators for POSIX deployment paths", () => {
+  const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
+  const publishedSourcesDir = "./.vitehub/workflow/sources"
+  const serializedSource = JSON.stringify(`${retainedSourcesDir}\\0\\server\\workflow.ts`)
+
+  expect(rewriteRetainedProviderSourcePaths(serializedSource, retainedSourcesDir, publishedSourcesDir))
+    .toBe(JSON.stringify("./.vitehub/workflow/sources/0/server/workflow.ts"))
+})
+
 it("rewrites relative imports when publishing retained Provider Output sources", () => {
   const generatedFile = "/project/.vitehub/agent/netlify-function.mjs"
   const retainedSourcesDir = "/project/.vitehub/agent-generations/test/sources"
@@ -1229,6 +1238,36 @@ it("resolves queried package imports before retaining resources", async () => {
   await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({ default: "Retained package prompt\n" })
 })
 
+it("resolves queried bare package resources before retaining them", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-bare-package-query-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const packageDir = join(rootDir, "prompt-worktree")
+  const prompt = join(packageDir, "dist", "prompt.md")
+  const packageLink = join(rootDir, "node_modules", "fixture-query-package")
+  const bundleFile = join(rootDir, ".vitehub", "provider-output.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(prompt), { recursive: true }), mkdir(dirname(packageLink), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'import prompt from "fixture-query-package/prompt.md?raw"\nexport default prompt\n'),
+    writeFile(join(packageDir, ".git"), "gitdir: /tmp/prompt.git\n"),
+    writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: { "./prompt.md": "./dist/prompt.md" }, name: "fixture-query-package", type: "module" })),
+    writeFile(prompt, "Retained bare package prompt\n"),
+    symlink(packageDir, packageLink, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(prompt, "Changed bare package prompt\n")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+
+  await expect(readFile(retained.resolve(prompt), "utf8")).resolves.toBe("Retained bare package prompt\n")
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({ default: "Retained bare package prompt\n" })
+})
+
 it("resolves hash-suffixed package imports before retaining resources", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-package-import-hash-"))
   tempDirs.push(rootDir)
@@ -1612,25 +1651,30 @@ it("retains nested repositories for default-imported createRequire calls", async
   const handler = join(rootDir, "server", "workflow.mjs")
   const nodeRepository = join(rootDir, "node-worktree")
   const legacyRepository = join(rootDir, "legacy-worktree")
+  const namedRepository = join(rootDir, "named-worktree")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
     mkdir(nodeRepository, { recursive: true }),
     mkdir(legacyRepository, { recursive: true }),
+    mkdir(namedRepository, { recursive: true }),
   ])
   await Promise.all([
     writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
     writeFile(handler, [
-      'import NodeModule from "node:module"',
+      'import NodeModule, { createRequire as makeRequire } from "node:module"',
       'import LegacyModule from "module"',
       "const nodeRequire = NodeModule.createRequire(import.meta.url)",
       "const legacyRequire = LegacyModule.createRequire(import.meta.url)",
-      'export const load = () => ({ legacy: legacyRequire("../legacy-worktree"), node: nodeRequire("../node-worktree") })',
+      "const namedRequire = makeRequire(import.meta.url)",
+      'export const load = () => ({ legacy: legacyRequire("../legacy-worktree"), named: namedRequire("../named-worktree"), node: nodeRequire("../node-worktree") })',
       "",
     ].join("\n")),
     writeFile(join(nodeRepository, ".git"), "gitdir: /tmp/node.git\n"),
     writeFile(join(nodeRepository, "index.js"), "module.exports = { required: 'node' }\n"),
     writeFile(join(legacyRepository, ".git"), "gitdir: /tmp/legacy.git\n"),
     writeFile(join(legacyRepository, "index.js"), "module.exports = { required: 'legacy' }\n"),
+    writeFile(join(namedRepository, ".git"), "gitdir: /tmp/named.git\n"),
+    writeFile(join(namedRepository, "index.js"), "module.exports = { required: 'named' }\n"),
   ])
 
   const retained = await retainProviderOutputSources({
@@ -1641,9 +1685,9 @@ it("retains nested repositories for default-imported createRequire calls", async
 
   // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
-    load: () => { legacy: { required: string }, node: { required: string } }
+    load: () => { legacy: { required: string }, named: { required: string }, node: { required: string } }
   }
-  expect(retainedHandler.load()).toEqual({ legacy: { required: "legacy" }, node: { required: "node" } })
+  expect(retainedHandler.load()).toEqual({ legacy: { required: "legacy" }, named: { required: "named" }, node: { required: "node" } })
 })
 
 it("retains direct createRequire targets with nested resolver bases", async () => {
@@ -1730,6 +1774,8 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
   const handler = join(rootDir, "server", "workflow.mjs")
   const targets = {
     boundComputed: join(rootDir, "bound-computed-worktree", "plugin.mjs"),
+    boundDestructuredComputed: join(rootDir, "bound-destructured-computed-worktree", "plugin.mjs"),
+    boundDestructuredLiteral: join(rootDir, "bound-destructured-literal-worktree", "plugin.mjs"),
     boundLiteral: join(rootDir, "bound-literal-worktree", "plugin.mjs"),
     destructuredComputed: join(rootDir, "destructured-computed-worktree", "plugin.mjs"),
     destructuredLiteral: join(rootDir, "destructured-literal-worktree", "plugin.mjs"),
@@ -1745,13 +1791,17 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
       'import { createRequire } from "node:module"',
       'import * as Module from "node:module"',
       'const projectRequire = Module.createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))',
+      "const { resolve: locateBound } = projectRequire",
       'const { resolve: locate } = createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))',
       'const boundTarget = "../../../bound-computed-worktree/plugin.mjs"',
+      'const boundDestructuredTarget = "../../../bound-destructured-computed-worktree/plugin.mjs"',
       'const destructuredTarget = "../../../destructured-computed-worktree/plugin.mjs"',
       'const inlineTarget = "../../../inline-computed-worktree/plugin.mjs"',
       'const metaTarget = "../meta-computed-worktree/plugin.mjs"',
       'export const resolveTargets = () => ({',
       "  boundComputed: projectRequire.resolve(boundTarget),",
+      "  boundDestructuredComputed: locateBound(boundDestructuredTarget),",
+      '  boundDestructuredLiteral: locateBound("../../../bound-destructured-literal-worktree/plugin.mjs"),',
       '  boundLiteral: projectRequire.resolve("../../../bound-literal-worktree/plugin.mjs"),',
       "  destructuredComputed: locate(destructuredTarget),",
       '  destructuredLiteral: locate("../../../destructured-literal-worktree/plugin.mjs"),',
@@ -1778,6 +1828,8 @@ it("retains nested repositories referenced through ESM runtime resolution", asyn
   const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { resolveTargets: () => Record<keyof typeof targets, string> }
   const resolved = retainedHandler.resolveTargets()
   await expect(import(pathToFileURL(resolved.boundComputed).href)).resolves.toMatchObject({ value: "boundComputed" })
+  await expect(import(pathToFileURL(resolved.boundDestructuredComputed).href)).resolves.toMatchObject({ value: "boundDestructuredComputed" })
+  await expect(import(pathToFileURL(resolved.boundDestructuredLiteral).href)).resolves.toMatchObject({ value: "boundDestructuredLiteral" })
   await expect(import(pathToFileURL(resolved.boundLiteral).href)).resolves.toMatchObject({ value: "boundLiteral" })
   await expect(import(pathToFileURL(resolved.destructuredComputed).href)).resolves.toMatchObject({ value: "destructuredComputed" })
   await expect(import(pathToFileURL(resolved.destructuredLiteral).href)).resolves.toMatchObject({ value: "destructuredLiteral" })

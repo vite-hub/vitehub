@@ -26,6 +26,10 @@ interface ProviderOutputSourceDestination {
   sourcesDir: string
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 /** Rewrites retained source paths after their snapshot is published to a durable generated directory. */
 export function rewriteRetainedProviderSourcePaths(
   contents: string,
@@ -35,12 +39,19 @@ export function rewriteRetainedProviderSourcePaths(
 ): string {
   const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
   const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
+  const publishedSeparator = publishedSourcesDir.includes("\\") && !publishedSourcesDir.includes("/") ? "\\" : "/"
+  const serializedPublishedSeparator = publishedSeparator === "\\" ? "\\\\" : "/"
+  const serializedPath = new RegExp(`${escapeRegExp(serializedRetainedSourcesDir)}((?:(?:\\\\\\\\|/)[^"\\\\/]*)+)`, "g")
+  const normalizedContents = contents.replace(serializedPath, (_matched, suffix: string) => {
+    const normalizedSuffix = suffix.replaceAll("\\\\", serializedPublishedSeparator).replaceAll("/", serializedPublishedSeparator)
+    return `${serializedPublishedSourcesDir}${normalizedSuffix}`
+  })
   const replacements: Array<readonly [string, string]> = [
     [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
-    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
-    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
-    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
-    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
+    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}${serializedPublishedSeparator}`],
+    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}${serializedPublishedSeparator}`],
+    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}${publishedSeparator}`],
+    [`${retainedSourcesDir}/`, `${publishedSourcesDir}${publishedSeparator}`],
   ]
   if (importers) {
     replacements.push([
@@ -48,7 +59,7 @@ export function rewriteRetainedProviderSourcePaths(
       `${createImportPath(importers.published, publishedSourcesDir)}/`,
     ])
   }
-  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
+  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), normalizedContents)
 }
 
 /** Repoints retained-tree symlinks at the matching paths in their durable published tree. */
@@ -298,7 +309,7 @@ function traceComputedModuleSources(
     bindings.set(match[1]!, match[3]!)
   }
   const createRequireNames = new Set(["createRequire"])
-  const namedImports = /\bimport\s*\{([^}]*)\}\s*from\s*([`"'])(?:node:)?module\2/gis
+  const namedImports = /\bimport\s+(?:[A-Z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*([`"'])(?:node:)?module\2/gis
   for (const match of source.matchAll(namedImports)) {
     for (const specifier of match[1]!.split(",")) {
       const binding = /^\s*createRequire(?:\s+as\s+([A-Z_$][\w$]*))?\s*$/i.exec(specifier)?.[1]
@@ -358,18 +369,25 @@ function traceComputedModuleSources(
     boundRequireBases.set(match[1]!, base)
   }
   const boundResolveBases = new Map<string, string>()
-  const boundResolveDeclarations = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
-  for (const match of masked.matchAll(boundResolveDeclarations)) {
-    if (!isCreateRequireExpression(match[2]!)) continue
-    const resolveBinding = match[1]!
+  const recordBoundResolve = (properties: string, base: string): void => {
+    const resolveBinding = properties
       .split(",")
       .map(property => /^\s*resolve(?:\s*:\s*([A-Z_$][\w$]*))?\s*$/i.exec(property))
       .find(Boolean)
-    if (!resolveBinding) continue
+    if (resolveBinding) boundResolveBases.set(resolveBinding[1] ?? "resolve", base)
+  }
+  const boundResolveDeclarations = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*([A-Z_$][\w$]*(?:\s*\.\s*createRequire)?)\s*\(/gi
+  for (const match of masked.matchAll(boundResolveDeclarations)) {
+    if (!isCreateRequireExpression(match[2]!)) continue
     const openParen = match.index + match[0].lastIndexOf("(")
     const closeParen = findMatching(masked, openParen, "(", ")")
     const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
-    boundResolveBases.set(resolveBinding[1] ?? "resolve", base)
+    recordBoundResolve(match[1]!, base)
+  }
+  const boundRequireResolveDeclarations = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*([A-Z_$][\w$]*)\b/gi
+  for (const match of masked.matchAll(boundRequireResolveDeclarations)) {
+    const base = boundRequireBases.get(match[2]!)
+    if (base) recordBoundResolve(match[1]!, base)
   }
 
   const paths: string[] = []
@@ -542,7 +560,9 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
             traceBuild.onResolve({ filter: /^[^./#]/ }, async (request) => {
               if (request.pluginData?.[resolvingBarePackageHint]) return undefined
               if (!request.importer) return undefined
-              const resolution = await traceBuild.resolve(request.path, {
+              const suffixOffset = request.path.search(/[?#]/)
+              const packageImport = suffixOffset === -1 ? request.path : request.path.slice(0, suffixOffset)
+              const resolution = await traceBuild.resolve(packageImport, {
                 importer: request.importer,
                 kind: request.kind,
                 namespace: request.namespace,
