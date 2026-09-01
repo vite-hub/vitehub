@@ -369,6 +369,7 @@ const diagnosticSecrets = [...new Set(secretEnvironmentKeys
   .map(key => process.env[key])
   .filter(item => typeof item === "string" && item.length > 0))]
   .sort((left, right) => right.length - left.length)
+const diagnosticSecretBuffers = diagnosticSecrets.map(secret => Buffer.from(secret))
 const stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
 
 function redactDiagnostic(value) {
@@ -379,9 +380,25 @@ function redactDiagnostic(value) {
     .replace(/\\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\\s]+)/g, "$1=[REDACTED]")
 }
 
+function secretSafeStderrTail(value) {
+  let start = Math.max(0, value.length - ${providerLaunchStderrMaxBytes})
+  while (true) {
+    let safeStart = start
+    for (const secret of diagnosticSecretBuffers) {
+      let match = value.indexOf(secret, Math.max(0, start - secret.length + 1))
+      while (match >= 0 && match < start) {
+        safeStart = Math.max(safeStart, match + secret.length)
+        match = value.indexOf(secret, match + 1)
+      }
+    }
+    if (safeStart === start) return value.subarray(start)
+    start = safeStart
+  }
+}
+
 function recordDiagnostic(diagnostic) {
   try {
-    const redactedStderr = Buffer.from(redactDiagnostic(stderr.toString("utf8")))
+    const redactedStderr = Buffer.from(redactDiagnostic(secretSafeStderrTail(stderr).toString("utf8")))
       .subarray(-${providerLaunchStderrMaxBytes})
       .toString("utf8")
     writeFileSync(${JSON.stringify(diagnosticPath)}, JSON.stringify({

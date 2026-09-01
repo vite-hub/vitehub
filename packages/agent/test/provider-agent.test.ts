@@ -321,20 +321,24 @@ describe("Provider Agent Driver", () => {
         const launched = spawnSync(binaryPath, [], { encoding: "utf8", env: options?.environment })
         expect(launched.status).toBe(5)
         const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
+        const persistedDiagnostic = JSON.parse(persisted) as { stderr?: unknown }
         expect(persisted).not.toContain(databaseUrl)
         expect(persisted).not.toContain(leakedSuffix)
+        expect(persistedDiagnostic.stderr).toEqual(expect.any(String))
+        expect(Buffer.byteLength(String(persistedDiagnostic.stderr))).toBeLessThanOrEqual(stderrLimit)
         throw new Error("Codex App Server process exited with code 5")
       },
     })
 
     const stderrLimit = 16_384
-    const trailingBytes = stderrLimit - 8
+    const repeatedCredentials = 100
+    const trailingBytes = stderrLimit + databaseUrl.length - leakedSuffix.length - databaseUrl.length * repeatedCredentials
     let failure: unknown
     try {
       await createProviderAgentAdapter({
         env: { DATABASE_URL: databaseUrl },
         launch: {
-          args: ["-e", `process.stderr.write("x".repeat(128)+process.env.DATABASE_URL+"y".repeat(${trailingBytes}));process.exit(5)`],
+          args: ["-e", `process.stderr.write("x".repeat(128)+process.env.DATABASE_URL+process.env.DATABASE_URL.repeat(${repeatedCredentials})+"y".repeat(${trailingBytes}));process.exit(5)`],
           command: process.execPath,
         },
         provider: "codex",
@@ -348,7 +352,7 @@ describe("Provider Agent Driver", () => {
     const shape = getViteHubErrorShape(failure)
     expect(shape).toMatchObject({
       code: "PROVIDER_LAUNCH_FAILED",
-      details: { exitCode: 5, phase: "launch", stderrBytes: 128 + databaseUrl.length + trailingBytes, stderrTruncated: true },
+      details: { exitCode: 5, phase: "launch", stderrBytes: 128 + databaseUrl.length * (repeatedCredentials + 1) + trailingBytes, stderrTruncated: true },
     })
     expect(JSON.stringify(shape)).not.toContain(databaseUrl)
     expect(JSON.stringify(shape)).not.toContain(leakedSuffix)
