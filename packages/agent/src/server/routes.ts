@@ -14,7 +14,7 @@ import {
   streamAgentTrigger,
 } from "../index.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
-import { hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
+import { appendLatestFinalText, hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { toAgentPublicError } from "../agent-error.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
@@ -1643,9 +1643,9 @@ async function collectAgentOutput(
         explicitPhaseSeen = true
         unphasedText = ""
         if (event.phase === "final") {
-          if (event.id && finalTextId && event.id !== finalTextId) finalText = ""
-          if (event.id) finalTextId = event.id
-          finalText += event.text
+          const next = appendLatestFinalText(finalText, finalTextId, event)
+          finalText = next.text
+          finalTextId = next.identity
         }
       }
     }

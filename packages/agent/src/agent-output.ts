@@ -477,6 +477,18 @@ function optionalMessageId(messageId: string | undefined): { messageId?: string 
   return messageId ? { messageId } : {}
 }
 
+export function appendLatestFinalText(
+  text: string,
+  identity: string | undefined,
+  event: Extract<StreamEvent, { type: "text-delta" }>,
+): { identity: string | undefined, text: string } {
+  const nextIdentity = event.messageId ?? event.id
+  return {
+    identity: nextIdentity ?? identity,
+    text: nextIdentity && identity && nextIdentity !== identity ? event.text : text + event.text,
+  }
+}
+
 function optionalDurationMs(durationMs: number | undefined): { durationMs?: number } {
   return durationMs === undefined ? {} : { durationMs }
 }

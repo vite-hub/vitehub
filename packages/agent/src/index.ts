@@ -27,7 +27,7 @@ import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
-import { agentResultKind, agentStreamErrorSymbol, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -4499,9 +4499,9 @@ function withStreamedResult(
         }
         if (event?.type === "text-delta" && event.text) {
           if (event.phase === "final") {
-            if (event.id && finalTextId && event.id !== finalTextId) finalText = ""
-            if (event.id) finalTextId = event.id
-            finalText += event.text
+            const next = appendLatestFinalText(finalText, finalTextId, event)
+            finalText = next.text
+            finalTextId = next.identity
           }
           else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
         }
