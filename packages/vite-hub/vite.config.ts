@@ -1,6 +1,7 @@
-import { defineConfig } from "vite-plus";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
