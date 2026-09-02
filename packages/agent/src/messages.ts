@@ -194,10 +194,13 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
     const parts = await Promise.all(message.parts.map(async (part) => {
       if (!isAttachmentPart(part)) return part
       const hasFetchData = hasRuntimeType(part.fetchData, "function")
-      if (!hasFetchData && !isAttachmentData(part.data)) return part
+      const hasData = isAttachmentData(part.data)
+      const hasProviderLocator = part.fetchMetadata !== undefined || part.url !== undefined
+      if (!hasFetchData && !hasData && !hasProviderLocator) return part
       changed = true
       messageChanged = true
       const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...resolved } = part
+      if (!hasFetchData && !hasData) return resolved
       const data = await resolveAttachmentData(part)
       if (hasFetchData && data === undefined) {
         throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)

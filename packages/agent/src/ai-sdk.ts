@@ -380,13 +380,15 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
   }
 }
 
-async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
+async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part?: AttachmentPart }> {
+  const hasFetchData = hasRuntimeType(part.fetchData, "function")
+  if (!hasFetchData && !isAttachmentData(part.data)) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = await resolveAttachmentData(part)
-  if (hasRuntimeType(part.fetchData, "function") && !isAttachmentData(resolved)) {
+  if (hasFetchData && !isAttachmentData(resolved)) {
     throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
   }
-  if (!resolved) return { byteLength: part.size ?? 0, part }
+  if (!resolved) return { byteLength: 0 }
   const byteLength = attachmentDataByteLength(resolved) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
@@ -436,13 +438,13 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
         if (reference.data) {
           const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
           remainingBytes -= resolved.byteLength
-          parts.push(resolved.part)
+          if (resolved.part) parts.push(resolved.part)
         }
         continue
       }
       const resolved = await resolveModelAttachmentPart(part, remainingBytes)
       remainingBytes -= resolved.byteLength
-      parts.push(resolved.part)
+      if (resolved.part) parts.push(resolved.part)
     }
     resolvedMessages.push({ ...message, parts })
   }
