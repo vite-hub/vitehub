@@ -22,6 +22,13 @@ interface CachedSourceReader<TKey extends string, TValue> {
   get(key: TKey): Promise<TValue>
 }
 
+function isCachedSourceReader(source: unknown): source is CachedSourceReader<string, unknown> {
+  return Object(source) === source
+    && !(source instanceof Function)
+    && Reflect.get(Object(source), "get") instanceof Function
+    && Boolean(Reflect.get(Object(source), "cache"))
+}
+
 export function defineSource<
   const TKey extends string,
   TValue,
@@ -33,23 +40,16 @@ export function defineSource<const TReader extends KeyedSourceReader>(
   definition: RuntimeSourceDefinition<TReader>,
 ): RuntimeSourceDefinition<TReader>
 export function defineSource(source: unknown): unknown {
-  if (
-    !source ||
-    typeof source !== "object" ||
-    !("get" in source) ||
-    !(source.get instanceof Function) ||
-    !("cache" in source) ||
-    !source.cache
-  ) {
+  if (!isCachedSourceReader(source)) {
     const core: unknown = defineCoreSource
+    // SAFETY: The public overloads above are the ViteHub subset of the core defineSource input contract.
     return (core as (input: unknown) => unknown)(source)
   }
-  const reader = source as CachedSourceReader<string, unknown>
   return {
-    ...reader,
-    get: defineCachedFunction((...args) => reader.get.apply(reader, args), {
+    ...source,
+    get: defineCachedFunction((...args) => source.get.apply(source, args), {
       swr: false,
-      ...reader.cache,
+      ...source.cache,
     }),
   }
 }
