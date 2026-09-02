@@ -720,7 +720,12 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(10);
+      expect(handlers).toHaveLength(11);
+      expect(handlers).toContainEqual(
+        expect.objectContaining({
+          route: "/api/_vitehub/console/invocation-capabilities",
+        }),
+      );
       expect(handlers).toContainEqual(
         expect.objectContaining({ route: "/api/_vitehub/console/usage" }),
       );
