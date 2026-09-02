@@ -338,9 +338,10 @@ import "real"
     await finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })
 
     const scheduleBundle = await readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")
-    expect(scheduleBundle).toContain("./.vitehub/schedule/sources/workspace/report.txt")
+    const runtimeSource = scheduleBundle.match(/"(\.\/\.vitehub\/schedule\/sources\/workspace\/report\.txt)"/)?.[1]
+    expect(runtimeSource).toBe("./.vitehub/schedule/sources/workspace/report.txt")
     expect(scheduleBundle).not.toContain(publishedSource)
-    await expect(readFile(join(root, ".output/schedule/.vitehub/schedule/sources/workspace/report.txt"), "utf8")).resolves.toBe("retained source\n")
+    await expect(readFile(resolve(root, ".output", runtimeSource!), "utf8")).resolves.toBe("retained source\n")
   })
 
   it("accepts static imports of staged Deno Schedule output", async () => {

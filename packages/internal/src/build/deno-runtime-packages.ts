@@ -1479,7 +1479,7 @@ async function finalizeStagedDenoDeploymentOutput(
       destinations: [{
         files: [temporaryScheduleOutput],
         runtimeSourcesDir: "./.vitehub/schedule/sources",
-        sourcesDir: join(outputDir, "schedule/.vitehub/schedule/sources"),
+        sourcesDir: join(outputDir, ".vitehub/schedule/sources"),
       }],
       publishedSourcesDir: join(options.rootDir, ".vitehub/schedule/sources"),
     })
