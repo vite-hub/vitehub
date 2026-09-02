@@ -464,6 +464,10 @@ async function assertVercelRuntimeImportsResolveInside(
   expect(invalid, message).toEqual([])
 }
 
+function isRetainedProviderSource(file: string) {
+  return /(?:^|\/)\.vitehub\/(?:schedule|workflow)\/sources\//.test(file)
+}
+
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
   it("stages Node declarations for Deno from the packed facade", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-deno-consumer-"))
@@ -1099,7 +1103,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       const cloudflareSources = await readJavaScriptSources(join(appDir, "dist/app"))
       const cloudflareRuntimeSources = Object.fromEntries(Object.entries(cloudflareSources).filter(([file]) =>
-        !/(?:^|\/)\.vitehub\/(?:schedule|workflow)\/sources\//.test(file),
+        !isRetainedProviderSource(file),
       ))
       const cloudflareWrangler = JSON.parse(await readFile(join(appDir, "dist/app/wrangler.json"), "utf8")) as {
         compatibility_flags?: string[]
@@ -1174,7 +1178,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
       const vercelSources = await readJavaScriptSources(vercelFunctionsRoot)
       const vercelRuntimeSources = Object.fromEntries(Object.entries(vercelSources).filter(([file]) =>
-        !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
+        !isRetainedProviderSource(file) && !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
       ))
       await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,
