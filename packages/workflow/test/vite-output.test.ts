@@ -26,7 +26,7 @@ const workflowBackupRetirement = vi.hoisted<{
 }))
 
 const emptyDirectoryRemoval = vi.hoisted<{
-  behavior?: "removed" | "written"
+  behavior?: "removed" | "written-eexist" | "written-enotempty"
 }>(() => ({}))
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -51,9 +51,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       const behavior = emptyDirectoryRemoval.behavior
       if (behavior && /[\\/]\.well-known[\\/]workflow$/.test(path)) {
         emptyDirectoryRemoval.behavior = undefined
-        if (behavior === "written") {
+        if (behavior.startsWith("written-")) {
           await fs.writeFile(`${path}/concurrent.mjs`, "concurrent\n")
-          throw Object.assign(new Error("Workflow output is no longer empty"), { code: "ENOTEMPTY" })
+          const code = behavior === "written-eexist" ? "EEXIST" : "ENOTEMPTY"
+          throw Object.assign(new Error("Workflow output is no longer empty"), { code })
         }
         await fs.rmdir(...args)
         throw Object.assign(new Error("Workflow output was removed concurrently"), { code: "ENOENT" })
@@ -627,7 +628,8 @@ it("removes stale WDK functions and routes", async () => {
 })
 
 it.each([
-  ["preserves output written concurrently", "written", true],
+  ["preserves output written concurrently when rmdir reports ENOTEMPTY", "written-enotempty", true],
+  ["preserves output written concurrently when rmdir reports EEXIST", "written-eexist", true],
   ["accepts output removed concurrently", "removed", false],
 ] as const)("%s while pruning empty native Workflow directories", async (_name, behavior, remains) => {
   const rootDir = await createWorkspaceTempDir(`vitehub-workflow-concurrent-${behavior}-`)
