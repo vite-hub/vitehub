@@ -1,4 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineInternalTool } from "./internal.ts"
 
 import type {
@@ -76,7 +77,7 @@ function createPapercutId(): string {
 }
 
 function normalizePapercutMessage(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) {
+  if (!hasRuntimeType(value, "string") || !value.trim()) {
     throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
   }
   const message = value.trim()
@@ -90,7 +91,7 @@ export function papercuts<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (!options || typeof options.report !== "function") {
+  if (!options || !hasRuntimeType(options.report, "function")) {
     throw new TypeError("[vitehub] papercuts() requires a report callback.")
   }
   return defineCapability({

@@ -611,7 +611,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           WHERE ${filters.join(" AND ")} ORDER BY capability_id`,
       })
       return result.rows.flatMap((row) => {
-        return typeof row.capability_id === "string" ? [row.capability_id] : []
+        return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
       })
     },
     async release(id, claimId) {
