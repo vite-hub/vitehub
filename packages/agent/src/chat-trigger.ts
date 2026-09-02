@@ -349,18 +349,18 @@ export function resolveChatMessageRunMetadata(
   messages: readonly Pick<Message, "createdAt">[],
 ): AgentRunMetadata | undefined {
   if (!run) return
-  const annotations = { ...run.annotations }
-  delete annotations.triggeredBy
-  delete annotations["channel.sentAt"]
+  const inheritedAnnotations = { ...run.annotations }
+  delete inheritedAnnotations.triggeredBy
+  delete inheritedAnnotations["channel.sentAt"]
   const triggeredBy = invoker ? agentInvokerLabel(invoker) : undefined
   const sentAt = chatMessageSentAt(messages)
+  const annotations: AgentRunMetadata["annotations"] = {}
+  if (triggeredBy) annotations.triggeredBy = triggeredBy
+  if (sentAt) annotations["channel.sentAt"] = sentAt
+  Object.assign(annotations, inheritedAnnotations)
   return {
     ...run,
-    annotations: {
-      ...(triggeredBy ? { triggeredBy } : {}),
-      ...(sentAt ? { "channel.sentAt": sentAt } : {}),
-      ...annotations,
-    },
+    annotations,
   }
 }
 

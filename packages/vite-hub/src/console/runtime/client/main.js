@@ -18,6 +18,7 @@ import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
 
 const sectionsBase = "/api/_vitehub/console/sections";
+const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 const hostBase = "";
 
 const router = createRouter({
@@ -44,6 +45,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        capabilitiesBase,
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         hostBase,
@@ -60,6 +62,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        capabilitiesBase,
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         hostBase,
@@ -76,6 +79,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        capabilitiesBase,
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         hostBase,
@@ -149,6 +153,7 @@ const router = createRouter({
       props: {
         agentsBase: "/api/_vitehub/console/agents",
         apiBase: "/api/_vitehub/console/invocations",
+        capabilitiesBase,
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         hostBase,

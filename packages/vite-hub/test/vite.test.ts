@@ -585,6 +585,7 @@ describe("vitehub", () => {
       },
       runtimeCapabilityImports: {
         blob: "vite-hub/_internal/blob",
+        console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
         kv: "vite-hub/_internal/kv",
@@ -645,7 +646,7 @@ describe("vitehub", () => {
     }))
     vitehub({ agent: true, preset: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ db: false }),
+      runtimeCapabilityImports: expect.objectContaining({ console: false, db: false }),
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       implicitlyEnabled: true,
@@ -655,6 +656,11 @@ describe("vitehub", () => {
       hosting: "node-server",
       importBase: "vite-hub/_internal/workspace",
     })
+
+    vitehub({ agent: true, console: true, preset: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
+    }))
 
     vitehub({
       agent: { imports: false },

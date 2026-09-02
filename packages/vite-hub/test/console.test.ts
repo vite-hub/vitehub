@@ -7,7 +7,6 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { H3 } from "h3"
-import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -42,7 +41,7 @@ import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
 import invocationCapabilitiesHandler from "../src/console/runtime/server/invocation-capabilities.get.ts"
@@ -3678,23 +3677,29 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("exposes the Console invocation journal through Drizzle and builds invocation URLs", async () => {
+  it("exposes the Console invocation journal and builds invocation URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-drizzle-"))
     try {
       installConsoleInvocations(projectRoot)
       const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
       await runAgent(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
 
-      const { db, schema } = getConsoleInvocationsDatabase()
-      const [invocation] = await db.select().from(schema.invocations).orderBy(desc(schema.invocations.sequence)).limit(1)
+      const { invocations } = await getConsoleInvocations().list({ limit: 1 })
+      const [invocation] = invocations
       expect(invocation).toMatchObject({ agentName: "agent", status: "completed" })
+      if (!invocation?.agentName) throw new Error("Expected the Console Invocation to name its Agent")
+      const link = { agentName: invocation.agentName, id: invocation.id }
+
+      const requestless = consoleRuntime.resolve(runtime("console-requestless"))
+      expect(requestless.invocations).toBe(getConsoleInvocations())
+      expect(() => requestless.invocationUrl(link)).toThrow("require a request context")
 
       const resolved = consoleRuntime.resolve({
         ...runtime("console-link"),
         request: new Request("https://chat.example/api/agents/support"),
       })
-      expect(resolved.invocationUrl(invocation!)).toBe(
-        `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation!.id as string)}`,
+      expect(resolved.invocationUrl(link)).toBe(
+        `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
     }
     finally {

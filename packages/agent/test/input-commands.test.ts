@@ -23,7 +23,7 @@ describe("inputCommands", () => {
         commands: {
           debug: {
             async call({ context }) {
-              expect((context as typeof context & { diagnostics: typeof diagnosticsRuntime }).diagnostics).toBe(diagnosticsRuntime)
+              expect(context).toHaveProperty("diagnostics", diagnosticsRuntime)
               expect(context.invocation.id).toBe(await agentInvocationId(runId, "support"))
               return context.reply("https://chat.example/_vitehub/invocations/previous")
             },

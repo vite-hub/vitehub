@@ -325,6 +325,7 @@
           "timestamp": "2026-08-30T17:38:44.000Z",
           "trace": { "id": "trace_console_navigation" },
           "attributes": {
+            "capability.id": "browser",
             "tool.id": "browser-check",
             "tool.name": "Check responsive layout",
             "tool.output": {

@@ -1699,14 +1699,13 @@ function createManualDeliveryProgressUpdater(
   }
 
   const drain = async () => {
-    while (active && latest && manualDelivery.placeholder) {
-      const summary = latest
-      latest = undefined
-      await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
-        markdown: summary,
-      }).catch(() => false)
-      lastUpdateAt = Date.now()
-    }
+    if (!active || !latest || !manualDelivery.placeholder) return
+    const summary = latest
+    latest = undefined
+    await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
+      markdown: summary,
+    }).catch(() => false)
+    lastUpdateAt = Date.now()
   }
   const startDrain = () => {
     if (draining) return
@@ -3727,7 +3726,7 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
 }
 
 function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | undefined {
-  if (options?.final?.delivery === "new-message" || options?.finalDelivery === "new-message") return "new-message"
+  if (options?.final?.delivery === "new-message") return "new-message"
 }
 
 function isoDate(value: unknown): string | undefined {
@@ -4490,6 +4489,13 @@ function captureStaticChatFinishMessage(message: AgentChatMessage, capture: Chat
   capture.truncated = content.length > 16 * 1024
 }
 
+async function settleChatFinishDeliveryCallbacks(
+  callbacks: readonly ChatFinishDeliveryCallback[],
+  capture: ChatFinishDeliveryCapture,
+): Promise<void> {
+  for (const callback of callbacks) await callback(capture).catch(() => undefined)
+}
+
 function captureStreamedChatFinishMessage(
   source: AsyncIterable<string>,
   capture: ChatFinishDeliveryCapture,
@@ -4555,24 +4561,27 @@ async function flushChatFinishExtensionMessages(
         if (finalDelivery === "new-message") {
           try {
             await postChatMessage(thread, message, abortSignal)
-            if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
-            const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
-            manualDelivery.placeholderCleanup = placeholderCleanup
-            waitUntil(placeholderCleanup.finally(() => {
-              if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
-            }))
-            for (const callback of callbacks) await callback(capture)
-            continue
           }
           catch (postError) {
             abortSignal?.throwIfAborted()
             if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
               manualDelivery.placeholder = undefined
-              for (const callback of callbacks) await callback(capture)
+              await settleChatFinishDeliveryCallbacks(callbacks, capture)
               continue
             }
             throw postError
           }
+          if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+          const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
+          manualDelivery.placeholderCleanup = placeholderCleanup
+          try {
+            waitUntil(placeholderCleanup.finally(() => {
+              if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
+            }))
+          }
+          catch {}
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
+          continue
         }
         let deliveredToPlaceholder = false
         const placeholderCleanup = (async () => {
@@ -4595,7 +4604,7 @@ async function flushChatFinishExtensionMessages(
           }
         }
         if (deliveredToPlaceholder) {
-          for (const callback of callbacks) await callback(capture)
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
           continue
         }
       }
@@ -4603,7 +4612,7 @@ async function flushChatFinishExtensionMessages(
     }
     catch (error) {
       capture.error = error instanceof Error ? error.message : String(error)
-      for (const callback of callbacks) await callback(capture)
+      await settleChatFinishDeliveryCallbacks(callbacks, capture)
       const skippedCapture: ChatFinishDeliveryCapture = {
         content: "",
         skipped: `Skipped after an earlier queued reply failed: ${capture.error}`,
@@ -4611,11 +4620,11 @@ async function flushChatFinishExtensionMessages(
       }
       for (const skipped of messages.slice(index + 1)) {
         const skippedCallbacks = skipped.directCallback ? [skipped.directCallback, ...skipped.callbacks] : skipped.callbacks
-        for (const callback of skippedCallbacks) await callback(skippedCapture)
+        await settleChatFinishDeliveryCallbacks(skippedCallbacks, skippedCapture)
       }
       throw error
     }
-    for (const callback of callbacks) await callback(capture)
+    await settleChatFinishDeliveryCallbacks(callbacks, capture)
   }
 }
 
@@ -4626,7 +4635,7 @@ async function skipChatFinishExtensionMessages(chat: AgentChatQueuedFinishExtens
     const capture: ChatFinishDeliveryCapture = { content: "", skipped, truncated: false }
     captureStaticChatFinishMessage(queued.message, capture)
     const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
-    for (const callback of callbacks) await callback(capture)
+    await settleChatFinishDeliveryCallbacks(callbacks, capture)
   }
 }
 

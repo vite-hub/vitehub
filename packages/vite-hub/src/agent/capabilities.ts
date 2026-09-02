@@ -23,5 +23,6 @@ export interface ConsoleInputCommandsOptions extends Omit<InputCommandsOptions, 
 }
 
 export function inputCommands(options: ConsoleInputCommandsOptions): AgentCapabilityDefinition {
+  // SAFETY: The full-distribution wrapper supplies the Console Runtime Capability promised to these command callbacks.
   return baseInputCommands(options as InputCommandsOptions)
 }

@@ -2,7 +2,6 @@ import {
   createConsoleInvocations,
   createConsoleFixtureInvocations,
   getConsoleInvocations,
-  getConsoleInvocationsDatabase,
   installConsoleFixtureInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
@@ -17,7 +16,7 @@ import { getConsoleKV, installConsoleKV } from "./runtime/server/kv.ts"
 import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
 
-import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
+import type { AgentInvocations } from "@vite-hub/agent"
 import type { RuntimeHostContext } from "@vite-hub/runtime"
 
 export interface ConsoleInvocationLink {
@@ -26,20 +25,17 @@ export interface ConsoleInvocationLink {
 }
 
 export interface ConsoleRuntime {
-  invocations: ConsoleInvocationsDatabase
-  invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
+  invocations: AgentInvocations
+  invocationUrl: (invocation: ConsoleInvocationLink) => string
 }
 
 export const console = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
     const request = context.request
-    if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
     return {
-      invocations: getConsoleInvocationsDatabase(),
+      invocations: getConsoleInvocations(),
       invocationUrl(invocation) {
-        if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
-          throw new TypeError("[vitehub] Console invocation URLs require an invocation with agentName and id.")
-        }
+        if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
         const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
         const id = encodeURIComponent(invocation.id)
         return new URL(`/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
@@ -55,7 +51,6 @@ export {
   getConsoleAgents,
   getConsoleDefinitions,
   getConsoleInvocations,
-  getConsoleInvocationsDatabase,
   getConsoleKV,
   getConsoleSections,
   getConsoleProjectName,

@@ -129,6 +129,13 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
+  if (path === "/api/_vitehub/console/invocation-capabilities") {
+    json(response, {
+      capabilities: await invocations.listCapabilityIds(url.searchParams.get("agent") || undefined),
+    })
+    return true
+  }
+
   if (path === "/api/_vitehub/console/invocations") {
     const ids = url.searchParams.getAll("id")
     if (ids.length) {
@@ -138,6 +145,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     }
     const page = await invocations.list({
       agentName: url.searchParams.get("agent") || undefined,
+      capabilityId: url.searchParams.get("capability") || undefined,
       cursor: url.searchParams.get("cursor") || undefined,
       limit: Number(url.searchParams.get("limit")) || 50,
     })

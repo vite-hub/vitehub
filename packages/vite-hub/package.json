@@ -174,7 +174,6 @@
     "@cloudflare/workers-types": "^4.20260509.1",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
-    "@libsql/client": "catalog:database",
     "@microsoft/microsoft-graph-client": "catalog:storage",
     "@standard-schema/spec": "catalog:runtime",
     "@supabase/storage-js": "catalog:storage",
@@ -220,6 +219,7 @@
   "devDependencies": {
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
+    "@libsql/client": "catalog:database",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.8",
