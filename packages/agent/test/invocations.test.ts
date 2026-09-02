@@ -601,12 +601,20 @@ describe("Agent Invocations", () => {
     async (status) => {
       vi.useFakeTimers()
       let releaseCapabilityWrite: (() => void) | undefined
+      let releaseTerminalObservationWrite: (() => void) | undefined
       let rejectTerminalOutcome = true
       try {
         const memory = createMemoryAgentInvocationStore()
         const capabilityWriteReleased = new Promise<void>((resolve) => { releaseCapabilityWrite = resolve })
+        const terminalObservationWriteReleased = new Promise<void>((resolve) => {
+          releaseTerminalObservationWrite = resolve
+        })
         let reportCapabilityWriteStarted!: () => void
         const capabilityWriteStarted = new Promise<void>((resolve) => { reportCapabilityWriteStarted = resolve })
+        let reportTerminalObservationWriteStarted!: () => void
+        const terminalObservationWriteStarted = new Promise<void>((resolve) => {
+          reportTerminalObservationWriteStarted = resolve
+        })
         const invocations = defineAgentInvocations({
           store: {
             ...memory,
@@ -614,6 +622,10 @@ describe("Agent Invocations", () => {
               if (input.status === undefined && input.capabilityIds?.includes("late-capability")) {
                 reportCapabilityWriteStarted()
                 await capabilityWriteReleased
+              }
+              if (input.status === undefined && input.observation?.name === "agent.invocation.finish") {
+                reportTerminalObservationWriteStarted()
+                await terminalObservationWriteReleased
               }
               if (rejectTerminalOutcome && input.status === status && input.observation) {
                 rejectTerminalOutcome = false
@@ -639,13 +651,14 @@ describe("Agent Invocations", () => {
           type: "run",
         })
         await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
-        await capabilityWriteStarted
+        await Promise.all([capabilityWriteStarted, terminalObservationWriteStarted])
 
         const finishing = journal.finish(status, status === "failed" ? new Error("provider failed") : undefined)
         await vi.advanceTimersByTimeAsync(1_000)
         await finishing
         expect(rejectTerminalOutcome).toBe(false)
         releaseCapabilityWrite?.()
+        releaseTerminalObservationWrite?.()
         await vi.advanceTimersByTimeAsync(0)
 
         await expect(invocations.getByRunId(runId)).resolves.toMatchObject({
@@ -659,6 +672,7 @@ describe("Agent Invocations", () => {
       }
       finally {
         releaseCapabilityWrite?.()
+        releaseTerminalObservationWrite?.()
         vi.useRealTimers()
       }
     },
