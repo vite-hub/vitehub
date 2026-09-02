@@ -40,6 +40,27 @@ export interface ConsoleDatabase {
   total: number;
 }
 
+export function consoleDatabaseRequestQuery(input: {
+  database?: string;
+  direction: "asc" | "desc";
+  offset: number;
+  search: string;
+  sort: string;
+  table?: string;
+  view: "data" | "schema";
+}): Record<string, unknown> {
+  if (input.view === "schema") return { database: input.database };
+  return {
+    database: input.database,
+    direction: input.direction,
+    limit: 50,
+    offset: input.offset,
+    search: input.search || undefined,
+    sort: input.sort || undefined,
+    table: input.table,
+  };
+}
+
 const cellKinds = new Set<ConsoleDatabaseCell["kind"]>([
   "bigint",
   "boolean",

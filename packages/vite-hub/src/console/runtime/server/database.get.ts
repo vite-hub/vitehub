@@ -13,13 +13,13 @@ const maximumSearchLength = 512
 const maximumCellLength = 32 * 1_024
 const maximumBlobBytes = 8 * 1_024
 
-export interface ConsoleDatabaseCell {
+interface ConsoleDatabaseCell {
   kind: "bigint" | "boolean" | "bytes" | "date" | "json" | "null" | "number" | "text"
   truncated?: true
   value: string
 }
 
-export interface ConsoleDatabaseColumn {
+interface ConsoleDatabaseColumn {
   foreignKey?: { column: string; table: string }
   key: string
   name: string
@@ -29,12 +29,12 @@ export interface ConsoleDatabaseColumn {
   unique: boolean
 }
 
-export interface ConsoleDatabaseTable {
+interface ConsoleDatabaseTable {
   columns: ConsoleDatabaseColumn[]
   name: string
 }
 
-export interface ConsoleDatabaseRelationship {
+interface ConsoleDatabaseRelationship {
   from: { column: string; table: string }
   to: { column: string; table: string }
 }

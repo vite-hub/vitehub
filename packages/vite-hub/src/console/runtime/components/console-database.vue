@@ -7,7 +7,7 @@ import type { ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./consol
 import { requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
-import { parseConsoleDatabase } from "./console-database-model";
+import { consoleDatabaseRequestQuery, parseConsoleDatabase } from "./console-database-model";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
@@ -174,6 +174,10 @@ function routeParams(databaseName: string, table?: string): Record<string, strin
 }
 
 function resetTableState(): void {
+  if (filterTimer) {
+    clearTimeout(filterTimer);
+    filterTimer = undefined;
+  }
   filter.value = "";
   appliedSearch.value = "";
   sort.value = "";
@@ -189,15 +193,15 @@ async function loadDatabase(): Promise<void> {
   try {
     const value = parseConsoleDatabase(
       await requestConsole(props.databaseBase, {
-        query: {
+        query: consoleDatabaseRequestQuery({
           database: routeDatabase.value,
           direction: direction.value,
-          limit: 50,
           offset: offset.value,
-          search: appliedSearch.value || undefined,
-          sort: sort.value || undefined,
-          table: props.view === "data" ? routeTable.value : undefined,
-        },
+          search: appliedSearch.value,
+          sort: sort.value,
+          table: routeTable.value,
+          view: props.view,
+        }),
         signal: controller.signal,
       }),
     );
@@ -260,6 +264,7 @@ async function openSchema(): Promise<void> {
   const databaseName = database.value?.database ?? routeDatabase.value;
   if (!databaseName) return;
   sidebarOpen.value = false;
+  resetTableState();
   await router.push({
     name: resolveConsoleRouteName(route.name, schemaRouteName.value),
     params: props.section === "databases" ? { database: databaseName } : {},
@@ -305,7 +310,10 @@ onMounted(() => {
 watch(filter, applyFilter);
 watch(
   () => [route.params.database, route.params.table, props.view],
-  () => void loadDatabase(),
+  () => {
+    resetTableState();
+    void loadDatabase();
+  },
 );
 onBeforeUnmount(() => {
   request?.abort();

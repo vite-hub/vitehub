@@ -8,7 +8,10 @@ import {
   consoleDatabaseRegistryKey,
   consoleDatabaseRootKey,
 } from "../src/console/internal.ts";
-import { parseConsoleDatabase } from "../src/console/runtime/components/console-database-model.ts";
+import {
+  consoleDatabaseRequestQuery,
+  parseConsoleDatabase,
+} from "../src/console/runtime/components/console-database-model.ts";
 import consoleDatabaseHandler from "../src/console/runtime/server/database.get.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
 
@@ -60,6 +63,20 @@ afterEach(() => {
 });
 
 describe("Console database inspection", () => {
+  it("omits table controls from schema requests", () => {
+    expect(
+      consoleDatabaseRequestQuery({
+        database: "default",
+        direction: "desc",
+        offset: 50,
+        search: "Ada",
+        sort: "email",
+        table: "users",
+        view: "schema",
+      }),
+    ).toEqual({ database: "default" });
+  });
+
   it("lists schema metadata before reading a selected table", async () => {
     installConsoleDatabase("/project", { default: await database() }, ["default"]);
 

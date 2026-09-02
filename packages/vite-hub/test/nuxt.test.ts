@@ -1335,7 +1335,7 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-databases-schema", path: "/_vitehub/databases/:database/schema" }),
+        expect.objectContaining({ name: "vitehub-console-databases-schema", path: "/_vitehub/databases/:database/schema/diagram" }),
         expect.objectContaining({ name: "vitehub-console-databases", path: "/_vitehub/databases/:database?/:table?" }),
       ])
       expect(development.nuxt.options.nitro).toMatchObject({

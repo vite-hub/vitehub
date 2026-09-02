@@ -554,7 +554,7 @@ async function installConsole(
             {
               file: join(consoleRuntimeRoot, "pages/databases.vue"),
               name: "vitehub-console-databases-schema",
-              path: "/_vitehub/databases/:database/schema",
+              path: "/_vitehub/databases/:database/schema/diagram",
             },
             {
               file: join(consoleRuntimeRoot, "pages/databases.vue"),
