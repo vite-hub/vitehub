@@ -1513,6 +1513,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             let terminalOutcomePersisted = updated || terminalOutcome === undefined
             if (!updated && terminalOutcome !== undefined) {
               updated = await update({
+                ...(observedCapabilityIds.size ? { capabilityIds: [...observedCapabilityIds] } : {}),
                 ...(failure ? { error: failure } : {}),
                 status,
                 timestamp: finishInput.timestamp,
