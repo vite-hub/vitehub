@@ -350,7 +350,7 @@ export const MessageScrollerButton = defineComponent({
     return () => {
       const active = context.isScrollable.value && !context.atEnd.value;
       const content = slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓";
-      const children = typeof props.as === "string" ? content : { default: () => content };
+      const children = String(props.as) === props.as ? content : { default: () => content };
       return h(
         props.as,
         mergeProps({
