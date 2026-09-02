@@ -276,7 +276,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   ].join("\n")
 }
 
-function renderNetlifyScheduleFunction(file: string, registryFile: string, scheduleName: string, cron: string) {
+function renderNetlifyScheduleFunction(file: string, registryFile: string, scheduleName: string, cron: string, includedSourcesDir?: string) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -293,6 +293,7 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
     "}",
     "",
     "export const config = {",
+    ...(includedSourcesDir ? [`  includedFiles: [${JSON.stringify(`${includedSourcesDir}/**`)}],`] : []),
     `  schedule: ${JSON.stringify(cron)},`,
     "}",
     "",
@@ -564,6 +565,7 @@ export async function writeVercelScheduleFunctions(options: {
 export async function createNetlifyScheduleFunctionOutputs(options: {
   definitions: DiscoveredScheduleDefinition[]
   functionRoot: string
+  includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
   const definitions = staticScheduleDefinitions(options.definitions)
@@ -581,7 +583,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
       cron: crons.get(definition.name)!,
       file,
       name: definition.name,
-      source: renderNetlifyScheduleFunction(file, options.registryFile, definition.name, crons.get(definition.name)!),
+      source: renderNetlifyScheduleFunction(file, options.registryFile, definition.name, crons.get(definition.name)!, options.includedSourcesDir),
     }
   })
 }
@@ -595,6 +597,9 @@ async function writeNetlifyScheduleFunctions(options: {
 }) {
   options.signal?.throwIfAborted()
   const functionRoot = resolve(options.outputRoot, "functions")
+  const publishedSourcesDir = resolve(dirname(options.registryFile), "sources")
+  const netlifySourcesDir = resolve(options.outputRoot, "schedule", "sources")
+  const includedSourcesDir = relative(functionRoot, netlifySourcesDir).replace(/\\/g, "/")
   const stagedFunctionRoot = `${functionRoot}.pending`
   const backupFunctionRoot = `${functionRoot}.previous`
   await rm(stagedFunctionRoot, { force: true, recursive: true })
@@ -607,6 +612,7 @@ async function writeNetlifyScheduleFunctions(options: {
   const outputs = await createNetlifyScheduleFunctionOutputs({
     definitions: options.definitions,
     functionRoot: stagedFunctionRoot,
+    includedSourcesDir: existsSync(publishedSourcesDir) ? includedSourcesDir : undefined,
     registryFile: options.registryFile,
   })
   options.signal?.throwIfAborted()
@@ -618,6 +624,15 @@ async function writeNetlifyScheduleFunctions(options: {
     options.signal?.throwIfAborted()
     await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
   }
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: outputs.map(output => output.file),
+      runtimeSourcesDir: relative(options.rootDir, netlifySourcesDir).replace(/\\/g, "/"),
+      sourcesDir: netlifySourcesDir,
+    }],
+    publishedSourcesDir,
+    signal: options.signal,
+  })
   options.signal?.throwIfAborted()
   rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
@@ -642,6 +657,7 @@ async function writeCloudflareScheduleOutput(options: {
   bundleEntry: string
   crons: string[]
   rootDir: string
+  previousStateFile?: string
   stateFile: string
   signal?: AbortSignal
   sourceRootDir?: string
@@ -662,7 +678,7 @@ async function writeCloudflareScheduleOutput(options: {
   const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
-  const previousState = await readCloudflareOutputState(options.stateFile)
+  const previousState = await readCloudflareOutputState(options.previousStateFile ?? options.stateFile)
   options.signal?.throwIfAborted()
   const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
   const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
@@ -731,8 +747,8 @@ async function readCloudflareOutputState(file: string): Promise<CloudflareOutput
   }
 }
 
-async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string): Promise<void> {
-  const state = await readCloudflareOutputState(stateFile)
+async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string, previousStateFile = stateFile): Promise<void> {
+  const state = await readCloudflareOutputState(previousStateFile)
   if (!state) return
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   const configFile = resolve(outputRoot, "wrangler.json")
@@ -781,6 +797,9 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
   const hadPreviousGeneratedDir = coordinatesRetainedSources && existsSync(generatedDir)
   if (hadPreviousGeneratedDir) await rename(generatedDir, previousGeneratedDir)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
+  const previousCloudflareStateFile = hadPreviousGeneratedDir
+    ? resolve(previousGeneratedDir, cloudflareOutputStateFileName)
+    : cloudflareStateFile
   let publicationSettled = !coordinatesRetainedSources
   try {
     let artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
@@ -820,6 +839,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         bundleEntry: artifacts.cloudflareWorkerFile,
         crons: [...new Set(crons.values())],
         rootDir: options.rootDir,
+        previousStateFile: previousCloudflareStateFile,
         sourceRootDir: options.sourceRootDir,
         stateFile: cloudflareStateFile,
         signal: options.signal,
@@ -832,7 +852,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         rm(artifacts.denoCronFile, { force: true }),
         rm(artifacts.registryFile, { force: true }),
         rm(artifacts.vercelServerFile, { force: true }),
-        cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
+        cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile),
       ])
     }
     options.signal?.throwIfAborted()

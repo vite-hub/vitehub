@@ -8,6 +8,7 @@ import type { Plugin } from "esbuild"
 import { satisfies, validRange } from "semver"
 
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
+import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
 
 const builtinModuleNames = new Set([
   ...builtinModules,
@@ -1473,6 +1474,14 @@ async function finalizeStagedDenoDeploymentOutput(
       plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
+    })
+    await publishProviderSourcesToDeploymentOutputs({
+      destinations: [{
+        files: [temporaryScheduleOutput],
+        runtimeSourcesDir: "./.vitehub/schedule/sources",
+        sourcesDir: join(outputDir, "schedule/.vitehub/schedule/sources"),
+      }],
+      publishedSourcesDir: join(options.rootDir, ".vitehub/schedule/sources"),
     })
     assertSupportedRelocatedImports(await readFile(temporaryScheduleOutput, "utf8"), "Schedule bundle")
     const applicationOutput = join(outputDir, "main.ts")
