@@ -6,7 +6,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
@@ -84,6 +84,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   const fallbackEnvironment = {}
   const buildEnvironment = (context: { environment?: object } | undefined): object =>
     context?.environment ?? context ?? fallbackEnvironment
+  const shouldSkipProviderOutputEnvironment = (context: { environment?: { name?: string } } | undefined): boolean => {
+    const environmentName = context?.environment?.name
+    return Boolean(environmentName && environmentName !== "nitro" && resolved && hasNitroConfigContext(resolved))
+  }
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration): Record<string, string> {
     const database = getProviderRuntimeModule(providerOutput, "database", provider, generation)
@@ -197,9 +201,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       },
     },
     buildStart() {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       if (error) {
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
@@ -293,6 +299,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }
     },
     async renderError(error) {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       const environment = providerOutputGenerations.get(this) ?? buildEnvironment(this)
       await providerOutputGenerations.reset(this, providerOutput, error)
       const artifactDir = stagedArtifactDirs.get(environment)
@@ -305,6 +312,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       order: "post",
       sequential: true,
       async handler() {
+        if (shouldSkipProviderOutputEnvironment(this)) return
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
