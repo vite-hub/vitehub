@@ -22,9 +22,11 @@ export const AgentChat = defineComponent({
   setup(props, { attrs, slots }) {
     const defaults = useViteHubUI();
     return () => {
+      const composer = slots.composer?.();
       const messageSlots = Object.fromEntries(
         Object.entries(slots).filter(
-          ([name]) => name !== "default" && name !== "message" && name !== "scroll-button",
+          ([name]) =>
+            name !== "composer" && name !== "default" && name !== "message" && name !== "scroll-button",
         ),
       );
       return h(
@@ -86,6 +88,9 @@ export const AgentChat = defineComponent({
               { class: "vh-chat__scroll-button" },
               { default: () => slots["scroll-button"]?.() ?? "↓" },
             ),
+            composer?.length
+              ? h("div", { class: "vh-chat__composer", "data-slot": "chat-composer" }, composer)
+              : null,
             slots.default?.(),
           ],
         },
