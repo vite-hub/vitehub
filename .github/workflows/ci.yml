@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: ci
+  quality:
+    name: quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,14 +45,70 @@ jobs:
         env:
           VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
-      - run: vp run test:contracts
       - run: vp run examples:verify
-      - name: Package tests
-        run: vp run test
       - name: Docs links
         run: vp run --filter vitehub-docs test:links
-      - name: Consumer contracts
-        run: vp run test:consumer
+
+  contract-tests:
+    name: contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - run: vp run test:contracts
+
+  package-tests:
+    name: package tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - run: vp run test
+
+  consumer-contracts:
+    name: consumer contracts (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard:
+          - 1/3
+          - 2/3
+          - 3/3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - run: vp run test:consumer --shard=${{ matrix.shard }}
+
+  ci:
+    name: ci
+    if: ${{ always() }}
+    needs:
+      - quality
+      - contract-tests
+      - package-tests
+      - consumer-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI shard
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          CONTRACT_TESTS: ${{ needs.contract-tests.result }}
+          PACKAGE_TESTS: ${{ needs.package-tests.result }}
+          CONSUMER_CONTRACTS: ${{ needs.consumer-contracts.result }}
+        run: |
+          test "$QUALITY" = success
+          test "$CONTRACT_TESTS" = success
+          test "$PACKAGE_TESTS" = success
+          test "$CONSUMER_CONTRACTS" = success
 
   windows-agent-credentials:
     name: agent credentials (windows)
@@ -84,7 +140,7 @@ jobs:
 
   verify-providers:
     name: verify providers
-    needs: ci
+    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
