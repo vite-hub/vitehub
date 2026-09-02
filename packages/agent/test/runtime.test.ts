@@ -10664,6 +10664,11 @@ describe("agent message protocol", () => {
       { delta: "private commentary", id: "commentary-1", phase: "commentary", type: "text-delta" },
       { delta: "private commentary suffix", id: "commentary-1", type: "text-delta" },
       { id: "commentary-1", type: "text-end" },
+      { id: "transition-1", type: "text-start" },
+      { delta: "hidden transition", id: "transition-1", phase: "commentary", type: "text-delta" },
+      { delta: "visible transition", id: "transition-1", phase: "final", type: "text-delta" },
+      { delta: " visible suffix", id: "transition-1", type: "text-delta" },
+      { id: "transition-1", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
       { id: "text-1", type: "text-end" },
@@ -10718,7 +10723,10 @@ describe("agent message protocol", () => {
       !chunk.type.startsWith("reasoning-")
       && chunk.id !== "reasoning-2",
     ))
-    expect(hiddenCommentary).toEqual(chunks.filter(chunk => chunk.id !== "commentary-1"))
+    expect(hiddenCommentary).toEqual(chunks.filter(chunk =>
+      chunk.id !== "commentary-1"
+      && chunk.delta !== "hidden transition",
+    ))
     expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
     expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
       "visible",
@@ -10741,6 +10749,9 @@ describe("agent message protocol", () => {
           yield { delta: "commentary", id: "commentary-1", phase: "commentary", type: "text-delta" }
           yield { delta: " suffix", id: "commentary-1", type: "text-delta" }
           yield { id: "commentary-1", type: "text-end" }
+          yield { delta: "hidden transition", id: "transition-1", phase: "commentary", type: "text-delta" }
+          yield { delta: "visible transition", id: "transition-1", phase: "final", type: "text-delta" }
+          yield { delta: " visible suffix", id: "transition-1", type: "text-delta" }
           yield { delta: "public", id: "final-1", phase: "final", type: "text-delta" }
           yield { type: "finish" }
         },
@@ -10756,7 +10767,10 @@ describe("agent message protocol", () => {
     for await (const chunk of stream) chunks.push(chunk)
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("commentary") }))
-    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("suffix") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: " suffix" }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: "hidden transition" }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: "visible transition" }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: " visible suffix" }))
     expect(chunks).toContainEqual(expect.objectContaining({ delta: "public" }))
   })
 

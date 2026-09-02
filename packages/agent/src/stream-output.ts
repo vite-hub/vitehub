@@ -396,13 +396,20 @@ function projectUiMessageStream(
           pendingTextStarts.set(id, chunk)
           return
         }
-        if (isHiddenTextPhase(projection, text.phase) && id) {
-          pendingTextStarts.delete(id)
-          hiddenTextIds.add(id)
+        if (text.phase !== undefined && id) {
+          if (isHiddenTextPhase(projection, text.phase)) {
+            hiddenTextIds.add(id)
+          }
+          else {
+            hiddenTextIds.delete(id)
+          }
         }
         const hidden = isHiddenTextPhase(projection, text.phase) || Boolean(id && hiddenTextIds.has(id))
         if (type === "text-end" && id) hiddenTextIds.delete(id)
-        if (hidden) return
+        if (hidden) {
+          if (type === "text-end" && id) pendingTextStarts.delete(id)
+          return
+        }
         if (id && pendingTextStarts.has(id)) {
           controller.enqueue(pendingTextStarts.get(id))
           pendingTextStarts.delete(id)
@@ -451,7 +458,10 @@ async function writeEventsToUiMessageStream(
       if (type === "text-start" && id) {
         hiddenTextIds.delete(id)
       }
-      if (isHiddenTextPhase(options.projection, event.phase) && id) hiddenTextIds.add(id)
+      if (event.phase !== undefined && id) {
+        if (isHiddenTextPhase(options.projection, event.phase)) hiddenTextIds.add(id)
+        else hiddenTextIds.delete(id)
+      }
       const hidden = (options.projection.reasoning === "hidden" && type.startsWith("reasoning-"))
         || isHiddenTextPhase(options.projection, event.phase)
         || Boolean(id && hiddenTextIds.has(id))
