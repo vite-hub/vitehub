@@ -297,6 +297,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-frame.vue`,
       "utf8",
     );
+    const consoleSessionBootstrap = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-bootstrap.ts`,
+      "utf8",
+    );
     expect(consolePage).toMatch(
       /\[data-slot="invocation"\],[\s\S]*?\[data-slot="invocation-inspector"\]\s*\{[\s\S]*?height: 100%;[\s\S]*?width: 100%;[\s\S]*?\}/,
     );
@@ -350,12 +354,12 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain("watch: false");
     expect(consolePage).toContain("const initialBootstrapPending = ref(!selectedAgentName.value)");
-    expect(consolePage).toContain("if (!requestedAgent && !agentName)");
-    expect(consolePage).toContain("if (!firstInvocation) return");
-    expect(consolePage).toContain("selectedInvocationId.value = firstInvocation.id");
-    expect(consolePage).toContain("invocation: firstInvocation.id");
-    expect(consolePage).toContain("if (!requestedAgent && bootstrapPending) return");
-    expect(consolePage).toContain("currentAgent && names.includes(currentAgent)");
+    expect(consoleSessionBootstrap).toContain("options.firstInvocation");
+    expect(consoleSessionBootstrap).toContain(
+      "if (invocation.agentName) selectAgentName(invocation.agentName, true);",
+    );
+    expect(consoleSessionBootstrap).toContain("refreshAfterPreservedAgentSelection");
+    expect(consoleSessionBootstrap).toContain("selectAgentName(agentNames[0]!)");
     expect(consolePage.indexOf("if (pageVisible.value) void loadAgents();")).toBeLessThan(
       consolePage.indexOf("onMounted(() =>"),
     );

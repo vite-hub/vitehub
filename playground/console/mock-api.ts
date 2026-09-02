@@ -149,7 +149,14 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       cursor: url.searchParams.get("cursor") || undefined,
       limit: Number(url.searchParams.get("limit")) || 50,
     })
-    json(response, page)
+    json(response, {
+      ...page,
+      invocations: await Promise.all(page.invocations.map(async (item) => {
+        const record = await invocations.get(item.id)
+        const usage = record ? invocationUsage(record) : undefined
+        return { ...item, ...(usage ? { usage } : {}) }
+      })),
+    })
     return true
   }
 

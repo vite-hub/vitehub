@@ -168,7 +168,10 @@ watch(
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
-    context: agentInvocationContext(invocation),
+    context:
+      [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ") || undefined,
     description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
@@ -228,6 +231,8 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   return view;
 });
 const selectedDisplay = computed(() => invocationView.value ?? selectedSummary.value);
+const selectedCost = computed(() => invocationCostDisplay(selectedDisplay.value));
+const selectedTokens = computed(() => invocationTokenDisplay(selectedDisplay.value));
 const selectedTitle = computed(() =>
   selectedDisplay.value
     ? agentInvocationTitle(selectedDisplay.value)
@@ -359,6 +364,27 @@ function stringValue(value: unknown): string | undefined {
 function numericValue(value: unknown): number | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function invocationUsage(value: unknown): Record<string, unknown> | undefined {
+  return record(record(value)?.usage);
+}
+
+function invocationCostDisplay(value: unknown): string | undefined {
+  const cost = record(invocationUsage(value)?.cost);
+  return stringValue(cost?.display);
+}
+
+function invocationTokenDisplay(value: unknown): string | undefined {
+  const total = numericValue(invocationUsage(value)?.totalTokens);
+  return total === undefined ? undefined : formatTokens(total);
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: 1,
+    notation: value >= 10_000 ? "compact" : "standard",
+  }).format(value);
 }
 
 function invocationConfiguration(value: unknown): AgentInvocationConfiguration | undefined {
@@ -1136,6 +1162,7 @@ onBeforeUnmount(() => {
             <template #thread>
               <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
                 <ConsoleSessionNavbar
+                  :cost="selectedCost"
                   :details-open="detailsOpen"
                   :external-url="selectedExternalUrl"
                   :has-display="Boolean(selectedDisplay)"
@@ -1143,6 +1170,7 @@ onBeforeUnmount(() => {
                   :loading="refreshing"
                   :project="selectedProject"
                   :title="selectedTitle"
+                  :tokens="selectedTokens"
                   @open-sessions="sessionsOpen = true"
                   @refresh="refresh"
                   @toggle-details="detailsOpen = !detailsOpen"
@@ -1224,6 +1252,7 @@ onBeforeUnmount(() => {
           </USplitter>
           <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
             <ConsoleSessionNavbar
+              :cost="selectedCost"
               :details-open="detailsOpen"
               :external-url="selectedExternalUrl"
               :has-display="Boolean(selectedDisplay)"
@@ -1231,6 +1260,7 @@ onBeforeUnmount(() => {
               :loading="refreshing"
               :project="selectedProject"
               :title="selectedTitle"
+              :tokens="selectedTokens"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
               @toggle-details="detailsOpen = !detailsOpen"

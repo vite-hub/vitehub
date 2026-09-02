@@ -2115,6 +2115,50 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("includes projected usage in Console session summaries", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "chat",
+      annotations: { "agent.model.id": "claude-sonnet-4-5" },
+      completedAt: "2026-08-23T12:01:00.000Z",
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "usage-summary",
+      observations: [{
+        attributes: {
+          "usage.record": {
+            cost: {
+              display: "$0.03",
+              estimated: false,
+              source: "provider",
+              usd: "0.03",
+            },
+            usage: { totalTokens: 42 },
+          },
+        },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-23T12:01:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-usage-summary",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{
+        id: "usage-summary",
+        usage: {
+          cost: { display: "$0.03" },
+          model: "claude-sonnet-4-5",
+          totalTokens: 42,
+        },
+      }],
+    })
+  })
+
   it("returns only observations after a matching detail prefix", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({

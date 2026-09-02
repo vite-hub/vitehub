@@ -1,8 +1,19 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { AgentInvocationListOptions, AgentInvocationListResult, AgentInvocationRecordStatus } from "@vite-hub/agent"
+import type {
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+} from "@vite-hub/agent"
+
+type ConsoleInvocationSummary = AgentInvocationSummary & {
+  usage?: ReturnType<typeof invocationUsage>
+}
 
 interface ConsoleInvocationCursor {
   done?: string | null
@@ -56,6 +67,19 @@ async function listLifecyclePage(
   if (capabilityId) options.capabilityId = capabilityId
   if (cursor !== null && cursor !== undefined) options.cursor = cursor
   return getConsoleInvocations().list(options)
+}
+
+async function summaryWithUsage(
+  invocations: AgentInvocations,
+  summary: AgentInvocationSummary,
+): Promise<ConsoleInvocationSummary> {
+  const record = await invocations.get(summary.id)
+  if (!record) return summary
+  const usage = invocationUsage(record)
+  return {
+    ...summary,
+    ...(usage ? { usage } : {}),
+  }
 }
 
 const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
@@ -230,13 +254,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const historyIds = new Set(history.invocations.map(invocation => invocation.id))
   const doneIds = new Set(done.invocations.map(invocation => invocation.id))
   const workingIds = new Set(working.invocations.map(invocation => invocation.id))
+  const invocations = getConsoleInvocations()
   const result: AgentInvocationListResult = {
-    invocations: [
+    invocations: await Promise.all([
       ...working.invocations.filter(invocation => !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
       ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
       ...done.invocations.filter(invocation => !historyIds.has(invocation.id)),
       ...history.invocations,
-    ],
+    ].map(summary => summaryWithUsage(invocations, summary))),
     remainingStatuses: [...new Set<AgentInvocationRecordStatus>([
       ...("working" in next ? ["running" as const] : []),
       ...("queued" in next ? ["pending" as const] : []),

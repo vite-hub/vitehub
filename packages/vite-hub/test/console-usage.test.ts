@@ -26,6 +26,16 @@ function invocationRecord(usage: Record<string, unknown>) {
 }
 
 describe("Console usage projection", () => {
+  it("uses the configured invocation model when provider usage omits it", () => {
+    expect(invocationUsage({
+      ...invocationRecord({ totalTokens: 10 }),
+      annotations: { "agent.model.id": "claude-sonnet-4-5" },
+    })).toEqual({
+      model: "claude-sonnet-4-5",
+      totalTokens: 10,
+    })
+  })
+
   it("reads reasoning tokens from fallback usage details", () => {
     expect(invocationUsage(invocationRecord({
       details: { reasoningOutputTokens: 4 },
