@@ -1970,6 +1970,36 @@ cli_auth_credentials_store = "keyring"
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("uses only post-tool final text for provider generation", async () => {
+    const threadId = "thread-post-tool-final"
+    runtime(threadId, [
+      event("content.delta", threadId, {
+        delta: "I’ll check the connected source.",
+        streamKind: "assistant_text",
+      }, { turnId: "turn-1" }),
+      event("item.started", threadId, {
+        data: { item: { action: null, type: "webSearch" } },
+        itemType: "web_search",
+        title: "Web search",
+      }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { item: { action: { queries: ["current documentation"], type: "search" }, type: "webSearch" } },
+        itemType: "web_search",
+        status: "completed",
+        title: "Web search",
+      }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("content.delta", threadId, {
+        delta: "The current documentation confirms it.",
+        streamKind: "assistant_text",
+      }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never))
+      .resolves.toMatchObject({ text: "The current documentation confirms it." })
+  })
+
   it("preserves Capability action annotations from provider-native tool items", async () => {
     const threadId = "thread-actions"
     runtime(threadId, [

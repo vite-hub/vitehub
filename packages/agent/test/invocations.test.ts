@@ -1200,6 +1200,30 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
+  it("keeps the newest messages when bounded invocation input is truncated", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("bounded-input-messages"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const messages = Array.from({ length: 40 }, (_, index) => ({
+      content: `message-${index + 1}`,
+      role: "user",
+    }))
+
+    await journal.context.traceLog?.append({
+      attributes: { "input.messages": messages },
+      name: "agent.invocation.started",
+      type: "lifecycle",
+    })
+    await journal.finish("completed")
+
+    const started = (await invocations.getByRunId("bounded-input-messages"))?.observations
+      .find(entry => entry.name === "agent.invocation.started")
+    expect(started?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(started?.attributes?.["input.messages"]).toEqual(
+      messages.slice(-32),
+    )
+  })
+
   it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const saturatedAnnotations = Object.fromEntries(

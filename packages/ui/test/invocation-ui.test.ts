@@ -837,6 +837,49 @@ describe("Agent Invocation UI", () => {
     });
   });
 
+  it("previews the semantic action from provider web-search payloads", () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "provider-web-search",
+      observations: [
+        {
+          attributes: {
+            "tool.id": "web-1",
+            "tool.input": { item: { action: null, query: "", type: "webSearch" } },
+            "tool.name": "Web search",
+          },
+          name: "agent.tool.start",
+          sequence: 1,
+          timestamp,
+          type: "run" as const,
+        },
+        {
+          attributes: {
+            "tool.id": "web-1",
+            "tool.name": "Web search",
+            "tool.output": {
+              completedAtMs: 1,
+              item: {
+                action: { queries: ["Microsoft Teams message formatting"], type: "search" },
+                type: "webSearch",
+              },
+            },
+          },
+          name: "agent.tool.finish",
+          sequence: 2,
+          timestamp,
+          type: "run" as const,
+        },
+      ],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation)[0]?.preview).toBe("Microsoft Teams message formatting");
+  });
+
   it("explores structured tool payloads and selects a timed trace activity", async () => {
     const invocation = {
       completedAt: "2026-08-22T00:00:03.000Z",

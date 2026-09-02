@@ -489,6 +489,19 @@ export function appendLatestFinalText(
   }
 }
 
+export function latestFinalTextAfterEvent(
+  text: string,
+  identity: string | undefined,
+  event: StreamEvent,
+): { identity: string | undefined, text: string } {
+  if (event.type === "tool-call" || event.type === "tool-input-start" || event.type === "tool-result") {
+    return { identity: undefined, text: "" }
+  }
+  return event.type === "text-delta" && event.phase === "final"
+    ? appendLatestFinalText(text, identity, event)
+    : { identity, text }
+}
+
 function optionalDurationMs(durationMs: number | undefined): { durationMs?: number } {
   return durationMs === undefined ? {} : { durationMs }
 }

@@ -13,7 +13,7 @@ import { createProviderRuntime, createSqliteProviderRuntimeSessionStore } from "
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
-import { streamAgentOutputToEvents } from "./agent-output.ts"
+import { latestFinalTextAfterEvent, streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
@@ -2449,6 +2449,7 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): Promise<AgentAdapterResult> {
   let text = ""
+  let textId: string | undefined
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
   const tracer = context.runtime.traceLog
@@ -2464,8 +2465,10 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
   try {
     for await (const event of iterable) {
       await tracer?.write(event)
-      if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
-      else if (event.type === "usage") usageRecord = event.usageRecord
+      const nextText = latestFinalTextAfterEvent(text, textId, event)
+      text = nextText.text
+      textId = nextText.identity
+      if (event.type === "usage") usageRecord = event.usageRecord
       else if (event.type === "finish") finishReason = event.reason
       else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
     }

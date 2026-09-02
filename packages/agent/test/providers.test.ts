@@ -16096,6 +16096,63 @@ describe("server helpers", () => {
     })
   })
 
+  it("discards id-less pre-tool narration from a manual final reply", { timeout: 30_000 }, async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            delivery: "manual",
+            fallbackStreamingPlaceholderText: "Loading…",
+            stream: false,
+          },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield {
+              delta: "I’ll check the connected source.",
+              phase: "final",
+              type: "text-delta",
+            }
+            yield {
+              input: { query: "current documentation" },
+              name: "web_search",
+              toolCallId: "tool-1",
+              type: "tool-call",
+            }
+            yield {
+              output: { results: [{ title: "Current documentation" }] },
+              toolCallId: "tool-1",
+              type: "tool-result",
+            }
+            yield { delta: "The current documentation confirms it.", phase: "final", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply(event.text ?? ""),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(99_918), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: "The current documentation confirms it.",
+    })
+  })
+
   it("does not block manual completion on a hanging progress edit", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

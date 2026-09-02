@@ -603,7 +603,13 @@ function boundedObservationAttributeValue(
   const maxDepth = budget.maxDepth
   if (key === "vitehub.agent.configuration") budget.maxDepth = MAX_AGENT_CONFIGURATION_DEPTH
   try {
-    return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
+    const boundedValue = key === "input.messages"
+      && Array.isArray(value)
+      && value.length > MAX_OBSERVATION_COLLECTION_ITEMS
+      ? value.slice(-MAX_OBSERVATION_COLLECTION_ITEMS)
+      : value
+    if (boundedValue !== value) budget.truncated = true
+    return boundedObservationValue(boundedValue, budget, 0, maxStringLength, builtIns)
   }
   finally {
     budget.maxDepth = maxDepth

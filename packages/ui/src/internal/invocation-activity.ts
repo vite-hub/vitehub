@@ -190,7 +190,16 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
   for (const key of ["tool.output", "tool.input"]) {
     const payload = record(attributes[key]);
     const item = record(payload?.item) ?? payload;
-    const detail = item && stringAttribute(item, "detail", "summary", "output", "query", "path");
+    const action = record(item?.action);
+    const actionQuery = Array.isArray(action?.queries)
+      ? action.queries.find(value => hasRuntimeType(value, "string") && value.trim())
+      : undefined;
+    const detail = item && (
+      stringAttribute(item, "detail", "summary", "output", "query", "path")
+      ?? stringAttribute(action ?? {}, "query")
+      ?? (hasRuntimeType(actionQuery, "string") ? actionQuery.trim() : undefined)
+      ?? stringAttribute(action ?? {}, "pattern", "url")
+    );
     if (detail) return detail.split(/\r?\n/).find(Boolean)?.trim();
   }
   return stringAttribute(attributes, "tool.detail", "tool.output.summary", "vitehub.activity.detail");
