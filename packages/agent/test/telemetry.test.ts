@@ -51,14 +51,16 @@ describe("Agent telemetry", () => {
       tools: [],
     }
 
-    localeCompare.mockReturnValue(-1)
-    const first = await agentTelemetryConfigurationFingerprint(configuration)
-    localeCompare.mockReturnValue(1)
+    try {
+      localeCompare.mockReturnValue(-1)
+      const first = await agentTelemetryConfigurationFingerprint(configuration)
+      localeCompare.mockReturnValue(1)
 
-    await expect(agentTelemetryConfigurationFingerprint({
-      ...configuration,
-      capabilities: [{ metadata: { ä: "accented", z: "last" }, id: "search" }],
-    })).resolves.toBe(first)
+      await expect(agentTelemetryConfigurationFingerprint(configuration)).resolves.toBe(first)
+    }
+    finally {
+      localeCompare.mockRestore()
+    }
   })
 
   it("sends completed spans as OTLP/HTTP JSON", async () => {

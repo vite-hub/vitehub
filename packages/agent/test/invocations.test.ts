@@ -596,6 +596,67 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "persists post-capacity Capability use when its first write stalls before %s finalization",
+    async (status) => {
+      vi.useFakeTimers()
+      let releaseCapabilityWrite: (() => void) | undefined
+      try {
+        const memory = createMemoryAgentInvocationStore()
+        const capabilityWriteReleased = new Promise<void>((resolve) => { releaseCapabilityWrite = resolve })
+        let reportCapabilityWriteStarted!: () => void
+        const capabilityWriteStarted = new Promise<void>((resolve) => { reportCapabilityWriteStarted = resolve })
+        const invocations = defineAgentInvocations({
+          store: {
+            ...memory,
+            async update(id, input, claimId) {
+              if (input.status === undefined && input.capabilityIds?.includes("late-capability")) {
+                reportCapabilityWriteStarted()
+                await capabilityWriteReleased
+              }
+              return memory.update(id, input, claimId)
+            },
+          },
+        })
+        const runId = `stalled-capability-${status}`
+        const journal = await bindAgentInvocations(invocations, runtime(runId))
+        if (!journal) throw new Error("Expected the invocation journal to be configured.")
+        await journal.running()
+        for (let observation = 0; observation < 256; observation++) {
+          await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
+        }
+        await vi.waitFor(async () => {
+          expect((await invocations.getByRunId(runId))?.observations).toHaveLength(256)
+        })
+        await journal.context.traceLog?.append({
+          attributes: { "capability.id": "late-capability" },
+          name: "agent.tool.start",
+          type: "run",
+        })
+        await capabilityWriteStarted
+
+        const finishing = journal.finish(status, status === "failed" ? new Error("provider failed") : undefined)
+        await vi.advanceTimersByTimeAsync(1_000)
+        await finishing
+        releaseCapabilityWrite?.()
+        await vi.advanceTimersByTimeAsync(0)
+
+        await expect(invocations.getByRunId(runId)).resolves.toMatchObject({
+          capabilityIds: ["late-capability"],
+          observationsTruncated: true,
+          status,
+        })
+        await expect(invocations.list({ capabilityId: "late-capability" })).resolves.toMatchObject({
+          invocations: [{ id: expect.any(String), status }],
+        })
+      }
+      finally {
+        releaseCapabilityWrite?.()
+        vi.useRealTimers()
+      }
+    },
+  )
+
   it("lists distinct Agent names without paging through invocation summaries", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
