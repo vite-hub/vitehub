@@ -75,21 +75,25 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { hubWorkflow } from "../src/vite.ts"
 
 function functionHook(hook: unknown, name: string): (...args: unknown[]) => unknown {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects at this test boundary.
   if (typeof hook !== "function") throw new TypeError(`Expected ${name} hook`)
+  // SAFETY: The runtime check above proves this Vite hook is callable.
   return hook as (...args: unknown[]) => unknown
 }
 
 function closeBundleHook(plugin: ReturnType<typeof hubWorkflow>): (...args: unknown[]) => unknown {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects at this test boundary.
   if (!plugin.closeBundle || typeof plugin.closeBundle === "function") throw new TypeError("Expected closeBundle object hook")
   return functionHook(plugin.closeBundle.handler, "closeBundle")
 }
 
-function createPlugin(options: { nitroPlugin?: boolean; viteHubNitroContext?: boolean } = {}) {
+function createPlugin(options: { finalNitroEnvironment?: boolean; nitroPlugin?: boolean; viteHubNitroContext?: boolean } = {}) {
   const plugin = hubWorkflow()
   functionHook(plugin.configResolved, "configResolved")({
     [VITEHUB_NITRO_CONFIG_CONTEXT]: options.viteHubNitroContext,
     build: { outDir: "dist" },
     command: "build",
+    environments: options.finalNitroEnvironment ? { nitro: {} } : {},
     plugins: options.nitroPlugin ? [{ name: "nitro:main" }] : [],
     resolve: { alias: [] },
     root: "/project",
@@ -116,8 +120,37 @@ beforeEach(() => {
 })
 
 describe("Workflow Provider Output lifecycle", () => {
-  it.each(["client", "ssr"])("skips successful Nuxt %s environment work", async (environmentName) => {
-    await runSuccessfulProviderLifecycle(createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), environmentName)
+  it("keeps Provider Output work in the Nuxt 4 SSR environment", async () => {
+    const plugin = createPlugin({ nitroPlugin: true, viteHubNitroContext: true })
+    await runSuccessfulProviderLifecycle(plugin, "client")
+
+    expect(lifecycle.capture).not.toHaveBeenCalled()
+    expect(lifecycle.retainSources).not.toHaveBeenCalled()
+    expect(lifecycle.writeProviderEntries).not.toHaveBeenCalled()
+    expect(lifecycle.contribute).not.toHaveBeenCalled()
+    expect(lifecycle.finalize).not.toHaveBeenCalled()
+
+    await runSuccessfulProviderLifecycle(plugin, "ssr")
+
+    expect(lifecycle.capture).toHaveBeenCalledOnce()
+    expect(lifecycle.retainSources).toHaveBeenCalledOnce()
+    expect(lifecycle.writeProviderEntries).toHaveBeenCalledOnce()
+    expect(lifecycle.contribute).toHaveBeenCalledOnce()
+    expect(lifecycle.finalize).toHaveBeenCalledOnce()
+  })
+
+  it("cleans staged Provider Output after a Nuxt 4 SSR render failure", async () => {
+    await runRenderFailureLifecycle(createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), "ssr")
+
+    expect(lifecycle.capture).toHaveBeenCalledOnce()
+    expect(lifecycle.retainSources).toHaveBeenCalledOnce()
+    expect(lifecycle.reset).toHaveBeenCalledOnce()
+    expect(lifecycle.removeArtifactDir).toHaveBeenCalledOnce()
+    expect(lifecycle.finalize).not.toHaveBeenCalled()
+  })
+
+  it.each(["client", "ssr"])("skips successful Nuxt 5 %s environment work", async (environmentName) => {
+    await runSuccessfulProviderLifecycle(createPlugin({ finalNitroEnvironment: true, nitroPlugin: true, viteHubNitroContext: true }), environmentName)
 
     expect(lifecycle.capture).not.toHaveBeenCalled()
     expect(lifecycle.retainSources).not.toHaveBeenCalled()
@@ -126,8 +159,8 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.finalize).not.toHaveBeenCalled()
   })
 
-  it.each(["client", "ssr"])("skips Nuxt %s environment render cleanup", async (environmentName) => {
-    await runRenderFailureLifecycle(createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), environmentName)
+  it.each(["client", "ssr"])("skips Nuxt 5 %s environment render cleanup", async (environmentName) => {
+    await runRenderFailureLifecycle(createPlugin({ finalNitroEnvironment: true, nitroPlugin: true, viteHubNitroContext: true }), environmentName)
 
     expect(lifecycle.capture).not.toHaveBeenCalled()
     expect(lifecycle.retainSources).not.toHaveBeenCalled()
@@ -136,7 +169,7 @@ describe("Workflow Provider Output lifecycle", () => {
   })
 
   it("runs Provider Output work in the final Nitro environment", async () => {
-    await runSuccessfulProviderLifecycle(createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), "nitro")
+    await runSuccessfulProviderLifecycle(createPlugin({ finalNitroEnvironment: true, nitroPlugin: true, viteHubNitroContext: true }), "nitro")
 
     expect(lifecycle.capture).toHaveBeenCalledOnce()
     expect(lifecycle.retainSources).toHaveBeenCalledOnce()
@@ -147,7 +180,7 @@ describe("Workflow Provider Output lifecycle", () => {
   })
 
   it("cleans staged Provider Output after a final Nitro render failure", async () => {
-    await runRenderFailureLifecycle(createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), "nitro")
+    await runRenderFailureLifecycle(createPlugin({ finalNitroEnvironment: true, nitroPlugin: true, viteHubNitroContext: true }), "nitro")
 
     expect(lifecycle.capture).toHaveBeenCalledOnce()
     expect(lifecycle.retainSources).toHaveBeenCalledOnce()

@@ -74,6 +74,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  let hasFinalNitroEnvironment = false
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -86,8 +87,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     context?.environment ?? context ?? fallbackEnvironment
   const shouldSkipProviderOutputEnvironment = (context: { environment?: { name?: string } } | undefined): boolean => {
     const environmentName = context?.environment?.name
-    const viteHubNitroContext = (resolved as ResolvedConfig & { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean } | undefined)?.[VITEHUB_NITRO_CONFIG_CONTEXT] === true
-    return Boolean(environmentName && environmentName !== "nitro" && viteHubNitroContext)
+    const viteHubNitroContext = resolved && Reflect.get(resolved, VITEHUB_NITRO_CONFIG_CONTEXT) === true
+    const ownerEnvironment = hasFinalNitroEnvironment ? "nitro" : "ssr"
+    return Boolean(environmentName && environmentName !== ownerEnvironment && viteHubNitroContext)
   }
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration): Record<string, string> {
@@ -171,6 +173,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     configResolved(config) {
       resolved = config
+      hasFinalNitroEnvironment = Boolean(config.environments.nitro)
       providerOutput = useProviderOutputCatalog(config)
       workflow = config.workflow ?? workflow
     },
