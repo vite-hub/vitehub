@@ -173,7 +173,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     configResolved(config) {
       resolved = config
-      hasFinalNitroEnvironment = Boolean(config.environments.nitro)
+      hasFinalNitroEnvironment = Boolean(config.environments?.nitro)
       providerOutput = useProviderOutputCatalog(config)
       workflow = config.workflow ?? workflow
     },

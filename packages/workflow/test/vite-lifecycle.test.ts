@@ -91,9 +91,9 @@ function createPlugin(options: { finalNitroEnvironment?: boolean; nitroPlugin?: 
   const plugin = hubWorkflow()
   functionHook(plugin.configResolved, "configResolved")({
     [VITEHUB_NITRO_CONFIG_CONTEXT]: options.viteHubNitroContext,
+    ...(options.finalNitroEnvironment ? { environments: { nitro: {} } } : {}),
     build: { outDir: "dist" },
     command: "build",
-    environments: options.finalNitroEnvironment ? { nitro: {} } : {},
     plugins: options.nitroPlugin ? [{ name: "nitro:main" }] : [],
     resolve: { alias: [] },
     root: "/project",
