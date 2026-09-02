@@ -25,6 +25,10 @@ const workflowBackupRetirement = vi.hoisted<{
   options: undefined,
 }))
 
+const emptyDirectoryRemoval = vi.hoisted<{
+  behavior?: "removed" | "written"
+}>(() => ({}))
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>()
   return {
@@ -41,6 +45,20 @@ vi.mock("node:fs/promises", async (importOriginal) => {
         throw Object.assign(new Error("Workflow backup is busy"), { code: "EBUSY" })
       }
       return await fs.rm(...args)
+    },
+    async rmdir(...args: Parameters<typeof fs.rmdir>) {
+      const path = String(args[0])
+      const behavior = emptyDirectoryRemoval.behavior
+      if (behavior && /[\\/]\.well-known[\\/]workflow$/.test(path)) {
+        emptyDirectoryRemoval.behavior = undefined
+        if (behavior === "written") {
+          await fs.writeFile(`${path}/concurrent.mjs`, "concurrent\n")
+          throw Object.assign(new Error("Workflow output is no longer empty"), { code: "ENOTEMPTY" })
+        }
+        await fs.rmdir(...args)
+        throw Object.assign(new Error("Workflow output was removed concurrently"), { code: "ENOENT" })
+      }
+      return await fs.rmdir(...args)
     },
   }
 })
@@ -606,6 +624,25 @@ it("removes stale WDK functions and routes", async () => {
 
   expect(existsSync(workflowRoot)).toBe(false)
   expect(JSON.parse(await readFile(configFile, "utf8")).routes).toEqual([{ src: "/user", dest: "/user" }])
+})
+
+it.each([
+  ["preserves output written concurrently", "written", true],
+  ["accepts output removed concurrently", "removed", false],
+] as const)("%s while pruning empty native Workflow directories", async (_name, behavior, remains) => {
+  const rootDir = await createWorkspaceTempDir(`vitehub-workflow-concurrent-${behavior}-`)
+  const workflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  await mkdir(workflowRoot, { recursive: true })
+  await writeFile(join(workflowRoot, "stale.mjs"), "stale\n")
+  await writeViteHubWorkflowOwnership(workflowRoot, ["stale.mjs"], [])
+  emptyDirectoryRemoval.behavior = behavior
+
+  await cleanVercelNativeWorkflowOutput(rootDir)
+
+  expect(existsSync(workflowRoot)).toBe(remains)
+  if (remains) {
+    await expect(readFile(join(workflowRoot, "concurrent.mjs"), "utf8")).resolves.toBe("concurrent\n")
+  }
 })
 
 it("preserves WDK output that replaced a prior ViteHub build", async () => {

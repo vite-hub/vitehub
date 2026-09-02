@@ -374,7 +374,15 @@ async function removeEmptyDirectories(directory: string): Promise<boolean> {
     if (entry.isDirectory()) await removeEmptyDirectories(resolve(directory, entry.name))
   }
   if ((await readdir(directory)).length) return false
-  await rmdir(directory)
+  try {
+    await rmdir(directory)
+  }
+  catch (error) {
+    // Another provider finalizer may create or remove the directory after the emptiness check.
+    if ((error as NodeJS.ErrnoException).code === "ENOTEMPTY") return false
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true
+    throw error
+  }
   return true
 }
 
