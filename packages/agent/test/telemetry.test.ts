@@ -41,6 +41,26 @@ describe("Agent telemetry", () => {
     })).not.toBe(leftFingerprint)
   })
 
+  it("fingerprints non-ASCII metadata keys independently of the host locale", async () => {
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare")
+    const configuration = {
+      capabilities: [{ id: "search", metadata: { z: "last", ä: "accented" } }],
+      driver: { kind: "model" as const },
+      instructions: [],
+      runtime: { name: "unknown" },
+      tools: [],
+    }
+
+    localeCompare.mockReturnValue(-1)
+    const first = await agentTelemetryConfigurationFingerprint(configuration)
+    localeCompare.mockReturnValue(1)
+
+    await expect(agentTelemetryConfigurationFingerprint({
+      ...configuration,
+      capabilities: [{ metadata: { ä: "accented", z: "last" }, id: "search" }],
+    })).resolves.toBe(first)
+  })
+
   it("sends completed spans as OTLP/HTTP JSON", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
