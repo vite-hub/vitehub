@@ -159,7 +159,7 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
 })
 
-it("seeds provider source retention with Workflow Definition handlers and steps", async () => {
+it("seeds provider source retention with Workflow Definition handlers and steps", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-provider-sources-")
   const handler = join(rootDir, "server", "workflows", "welcome.ts")
   const workflowDirectory = join(rootDir, "server", "workflows", "cleanup")
