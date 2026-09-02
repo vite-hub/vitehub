@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs"
-import { readdirSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
 import { relative, resolve } from "pathe"
@@ -90,11 +90,18 @@ function readDirEntries(root: string): Dirent[] {
   }
 }
 
+export function isGitRepositoryDirectory(directory: string): boolean {
+  return existsSync(resolve(directory, ".git"))
+}
+
 export function listMatchingFiles(root: string, predicate: (name: string) => boolean, options: { includeHidden?: boolean } = {}): string[] {
   const files: string[] = []
   for (const entry of readDirEntries(root)) {
     const absolute = resolve(root, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (isGitRepositoryDirectory(absolute)) {
+        continue
+      }
       if (entry.name.startsWith(".")) {
         continue
       }

@@ -1,16 +1,161 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { pathToFileURL } from "node:url"
+import { spawnSync } from "node:child_process"
+import { realpathSync } from "node:fs"
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { retainProviderOutputAliases, retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
+import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+it("rewrites JSON-escaped paths when publishing retained Provider Output sources", () => {
+  const retainedSourcesDir = String.raw`C:\project\.vitehub\agent-generations\test\sources`
+  const publishedSourcesDir = String.raw`C:\project\.vitehub\agent\sources`
+  const contents = `import agent from ${JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support\\agent.ts`)}`
+  const workspaceRoot = JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support`)
+
+  expect(rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
+    `import agent from ${JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support\\agent.ts`)}`,
+  )
+  expect(rewriteRetainedProviderSourcePaths(workspaceRoot, retainedSourcesDir, publishedSourcesDir))
+    .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
+  expect(rewriteRetainedProviderSourcePaths(`${retainedSourcesDir}-external\\agent.ts`, retainedSourcesDir, publishedSourcesDir))
+    .toBe(`${retainedSourcesDir}-external\\agent.ts`)
+})
+
+it("normalizes Windows source separators for POSIX deployment paths", () => {
+  const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
+  const publishedSourcesDir = "./.vitehub/workflow/sources"
+  const serializedSource = JSON.stringify(`${retainedSourcesDir}\\0\\server\\workflow.ts`)
+
+  expect(rewriteRetainedProviderSourcePaths(serializedSource, retainedSourcesDir, publishedSourcesDir))
+    .toBe(JSON.stringify("./.vitehub/workflow/sources/0/server/workflow.ts"))
+})
+
+it("rewrites relative imports when publishing retained Provider Output sources", () => {
+  const generatedFile = "/project/.vitehub/agent/netlify-function.mjs"
+  const retainedSourcesDir = "/project/.vitehub/agent-generations/test/sources"
+  const publishedSourcesDir = "/project/.vitehub/agent/sources"
+  const contents = 'import agent from "../agent-generations/test/sources/0/server/agents/support/agent.ts"'
+
+  expect(rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir, {
+    published: generatedFile,
+    retained: generatedFile,
+  })).toBe('import agent from "./sources/0/server/agents/support/agent.ts"')
+})
+
+it("copies published sources into deployment artifacts and rewrites their runtime path", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deployed-provider-sources-"))
+  tempDirs.push(rootDir)
+  const publishedSourcesDir = join(rootDir, ".vitehub", "workflow", "sources")
+  const deployedSourcesDir = join(rootDir, ".vercel", "output", "functions", "__server.func", ".vitehub", "workflow", "sources")
+  const bundleFile = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+  await mkdir(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace"), { recursive: true })
+  await mkdir(dirname(bundleFile), { recursive: true })
+  await writeFile(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace", "context.md"), "deployed\n")
+  await writeFile(bundleFile, `const sourceRootDir = ${JSON.stringify(join(publishedSourcesDir, "0", "server", "agents", "review", "workspace"))}\n`)
+
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: [bundleFile],
+      runtimeSourcesDir: "./.vitehub/workflow/sources",
+      sourcesDir: deployedSourcesDir,
+    }],
+    publishedSourcesDir,
+  })
+
+  await expect(readFile(join(deployedSourcesDir, "0", "server", "agents", "review", "workspace", "context.md"), "utf8"))
+    .resolves.toBe("deployed\n")
+  await expect(readFile(bundleFile, "utf8")).resolves.toContain("./.vitehub/workflow/sources/0/server/agents/review/workspace")
+  await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
+})
+
+it("rebases published dependency links before retained generation cleanup", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-published-provider-links-"))
+  tempDirs.push(rootDir)
+  const retainedSourcesDir = join(rootDir, "agent-generations", "one", "sources")
+  const retainedPackageDir = join(retainedSourcesDir, "0", "packages", "fixture")
+  const retainedLink = join(retainedSourcesDir, "0", "node_modules", "fixture")
+  const stagedSourcesDir = join(rootDir, "agent.next", "sources")
+  const publishedSourcesDir = join(rootDir, "agent", "sources")
+  await Promise.all([
+    mkdir(retainedPackageDir, { recursive: true }),
+    mkdir(dirname(retainedLink), { recursive: true }),
+  ])
+  await writeFile(join(retainedPackageDir, "index.mjs"), 'export const value = "published"\n')
+  await symlink(retainedPackageDir, retainedLink, process.platform === "win32" ? "junction" : "dir")
+  await cp(retainedSourcesDir, stagedSourcesDir, { recursive: true })
+
+  await rebasePublishedProviderSourceLinks(stagedSourcesDir, retainedSourcesDir, publishedSourcesDir)
+  await mkdir(dirname(publishedSourcesDir), { recursive: true })
+  await rename(stagedSourcesDir, publishedSourcesDir)
+  await rm(join(rootDir, "agent-generations"), { force: true, recursive: true })
+
+  expect(realpathSync(join(publishedSourcesDir, "0", "node_modules", "fixture"))).toBe(join(publishedSourcesDir, "0", "packages", "fixture"))
+  await expect(readFile(join(publishedSourcesDir, "0", "node_modules", "fixture", "index.mjs"), "utf8"))
+    .resolves.toContain("published")
+})
+
+it("leaves unrelated dangling links unchanged while publishing retained sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-published-provider-dangling-links-"))
+  tempDirs.push(rootDir)
+  const retainedSourcesDir = join(rootDir, "agent-generations", "one", "sources")
+  const retainedLink = join(retainedSourcesDir, "0", "workspace", "optional")
+  const stagedSourcesDir = join(rootDir, "agent.next", "sources")
+  const publishedSourcesDir = join(rootDir, "agent", "sources")
+  await mkdir(dirname(retainedLink), { recursive: true })
+  await symlink(join(retainedSourcesDir, "0", "workspace", "missing"), retainedLink, process.platform === "win32" ? "junction" : "dir")
+  await cp(retainedSourcesDir, stagedSourcesDir, { recursive: true })
+
+  await expect(rebasePublishedProviderSourceLinks(stagedSourcesDir, retainedSourcesDir, publishedSourcesDir)).resolves.toBeUndefined()
+  await expect(readlink(join(stagedSourcesDir, "0", "workspace", "optional"))).resolves.toBeTruthy()
+})
+
+it("publishes absolute links into captured source trees without live checkout references", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-absolute-source-link-"))
+  tempDirs.push(rootDir)
+  const workspaceDir = join(rootDir, "server", "agents", "support", "workspace")
+  const target = join(workspaceDir, "context.md")
+  const link = join(workspaceDir, "linked.md")
+  const targetDir = join(workspaceDir, "context")
+  const directoryLink = join(workspaceDir, "linked-context")
+  const retainedSourcesDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources")
+  const stagedSourcesDir = join(rootDir, ".vitehub", "agent.next", "sources")
+  const publishedSourcesDir = join(rootDir, ".vitehub", "agent", "sources")
+  await mkdir(workspaceDir, { recursive: true })
+  await writeFile(target, "captured\n")
+  await mkdir(targetDir)
+  await writeFile(join(targetDir, "details.md"), "directory captured\n")
+  await symlink(target, link, "file")
+  await symlink(targetDir, directoryLink, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: retainedSourcesDir,
+    paths: [workspaceDir],
+    roots: [rootDir],
+  })
+  expect(realpathSync(retained.resolve(directoryLink))).toBe(retained.resolve(targetDir))
+  await cp(retainedSourcesDir, stagedSourcesDir, { recursive: true })
+  await rebasePublishedProviderSourceLinks(stagedSourcesDir, retainedSourcesDir, publishedSourcesDir)
+  await mkdir(dirname(publishedSourcesDir), { recursive: true })
+  await rename(stagedSourcesDir, publishedSourcesDir)
+  await rm(workspaceDir, { force: true, recursive: true })
+  await rm(retainedSourcesDir, { force: true, recursive: true })
+
+  const publishedLink = join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(link)))
+  const publishedDirectoryLink = join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(directoryLink)))
+  await expect(readFile(publishedLink, "utf8")).resolves.toBe("captured\n")
+  await expect(readFile(join(publishedDirectoryLink, "details.md"), "utf8")).resolves.toBe("directory captured\n")
+  expect((await readlink(publishedLink)).includes(rootDir)).toBe(false)
+  expect(realpathSync(publishedDirectoryLink)).toBe(join(publishedSourcesDir, relative(retainedSourcesDir, retained.resolve(targetDir))))
 })
 
 it("retains absolute alias keys with their copied source trees", () => {
@@ -225,6 +370,66 @@ it("excludes ignored output directories beneath a configured closure root", asyn
   await Promise.all(ignoredFiles.map(file => expect(readFile(retained.resolve(file), "utf8")).rejects.toMatchObject({ code: "ENOENT" })))
 })
 
+it("retains Nuxt build tsconfigs without retaining other generated output", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nuxt-tsconfig-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const tsconfig = join(rootDir, ".nuxt", "tsconfig.app.json")
+  const manifest = join(rootDir, ".nuxt", "manifest.json")
+  const requestedAliasTarget = join(rootDir, ".nuxt", "dist", "server.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(requestedAliasTarget), { recursive: true })])
+  await Promise.all([
+    writeFile(handler, "export default {}\n"),
+    writeFile(tsconfig, "{}\n"),
+    writeFile(manifest, "{}\n"),
+    writeFile(requestedAliasTarget, "export const generated = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [rootDir, handler, requestedAliasTarget],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(tsconfig), "utf8")).resolves.toBe("{}\n")
+  await expect(readFile(retained.resolve(manifest), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(requestedAliasTarget), "utf8")).resolves.toContain("generated = true")
+})
+
+it("relinks dependency trees nested beneath retained workspace packages", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-dependencies-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nestedPackage = join(workspace, "packages", "docs")
+  const nestedEntry = join(nestedPackage, "src", "index.mjs")
+  const nestedDependencyRoot = join(nestedPackage, "node_modules", "fixture-dependency")
+  const nestedDependency = join(nestedDependencyRoot, "index.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(nestedDependency), { recursive: true }),
+    mkdir(dirname(nestedEntry), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(join(nestedPackage, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(join(nestedDependencyRoot, "package.json"), "{\"exports\":\"./index.mjs\",\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "../../../packages/docs/src/index.mjs"\n'),
+    writeFile(nestedEntry, 'export { value } from "fixture-dependency"\n'),
+    writeFile(nestedDependency, 'export const value = "nested dependency"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "nested dependency" })
+  expect((await lstat(retained.resolve(nestedDependencyRoot))).isSymbolicLink()).toBe(true)
+})
+
 it("retains relative dependencies beside a requested output entry", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-output-"))
   tempDirs.push(rootDir)
@@ -343,6 +548,53 @@ it("retains an aliased package with its relative import base", async () => {
   await writeFile(config, 'export const value = "new"\n')
 
   await expect(readFile(join(dirname(retained.resolve(alias)), "config.ts"), "utf8")).resolves.toContain("old")
+})
+
+it("bounds provider staging while retaining temporary-root package metadata", async () => {
+  const previousTemporaryDirectories = {
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    TMPDIR: process.env.TMPDIR,
+  }
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-staging-boundary-"))
+  tempDirs.push(workspace)
+  try {
+    process.env.TEMP = workspace
+    process.env.TMP = workspace
+    process.env.TMPDIR = workspace
+    const rootDir = join(workspace, "apps", "web")
+    const handler = join(rootDir, "server", "agent.ts")
+    const policy = join(workspace, "shared", "policy.js")
+    const unrelated = join(workspace, "unrelated.txt")
+    await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(policy), { recursive: true })])
+    await Promise.all([
+      writeFile(join(workspace, "package.json"), '{"private":true,"type":"commonjs"}\n'),
+      writeFile(handler, "export default {}\n"),
+      writeFile(policy, 'module.exports = "retained policy"\n'),
+      writeFile(unrelated, "not retained\n"),
+    ])
+
+    const retained = await retainProviderOutputSources({
+      artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+      paths: [handler, policy],
+      roots: [rootDir],
+    })
+    await writeFile(join(workspace, "package.json"), '{"private":true,"type":"module"}\n')
+
+    await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+    const retainedPackageJson = retained.resolve(join(workspace, "package.json"))
+    await expect(readFile(retainedPackageJson, "utf8")).resolves.toContain('"type":"commonjs"')
+    await expect(readFile(join(dirname(retainedPackageJson), "unrelated.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const execution = spawnSync(process.execPath, [retained.resolve(policy)], { encoding: "utf8" })
+    expect(execution.stderr).toBe("")
+    expect(execution.status).toBe(0)
+  }
+  finally {
+    for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
 })
 
 it("retains package siblings imported by an aliased output entry", async () => {
@@ -524,6 +776,61 @@ it("retains relative imports that escape a package-scoped Vite root", async () =
   expect(retained.resolve(rootDir)).toBe(dirname(dirname(dirname(retainedHandler))))
 })
 
+it("retains static imports outside the nearest source closure", async () => {
+  const container = await mkdtemp(join(tmpdir(), "vitehub-provider-escaped-source-"))
+  tempDirs.push(container)
+  const rootDir = join(container, "app")
+  const handler = join(rootDir, "server", "handler.mjs")
+  const shared = join(container, "shared", "value.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(shared), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/app.git\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "../../shared/value.mjs"\n'),
+    writeFile(shared, 'export const value = "captured"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(shared, 'export const value = "changed"\n')
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
+  await expect(readFile(retained.resolve(shared), "utf8")).resolves.toContain("captured")
+})
+
+it("preserves dependencies for imports outside the nearest source closure", async () => {
+  const container = await mkdtemp(join(tmpdir(), "vitehub-provider-escaped-dependency-"))
+  tempDirs.push(container)
+  const rootDir = join(container, "app")
+  const handler = join(rootDir, "server", "handler.mjs")
+  const shared = join(container, "shared", "value.mjs")
+  const dependency = join(container, "node_modules", "fixture-dependency")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(shared), { recursive: true }),
+    mkdir(dependency, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/app.git\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "../../shared/value.mjs"\n'),
+    writeFile(shared, 'export { value } from "fixture-dependency"\n'),
+    writeFile(join(dependency, "package.json"), '{"exports":"./index.mjs","type":"module"}\n'),
+    writeFile(join(dependency, "index.mjs"), 'export const value = "retained"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
 it("preserves installed package dependency resolution", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-"))
   tempDirs.push(workspace)
@@ -550,6 +857,1054 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("snapshots requested symlinked directories inside the retained generation", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-source-"))
+  const skillSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-target-"))
+  tempDirs.push(rootDir, skillSource)
+  const handler = join(rootDir, "server", "agents", "review", "agent.ts")
+  const skills = join(dirname(handler), "skills")
+  const skill = join(skillSource, "review", "SKILL.md")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(skill), { recursive: true })])
+  await Promise.all([
+    writeFile(handler, "export default {}\n"),
+    writeFile(skill, "# Captured\n"),
+  ])
+  await symlink(skillSource, skills)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler, skills],
+    roots: [rootDir],
+  })
+  await writeFile(skill, "# Changed\n")
+
+  expect((await lstat(retained.resolve(skills))).isSymbolicLink()).toBe(false)
+  await expect(readFile(join(retained.resolve(skills), "review", "SKILL.md"), "utf8")).resolves.toBe("# Captured\n")
+})
+
+it("snapshots requested symlinked files inside the retained generation", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-file-source-"))
+  const fileSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-file-target-"))
+  tempDirs.push(rootDir, fileSource)
+  const target = join(fileSource, "agent.ts")
+  const handler = join(rootDir, "server", "agents", "review.ts")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), writeFile(target, 'export const value = "captured"\n')])
+  await symlink(target, handler)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(target, 'export const value = "changed"\n')
+
+  expect((await lstat(retained.resolve(handler))).isSymbolicLink()).toBe(false)
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+})
+
+it("snapshots requested files beneath symlinked directories", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-source-"))
+  const handlerSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-target-"))
+  tempDirs.push(rootDir, handlerSource)
+  const handlers = join(rootDir, "server", "agents")
+  const handler = join(handlers, "review.ts")
+  await Promise.all([
+    mkdir(dirname(handlers), { recursive: true }),
+    mkdir(join(handlerSource, ".git"), { recursive: true }),
+    mkdir(join(handlerSource, "node_modules", "ignored"), { recursive: true }),
+    mkdir(join(handlerSource, ".vitehub"), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(handlerSource, "review.ts"), 'export const value = "captured"\n'),
+    writeFile(join(handlerSource, "unrelated.ts"), "export const unrelated = true\n"),
+    writeFile(join(handlerSource, ".git", "config"), "ignored\n"),
+    writeFile(join(handlerSource, "node_modules", "ignored", "index.js"), "ignored\n"),
+    writeFile(join(handlerSource, ".vitehub", "generated.ts"), "ignored\n"),
+  ])
+  await symlink(handlerSource, handlers)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(join(handlerSource, "review.ts"), 'export const value = "changed"\n')
+
+  expect((await lstat(dirname(retained.resolve(handler)))).isSymbolicLink()).toBe(false)
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
+  await expect(readFile(join(dirname(retained.resolve(handler)), "unrelated.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), ".git", "config"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), "node_modules", "ignored", "index.js"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(dirname(retained.resolve(handler)), ".vitehub", "generated.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("snapshots a symlinked configured root", async () => {
+  const projectSource = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-root-target-"))
+  const rootContainer = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-root-source-"))
+  tempDirs.push(projectSource, rootContainer)
+  const rootDir = join(rootContainer, "project")
+  const sourceHandler = join(projectSource, "server", "agent.ts")
+  const handler = join(rootDir, "server", "agent.ts")
+  const sourceValue = join(projectSource, "value.mjs")
+  await mkdir(dirname(sourceHandler), { recursive: true })
+  await Promise.all([
+    writeFile(join(projectSource, "package.json"), '{"imports":{"#value":"./value.mjs"},"type":"module"}\n'),
+    writeFile(sourceHandler, 'export { value } from "#value"\n'),
+    writeFile(sourceValue, 'export const value = "captured"\n'),
+  ])
+  await symlink(projectSource, rootDir, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootContainer, "artifacts"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await Promise.all([
+    writeFile(join(projectSource, "package.json"), '{}\n'),
+    writeFile(sourceValue, 'export const value = "changed"\n'),
+  ])
+
+  expect((await lstat(retained.resolve(rootDir))).isSymbolicLink()).toBe(false)
+  await expect(readFile(join(retained.resolve(rootDir), "package.json"), "utf8")).resolves.toContain('"#value"')
+  const execution = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `import(${JSON.stringify(pathToFileURL(retained.resolve(handler)).href)}).then(module => process.stdout.write(module.value))`,
+  ], { encoding: "utf8" })
+  expect(execution.stderr).toBe("")
+  expect(execution.stdout).toBe("captured")
+  expect(execution.status).toBe(0)
+})
+
+it("resolves conditional package imports with their calling semantics", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-conditional-imports-"))
+  tempDirs.push(rootDir)
+  const esmHandler = join(rootDir, "server", "workflow.mjs")
+  const commonjsHandler = join(rootDir, "server", "required.cjs")
+  const importTarget = join(rootDir, "import-worktree", "index.mjs")
+  const requireTarget = join(rootDir, "require-worktree", "index.cjs")
+  const workerdTarget = join(rootDir, "workerd-worktree", "index.mjs")
+  const nodeTarget = join(rootDir, "node-worktree", "index.mjs")
+  const browserTarget = join(rootDir, "browser-worktree", "index.mjs")
+  const defaultTarget = join(rootDir, "default-worktree", "index.mjs")
+  await Promise.all([
+    mkdir(dirname(esmHandler), { recursive: true }),
+    mkdir(dirname(importTarget), { recursive: true }),
+    mkdir(dirname(requireTarget), { recursive: true }),
+    mkdir(dirname(workerdTarget), { recursive: true }),
+    mkdir(dirname(nodeTarget), { recursive: true }),
+    mkdir(dirname(browserTarget), { recursive: true }),
+    mkdir(dirname(defaultTarget), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      imports: {
+        "#conditional": { workerd: "./workerd-worktree/index.mjs", import: "./import-worktree/index.mjs", require: "./require-worktree/index.cjs" },
+        "#platform": { node: "./node-worktree/index.mjs", browser: "./browser-worktree/index.mjs", default: "./default-worktree/index.mjs" },
+      },
+      type: "module",
+    })),
+    writeFile(esmHandler, 'export { value } from "#conditional"\nexport { platform } from "#platform"\n'),
+    writeFile(commonjsHandler, 'exports.value = require("#conditional").value\n'),
+    writeFile(join(dirname(importTarget), ".git"), "gitdir: /tmp/import-worktree.git\n"),
+    writeFile(importTarget, 'export const value = "imported"\n'),
+    writeFile(join(dirname(requireTarget), ".git"), "gitdir: /tmp/require-worktree.git\n"),
+    writeFile(requireTarget, 'exports.value = "required"\n'),
+    writeFile(join(dirname(workerdTarget), ".git"), "gitdir: /tmp/workerd-worktree.git\n"),
+    writeFile(workerdTarget, 'export const value = "workerd"\n'),
+    writeFile(join(dirname(nodeTarget), ".git"), "gitdir: /tmp/node-worktree.git\n"),
+    writeFile(nodeTarget, 'export const platform = "node"\n'),
+    writeFile(join(dirname(browserTarget), ".git"), "gitdir: /tmp/browser-worktree.git\n"),
+    writeFile(browserTarget, 'export const platform = "browser"\n'),
+    writeFile(join(dirname(defaultTarget), ".git"), "gitdir: /tmp/default-worktree.git\n"),
+    writeFile(defaultTarget, 'export const platform = "default"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [esmHandler, commonjsHandler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `import(${JSON.stringify(pathToFileURL(retained.resolve(esmHandler)).href)}).then(module => { if (module.value !== "imported" || module.platform !== "node") process.exit(1) })`,
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "if (require(process.argv[1]).value !== 'required') process.exit(1)",
+    retained.resolve(commonjsHandler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+  const workerdBundle = join(rootDir, ".vitehub", "workerd-bundle.mjs")
+  await bundleEsmEntry(retained.resolve(esmHandler), workerdBundle, {
+    conditions: ["workerd", "worker", "browser", "default"],
+    platform: "neutral",
+    rootDir: retained.resolve(rootDir),
+  })
+  await expect(readFile(workerdBundle, "utf8")).resolves.toContain('value = "workerd"')
+  await expect(readFile(workerdBundle, "utf8")).resolves.toContain('platform = "browser"')
+  const neutralBundle = join(rootDir, ".vitehub", "neutral-bundle.mjs")
+  await bundleEsmEntry(retained.resolve(esmHandler), neutralBundle, {
+    platform: "neutral",
+    rootDir: retained.resolve(rootDir),
+  })
+  await expect(readFile(neutralBundle, "utf8")).resolves.toContain('platform = "default"')
+})
+
+it("preserves successful provider-condition traces when another condition rejects", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-partial-condition-trace-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nodeTarget = join(rootDir, "dist", "node.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(nodeTarget), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      imports: { "#provider": { workerd: null, node: "./dist/node.mjs" } },
+      type: "module",
+    })),
+    writeFile(handler, 'export { value } from "#provider"\n'),
+    writeFile(nodeTarget, 'export const value = "node"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "node" })
+})
+
+it("traces local package exports with every provider condition", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-conditional-exports-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const workerdTarget = join(rootDir, "dist", "workerd.mjs")
+  const defaultTarget = join(rootDir, "dist", "default.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(workerdTarget), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      exports: { ".": { workerd: "./dist/workerd.mjs", default: "./dist/default.mjs" } },
+      name: "fixture-provider-package",
+      type: "module",
+    })),
+    writeFile(handler, 'export { value } from "fixture-provider-package"\n'),
+    writeFile(workerdTarget, 'export const value = "workerd"\n'),
+    writeFile(defaultTarget, 'export const value = "default"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  const workerdBundle = join(rootDir, ".vitehub", "conditional-export-workerd.mjs")
+  await bundleEsmEntry(retained.resolve(handler), workerdBundle, {
+    conditions: ["workerd", "worker", "browser", "default"],
+    platform: "neutral",
+    rootDir: retained.resolve(rootDir),
+  })
+
+  await expect(readFile(workerdBundle, "utf8")).resolves.toContain('value = "workerd"')
+})
+
+it("retains the tsconfig chain for a symlinked configured root", async () => {
+  const projectSource = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-target-"))
+  const rootContainer = await mkdtemp(join(tmpdir(), "vitehub-provider-linked-tsconfig-source-"))
+  tempDirs.push(projectSource, rootContainer)
+  const rootDir = join(rootContainer, "project")
+  const handler = join(rootDir, "server", "agent.ts")
+  const sourceHandler = join(projectSource, "server", "agent.ts")
+  const shared = join(projectSource, "shared", "value.ts")
+  const baseConfig = join(projectSource, "config", "tsconfig.base.json")
+  await Promise.all([mkdir(dirname(sourceHandler), { recursive: true }), mkdir(dirname(shared), { recursive: true }), mkdir(dirname(baseConfig), { recursive: true })])
+  await Promise.all([
+    writeFile(join(projectSource, "tsconfig.json"), '{"extends":"./config/tsconfig.base.json"}\n'),
+    writeFile(baseConfig, '{"compilerOptions":{"baseUrl":"..","paths":{"@shared":["shared/value.ts"]}}}\n'),
+    writeFile(sourceHandler, 'export { value } from "@shared"\n'),
+    writeFile(shared, 'export const value = "captured"\n'),
+  ])
+  await symlink(projectSource, rootDir, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootContainer, "artifacts"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await Promise.all([
+    writeFile(baseConfig, "{}\n"),
+    writeFile(shared, 'export const value = "changed"\n'),
+  ])
+
+  const bundleFile = join(rootContainer, "bundle.mjs")
+  await expect(readFile(join(retained.resolve(rootDir), "tsconfig.json"), "utf8")).resolves.toContain("tsconfig.base.json")
+  await expect(readFile(join(retained.resolve(rootDir), "config", "tsconfig.base.json"), "utf8")).resolves.toContain("@shared")
+  await expect(readFile(join(retained.resolve(rootDir), "shared", "value.ts"), "utf8")).resolves.toContain("captured")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+  await expect(readFile(bundleFile, "utf8")).resolves.toContain("captured")
+})
+
+it("snapshots symlinks discovered through imported sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-source-"))
+  const linkedSource = await mkdtemp(join(tmpdir(), "vitehub-provider-imported-symlink-target-"))
+  tempDirs.push(rootDir, linkedSource)
+  const handler = join(rootDir, "server", "agent.mjs")
+  const config = join(rootDir, "server", "config.mjs")
+  const configTarget = join(linkedSource, "config.mjs")
+  await mkdir(dirname(handler), { recursive: true })
+  await Promise.all([
+    writeFile(handler, 'export { value } from "./config.mjs"\n'),
+    writeFile(configTarget, 'export const value = "captured"\n'),
+  ])
+  await symlink(configTarget, config)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(configTarget, 'export const value = "changed"\n')
+
+  expect((await lstat(retained.resolve(config))).isSymbolicLink()).toBe(false)
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
+})
+
+it("retains queried resources and their imports inside nested repositories", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-import-trace-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const workerRepository = join(rootDir, "worker-worktree")
+  const importedRepository = join(rootDir, "imported-worktree")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(resourceRepository, { recursive: true }),
+    mkdir(workerRepository, { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
+    mkdir(unrelatedRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'import prompt from "../prompt-worktree/prompt.md?raw"\nimport Worker from "../worker-worktree/worker.ts?worker"\nexport { prompt, Worker }\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
+    writeFile(join(resourceRepository, "prompt.md"), "Retained prompt\n"),
+    writeFile(join(workerRepository, ".git"), "gitdir: /tmp/worker.git\n"),
+    writeFile(join(workerRepository, "worker.ts"), 'export { value } from "../imported-worktree/value.mjs"\n'),
+    writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
+    writeFile(join(importedRepository, "value.mjs"), 'export const value = "retained"\n'),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "large-cache.bin"), "unrelated\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Retained prompt\n")
+  await expect(readFile(retained.resolve(join(workerRepository, "worker.ts")), "utf8")).resolves.toContain("../imported-worktree/value.mjs")
+  await expect(readFile(retained.resolve(join(importedRepository, "value.mjs")), "utf8")).resolves.toContain('value = "retained"')
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("resolves queried package imports before retaining resources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-package-import-query-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const prompt = join(resourceRepository, "prompt.md")
+  const bundleFile = join(rootDir, ".vitehub", "provider-output.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(resourceRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(join(rootDir, "package.json"), JSON.stringify({ imports: { "#prompt": "./prompt-worktree/prompt.md" }, type: "module" })),
+    writeFile(handler, 'import prompt from "#prompt?raw"\nexport default prompt\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/prompt.git\n"),
+    writeFile(prompt, "Retained package prompt\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(prompt, "Changed package prompt\n")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+
+  await expect(readFile(retained.resolve(prompt), "utf8")).resolves.toBe("Retained package prompt\n")
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({ default: "Retained package prompt\n" })
+})
+
+it("resolves queried bare package resources before retaining them", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-bare-package-query-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const packageDir = join(rootDir, "prompt-worktree")
+  const prompt = join(packageDir, "dist", "prompt.md")
+  const packageLink = join(rootDir, "node_modules", "fixture-query-package")
+  const bundleFile = join(rootDir, ".vitehub", "provider-output.mjs")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(dirname(prompt), { recursive: true }), mkdir(dirname(packageLink), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'import prompt from "fixture-query-package/prompt.md?raw"\nexport default prompt\n'),
+    writeFile(join(packageDir, ".git"), "gitdir: /tmp/prompt.git\n"),
+    writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: { "./prompt.md": "./dist/prompt.md" }, name: "fixture-query-package", type: "module" })),
+    writeFile(prompt, "Retained bare package prompt\n"),
+    symlink(packageDir, packageLink, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(prompt, "Changed bare package prompt\n")
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, { rootDir: retained.resolve(rootDir) })
+
+  await expect(readFile(retained.resolve(prompt), "utf8")).resolves.toBe("Retained bare package prompt\n")
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({ default: "Retained bare package prompt\n" })
+})
+
+it("resolves hash-suffixed package imports before retaining resources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-package-import-hash-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const prompt = join(resourceRepository, "prompt.md")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(resourceRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(join(rootDir, "package.json"), JSON.stringify({ imports: { "#prompt": "./prompt-worktree/prompt.md" }, type: "module" })),
+    writeFile(handler, 'import prompt from "#prompt#raw"\nexport default prompt\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/prompt.git\n"),
+    writeFile(prompt, "Retained hash prompt\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(prompt), "utf8")).resolves.toBe("Retained hash prompt\n")
+})
+
+it("resolves Vite-root queried resources from the configured project root", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-vite-root-import-trace-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "agent.ts")
+  const resourceRepository = join(rootDir, "prompt-worktree")
+  const publicRepository = join(rootDir, "public")
+  const distPrompt = join(rootDir, "dist", "prompt.md")
+  const staleDistFile = join(rootDir, "dist", "stale.txt")
+  const bundleFile = join(workspace, "provider-output.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(resourceRepository, { recursive: true }),
+    mkdir(publicRepository, { recursive: true }),
+    mkdir(dirname(distPrompt), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n"),
+    writeFile(handler, 'import distPrompt from "/dist/prompt.md?raw"\nimport prompt from "/prompt-worktree/prompt.md?raw"\nimport publicPrompt from "/public-prompt.md?raw"\nexport { distPrompt, prompt, publicPrompt }\n'),
+    writeFile(join(resourceRepository, ".git"), "gitdir: /tmp/resource.git\n"),
+    writeFile(join(resourceRepository, "prompt.md"), "Project prompt\n"),
+    writeFile(join(publicRepository, ".git"), "gitdir: /tmp/public.git\n"),
+    writeFile(join(publicRepository, "public-prompt.md"), "Public prompt\n"),
+    writeFile(distPrompt, "Dist prompt\n"),
+    writeFile(staleDistFile, "Stale output\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "agent-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await Promise.all([
+    writeFile(join(resourceRepository, "prompt.md"), "Changed project prompt\n"),
+    writeFile(join(publicRepository, "public-prompt.md"), "Changed public prompt\n"),
+    writeFile(distPrompt, "Changed dist prompt\n"),
+  ])
+  await bundleEsmEntry(retained.resolve(handler), bundleFile, {
+    format: "esm",
+    platform: "node",
+    rootDir: retained.resolve(rootDir),
+  })
+
+  await expect(readFile(retained.resolve(join(resourceRepository, "prompt.md")), "utf8")).resolves.toBe("Project prompt\n")
+  await expect(readFile(retained.resolve(join(publicRepository, "public-prompt.md")), "utf8")).resolves.toBe("Public prompt\n")
+  await expect(readFile(retained.resolve(distPrompt), "utf8")).resolves.toBe("Dist prompt\n")
+  await expect(readFile(retained.resolve(staleDistFile), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(import(pathToFileURL(bundleFile).href)).resolves.toMatchObject({
+    distPrompt: "Dist prompt\n",
+    prompt: "Project prompt\n",
+    publicPrompt: "Public prompt\n",
+  })
+})
+
+it("skips unrelated nested repositories while retaining requested and imported ones", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-repositories-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  const requestedRepository = join(rootDir, "requested-worktree")
+  const requested = join(requestedRepository, "workflow.ts")
+  const importedRepository = join(rootDir, "imported-worktree")
+  const imported = join(importedRepository, "workflow.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(unrelatedRepository, { recursive: true }),
+    mkdir(requestedRepository, { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'export { imported } from "../imported-worktree/workflow.mjs"\n'),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
+    writeFile(join(requestedRepository, ".git"), "gitdir: /tmp/requested.git\n"),
+    writeFile(requested, "export const requested = true\n"),
+    writeFile(join(importedRepository, ".git"), "gitdir: /tmp/imported.git\n"),
+    writeFile(imported, "export const imported = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [rootDir, handler, requested],
+    roots: [rootDir],
+  })
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ imported: true })
+  await expect(readFile(retained.resolve(requested), "utf8")).resolves.toContain("requested = true")
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("retains nested repositories when a requested handler has a computed import", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-computed-repository-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const importedRepository = join(rootDir, "computed-worktree")
+  const imported = join(importedRepository, "workflow.mjs")
+  const templateRepository = join(rootDir, "template-worktree")
+  const templateImported = join(templateRepository, "workflow.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(importedRepository, { recursive: true }),
+    mkdir(templateRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const module = "../computed-worktree/workflow.mjs"',
+      "const templateModule = `../template-worktree/workflow.mjs`",
+      "export const load = async () => ({ computed: await import /* retained target */ (module), template: await import(templateModule) })",
+      "",
+    ].join("\n")),
+    writeFile(join(importedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(imported, "export const computed = true\n"),
+    writeFile(join(templateRepository, ".git"), "gitdir: /tmp/template.git\n"),
+    writeFile(templateImported, "export const templated = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => Promise<{ computed: { computed: boolean }, template: { templated: boolean } }>
+  }
+  await expect(retainedHandler.load()).resolves.toMatchObject({ computed: { computed: true }, template: { templated: true } })
+})
+
+it("retains transitive nested repositories for explicitly requested computed imports", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-repository-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const computedRepository = join(rootDir, "computed-worktree")
+  const computed = join(computedRepository, "workflow.mjs")
+  const dependencyRepository = join(rootDir, "dependency-worktree")
+  const dependency = join(dependencyRepository, "value.mjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(dependencyRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, "export const load = async module => await import(module)\n"),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(computed, 'export { value } from "../dependency-worktree/value.mjs"\n'),
+    writeFile(join(dependencyRepository, ".git"), "gitdir: /tmp/dependency.git\n"),
+    writeFile(dependency, 'export const value = "transitive"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler, computed],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { load: (module: string) => Promise<{ value: string }> }
+  await expect(retainedHandler.load("../computed-worktree/workflow.mjs")).resolves.toMatchObject({ value: "transitive" })
+})
+
+it("does not cross repository boundaries for unresolved computed imports", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-unresolved-computed-boundary-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const unrelatedRepository = join(rootDir, "unrelated-worktree")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(unrelatedRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, "export const load = async module => await import(module)\n"),
+    writeFile(join(unrelatedRepository, ".git"), "gitdir: /tmp/unrelated.git\n"),
+    writeFile(join(unrelatedRepository, "runtime-source.mjs"), "export const runtime = true\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("retains nested repositories for computed CommonJS requires", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-computed-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "workflow.js")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'const module = "../required-worktree/workflow"\nexports.load = () => require(module)\n'),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { default: { load: () => { required: boolean } } }
+  await expect(retainedHandler.default.load()).toMatchObject({ required: true })
+})
+
+it("retains nested repositories for computed module.require calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-computed-module-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "index.js")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, 'const target = "../required-worktree"\nexports.load = () => module.require(target)\n'),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const handler = require(process.argv[1]); if (handler.load().required !== true) process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
+it("retains nested repositories for bound createRequire calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  const required = join(requiredRepository, "workflow.cjs")
+  const literalRepository = join(rootDir, "literal-worktree")
+  const literal = join(literalRepository, "workflow.cjs")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(requiredRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import { createRequire as makeRequire } from "module"',
+      "const projectRequire = makeRequire(import.meta.url)",
+      'const module = "../required-worktree/workflow.cjs"',
+      'export const load = () => ({ computed: projectRequire(module), literal: projectRequire("../literal-worktree/workflow.cjs") })',
+      "",
+    ].join("\n")),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(required, "module.exports = { required: 'computed' }\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(literal, "module.exports = { required: 'literal' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { computed: { required: string }, literal: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ computed: { required: "computed" }, literal: { required: "literal" } })
+})
+
+it("retains literal member-based require targets", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-literal-member-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const moduleRepository = join(rootDir, "module-worktree")
+  const createdRepository = join(rootDir, "created-worktree")
+  const dependencyRepository = join(rootDir, "dependency-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(moduleRepository, { recursive: true }),
+    mkdir(createdRepository, { recursive: true }),
+    mkdir(dependencyRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const { createRequire } = require("node:module")',
+      'exports.load = () => ({ created: createRequire(__filename)("../created-worktree"), member: module.require(`../module-worktree`) })',
+      "",
+    ].join("\n")),
+    writeFile(join(moduleRepository, ".git"), "gitdir: /tmp/module.git\n"),
+    writeFile(join(moduleRepository, "index.js"), "module.exports = { nested: require('../dependency-worktree'), required: 'member' }\n"),
+    writeFile(join(createdRepository, ".git"), "gitdir: /tmp/created.git\n"),
+    writeFile(join(createdRepository, "index.js"), "module.exports = { required: 'created' }\n"),
+    writeFile(join(dependencyRepository, ".git"), "gitdir: /tmp/dependency.git\n"),
+    writeFile(join(dependencyRepository, "index.js"), "module.exports = { required: 'nested' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const result = require(process.argv[1]).load(); if (result.member.required !== 'member' || result.member.nested.required !== 'nested' || result.created.required !== 'created') process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
+it("retains nested repositories for namespace-required createRequire calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-namespace-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const requiredRepository = join(rootDir, "required-worktree")
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), mkdir(requiredRepository, { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const Module = require("module")',
+      "const projectRequire = Module.createRequire(__filename)",
+      'const target = "../required-worktree"',
+      "exports.load = () => projectRequire(target)",
+      "",
+    ].join("\n")),
+    writeFile(join(requiredRepository, ".git"), "gitdir: /tmp/required.git\n"),
+    writeFile(join(requiredRepository, "index.js"), "module.exports = { required: true }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "if (require(process.argv[1]).load().required !== true) process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
+it("retains nested repositories for default-imported createRequire calls", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-default-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const nodeRepository = join(rootDir, "node-worktree")
+  const legacyRepository = join(rootDir, "legacy-worktree")
+  const namedRepository = join(rootDir, "named-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(nodeRepository, { recursive: true }),
+    mkdir(legacyRepository, { recursive: true }),
+    mkdir(namedRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import NodeModule, { createRequire as makeRequire } from "node:module"',
+      'import LegacyModule from "module"',
+      "const nodeRequire = NodeModule.createRequire(import.meta.url)",
+      "const legacyRequire = LegacyModule.createRequire(import.meta.url)",
+      "const namedRequire = makeRequire(import.meta.url)",
+      'export const load = () => ({ legacy: legacyRequire("../legacy-worktree"), named: namedRequire("../named-worktree"), node: nodeRequire("../node-worktree") })',
+      "",
+    ].join("\n")),
+    writeFile(join(nodeRepository, ".git"), "gitdir: /tmp/node.git\n"),
+    writeFile(join(nodeRepository, "index.js"), "module.exports = { required: 'node' }\n"),
+    writeFile(join(legacyRepository, ".git"), "gitdir: /tmp/legacy.git\n"),
+    writeFile(join(legacyRepository, "index.js"), "module.exports = { required: 'legacy' }\n"),
+    writeFile(join(namedRepository, ".git"), "gitdir: /tmp/named.git\n"),
+    writeFile(join(namedRepository, "index.js"), "module.exports = { required: 'named' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { legacy: { required: string }, named: { required: string }, node: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ legacy: { required: "legacy" }, named: { required: "named" }, node: { required: "node" } })
+})
+
+it("retains direct createRequire targets with nested resolver bases", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-direct-create-require-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const computedRepository = join(rootDir, "computed-worktree")
+  const literalRepository = join(rootDir, "literal-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import { createRequire } from "node:module"',
+      'const target = "../../../computed-worktree"',
+      'export const load = () => ({',
+      '  computed: createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))(target),',
+      '  literal: createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))("../../../literal-worktree"),',
+      '})',
+      "",
+    ].join("\n")),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(join(computedRepository, "index.js"), "module.exports = { required: 'computed' }\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(join(literalRepository, "index.js"), "module.exports = { required: 'literal' }\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    load: () => { computed: { required: string }, literal: { required: string } }
+  }
+  expect(retainedHandler.load()).toEqual({ computed: { required: "computed" }, literal: { required: "literal" } })
+})
+
+it("retains nested repositories referenced through require.resolve", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-require-resolve-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.cjs")
+  const computedRepository = join(rootDir, "computed-worktree")
+  const literalRepository = join(rootDir, "literal-worktree")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(computedRepository, { recursive: true }),
+    mkdir(literalRepository, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'const target = "../computed-worktree/plugin.cjs"',
+      'exports.resolve = () => ({ computed: require.resolve(target), literal: require.resolve("../literal-worktree/plugin.cjs") })',
+      "",
+    ].join("\n")),
+    writeFile(join(computedRepository, ".git"), "gitdir: /tmp/computed.git\n"),
+    writeFile(join(computedRepository, "plugin.cjs"), "module.exports = 'computed'\n"),
+    writeFile(join(literalRepository, ".git"), "gitdir: /tmp/literal.git\n"),
+    writeFile(join(literalRepository, "plugin.cjs"), "module.exports = 'literal'\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  expect(spawnSync(process.execPath, [
+    "-e",
+    "const result = require(process.argv[1]).resolve(); if (require(result.computed) !== 'computed' || require(result.literal) !== 'literal') process.exit(1)",
+    retained.resolve(handler),
+  ], { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" })
+})
+
+it("retains nested repositories referenced through ESM runtime resolution", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-esm-resolve-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const targets = {
+    boundComputed: join(rootDir, "bound-computed-worktree", "plugin.mjs"),
+    boundDestructuredComputed: join(rootDir, "bound-destructured-computed-worktree", "plugin.mjs"),
+    boundDestructuredLiteral: join(rootDir, "bound-destructured-literal-worktree", "plugin.mjs"),
+    boundLiteral: join(rootDir, "bound-literal-worktree", "plugin.mjs"),
+    destructuredComputed: join(rootDir, "destructured-computed-worktree", "plugin.mjs"),
+    destructuredLiteral: join(rootDir, "destructured-literal-worktree", "plugin.mjs"),
+    inlineComputed: join(rootDir, "inline-computed-worktree", "plugin.mjs"),
+    inlineLiteral: join(rootDir, "inline-literal-worktree", "plugin.mjs"),
+    metaComputed: join(rootDir, "meta-computed-worktree", "plugin.mjs"),
+    metaLiteral: join(rootDir, "meta-literal-worktree", "plugin.mjs"),
+  }
+  await Promise.all([mkdir(dirname(handler), { recursive: true }), ...Object.values(targets).map(target => mkdir(dirname(target), { recursive: true }))])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(handler, [
+      'import { createRequire } from "node:module"',
+      'import * as Module from "node:module"',
+      'const projectRequire = Module.createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))',
+      "const { resolve: locateBound } = projectRequire",
+      'const { resolve: locate } = createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url))',
+      'const boundTarget = "../../../bound-computed-worktree/plugin.mjs"',
+      'const boundDestructuredTarget = "../../../bound-destructured-computed-worktree/plugin.mjs"',
+      'const destructuredTarget = "../../../destructured-computed-worktree/plugin.mjs"',
+      'const inlineTarget = "../../../inline-computed-worktree/plugin.mjs"',
+      'const metaTarget = "../meta-computed-worktree/plugin.mjs"',
+      'export const resolveTargets = () => ({',
+      "  boundComputed: projectRequire.resolve(boundTarget),",
+      "  boundDestructuredComputed: locateBound(boundDestructuredTarget),",
+      '  boundDestructuredLiteral: locateBound("../../../bound-destructured-literal-worktree/plugin.mjs"),',
+      '  boundLiteral: projectRequire.resolve("../../../bound-literal-worktree/plugin.mjs"),',
+      "  destructuredComputed: locate(destructuredTarget),",
+      '  destructuredLiteral: locate("../../../destructured-literal-worktree/plugin.mjs"),',
+      '  inlineComputed: Module.createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url)).resolve(inlineTarget),',
+      '  inlineLiteral: createRequire(new URL("./resolver-base/nested/entry.mjs", import.meta.url)).resolve("../../../inline-literal-worktree/plugin.mjs"),',
+      "  metaComputed: import.meta.resolve(metaTarget),",
+      '  metaLiteral: import.meta.resolve("../meta-literal-worktree/plugin.mjs"),',
+      "})",
+      "",
+    ].join("\n")),
+    ...Object.entries(targets).flatMap(([name, target]) => [
+      writeFile(join(dirname(target), ".git"), `gitdir: /tmp/${name}.git\n`),
+      writeFile(target, `export const value = ${JSON.stringify(name)}\n`),
+    ]),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as { resolveTargets: () => Record<keyof typeof targets, string> }
+  const resolved = retainedHandler.resolveTargets()
+  await expect(import(pathToFileURL(resolved.boundComputed).href)).resolves.toMatchObject({ value: "boundComputed" })
+  await expect(import(pathToFileURL(resolved.boundDestructuredComputed).href)).resolves.toMatchObject({ value: "boundDestructuredComputed" })
+  await expect(import(pathToFileURL(resolved.boundDestructuredLiteral).href)).resolves.toMatchObject({ value: "boundDestructuredLiteral" })
+  await expect(import(pathToFileURL(resolved.boundLiteral).href)).resolves.toMatchObject({ value: "boundLiteral" })
+  await expect(import(pathToFileURL(resolved.destructuredComputed).href)).resolves.toMatchObject({ value: "destructuredComputed" })
+  await expect(import(pathToFileURL(resolved.destructuredLiteral).href)).resolves.toMatchObject({ value: "destructuredLiteral" })
+  await expect(import(pathToFileURL(resolved.inlineComputed).href)).resolves.toMatchObject({ value: "inlineComputed" })
+  await expect(import(pathToFileURL(resolved.inlineLiteral).href)).resolves.toMatchObject({ value: "inlineLiteral" })
+  await expect(import(resolved.metaComputed)).resolves.toMatchObject({ value: "metaComputed" })
+  await expect(import(resolved.metaLiteral)).resolves.toMatchObject({ value: "metaLiteral" })
+})
+
+it("retains package targets referenced only through runtime resolution", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-runtime-package-resolve-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const importTarget = join(rootDir, "import-worktree", "plugin.mjs")
+  const requireTarget = join(rootDir, "require-worktree", "plugin.cjs")
+  const packageDir = join(rootDir, "package-worktree")
+  const packageImportTarget = join(packageDir, "import.mjs")
+  const packageRequireTarget = join(packageDir, "require.cjs")
+  const packageLink = join(rootDir, "node_modules", "fixture-runtime-package")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dirname(importTarget), { recursive: true }),
+    mkdir(dirname(requireTarget), { recursive: true }),
+    mkdir(packageDir, { recursive: true }),
+    mkdir(dirname(packageLink), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, ".git"), "gitdir: /tmp/root.git\n"),
+    writeFile(join(rootDir, "package.json"), JSON.stringify({
+      imports: { "#plugin": { import: "./import-worktree/plugin.mjs", require: "./require-worktree/plugin.cjs" } },
+      type: "module",
+    })),
+    writeFile(handler, [
+      'import * as Module from "node:module"',
+      "const projectRequire = Module.createRequire(import.meta.url)",
+      "export const resolveTargets = () => ({",
+      '  imported: import.meta.resolve("#plugin"),',
+      '  required: projectRequire.resolve("#plugin"),',
+      '  packageImported: import.meta.resolve("fixture-runtime-package"),',
+      '  packageRequired: projectRequire.resolve("fixture-runtime-package"),',
+      "})",
+      "",
+    ].join("\n")),
+    writeFile(join(dirname(importTarget), ".git"), "gitdir: /tmp/import.git\n"),
+    writeFile(importTarget, 'export const value = "imported"\n'),
+    writeFile(join(dirname(requireTarget), ".git"), "gitdir: /tmp/require.git\n"),
+    writeFile(requireTarget, 'exports.value = "required"\n'),
+    writeFile(join(packageDir, ".git"), "gitdir: /tmp/package.git\n"),
+    writeFile(join(packageDir, "package.json"), JSON.stringify({
+      exports: { import: "./import.mjs", require: "./require.cjs" },
+      name: "fixture-runtime-package",
+      type: "module",
+    })),
+    writeFile(packageImportTarget, 'export const value = "package-imported"\n'),
+    writeFile(packageRequireTarget, 'exports.value = "package-required"\n'),
+    symlink(packageDir, packageLink, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  // SAFETY: This test writes the imported fixture above and therefore owns its exported module shape.
+  const retainedHandler = await import(pathToFileURL(retained.resolve(handler)).href) as {
+    resolveTargets: () => { imported: string, packageImported: string, packageRequired: string, required: string }
+  }
+  const resolved = retainedHandler.resolveTargets()
+  await expect(readFile(fileURLToPath(resolved.imported), "utf8")).resolves.toContain('value = "imported"')
+  await expect(readFile(resolved.required, "utf8")).resolves.toContain('value = "required"')
+  await expect(readFile(fileURLToPath(resolved.packageImported), "utf8")).resolves.toContain('value = "package-imported"')
+  await expect(readFile(resolved.packageRequired, "utf8")).resolves.toContain('value = "package-required"')
+})
+
 it("preserves dependency resolution for a workspace-linked package", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-workspace-package-"))
   tempDirs.push(workspace)
@@ -573,6 +1928,48 @@ it("preserves dependency resolution for a workspace-linked package", async () =>
   })
 
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
+it("snapshots workspace packages imported by bare name", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-bare-workspace-package-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const packageDir = join(workspace, "packages", "fixture-package")
+  const packageEntry = join(packageDir, "index.mjs")
+  const nestedPackageDir = join(workspace, "packages", "nested-package")
+  const nestedPackageEntry = join(nestedPackageDir, "index.mjs")
+  const nestedDependencyLink = join(packageDir, "node_modules", "nested-package")
+  const dependencyLink = join(workspace, "node_modules", "fixture-package")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(packageDir, { recursive: true }),
+    mkdir(nestedPackageDir, { recursive: true }),
+    mkdir(dirname(nestedDependencyLink), { recursive: true }),
+    mkdir(dirname(dependencyLink), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { value } from "fixture-package"\n'),
+    writeFile(join(packageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"fixture-package\",\"type\":\"module\"}\n"),
+    writeFile(packageEntry, 'export { value } from "nested-package"\n'),
+    writeFile(join(nestedPackageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"nested-package\",\"type\":\"module\"}\n"),
+    writeFile(nestedPackageEntry, 'export const value = "captured"\n'),
+    symlink(nestedPackageDir, nestedDependencyLink, process.platform === "win32" ? "junction" : "dir"),
+    symlink(packageDir, dependencyLink, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  await writeFile(nestedPackageEntry, 'export const value = "changed"\n')
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "captured" })
+  expect(realpathSync(retained.resolve(dependencyLink))).toBe(retained.resolve(packageDir))
+  expect(realpathSync(retained.resolve(nestedDependencyLink))).toBe(retained.resolve(nestedPackageDir))
 })
 
 it("preserves workspace dependencies beyond a package-local dependency tree", async () => {
@@ -630,6 +2027,32 @@ it("preserves dependency resolution for packages installed in a pnpm store", asy
   })
 
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
+it("ignores dangling optional dependency links while retaining provider sources", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-optional-dependency-"))
+  tempDirs.push(rootDir)
+  const handler = join(rootDir, "server", "workflow.ts")
+  const dependencyScope = join(rootDir, "node_modules", "@fixture")
+  const danglingDependency = join(dependencyScope, "optional-platform-package")
+  await Promise.all([
+    mkdir(dirname(handler), { recursive: true }),
+    mkdir(dependencyScope, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(handler, "export default {}\n"),
+    symlink(join(rootDir, "missing-optional-platform-package"), danglingDependency, process.platform === "win32" ? "junction" : "dir"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+
+  await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain("export default")
+  await expect(readFile(retained.resolve(danglingDependency), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("preserves pnpm dependencies when the package entry uses its top-level symlink", async () => {

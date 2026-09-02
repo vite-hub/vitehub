@@ -24,10 +24,30 @@ const generatedHandlerReadGate = vi.hoisted<{
   wait: undefined,
 }))
 
+const generatedTypeDirectoryReadGate = vi.hoisted<{
+  error: Error | undefined
+  failedPath: string | undefined
+  paths: string[]
+}>(() => ({
+  error: undefined,
+  failedPath: undefined,
+  paths: [],
+}))
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>()
   return {
     ...fs,
+    async readdir(...args: Parameters<typeof fs.readdir>) {
+      const path = String(args[0])
+      if (!generatedTypeDirectoryReadGate.failedPath
+        && generatedTypeDirectoryReadGate.error
+        && generatedTypeDirectoryReadGate.paths.includes(path)) {
+        generatedTypeDirectoryReadGate.failedPath = path
+        throw generatedTypeDirectoryReadGate.error
+      }
+      return fs.readdir(...args)
+    },
     async readFile(...args: Parameters<typeof fs.readFile>) {
       if (String(args[0]) === generatedHandlerReadGate.path) {
         generatedHandlerReadGate.reads += 1
@@ -220,6 +240,9 @@ afterEach(async () => {
   generatedHandlerReadGate.reads = 0
   generatedHandlerReadGate.started = undefined
   generatedHandlerReadGate.wait = undefined
+  generatedTypeDirectoryReadGate.error = undefined
+  generatedTypeDirectoryReadGate.failedPath = undefined
+  generatedTypeDirectoryReadGate.paths = []
   await Promise.all(tempDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
 
@@ -270,12 +293,21 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
+      mkdir(join(root, ".vitehub/sandbox/.runtime-generations/current"), { recursive: true }),
+      mkdir(join(root, ".vitehub/workflow/sources/0"), { recursive: true }),
+      mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
+    ])
+    await Promise.all([
       writeFile(join(root, ".vitehub/types/markdown-template.d.ts"), 'declare module "*.template.md" {}\n'),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
-      writeFile(join(root, ".vitehub/sandbox/runtime/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
+      writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
+      writeFile(join(root, ".vitehub/workflow-generations/one/sources/0/stale.d.ts"), "invalid generation declaration\n"),
+      writeFile(join(root, ".vitehub/sandbox/.runtime-generations/current/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
+    await rm(join(root, ".vitehub/sandbox/runtime"), { recursive: true })
+    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox/runtime"), "dir")
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
@@ -291,6 +323,52 @@ describe("framework generated types", () => {
       ].join("\n"),
     )
     await expect(readFile(join(viteRoot, ".vitehub/types.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("ignores directory symlinks that revisit a generated type directory", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedTypes = join(root, ".vitehub/types")
+    await mkdir(join(generatedTypes, "cycle"), { recursive: true })
+    await writeFile(join(generatedTypes, "cycle/local.d.ts"), "interface LocalType {}\n")
+    await symlink("..", join(generatedTypes, "cycle/current"), "dir")
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot })
+
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe(
+      [
+        `/// <reference path="./types/cycle/local.d.ts" />`,
+        ``,
+        `export {}`,
+        ``,
+      ].join("\n"),
+    )
+  })
+
+  it("includes a live alias after another alias disappears during traversal", async () => {
+    const { root, viteRoot } = await createNestedProject()
+    const generatedTypes = join(root, ".vitehub/types")
+    const generation = join(generatedTypes, ".type-generations/current")
+    const firstAlias = join(generatedTypes, "first")
+    const secondAlias = join(generatedTypes, "second")
+    await mkdir(generation, { recursive: true })
+    await writeFile(join(generation, "local.d.ts"), "interface LocalType {}\n")
+    await Promise.all([
+      symlink(".type-generations/current", firstAlias, "dir"),
+      symlink(".type-generations/current", secondAlias, "dir"),
+    ])
+    generatedTypeDirectoryReadGate.paths = [firstAlias, secondAlias]
+    generatedTypeDirectoryReadGate.error = Object.assign(new Error("alias replaced"), { code: "ENOENT" })
+
+    const plugin = viteHubTypesPlugin()
+    await configResolved(plugin)({ root: viteRoot })
+
+    const failedAlias = generatedTypeDirectoryReadGate.failedPath
+    expect(failedAlias).toBeDefined()
+    const liveAlias = failedAlias === firstAlias ? "second" : "first"
+    await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
+      `./types/${liveAlias}/local.d.ts`,
+    )
   })
 
   it("refreshes build output and exposes the prepare lifecycle", async () => {

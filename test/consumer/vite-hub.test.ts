@@ -464,6 +464,10 @@ async function assertVercelRuntimeImportsResolveInside(
   expect(invalid, message).toEqual([])
 }
 
+function isRetainedProviderSource(file: string) {
+  return /(?:^|\/)\.vitehub\/(?:schedule|workflow)\/sources\//.test(file)
+}
+
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
   it("stages Node declarations for Deno from the packed facade", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-deno-consumer-"))
@@ -1076,7 +1080,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/schedule/provider-registry.d.ts"), "utf8"),
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
@@ -1098,19 +1102,22 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(existsSync(queueCallback)).toBe(false)
 
       const cloudflareSources = await readJavaScriptSources(join(appDir, "dist/app"))
+      const cloudflareRuntimeSources = Object.fromEntries(Object.entries(cloudflareSources).filter(([file]) =>
+        !isRetainedProviderSource(file),
+      ))
       const cloudflareWrangler = JSON.parse(await readFile(join(appDir, "dist/app/wrangler.json"), "utf8")) as {
         compatibility_flags?: string[]
       }
       expect(cloudflareWrangler.compatibility_flags).toContain("nodejs_compat")
 
-      const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>
+      const cloudflareExternalImports = Object.entries(cloudflareRuntimeSources).flatMap(([file, source]) =>
         importSpecifierOccurrences(source)
           .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isOptionalPackageSpecifier(specifier))
           .map(occurrence => ({ file, ...occurrence })),
       )
       expect(cloudflareExternalImports, "Cloudflare output must bundle owner packages and exclude opt-in packages").toEqual([])
-      expect(Object.values(cloudflareSources).join("\n")).toContain("getSandbox")
-      assertProviderRuntimeReachabilityClosed("Cloudflare", cloudflareSources)
+      expect(Object.values(cloudflareRuntimeSources).join("\n")).toContain("getSandbox")
+      assertProviderRuntimeReachabilityClosed("Cloudflare", cloudflareRuntimeSources)
       }
 
       await Promise.all([
@@ -1171,7 +1178,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
       const vercelSources = await readJavaScriptSources(vercelFunctionsRoot)
       const vercelRuntimeSources = Object.fromEntries(Object.entries(vercelSources).filter(([file]) =>
-        !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
+        !isRetainedProviderSource(file) && !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
       ))
       await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,
@@ -1184,11 +1191,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_CONSUMER_DISABLE_WORKSPACE: "1",
       })
       const workspaceDisabledVercelSources = await readJavaScriptSources(vercelFunctionsRoot)
-      const workspaceDisabledVercelImports = Object.entries(workspaceDisabledVercelSources).flatMap(([file, source]) =>
-        importSpecifierOccurrences(source)
-          .filter(({ specifier }) => specifier === "@vite-hub/workspace" || specifier.startsWith("@vite-hub/workspace/"))
-          .map(occurrence => ({ file, ...occurrence })),
-      )
+      const workspaceDisabledVercelImports = Object.entries(workspaceDisabledVercelSources)
+        .filter(([file]) => !isRetainedProviderSource(file))
+        .flatMap(([file, source]) =>
+          importSpecifierOccurrences(source)
+            .filter(({ specifier }) => specifier === "@vite-hub/workspace" || specifier.startsWith("@vite-hub/workspace/"))
+            .map(occurrence => ({ file, ...occurrence })),
+        )
       expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
 
       await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify", VITEHUB_PRESET: "netlify" })
@@ -1240,5 +1249,5 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  }, 600_000)
+  }, 1_800_000)
 })

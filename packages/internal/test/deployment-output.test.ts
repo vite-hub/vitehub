@@ -7,6 +7,7 @@ import { tmpdir } from "node:os"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { removeProviderOutputArtifactDir } from "../src/build/provider-output-sources.ts"
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>()
@@ -19,6 +20,11 @@ vi.mock("../src/build/esbuild.ts", () => ({
     await writeFile(outfile, "export default {}\n", "utf8")
   }),
 }))
+
+vi.mock("../src/build/provider-output-sources.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/build/provider-output-sources.ts")>()
+  return { ...original, removeProviderOutputArtifactDir: vi.fn(original.removeProviderOutputArtifactDir) }
+})
 
 const tempDirs: string[] = []
 
@@ -52,6 +58,33 @@ afterEach(async () => {
 })
 
 describe("provider deployment outputs", () => {
+  it("bundles retained sources against their captured project root", async () => {
+    const rootDir = await createTempProject()
+    const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "cloudflare.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {},
+      },
+      netlify: {
+        functions: [{ bundleEntry: join(rootDir, "netlify.mjs"), bundleOptions: {}, functionName: "agent" }],
+      },
+      rootDir,
+      sourceRootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "vercel.mjs"),
+        bundleOptions: {},
+      },
+    })
+
+    expect(vi.mocked(bundleEsmEntry).mock.calls).toHaveLength(3)
+    expect(vi.mocked(bundleEsmEntry).mock.calls.every(([, , options]) => options?.rootDir === sourceRootDir)).toBe(true)
+  })
+
   it("preserves default output roots for omitted providers", async () => {
     const rootDir = await createTempProject()
     const {
@@ -755,6 +788,31 @@ describe("provider deployment outputs", () => {
     expect(existsSync(previousOutputRoot)).toBe(true)
   })
 
+  it("keeps committed provider output when transaction snapshot cleanup fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    vi.mocked(removeProviderOutputArtifactDir).mockClear()
+    vi.mocked(removeProviderOutputArtifactDir).mockRejectedValueOnce(new Error("snapshot cleanup failed"))
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: { redirects: [{ from: "/new", to: "/after" }] },
+        configKeys: ["redirects"],
+      },
+      rootDir,
+    })).resolves.toBeUndefined()
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      redirects: [{ from: "/new", to: "/after" }],
+    })
+    expect(removeProviderOutputArtifactDir).toHaveBeenCalledOnce()
+  })
+
   it("removes owned Cloudflare config keys before merging new output", async () => {
     const rootDir = await createTempProject()
     const {
@@ -908,6 +966,108 @@ describe("provider deployment outputs", () => {
 
     await expect(readFile(workerFile, "utf8")).resolves.toBe("export default {}")
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
+  it("restores standalone provider output when post-write finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "old worker\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), '{"main":"worker.mjs"}\n')
+
+    await expect(writeProviderDeploymentOutputs({
+      afterWrite: async () => {
+        throw new Error("post-write finalization failed")
+      },
+      clientOutDir: "dist/client",
+      cloudflare: {
+        files: { "worker.mjs": "new worker\n" },
+        wranglerConfig: { main: "worker.mjs" },
+      },
+      rootDir,
+    })).rejects.toThrow("post-write finalization failed")
+
+    await expect(readFile(workerFile, "utf8")).resolves.toBe("old worker\n")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
+  it("restores published Agent sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const agentDir = join(rootDir, ".vitehub", "agent")
+    const sourcesDir = join(agentDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(agentDir, "netlify-function.mjs"), "old handler")
+    await writeFile(join(sourcesDir, "context.md"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(agentDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(agentDir, "netlify-function.mjs"), "new handler")
+            await writeFile(join(sourcesDir, "context.md"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(agentDir, "netlify-function.mjs"), "utf8")).resolves.toBe("old handler")
+    await expect(readFile(join(sourcesDir, "context.md"), "utf8")).resolves.toBe("old source")
+  })
+
+  it("restores published Schedule sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const scheduleDir = join(rootDir, ".vitehub", "schedule")
+    const sourcesDir = join(scheduleDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(scheduleDir, "registry.mjs"), "old registry")
+    await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(scheduleDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(scheduleDir, "registry.mjs"), "new registry")
+            await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(scheduleDir, "registry.mjs"), "utf8")).resolves.toBe("old registry")
+    await expect(readFile(join(sourcesDir, "cleanup.schedule.ts"), "utf8")).resolves.toBe("old source")
   })
 
   it("preserves the previous Vercel function when replacement bundling is cancelled", async () => {

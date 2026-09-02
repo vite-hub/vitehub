@@ -1,13 +1,14 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Message } from "chat"
+import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { build as viteBuild } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -27,6 +28,11 @@ vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
+
+vi.mock("@vite-hub/internal/build/provider-output-sources", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/internal/build/provider-output-sources")>()
+  return { ...original, removeProviderOutputArtifactDir: vi.fn(original.removeProviderOutputArtifactDir) }
+})
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof import("../src/vite.ts").hubAgent>) {
   // SAFETY: hubAgent defines buildEnd as a callable Vite hook.
@@ -1019,6 +1025,135 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "netlify"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
+    const agentRoot = join(root, "server", "agents", "support")
+    try {
+      await mkdir(join(agentRoot, "workspace"), { recursive: true })
+      await Promise.all([
+        writeFile(join(agentRoot, "agent.ts"), [
+          "export default {",
+          "  workspace: {",
+          "    sources: { context: 'context.md', docs: { include: '*.md' } },",
+          "  },",
+          "}",
+          "",
+        ].join("\n"), "utf8"),
+        writeFile(join(agentRoot, "workspace", "context.md"), "Retained Workspace context.\n", "utf8"),
+        writeFile(join(agentRoot, "workspace", "guide.md"), "Retained Workspace guide.\n", "utf8"),
+      ])
+      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: {
+        build?: { outDir?: string }
+        command: "build"
+        resolve: { alias: Array<{ find: string; replacement: string }> }
+        root: string
+      }) => Promise<void>
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: agentProviderOutputAliases() },
+        root,
+      })
+
+      await runProviderOutputHooks(plugin)
+
+      const publishedAgentRoot = join(root, ".vitehub", "agent", "sources", "0", "server", "agents", "support", "workspace")
+      const deployedAgentRoot = join(root, ".netlify", "v1", "agent", "sources", "0", "server", "agents", "support", "workspace")
+      await expect(readFile(join(publishedAgentRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
+      await expect(readFile(join(publishedAgentRoot, "guide.md"), "utf8")).resolves.toBe("Retained Workspace guide.\n")
+      await expect(readFile(join(deployedAgentRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
+      await expect(readFile(join(deployedAgentRoot, "guide.md"), "utf8")).resolves.toBe("Retained Workspace guide.\n")
+      const wrapper = await readFile(join(root, ".vitehub", "agent", "netlify-function.mjs"), "utf8")
+      const generatedFunction = join(root, ".netlify", "v1", "functions", "vitehub-agent.mjs")
+      const generated = await readFile(generatedFunction, "utf8")
+      expect(wrapper).toContain(publishedAgentRoot)
+      expect(generated).toContain(".netlify/v1/agent/sources/0/server/agents/support/workspace")
+      const includedFiles = generated.match(/"includedFiles":\s*\[\s*"([^"]+)"\s*\]/)?.[1]
+      expect(includedFiles).toBe("../agent/sources/**")
+      if (!includedFiles) throw new TypeError("Expected the Netlify Agent includedFiles glob")
+      const packagedFiles: string[] = []
+      for await (const file of glob(includedFiles, { cwd: dirname(generatedFunction) })) packagedFiles.push(file)
+      expect(packagedFiles).toEqual(expect.arrayContaining([
+        "../agent/sources/0/server/agents/support/workspace/context.md",
+        "../agent/sources/0/server/agents/support/workspace/guide.md",
+      ]))
+      expect(generated).not.toContain(publishedAgentRoot)
+      expect(wrapper).not.toContain("agent-generations")
+      expect(generated).not.toContain("agent-generations")
+    }
+    finally {
+      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("carries resolved parent instruction imports into Netlify provider output", async () => {
+    const { hubSchedule } = await import("../../schedule/src/vite.ts")
+    const { hubAgent } = await import("../src/vite.ts")
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "netlify"
+    const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
+    const root = join(container, "apps", "web")
+    const agentRoot = join(root, "server", "agents", "support")
+    const policy = join(container, "shared", "policy.md")
+    try {
+      await Promise.all([
+        mkdir(agentRoot, { recursive: true }),
+        mkdir(join(container, "shared"), { recursive: true }),
+      ])
+      await Promise.all([
+        writeFile(join(container, "package.json"), '{"private":true}\n', "utf8"),
+        writeFile(join(agentRoot, "agent.ts"), "export default {}\n", "utf8"),
+        writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nHandle support requests.\n`, "utf8"),
+        writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
+      ])
+      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const schedulePlugin = hubSchedule({ providerOutput: false })
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: This test invokes hubAgent's configResolved hook with the Vite fields used by this fixture.
+      const configResolved = configResolvedHook as (config: {
+        build: { outDir: string }
+        command: "build"
+        plugins: unknown[]
+        resolve: { alias: Array<{ find: string; replacement: string }> }
+        root: string
+      }) => Promise<void>
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        plugins: [schedulePlugin],
+        resolve: {
+          alias: agentProviderOutputAliases([
+            { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
+          ]),
+        },
+        root,
+      })
+
+      await runProviderOutputHooks(plugin)
+
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
+      expect(wrapper).toContain("Follow the shared parent policy.")
+      expect(wrapper).toContain("Handle support requests.")
+      expect(scheduleRegistry).toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).toContain("Handle support requests.")
+      expect(scheduleRegistry).toContain(".vitehub/agent/sources")
+      expect(scheduleRegistry).not.toContain("agent-generations")
+    } finally {
+      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      await rm(container, { force: true, recursive: true })
+    }
+  })
+
   it("writes Netlify provider output during Netlify local dev", async () => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
@@ -1128,8 +1263,12 @@ describe("agent Vite plugin", () => {
         root: string
       }) => Promise<void>
       const staleFunction = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
+      const staleSources = join(root, ".netlify/v1/agent/sources/stale.md")
       await mkdir(join(root, ".netlify/v1/functions"), { recursive: true })
+      await mkdir(join(root, ".netlify/v1/agent/sources"), { recursive: true })
       await writeFile(staleFunction, "export default {}\n", "utf8")
+      await writeFile(staleSources, "stale\n", "utf8")
+      vi.mocked(removeProviderOutputArtifactDir).mockClear()
 
       await configResolved({
         build: { outDir: "dist/client" },
@@ -1140,6 +1279,8 @@ describe("agent Vite plugin", () => {
       await runProviderOutputHooks(plugin)
 
       await expect(readFile(staleFunction, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(staleSources, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      expect(removeProviderOutputArtifactDir).toHaveBeenCalledWith(join(root, ".netlify/v1/agent"))
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
@@ -9,6 +10,7 @@ import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
 import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
@@ -24,6 +26,7 @@ const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const cloudflareOutputStateFileName = "cloudflare-output.json"
 const cloudflareScheduleWorkerMarker = "vitehub-schedule-provider-output"
+const deployedScheduleSourcesPath = ".vitehub/schedule/sources"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
@@ -62,9 +65,56 @@ interface GenerateProviderOutputsOptions {
   definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
+  retainedSourcesDir?: string
   signal?: AbortSignal
   source?: DiscoveredScheduleDefinition["source"]
+  sourceRootDir?: string
   workflow?: ScheduleWorkflowRuntime
+}
+
+async function publishRetainedProviderSources(artifacts: GeneratedScheduleArtifacts, retainedSourcesDir: string, signal?: AbortSignal): Promise<GeneratedScheduleArtifacts> {
+  signal?.throwIfAborted()
+  const generatedDir = artifacts.generatedDir
+  const publishedSourcesDir = resolve(generatedDir, "sources")
+  const nextDir = `${generatedDir}.${randomUUID()}.next`
+  const previousDir = `${generatedDir}.${randomUUID()}.previous`
+  let movedPrevious = false
+  let publicationSettled = false
+  try {
+    await cp(generatedDir, nextDir, { recursive: true })
+    await rm(resolve(nextDir, "sources"), { force: true, recursive: true })
+    const nextSourcesDir = resolve(nextDir, "sources")
+    await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
+    const registryFile = resolve(nextDir, generatedRegistryFileName)
+    const registryContents = await readFile(registryFile, "utf8")
+    await writeFile(registryFile, rewriteRetainedProviderSourcePaths(registryContents, retainedSourcesDir, publishedSourcesDir, {
+      published: resolve(generatedDir, generatedRegistryFileName),
+      retained: artifacts.registryFile,
+    }), "utf8")
+    signal?.throwIfAborted()
+    await rename(generatedDir, previousDir)
+    movedPrevious = true
+    await rename(nextDir, generatedDir)
+    signal?.throwIfAborted()
+    publicationSettled = true
+    await removeProviderOutputArtifactDir(previousDir).catch(() => undefined)
+  }
+  catch (error) {
+    if (publicationSettled) throw error
+    await rm(nextDir, { force: true, recursive: true })
+    if (movedPrevious) {
+      try {
+        await rm(generatedDir, { force: true, recursive: true })
+        await rename(previousDir, generatedDir)
+      }
+      catch (restoreError) {
+        throw new AggregateError([error, restoreError], "Generated Schedule artifact rollback failed")
+      }
+    }
+    throw error
+  }
+  return { ...artifacts, registryFile: resolve(generatedDir, generatedRegistryFileName) }
 }
 
 export interface ScheduleWorkflowRuntime {
@@ -226,7 +276,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   ].join("\n")
 }
 
-function renderNetlifyScheduleFunction(file: string, registryFile: string, scheduleName: string, cron: string) {
+function renderNetlifyScheduleFunction(file: string, registryFile: string, scheduleName: string, cron: string, includedSourcesDir?: string) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -243,6 +293,7 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
     "}",
     "",
     "export const config = {",
+    ...(includedSourcesDir ? [`  includedFiles: [${JSON.stringify(`${includedSourcesDir}/**`)}],`] : []),
     `  schedule: ${JSON.stringify(cron)},`,
     "}",
     "",
@@ -346,6 +397,7 @@ export async function writeVercelScheduleFunctions(options: {
   registryFile: string
   rootDir: string
   signal?: AbortSignal
+  sourceRootDir?: string
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   options.signal?.throwIfAborted()
@@ -380,9 +432,18 @@ export async function writeVercelScheduleFunctions(options: {
       format: "esm",
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
-      rootDir: options.rootDir,
+      rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
-      workingDir: options.rootDir,
+      workingDir: options.sourceRootDir ?? options.rootDir,
+    })
+    await publishProviderSourcesToDeploymentOutputs({
+      destinations: [{
+        files: [functionFile],
+        runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,
+        sourcesDir: resolve(functionDir, deployedScheduleSourcesPath),
+      }],
+      publishedSourcesDir: resolve(dirname(options.registryFile), "sources"),
+      signal: options.signal,
     })
     options.signal?.throwIfAborted()
     await rm(wrapperFile, { force: true })
@@ -504,6 +565,7 @@ export async function writeVercelScheduleFunctions(options: {
 export async function createNetlifyScheduleFunctionOutputs(options: {
   definitions: DiscoveredScheduleDefinition[]
   functionRoot: string
+  includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
   const definitions = staticScheduleDefinitions(options.definitions)
@@ -521,7 +583,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
       cron: crons.get(definition.name)!,
       file,
       name: definition.name,
-      source: renderNetlifyScheduleFunction(file, options.registryFile, definition.name, crons.get(definition.name)!),
+      source: renderNetlifyScheduleFunction(file, options.registryFile, definition.name, crons.get(definition.name)!, options.includedSourcesDir),
     }
   })
 }
@@ -535,6 +597,9 @@ async function writeNetlifyScheduleFunctions(options: {
 }) {
   options.signal?.throwIfAborted()
   const functionRoot = resolve(options.outputRoot, "functions")
+  const publishedSourcesDir = resolve(dirname(options.registryFile), "sources")
+  const netlifySourcesDir = resolve(options.outputRoot, "schedule", "sources")
+  const includedSourcesDir = relative(functionRoot, netlifySourcesDir).replace(/\\/g, "/")
   const stagedFunctionRoot = `${functionRoot}.pending`
   const backupFunctionRoot = `${functionRoot}.previous`
   await rm(stagedFunctionRoot, { force: true, recursive: true })
@@ -547,6 +612,7 @@ async function writeNetlifyScheduleFunctions(options: {
   const outputs = await createNetlifyScheduleFunctionOutputs({
     definitions: options.definitions,
     functionRoot: stagedFunctionRoot,
+    includedSourcesDir: existsSync(publishedSourcesDir) ? includedSourcesDir : undefined,
     registryFile: options.registryFile,
   })
   options.signal?.throwIfAborted()
@@ -558,6 +624,15 @@ async function writeNetlifyScheduleFunctions(options: {
     options.signal?.throwIfAborted()
     await Promise.all(outputs.map(async output => writeFile(output.file, output.source, { encoding: "utf8", signal: options.signal })))
   }
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: outputs.map(output => output.file),
+      runtimeSourcesDir: relative(options.rootDir, netlifySourcesDir).replace(/\\/g, "/"),
+      sourcesDir: netlifySourcesDir,
+    }],
+    publishedSourcesDir,
+    signal: options.signal,
+  })
   options.signal?.throwIfAborted()
   rmSync(backupFunctionRoot, { force: true, recursive: true })
   try {
@@ -582,8 +657,10 @@ async function writeCloudflareScheduleOutput(options: {
   bundleEntry: string
   crons: string[]
   rootDir: string
+  previousStateFile?: string
   stateFile: string
   signal?: AbortSignal
+  sourceRootDir?: string
 }) {
   options.signal?.throwIfAborted()
   const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
@@ -601,7 +678,7 @@ async function writeCloudflareScheduleOutput(options: {
   const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
-  const previousState = await readCloudflareOutputState(options.stateFile)
+  const previousState = await readCloudflareOutputState(options.previousStateFile ?? options.stateFile)
   options.signal?.throwIfAborted()
   const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
   const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
@@ -629,12 +706,21 @@ async function writeCloudflareScheduleOutput(options: {
       format: "esm",
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
-      rootDir: options.rootDir,
+      rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
     }),
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
     writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
   ])
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: [resolve(outputRoot, main)],
+      runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,
+      sourcesDir: resolve(outputRoot, deployedScheduleSourcesPath),
+    }],
+    publishedSourcesDir: resolve(dirname(options.bundleEntry), "sources"),
+    signal: options.signal,
+  })
 }
 
 interface CloudflareOutputState {
@@ -661,8 +747,8 @@ async function readCloudflareOutputState(file: string): Promise<CloudflareOutput
   }
 }
 
-async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string): Promise<void> {
-  const state = await readCloudflareOutputState(stateFile)
+async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string, previousStateFile = stateFile): Promise<void> {
+  const state = await readCloudflareOutputState(previousStateFile)
   if (!state) return
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   const configFile = resolve(outputRoot, "wrangler.json")
@@ -698,82 +784,114 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string)
   }
   await Promise.all([
     ...(ownsWorker ? [rm(workerFile, { force: true })] : []),
+    rm(resolve(outputRoot, deployedScheduleSourcesPath), { force: true, recursive: true }),
     rm(stateFile, { force: true }),
   ])
 }
 
 export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   options.signal?.throwIfAborted()
-  const generatedDir = ensureGeneratedDir(options.rootDir, productName)
+  const generatedDir = resolve(options.rootDir, ".vitehub", productName)
+  const previousGeneratedDir = `${generatedDir}.${randomUUID()}.previous`
+  const coordinatesRetainedSources = options.retainedSourcesDir !== undefined
+  const hadPreviousGeneratedDir = coordinatesRetainedSources && existsSync(generatedDir)
+  if (hadPreviousGeneratedDir) await rename(generatedDir, previousGeneratedDir)
   const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
-  const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
-  options.signal?.throwIfAborted()
-  const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
-  const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
-  options.signal?.throwIfAborted()
-  if (artifacts.definitions.length > 0) {
-    const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
-    const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
-    try {
-      await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
-      await bundleEsmEntry(stagedDenoCronInputFile, stagedDenoCronFile, {
-        alias: options.bundleAlias,
-        external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
-        format: "esm",
-        packages: "external",
-        platform: "neutral",
-        plugins: [createScheduleDefinitionAliasPlugin()],
+  const previousCloudflareStateFile = hadPreviousGeneratedDir
+    ? resolve(previousGeneratedDir, cloudflareOutputStateFileName)
+    : cloudflareStateFile
+  let publicationSettled = !coordinatesRetainedSources
+  try {
+    let artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
+    if (options.retainedSourcesDir && artifacts.definitions.length > 0) {
+      artifacts = await publishRetainedProviderSources(artifacts, options.retainedSourcesDir, options.signal)
+    }
+    options.signal?.throwIfAborted()
+    const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
+    const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
+    options.signal?.throwIfAborted()
+    if (artifacts.definitions.length > 0) {
+      const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
+      const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
+      try {
+        await writeFile(stagedDenoCronInputFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+        await bundleEsmEntry(stagedDenoCronInputFile, stagedDenoCronFile, {
+          alias: options.bundleAlias,
+          external: [...builtinModules, ...builtinModules.map(name => `node:${name}`), ...(options.bundleExternal ?? [])],
+          format: "esm",
+          packages: "external",
+          platform: "neutral",
+          plugins: [createScheduleDefinitionAliasPlugin()],
+          rootDir: options.sourceRootDir ?? options.rootDir,
+          signal: options.signal,
+        })
+        await rename(stagedDenoCronFile, artifacts.denoCronFile)
+      }
+      finally {
+        await Promise.all([
+          rm(stagedDenoCronInputFile, { force: true }),
+          rm(stagedDenoCronFile, { force: true }),
+        ])
+      }
+      options.signal?.throwIfAborted()
+      await writeCloudflareScheduleOutput({
+        bundleAlias: options.bundleAlias,
+        bundleEntry: artifacts.cloudflareWorkerFile,
+        crons: [...new Set(crons.values())],
         rootDir: options.rootDir,
+        previousStateFile: previousCloudflareStateFile,
+        sourceRootDir: options.sourceRootDir,
+        stateFile: cloudflareStateFile,
         signal: options.signal,
       })
-      await rename(stagedDenoCronFile, artifacts.denoCronFile)
     }
-    finally {
+    else {
+      options.signal?.throwIfAborted()
       await Promise.all([
-        rm(stagedDenoCronInputFile, { force: true }),
-        rm(stagedDenoCronFile, { force: true }),
+        rm(artifacts.cloudflareWorkerFile, { force: true }),
+        rm(artifacts.denoCronFile, { force: true }),
+        rm(artifacts.registryFile, { force: true }),
+        rm(artifacts.vercelServerFile, { force: true }),
+        cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile),
       ])
     }
     options.signal?.throwIfAborted()
-    await writeCloudflareScheduleOutput({
+    await writeVercelScheduleFunctions({
       bundleAlias: options.bundleAlias,
-      bundleEntry: artifacts.cloudflareWorkerFile,
-      crons: [...new Set(crons.values())],
+      bundleExternal: options.bundleExternal,
+      definitions: artifacts.definitions,
+      outputRoot: createDefaultVercelOutputRoot(options.rootDir),
+      registryFile: artifacts.registryFile,
       rootDir: options.rootDir,
-      stateFile: cloudflareStateFile,
+      signal: options.signal,
+      sourceRootDir: options.sourceRootDir,
+      workflow: options.workflow,
+    }, crons)
+    options.signal?.throwIfAborted()
+    await writeNetlifyScheduleFunctions({
+      definitions: artifacts.definitions,
+      outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
+      registryFile: artifacts.registryFile,
+      rootDir: options.rootDir,
       signal: options.signal,
     })
+    publicationSettled = true
+    if (hadPreviousGeneratedDir) await removeProviderOutputArtifactDir(previousGeneratedDir).catch(() => undefined)
+    return artifacts
   }
-  else {
-    options.signal?.throwIfAborted()
-    await Promise.all([
-      rm(artifacts.cloudflareWorkerFile, { force: true }),
-      rm(artifacts.denoCronFile, { force: true }),
-      rm(artifacts.registryFile, { force: true }),
-      rm(artifacts.vercelServerFile, { force: true }),
-      cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
-    ])
+  catch (error) {
+    if (!publicationSettled) {
+      try {
+        await removeProviderOutputArtifactDir(generatedDir)
+        if (hadPreviousGeneratedDir) await rename(previousGeneratedDir, generatedDir)
+        publicationSettled = true
+      }
+      catch (restoreError) {
+        throw new AggregateError([error, restoreError], "Generated Schedule artifact rollback failed")
+      }
+    }
+    throw error
   }
-  options.signal?.throwIfAborted()
-  await writeVercelScheduleFunctions({
-    bundleAlias: options.bundleAlias,
-    bundleExternal: options.bundleExternal,
-    definitions: artifacts.definitions,
-    outputRoot: createDefaultVercelOutputRoot(options.rootDir),
-    registryFile: artifacts.registryFile,
-    rootDir: options.rootDir,
-    signal: options.signal,
-    workflow: options.workflow,
-  }, crons)
-  options.signal?.throwIfAborted()
-  await writeNetlifyScheduleFunctions({
-    definitions: artifacts.definitions,
-    outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
-    registryFile: artifacts.registryFile,
-    rootDir: options.rootDir,
-    signal: options.signal,
-  })
-  return artifacts
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {

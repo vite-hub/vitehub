@@ -26,14 +26,24 @@ function isFolderAgentEntry(file: string): boolean {
     && basename(dirname(dirname(file))) === "server")
 }
 
+function colocatedAgentFilesRoot(handler: string, directoryName: string): string | undefined {
+  if (!isFolderAgentEntry(handler)) return
+  const root = join(dirname(handler), directoryName)
+  return existsSync(root) ? root : undefined
+}
+
+export function resolveColocatedAgentFilesRoot(handler: string, directoryName: string): string | undefined {
+  const root = colocatedAgentFilesRoot(handler, directoryName)
+  return root && statSync(root).isDirectory() ? root : undefined
+}
+
 export function readColocatedAgentFiles(
   handler: string,
   directoryName: string,
   options: ColocatedAgentFileOptions = {},
 ): Record<string, EncodedColocatedAgentFile> | undefined {
-  if (!isFolderAgentEntry(handler)) return
-  const root = join(dirname(handler), directoryName)
-  if (!existsSync(root)) return
+  const root = colocatedAgentFilesRoot(handler, directoryName)
+  if (!root) return
   const rootStats = options.rejectUnsupportedEntries ? lstatSync(root) : statSync(root)
   if (!rootStats.isDirectory()) {
     if (options.rejectUnsupportedEntries) {

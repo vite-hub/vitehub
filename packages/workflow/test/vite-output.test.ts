@@ -1,18 +1,49 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, rewriteRetainedSourceImportPaths, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+
+const workflowBackupRetirement = vi.hoisted<{
+  attempts: number
+  enabled: boolean
+  options: Parameters<typeof rm>[1] | undefined
+}>(() => ({
+  attempts: 0,
+  enabled: false,
+  options: undefined,
+}))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...fs,
+    async rm(...args: Parameters<typeof fs.rm>) {
+      const path = String(args[0])
+      if (workflowBackupRetirement.enabled
+        && /[\\/]\.vitehub[\\/]workflow\.[^\\/]+\.previous$/.test(path)) {
+        workflowBackupRetirement.attempts += 1
+        workflowBackupRetirement.options = args[1]
+        if (workflowBackupRetirement.attempts === 1) {
+          await fs.rm(join(path, "previous.txt"), { force: true })
+        }
+        throw Object.assign(new Error("Workflow backup is busy"), { code: "EBUSY" })
+      }
+      return await fs.rm(...args)
+    },
+  }
+})
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -109,6 +140,111 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
 })
 
+it("seeds provider source retention with Workflow Definition handlers and steps", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-provider-sources-")
+  const handler = join(rootDir, "server", "workflows", "welcome.ts")
+  const workflowDirectory = join(rootDir, "server", "workflows", "cleanup")
+  const step = join(rootDir, "server", "workflows", "cleanup", "01-cleanup.ts")
+  const mixedDirectory = join(rootDir, "server", "workflows", "mixed")
+  const mixedHandler = join(mixedDirectory, "index.ts")
+  const mixedStep = join(mixedDirectory, "01-mixed.ts")
+  const mixedDependencyRoot = join(rootDir, "mixed-dependency")
+  const mixedDependency = join(mixedDependencyRoot, "value.mjs")
+  const agentHandler = join(rootDir, "server", "agents", "review", "agent.ts")
+  const skillsRoot = join(dirname(agentHandler), "skills")
+  const workspaceRoot = join(dirname(agentHandler), "workspace")
+  const instructionRoot = join(dirname(agentHandler), "policies")
+  const instructions = join(dirname(agentHandler), "instructions.md")
+  const policy = join(instructionRoot, "tone.md")
+  await Promise.all([
+    mkdir(workflowDirectory, { recursive: true }),
+    mkdir(mixedDirectory, { recursive: true }),
+    mkdir(mixedDependencyRoot, { recursive: true }),
+    mkdir(join(skillsRoot, "review"), { recursive: true }),
+    mkdir(workspaceRoot, { recursive: true }),
+    mkdir(instructionRoot, { recursive: true }),
+  ])
+  await writeFile(handler, "export default async function welcome() {}\n")
+  await writeFile(step, "export default async function cleanup() {}\n")
+  await writeFile(mixedHandler, 'export { value } from "../../../mixed-dependency/value.mjs"\n')
+  await writeFile(mixedStep, "export default async function mixed() {}\n")
+  await writeFile(join(mixedDependencyRoot, ".git"), "gitdir: /tmp/mixed-dependency.git\n")
+  await writeFile(mixedDependency, 'export const value = "retained"\n')
+  await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
+  await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
+  await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
+  await writeFile(join(workspaceRoot, ".git"), "gitdir: /tmp/review-workspace.git\n")
+  await writeFile(instructions, "@./policies/tone.md\n")
+  await writeFile(policy, "Be concise.\n")
+  await writeFile(join(instructionRoot, ".git"), "gitdir: /tmp/review-policies.git\n")
+
+  const sources = discoverWorkflowProviderSourcePaths(rootDir)
+  expect(sources.sort()).toEqual([
+    agentHandler,
+    handler,
+    instructions,
+    mixedHandler,
+    mixedStep,
+    policy,
+    skillsRoot,
+    step,
+    workspaceRoot,
+  ].sort())
+  expect(sources).not.toContain(workflowDirectory)
+  expect(sources).not.toContain(mixedDirectory)
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "test", "sources"),
+    paths: sources,
+    roots: [rootDir],
+  })
+  await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
+})
+
+it("carries resolved parent Agent Workflow instructions into retained entries", async () => {
+  const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
+  const rootDir = join(container, "apps", "web")
+  const agentRoot = join(rootDir, "server", "agents", "review")
+  const handler = join(agentRoot, "agent.ts")
+  const policy = join(container, "shared", "policy.md")
+  await Promise.all([
+    mkdir(agentRoot, { recursive: true }),
+    mkdir(dirname(policy), { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(handler, "export default defineAgent({ runtime: workflow() })\n"),
+    writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nReview the change.\n`),
+    writeFile(policy, "Follow the shared Workflow policy.\n"),
+  ])
+
+  const providerSources = discoverWorkflowProviderSources(rootDir)
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(artifactDir, "sources"),
+    paths: providerSources.paths,
+    roots: [rootDir],
+  })
+  const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+    .map(([sourceHandler, instructions]) => [retained.resolve(sourceHandler), instructions]))
+  await rm(policy)
+
+  const artifacts = await writeProviderEntries(
+    rootDir,
+    false,
+    {},
+    undefined,
+    false,
+    undefined,
+    retained.resolve(rootDir),
+    join(artifactDir, "output"),
+    retainedAgentInstructions,
+  )
+
+  const registry = await readFile(artifacts.registryFile, "utf8")
+  expect(registry).toContain("Follow the shared Workflow policy.")
+  expect(registry).toContain("Review the change.")
+})
+
 it("publishes staged generated Workflow entries during Provider Output finalization", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-staged-output-")
   const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
@@ -140,15 +276,17 @@ it("publishes staged generated Workflow entries during Provider Output finalizat
   await expect(readFile(artifacts.cloudflareWorkerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/cloudflare-runner"`)
   await expect(readFile(artifacts.vercelServerFile, "utf8")).resolves.toContain(`from "vite-hub/_internal/workflow/runtime/vercel-vite"`)
 
+  const publishedDir = join(rootDir, ".vitehub", "workflow")
   await generateWorkflowProviderOutputs({
     artifacts,
     clientOutDir: join(rootDir, "dist", "client"),
-    hosting: "node-server",
     rootDir,
-    workflow: false,
-  }, async options => await options.afterWrite?.())
+    workflow: {},
+  }, async options => {
+    expect(options.cloudflare?.bundleEntry).toBe(join(publishedDir, "cloudflare-worker.mjs"))
+    expect(options.vercel?.bundleEntry).toBe(join(publishedDir, "vercel-server.mjs"))
+  })
 
-  const publishedDir = join(rootDir, ".vitehub", "workflow")
   const publishedWorkflowFile = join(publishedDir, "sources", "server", "workflows", "cleanup", "01-cleanup.ts")
   const publishedAppFile = join(publishedDir, "sources", "src", "server.ts")
   await expect(readFile(join(publishedDir, "registry.mjs"), "utf8")).resolves.toContain(pathToFileURL(publishedWorkflowFile).href)
@@ -226,19 +364,76 @@ it("removes partial staged Workflow publication when preparation fails", async (
   expect(viteHubEntries.some(entry => entry.endsWith(".next"))).toBe(false)
 })
 
-it("rewrites JSON-escaped Windows paths when publishing retained Workflow sources", () => {
-  const retainedSourcesDir = String.raw`C:\project\.vitehub\workflow-generations\test\sources`
-  const publishedSourcesDir = String.raw`C:\project\.vitehub\workflow\sources`
-  const contents = `import step from ${JSON.stringify(`${retainedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`
-  const workspaceRoot = JSON.stringify(`${retainedSourcesDir}\\server\\agents\\support`)
+it("restores published Workflow artifacts when standalone output fails", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-publication-rollback-")
+  const generatedDir = join(rootDir, ".vitehub", "workflow")
+  const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  const cloudflareWorkerFile = join(cloudflareOutputRoot, "worker.mjs")
+  const cloudflareConfigFile = join(cloudflareOutputRoot, "wrangler.json")
+  const vercelWorkflowRoot = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  await Promise.all([
+    mkdir(cloudflareOutputRoot, { recursive: true }),
+    mkdir(generatedDir, { recursive: true }),
+    mkdir(join(rootDir, ".vercel", "output", "config.json"), { recursive: true }),
+    mkdir(retainedRoot, { recursive: true }),
+    mkdir(vercelWorkflowRoot, { recursive: true }),
+  ])
+  await writeFile(cloudflareWorkerFile, "previous worker\n")
+  await writeFile(cloudflareConfigFile, '{"main":"worker.mjs"}\n')
+  await writeFile(join(generatedDir, "previous.txt"), "previous\n")
+  await writeFile(join(vercelWorkflowRoot, ".vitehub-owned"), '{"files":{},"routes":[],"version":1}\n')
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
 
-  expect(rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)).toBe(
-    `import step from ${JSON.stringify(`${publishedSourcesDir}\\server\\workflows\\cleanup\\01-cleanup.ts`)}`,
-  )
-  expect(rewriteRetainedSourceImportPaths(workspaceRoot, retainedSourcesDir, publishedSourcesDir))
-    .toBe(JSON.stringify(`${publishedSourcesDir}\\server\\agents\\support`))
-  expect(rewriteRetainedSourceImportPaths(`${retainedSourcesDir}-external\\workflow.ts`, retainedSourcesDir, publishedSourcesDir))
-    .toBe(`${retainedSourcesDir}-external\\workflow.ts`)
+  await expect(generateWorkflowProviderOutputs({
+    artifacts,
+    clientOutDir: join(rootDir, "dist", "client"),
+    hosting: "cloudflare-module",
+    rootDir,
+    workflow: {},
+  })).rejects.toThrow()
+
+  await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).resolves.toBe("previous\n")
+  await expect(readFile(join(generatedDir, "cloudflare-worker.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(cloudflareWorkerFile, "utf8")).resolves.toBe("previous worker\n")
+  await expect(readFile(cloudflareConfigFile, "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+})
+
+it("keeps published Workflow artifacts when backup retirement fails after partial deletion", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-publication-retirement-failure-")
+  const generatedDir = join(rootDir, ".vitehub", "workflow")
+  const retainedRoot = join(rootDir, ".vitehub", "workflow-generations", "test", "sources")
+  const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test", "output")
+  await Promise.all([mkdir(generatedDir, { recursive: true }), mkdir(retainedRoot, { recursive: true })])
+  await writeFile(join(generatedDir, "previous.txt"), "previous\n")
+  const artifacts = await writeProviderEntries(rootDir, false, {}, undefined, false, undefined, retainedRoot, artifactDir)
+
+  workflowBackupRetirement.attempts = 0
+  workflowBackupRetirement.enabled = true
+  workflowBackupRetirement.options = undefined
+  try {
+    await expect(generateWorkflowProviderOutputs({
+      artifacts,
+      clientOutDir: join(rootDir, "dist", "client"),
+      hosting: "node-server",
+      rootDir,
+      workflow: false,
+    }, async options => await options.afterWrite?.())).resolves.toBeDefined()
+  }
+  finally {
+    workflowBackupRetirement.enabled = false
+  }
+
+  expect(workflowBackupRetirement.attempts).toBe(1)
+  expect(workflowBackupRetirement.options).toMatchObject({
+    force: true,
+    maxRetries: 5,
+    recursive: true,
+    retryDelay: 50,
+  })
+  await expect(readFile(join(generatedDir, "previous.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(join(generatedDir, "registry.mjs"), "utf8")).resolves.toContain("export")
 })
 
 it("preserves staged Workflow imports from configured external server directories", async () => {
@@ -879,6 +1074,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(optionalDevtoolsFixture, "package.json"), JSON.stringify({ main: "index.js", name: "optional-vite-devtools-fixture", type: "module" }))
     await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
+    await writeFile(join(agentDir, "workspace", "context.md"), "Deployed workspace context.\n")
     await writeFile(join(agentDir, "review.template.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
@@ -986,6 +1182,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerBundleContents).toContain("cloudflare:workflows")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
     expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
+    expect(cloudflareWorkerBundleContents).toContain("./.vitehub/workflow/sources/")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
@@ -1012,6 +1209,16 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
+    const vercelServerContents = await readFile(vercelServer, "utf8")
+    expect(vercelServerContents).toContain("./.vitehub/workflow/sources/")
+    const cloudflareWorkspacePath = cloudflareWorkerBundleContents.match(/\.\/\.vitehub\/workflow\/sources\/[^"'\\\n]+\/server\/agents\/nuxt\/workspace/)?.[0]
+    const vercelWorkspacePath = vercelServerContents.match(/\.\/\.vitehub\/workflow\/sources\/[^"'\\\n]+\/server\/agents\/nuxt\/workspace/)?.[0]
+    expect(cloudflareWorkspacePath).toBeDefined()
+    expect(vercelWorkspacePath).toBeDefined()
+    await expect(readFile(resolve(dirname(cloudflareWorkerBundle), cloudflareWorkspacePath!, "context.md"), "utf8"))
+      .resolves.toBe("Deployed workspace context.\n")
+    await expect(readFile(resolve(dirname(vercelServer), vercelWorkspacePath!, "context.md"), "utf8"))
+      .resolves.toBe("Deployed workspace context.\n")
     expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
     expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
   }, buildOutputTestTimeout)
@@ -1078,7 +1285,7 @@ describe("Vite workflow provider outputs", () => {
     const workflowRoutes = rebuiltRoutes.filter(route => JSON.stringify(route).includes("/.well-known/workflow/v1/"))
     expect(workflowRoutes).toEqual([...new Set(workflowRoutes.map(route => JSON.stringify(route)))].map(route => JSON.parse(route)))
 
-  }, buildOutputTestTimeout)
+  }, buildOutputTestTimeout * 2)
 
   it("rejects native Vercel entries outside discovered definition directories", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")

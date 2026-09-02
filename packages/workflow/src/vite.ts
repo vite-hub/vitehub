@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -106,15 +105,22 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
     const aliases = await providerImportAliases()
+    const providerSources = discoverWorkflowProviderSources(resolved.root, serverDirs)
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
-          paths: [...Object.keys(aliases), ...Object.values(aliases)],
+          paths: [
+            ...Object.keys(aliases),
+            ...Object.values(aliases),
+            ...providerSources.paths,
+          ],
           roots: [resolved.root],
         })
       : undefined
     const definitionRootDir = retainedSources?.resolve(resolved.root) ?? resolved.root
     const retainedServerDirs = serverDirs?.map(directory => retainedSources?.resolve(directory) ?? directory)
+    const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+      .map(([handler, instructions]) => [retainedSources?.resolve(handler) ?? handler, instructions]))
     const artifacts = await writeProviderEntries(rootDir, workflow, {
       agent: internalOptions?.agentImportBase,
       workflow: internalOptions?.importBase,
@@ -122,7 +128,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (resolved.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined)
+      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions)
     const importBase = internalOptions?.importBase ?? workflowPackageName
     const projectRequire = createRequire(resolve(resolved.root, "package.json"))
     const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
@@ -219,6 +225,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           cloudflare: providerRuntimeImportAliases("cloudflare", generation),
           vercel: providerRuntimeImportAliases("vercel", generation),
         }
+        const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
@@ -228,6 +235,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
             ...Object.values(runtimeImportAliases.cloudflare),
             ...Object.keys(runtimeImportAliases.vercel),
             ...Object.values(runtimeImportAliases.vercel),
+            ...providerSources.paths,
           ],
           roots: [config.root],
         })
@@ -238,16 +246,18 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
         const retainedDefinitionRoot = retainedSources.resolve(config.root)
         const retainedServerDirs = workflowServerDirs?.map(directory => retainedSources.resolve(directory))
+        const retainedAgentInstructions = new Map([...providerSources.agentInstructions]
+          .map(([handler, instructions]) => [retainedSources.resolve(handler), instructions]))
         const artifacts = await writeProviderEntries(rootDir, workflowOptions, {
           agent: internalOptions?.agentImportBase,
           workflow: internalOptions?.importBase,
           workspace: internalOptions?.workspaceImportBase,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
-        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"))
+        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions)
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(providerOutput, {
           discard: async () => {
-            await rm(artifactDir, { force: true, recursive: true })
+            await removeProviderOutputArtifactDir(artifactDir)
             if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
           },
           owner: "workflow",
@@ -265,6 +275,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               definitionRootDir: retainedDefinitionRoot,
               serverDirs: retainedServerDirs,
               serverFunctionName: resolveNitroVercelFunctionName(config, "workflow"),
+              sourceRootDir: retainedSources.resolve(rootDir),
               includeUserAppEntry: internalOptions?.includeUserAppEntry,
               workflow: workflowOptions,
               workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
@@ -275,7 +286,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }, generation)
       }
       catch (error) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
@@ -286,7 +297,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       await providerOutputGenerations.reset(this, providerOutput, error)
       const artifactDir = stagedArtifactDirs.get(environment)
       if (artifactDir) {
-        await rm(artifactDir, { force: true, recursive: true })
+        await removeProviderOutputArtifactDir(artifactDir)
         if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
       }
     },

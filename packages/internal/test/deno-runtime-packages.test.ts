@@ -325,6 +325,25 @@ import "real"
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
   })
 
+  it("stages retained Schedule sources with Deno deployment output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-sources-"))
+    const publishedSource = join(root, ".vitehub/schedule/sources/workspace/report.txt")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(dirname(publishedSource), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
+    await writeFile(publishedSource, "retained source\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), `globalThis.scheduleSource = ${JSON.stringify(publishedSource)}\n`, "utf8")
+    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
+
+    await finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })
+
+    const scheduleBundle = await readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")
+    const runtimeSource = scheduleBundle.match(/"(\.\/\.vitehub\/schedule\/sources\/workspace\/report\.txt)"/)?.[1]
+    expect(runtimeSource).toBe("./.vitehub/schedule/sources/workspace/report.txt")
+    expect(scheduleBundle).not.toContain(publishedSource)
+    await expect(readFile(resolve(root, ".output", runtimeSource!), "utf8")).resolves.toBe("retained source\n")
+  })
+
   it("accepts static imports of staged Deno Schedule output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-static-schedule-import-"))
     await mkdir(join(root, ".output/server"), { recursive: true })

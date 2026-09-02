@@ -7,6 +7,7 @@ import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
 import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
+import { removeProviderOutputArtifactDir } from "./provider-output-sources.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
@@ -35,6 +36,7 @@ type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 interface SharedDeploymentOptions {
   clientOutDir: string
   rootDir: string
+  sourceRootDir?: string
 }
 
 interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
@@ -426,7 +428,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       writes.push((async () => {
         try {
           await rm(stagedWorkerOutfile, { force: true, recursive: true })
-          await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+          await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, rootDir: options.sourceRootDir ?? options.rootDir, signal })
           signal?.throwIfAborted()
           await rename(stagedWorkerOutfile, workerOutfile)
         }
@@ -535,7 +537,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     }
-    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir, signal })
+    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.sourceRootDir ?? options.rootDir, signal })
     await writeFile(
       resolve(serverDir, ".vc-config.json"),
       `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
@@ -634,7 +636,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
-      rootDir: options.rootDir,
+      rootDir: options.sourceRootDir ?? options.rootDir,
       signal,
     })
     await appendNetlifyFunctionConfig(outfile, func.config)
@@ -738,6 +740,7 @@ async function writeProviderDeploymentOutputsNow(
       ...options.cloudflare,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
+      sourceRootDir: options.sourceRootDir,
     }, signal))
   }
   if (options.netlify) {
@@ -745,6 +748,7 @@ async function writeProviderDeploymentOutputsNow(
       ...options.netlify,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
+      sourceRootDir: options.sourceRootDir,
     }, signal))
   }
   if (options.vercel) {
@@ -752,6 +756,7 @@ async function writeProviderDeploymentOutputsNow(
       ...options.vercel,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
+      sourceRootDir: options.sourceRootDir,
     }, signal))
   }
   await settleWrites(writes)
@@ -885,17 +890,14 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultCloudflareOutputRoot(rootDir),
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
-    resolve(rootDir, ".vitehub/agent/netlify-function.mjs"),
-    resolve(rootDir, ".vitehub/agent/schedule-registry.js"),
+    resolve(rootDir, ".vitehub/agent"),
     resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/registry.mjs"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
-    resolve(rootDir, ".vitehub/schedule/cloudflare-output.json"),
-    resolve(rootDir, ".vitehub/schedule/deno-cron.mjs"),
-    resolve(rootDir, ".vitehub/schedule/registry.mjs"),
+    resolve(rootDir, ".vitehub/schedule"),
     resolve(rootDir, ".vitehub/workflow"),
   ]
   const transactionRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-output-"))
@@ -960,7 +962,7 @@ async function withProviderDeploymentOutputRootTransaction<T>(
   try {
     if (options.snapshotInitialRoots !== false) await transaction.snapshot(roots)
     const result = await operation(transaction)
-    await rm(transactionRoot, { force: true, recursive: true })
+    await removeProviderOutputArtifactDir(transactionRoot).catch(() => undefined)
     return result
   }
   catch (error) {
@@ -1272,7 +1274,10 @@ export async function withProviderDeploymentOutputLock<T>(
   rootDir: string,
   operation: (write: (options: ProviderDeploymentOutputOptions) => Promise<void>) => Promise<T>,
 ): Promise<T> {
-  return await withProviderDeploymentOutputRootLock(rootDir, async () => await operation(writeProviderDeploymentOutputsNow))
+  return await withProviderDeploymentOutputRootLock(rootDir, async () => await withProviderDeploymentOutputRootTransaction(
+    rootDir,
+    async transaction => await operation(async options => await writeProviderDeploymentOutputsNow(options, undefined, transaction)),
+  ))
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {

@@ -198,6 +198,22 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("does not discover folder Agents from nested Git worktrees", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-worktree-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await mkdir(join(root, "server", "agents", "unrelated-worktree"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "unrelated-worktree", ".git"), "gitdir: /tmp/unrelated.git\n", "utf8")
+    await writeFile(join(root, "server", "agents", "unrelated-worktree", "agent.ts"), "export default defineAgent({ driver: { model } })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "support", source: "server-agents" }),
+    ])
+  })
+
   it("discovers a flat Agent named agent", async () => {
     const root = await createTempRoot("vitehub-agent-flat-agent-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

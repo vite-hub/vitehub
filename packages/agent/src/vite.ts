@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubGeneratedRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -25,7 +25,7 @@ import { resolveProviderRuntimePackages } from "./internal/provider-runtime-pack
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
-import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
+import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -424,7 +424,7 @@ async function transformScheduleRegistry(
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
     const agentIdentity = { name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) }
     const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
-    const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
+    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
     return [
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
@@ -843,11 +843,15 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
 }
 
-function resolveWorkspaceSourceRoot(file: string): string {
+function resolveColocatedAgentWorkspaceRoot(file: string): string | undefined {
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
     ? workspaceDirectory
-    : dirname(file)
+    : undefined
+}
+
+function resolveWorkspaceSourceRoot(file: string): string {
+  return resolveColocatedAgentWorkspaceRoot(file) ?? dirname(file)
 }
 
 function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFromOptions: string, typescript = false): string[] {
@@ -1637,6 +1641,17 @@ interface GeneratedAgentDeploymentCatalog {
   setup: string[]
 }
 
+const retainedColocatedInstructions = Symbol("vitehub.retainedColocatedInstructions")
+
+async function resolveDeploymentColocatedInstructions(definition: DiscoveredAgentDefinition): Promise<string | undefined> {
+  // SAFETY: Provider Output preparation attaches this private symbol only to retained Agent Definitions.
+  const retainedDefinition = definition as DiscoveredAgentDefinition & {
+    [retainedColocatedInstructions]?: string
+  }
+  if (retainedColocatedInstructions in retainedDefinition) return retainedDefinition[retainedColocatedInstructions]
+  return await readColocatedAgentInstructions(definition.handler)
+}
+
 async function generateAgentDeploymentCatalog(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
@@ -1657,7 +1672,7 @@ async function generateAgentDeploymentCatalog(
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-    const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
+    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
     const colocatedSkills = readColocatedAgentSkills(definition.handler)
     const agentExpression = `withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(${moduleName}), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
     return {
@@ -2357,7 +2372,7 @@ async function writeAgentNetlifyFunctionRouteHandler(
   return handlerPath
 }
 
-function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, webhookRoute?: false | string }): object {
+function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false | string, includedFiles?: string[], inspectionRoute?: false | string, webhookRoute?: false | string }): object {
   const paths = [
     normalizeNitroRoute(defaultAgentChatRoute),
     options.webhookRoute ? normalizeNitroRoute(options.webhookRoute) : undefined,
@@ -2366,6 +2381,7 @@ function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false
   ].filter((path): path is string => Boolean(path))
 
   return {
+    ...(options.includedFiles?.length ? { includedFiles: options.includedFiles } : {}),
     path: paths.length === 1 ? paths[0] : paths,
     name: netlifyAgentFunctionName,
     nodeBundler: "esbuild",
@@ -2375,11 +2391,15 @@ function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false
 async function writeNetlifyAgentProviderOutput(
   config: ResolvedConfig,
   options: ResolvedAgentModuleOptions,
-  generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
+  generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", sourceRootDir?: string } = {},
   serverDirs?: string[],
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
   retainedDefinitions?: DiscoveredAgentDefinition[],
+  retainedSourcesDir?: string,
 ): Promise<void> {
+  const netlifySourcesDir = resolve(createDefaultNetlifyOutputRoot(config.root), "agent", "sources")
+  const netlifyFunctionsDir = resolve(createDefaultNetlifyOutputRoot(config.root), "functions")
+  const includedSourcesDir = relative(netlifyFunctionsDir, netlifySourcesDir).replace(/\\/g, "/")
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolveViteHubGeneratedRoot(config), {
     ...generatedOptions,
     discordGatewayRoute: options.routes.discordGateway,
@@ -2388,6 +2408,9 @@ async function writeNetlifyAgentProviderOutput(
     webhookRoute: options.routes.webhooks,
   }, serverDirs ?? [join(config.root, "server")], retainedDefinitions)
   await write({
+    afterWrite: retainedSourcesDir
+      ? async signal => await publishNetlifyAgentProviderSources(config, retainedSourcesDir, signal)
+      : undefined,
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
       functions: [{
@@ -2403,6 +2426,7 @@ async function writeNetlifyAgentProviderOutput(
         },
         config: createNetlifyAgentFunctionConfig({
           discordGatewayRoute: options.routes.discordGateway,
+          includedFiles: retainedSourcesDir ? [`${includedSourcesDir}/**`] : undefined,
           inspectionRoute: options.routes.inspection,
           webhookRoute: options.routes.webhooks,
         }),
@@ -2410,7 +2434,86 @@ async function writeNetlifyAgentProviderOutput(
       }],
     },
     rootDir: config.root,
+    sourceRootDir: generatedOptions.sourceRootDir,
   })
+}
+
+async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retainedSourcesDir: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const generatedAgentDir = resolve(resolveViteHubGeneratedRoot(config), "agent")
+  const publishedSourcesDir = resolve(generatedAgentDir, "sources")
+  const netlifySourcesDir = resolve(createDefaultNetlifyOutputRoot(config.root), "agent", "sources")
+  const deployedSourcesDir = relative(config.root, netlifySourcesDir).replace(/\\/g, "/")
+  const nextAgentDir = `${generatedAgentDir}.${randomUUID()}.next`
+  const previousAgentDir = `${generatedAgentDir}.${randomUUID()}.previous`
+  const nextNetlifySourcesDir = `${netlifySourcesDir}.${randomUUID()}.next`
+  const previousNetlifySourcesDir = `${netlifySourcesDir}.${randomUUID()}.previous`
+  const netlifyFunction = resolve(createDefaultNetlifyOutputRoot(config.root), "functions", `${netlifyAgentFunctionName}.mjs`)
+  let installedNext = false
+  let installedNextNetlifySources = false
+  let movedPrevious = false
+  let movedPreviousNetlifySources = false
+  let netlifyFunctionContents: string | undefined
+  let publicationSettled = false
+  try {
+    await cp(generatedAgentDir, nextAgentDir, { recursive: true })
+    await rm(resolve(nextAgentDir, "sources"), { force: true, recursive: true })
+    const nextSourcesDir = resolve(nextAgentDir, "sources")
+    await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
+    await mkdir(dirname(nextNetlifySourcesDir), { recursive: true })
+    await cp(retainedSourcesDir, nextNetlifySourcesDir, { recursive: true })
+    await rebasePublishedProviderSourceLinks(nextNetlifySourcesDir, retainedSourcesDir, netlifySourcesDir)
+    const nextHandler = resolve(nextAgentDir, "netlify-function.mjs")
+    const publishedHandler = resolve(generatedAgentDir, "netlify-function.mjs")
+    const nextHandlerContents = await readFile(nextHandler, "utf8")
+    await writeFile(nextHandler, rewriteRetainedProviderSourcePaths(nextHandlerContents, retainedSourcesDir, publishedSourcesDir, {
+      published: publishedHandler,
+      retained: publishedHandler,
+    }), "utf8")
+    const nextScheduleRegistry = resolve(nextAgentDir, "schedule-registry.js")
+    if (existsSync(nextScheduleRegistry)) {
+      const publishedScheduleRegistry = resolve(generatedAgentDir, "schedule-registry.js")
+      const scheduleRegistryContents = await readFile(nextScheduleRegistry, "utf8")
+      await writeFile(nextScheduleRegistry, rewriteRetainedProviderSourcePaths(scheduleRegistryContents, retainedSourcesDir, publishedSourcesDir, {
+        published: publishedScheduleRegistry,
+        retained: publishedScheduleRegistry,
+      }), "utf8")
+    }
+    signal?.throwIfAborted()
+    await rename(generatedAgentDir, previousAgentDir)
+    movedPrevious = true
+    await rename(nextAgentDir, generatedAgentDir)
+    installedNext = true
+    if (existsSync(netlifySourcesDir)) {
+      await rename(netlifySourcesDir, previousNetlifySourcesDir)
+      movedPreviousNetlifySources = true
+    }
+    await rename(nextNetlifySourcesDir, netlifySourcesDir)
+    installedNextNetlifySources = true
+    netlifyFunctionContents = await readFile(netlifyFunction, "utf8")
+    await writeFile(netlifyFunction, rewriteRetainedProviderSourcePaths(netlifyFunctionContents, retainedSourcesDir, deployedSourcesDir, {
+      published: netlifyFunction,
+      retained: netlifyFunction,
+    }), "utf8")
+    signal?.throwIfAborted()
+    publicationSettled = true
+    await Promise.all([
+      removeProviderOutputArtifactDir(previousAgentDir).catch(() => undefined),
+      removeProviderOutputArtifactDir(previousNetlifySourcesDir).catch(() => undefined),
+    ])
+  }
+  catch (error) {
+    if (publicationSettled) throw error
+    await rm(nextAgentDir, { force: true, recursive: true })
+    await rm(nextNetlifySourcesDir, { force: true, recursive: true })
+    if (installedNext) await rm(generatedAgentDir, { force: true, recursive: true })
+    if (movedPrevious) await rename(previousAgentDir, generatedAgentDir)
+    if (installedNextNetlifySources) await rm(netlifySourcesDir, { force: true, recursive: true })
+    if (movedPreviousNetlifySources) await rename(previousNetlifySourcesDir, netlifySourcesDir)
+    if (netlifyFunctionContents !== undefined) await writeFile(netlifyFunction, netlifyFunctionContents, "utf8")
+    throw error
+  }
 }
 
 async function cleanupNetlifyAgentProviderOutput(
@@ -2418,6 +2521,7 @@ async function cleanupNetlifyAgentProviderOutput(
   write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
 ): Promise<void> {
   await write({
+    afterWrite: async () => await removeProviderOutputArtifactDir(resolve(createDefaultNetlifyOutputRoot(config.root), "agent")),
     clientOutDir: config.build?.outDir ?? "dist",
     cleanup: {
       netlify: {
@@ -2822,22 +2926,44 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           : undefined
         const contributionArtifactDir = artifactDir
         const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
+        const definitionSources = await Promise.all(definitions.map(async (definition) => {
+          const instructionDependencies = new Set<string>()
+          const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
+          const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
+          const workspaceRoot = resolveColocatedAgentWorkspaceRoot(definition.handler)
+          return {
+            definition,
+            instructions,
+            paths: [
+              definition.handler,
+              ...instructionDependencies,
+              ...(skillsRoot ? [skillsRoot] : []),
+              ...(workspaceRoot ? [workspaceRoot] : []),
+            ],
+          }
+        }))
+        const definitionSourcePaths = definitionSources.flatMap(source => source.paths)
         const retainedSources = contributionArtifactDir
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
-              paths: [...definitions.map(definition => definition.handler), ...Object.keys(providerImportAliases), ...Object.values(providerImportAliases)],
+              paths: [
+                ...definitionSourcePaths,
+                ...Object.keys(providerImportAliases),
+                ...Object.values(providerImportAliases),
+              ],
               roots: [config.root],
             })
           : undefined
-        const retainedDefinitions = definitions.map(definition => ({
-          ...definition,
-          handler: retainedSources?.resolve(definition.handler) ?? definition.handler,
+        const retainedDefinitions = definitionSources.map(source => ({
+          ...source.definition,
+          [retainedColocatedInstructions]: source.instructions,
+          handler: retainedSources?.resolve(source.definition.handler) ?? source.definition.handler,
         }))
         const retainedProviderImportAliases = retainedSources
           ? retainProviderOutputAliases(providerImportAliases, retainedSources)
           : providerImportAliases
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: contributionArtifactDir ? async () => await rm(contributionArtifactDir, { force: true, recursive: true }) : undefined,
+          discard: contributionArtifactDir ? async () => await removeProviderOutputArtifactDir(contributionArtifactDir) : undefined,
           owner: "agent",
           rootDir: config.root,
           write: async ({ signal, write }) => {
@@ -2850,10 +2976,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               runtimeCapabilities: standaloneRuntimeCapabilities,
               schedule: hasScheduleVitePlugin(config),
               scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+              sourceRootDir: retainedSources?.resolve(config.root),
               workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-            }, serverDirs, write, retainedDefinitions)
+            }, serverDirs, write, retainedDefinitions, contributionArtifactDir ? resolve(contributionArtifactDir, "sources") : undefined)
           }
           else if (isNetlifyHosting(config)) {
             await cleanupNetlifyAgentProviderOutput(config, write)
@@ -2872,7 +2999,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

@@ -8,11 +8,12 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
-import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
+import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync } from "esbuild"
 import type { Plugin } from "esbuild"
@@ -30,6 +31,7 @@ const productName = "workflow"
 const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"
 const vercelWorkflowFunctionOwnershipMarker = ".vitehub-workflow-output.json"
 const vercelWorkflowOutputState = ".vitehub/workflow/vercel-output.json"
+const deployedWorkflowSourcesPath = ".vitehub/workflow/sources"
 
 interface VercelNativeWorkflowOwnership {
   cleanup?: boolean
@@ -585,6 +587,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  sourceRootDir?: string
   includeUserAppEntry?: boolean
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -737,14 +740,15 @@ function resolveAgentWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
-function resolveInstructionFile(file: string, seen: Set<string>): string {
+function resolveInstructionFile(file: string, seen: Set<string>, dependencies?: Set<string>): string {
   if (seen.has(file)) throw new Error(`[vitehub] Circular instruction import: ${file}.`)
   seen.add(file)
+  dependencies?.add(file)
   try {
     const replaceImports = (content: string) => content.replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
       const trailing = rawSpecifier.match(/[.,;:!?)]*$/)?.[0] || ""
       const specifier = rawSpecifier.slice(0, rawSpecifier.length - trailing.length)
-      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen)}${trailing}`
+      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen, dependencies)}${trailing}`
     })
     let fence: string | undefined
     return readFileSync(file, "utf8").split(/(?<=\n)/).map((line) => {
@@ -763,10 +767,10 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
   }
 }
 
-function readAgentInstructions(file: string): string | undefined {
+function readAgentInstructions(file: string, dependencies?: Set<string>): string | undefined {
   const instructions = join(dirname(file), "instructions.md")
   return existsSync(instructions) && statSync(instructions).isFile()
-    ? resolveInstructionFile(instructions, new Set())
+    ? resolveInstructionFile(instructions, new Set(), dependencies)
     : undefined
 }
 
@@ -787,13 +791,20 @@ function readAgentSkills(file: string): Record<string, { content: string, encodi
   }))
 }
 
-function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
+function renderAgentWorkflowRegistryEntry(
+  registryFile: string,
+  definition: DiscoveredWorkflowDefinition,
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
+) {
+  const instructions = retainedAgentInstructions?.has(definition.handler)
+    ? retainedAgentInstructions.get(definition.handler)
+    : readAgentInstructions(definition.handler)
   return [
     `  ${JSON.stringify(definition.name)}: Object.assign(async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
+    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -825,22 +836,14 @@ function createVercelNativeWorkflowContents(
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
-export function rewriteRetainedSourceImportPaths(contents: string, retainedSourcesDir: string, publishedSourcesDir: string): string {
-  const serializedRetainedSourcesDir = JSON.stringify(retainedSourcesDir).slice(1, -1)
-  const serializedPublishedSourcesDir = JSON.stringify(publishedSourcesDir).slice(1, -1)
-  const replacements = [
-    [`${pathToFileURL(retainedSourcesDir).href}/`, `${pathToFileURL(publishedSourcesDir).href}/`],
-    [`${serializedRetainedSourcesDir}\\\\`, `${serializedPublishedSourcesDir}\\\\`],
-    [`${serializedRetainedSourcesDir}/`, `${serializedPublishedSourcesDir}/`],
-    [`${retainedSourcesDir}\\`, `${publishedSourcesDir}\\`],
-    [`${retainedSourcesDir}/`, `${publishedSourcesDir}/`],
-  ] as const
-  return replacements.reduce((rewritten, [source, destination]) => rewritten.replaceAll(source, destination), contents)
-}
-
-function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition, vercelNativeFiles: Record<string, string> = {}) {
+function renderWorkflowRegistryEntry(
+  registryFile: string,
+  definition: DiscoveredWorkflowDefinition,
+  vercelNativeFiles: Record<string, string> = {},
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
+) {
   if (definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery") {
-    return renderAgentWorkflowRegistryEntry(registryFile, definition)
+    return renderAgentWorkflowRegistryEntry(registryFile, definition, retainedAgentInstructions)
   }
 
   if (!definition.steps?.length) {
@@ -891,6 +894,7 @@ export function createWorkflowRegistryContents(
   definitions: DiscoveredWorkflowDefinition[],
   importBases: WorkflowImportBases = {},
   vercelNativeFiles: Record<string, string> = {},
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
   const agentImportBase = importBases.agent ?? "@vite-hub/agent"
   const workflowImportBase = importBases.workflow ?? workflowPackageName
@@ -952,7 +956,7 @@ export function createWorkflowRegistryContents(
       : []),
     ...(needsRegistryEntryCache ? ["const registryEntryCache = new Map()", ""] : []),
     "const registry = {",
-    ...definitions.map(definition => renderWorkflowRegistryEntry(registryFile, definition, vercelNativeFiles)),
+    ...definitions.map(definition => renderWorkflowRegistryEntry(registryFile, definition, vercelNativeFiles, retainedAgentInstructions)),
     "}",
     "",
     "export default registry",
@@ -1048,6 +1052,7 @@ export async function writeProviderEntries(
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
+  retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ) {
   await mkdir(generatedDir, { recursive: true })
 
@@ -1091,6 +1096,7 @@ export async function writeProviderEntries(
     providerDefinitions,
     importBases,
     vercelNativeFiles,
+    retainedAgentInstructions,
   )
   await writeFile(registryFile, transformRegistry ? await transformRegistry(registryContents, registryFile) : registryContents, "utf8")
 
@@ -1122,6 +1128,35 @@ export async function writeProviderEntries(
     vercelNativeFiles: Object.values(vercelNativeFiles),
     vercelServerFile: entryFiles.vercel,
   }
+}
+
+export function discoverWorkflowProviderSources(definitionRootDir: string, serverDirs?: string[]): {
+  agentInstructions: ReadonlyMap<string, string | undefined>
+  paths: string[]
+} {
+  const agentInstructions = new Map<string, string | undefined>()
+  const paths = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
+    .flatMap((definition) => {
+      const executableSources = [
+        ...(statSync(definition.handler).isFile() ? [definition.handler] : []),
+        ...(definition.steps ?? []),
+      ]
+      if (definition.source !== "agent-workflow") return executableSources
+      const instructionDependencies = new Set<string>()
+      agentInstructions.set(definition.handler, readAgentInstructions(definition.handler, instructionDependencies))
+      const workspaceRoot = join(dirname(definition.handler), "workspace")
+      return [
+        ...executableSources,
+        ...instructionDependencies,
+        resolveColocatedAgentFilesRoot(definition.handler, "skills"),
+        existsSync(workspaceRoot) && statSync(workspaceRoot).isDirectory() ? workspaceRoot : undefined,
+      ].filter((path): path is string => Boolean(path))
+    })
+  return { agentInstructions, paths }
+}
+
+export function discoverWorkflowProviderSourcePaths(definitionRootDir: string, serverDirs?: string[]): string[] {
+  return discoverWorkflowProviderSources(definitionRootDir, serverDirs).paths
 }
 
 function createCloudflareOutput(
@@ -1191,7 +1226,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
   return {
-    fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
+    fileNames: ownsWrapper ? ["index.js", "worker.mjs", deployedWorkflowSourcesPath] : ["worker.mjs", deployedWorkflowSourcesPath],
     outputRoot,
     wranglerConfigOwnership: {
       keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
@@ -1369,7 +1404,7 @@ async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
 ): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
+  let artifacts = options.artifacts ?? await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentImportBase,
     workflow: options.importBase,
     workspace: options.workspaceImportBase,
@@ -1388,24 +1423,14 @@ async function generateProviderOutputsWithinLock(
     : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
       ? inferredWorkflowConfig
       : false
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
-    ? createCloudflareOutput(options.rootDir, artifacts, {
-        ...options.providerImportAliases,
-        ...options.providerRuntimeImportAliases?.cloudflare,
-      })
-    : undefined
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
-  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
-        ...options.providerImportAliases,
-        ...options.providerRuntimeImportAliases?.vercel,
-      }, options.serverFunctionName)
-    : undefined
-  const publishGeneratedArtifacts = async () => {
+  let commitGeneratedArtifacts = async (): Promise<void> => {}
+  let rollbackGeneratedArtifacts = async (): Promise<void> => {}
+  const publishGeneratedArtifacts = async (): Promise<GeneratedWorkflowArtifacts> => {
     const generatedDir = resolve(options.rootDir, ".vitehub", productName)
-    if (resolve(artifacts.generatedDir) === generatedDir) return
+    if (resolve(artifacts.generatedDir) === generatedDir) return artifacts
     const nextDir = `${generatedDir}.${randomUUID()}.next`
     const previousDir = `${generatedDir}.${randomUUID()}.previous`
     const hadPrevious = existsSync(generatedDir)
@@ -1415,22 +1440,21 @@ async function generateProviderOutputsWithinLock(
       const retainedSourcesDir = resolve(artifacts.generatedDir, "..", "sources")
       if (existsSync(retainedSourcesDir)) {
         const publishedSourcesDir = resolve(generatedDir, "sources")
-        await cp(retainedSourcesDir, resolve(nextDir, "sources"), { recursive: true })
+        const nextSourcesDir = resolve(nextDir, "sources")
+        await cp(retainedSourcesDir, nextSourcesDir, { recursive: true })
+        await rebasePublishedProviderSourceLinks(nextSourcesDir, retainedSourcesDir, publishedSourcesDir)
         const rewriteRetainedSourceImports = async (file: string) => {
           const contents = await readFile(file, "utf8")
-          const rewritten = rewriteRetainedSourceImportPaths(contents, retainedSourcesDir, publishedSourcesDir)
+          const relativeFile = relative(nextDir, file)
+          const rewritten = rewriteRetainedProviderSourcePaths(contents, retainedSourcesDir, publishedSourcesDir, {
+            published: resolve(generatedDir, relativeFile),
+            retained: resolve(artifacts.generatedDir, relativeFile),
+          })
           if (rewritten !== contents) await writeFile(file, rewritten, "utf8")
         }
         await rewriteRetainedSourceImports(resolve(nextDir, generatedRegistryFileName))
         await Promise.all(artifacts.vercelNativeFiles.map(file => rewriteRetainedSourceImports(resolve(nextDir, relative(artifacts.generatedDir, file)))))
-        for (const spec of providerEntrySpecs) {
-          const entryFile = resolve(nextDir, spec.entryFile)
-          const contents = await readFile(entryFile, "utf8")
-          const stagedSourcesImport = createImportPath(resolve(artifacts.generatedDir, spec.entryFile), retainedSourcesDir)
-          const publishedSourcesImport = createImportPath(resolve(generatedDir, spec.entryFile), publishedSourcesDir)
-          const rewritten = contents.replaceAll(`${JSON.stringify(stagedSourcesImport).slice(0, -1)}/`, `${JSON.stringify(publishedSourcesImport).slice(0, -1)}/`)
-          if (rewritten !== contents) await writeFile(entryFile, rewritten, "utf8")
-        }
+        await Promise.all(providerEntrySpecs.map(async spec => await rewriteRetainedSourceImports(resolve(nextDir, spec.entryFile))))
       }
       if (hadPrevious) {
         await rename(generatedDir, previousDir)
@@ -1451,8 +1475,41 @@ async function generateProviderOutputsWithinLock(
       }
       throw error
     }
-    await rm(previousDir, { force: true, recursive: true })
+    let publicationSettled = false
+    commitGeneratedArtifacts = async () => {
+      if (publicationSettled) return
+      publicationSettled = true
+      await removeProviderOutputArtifactDir(previousDir).catch(() => undefined)
+    }
+    rollbackGeneratedArtifacts = async () => {
+      if (publicationSettled) return
+      await rm(generatedDir, { force: true, recursive: true })
+      if (hadPrevious) await rename(previousDir, generatedDir)
+      publicationSettled = true
+    }
+    const publishedFile = (file: string) => resolve(generatedDir, relative(artifacts.generatedDir, file))
+    return {
+      ...artifacts,
+      cloudflareWorkerFile: publishedFile(artifacts.cloudflareWorkerFile),
+      generatedDir,
+      registryFile: publishedFile(artifacts.registryFile),
+      vercelNativeFiles: artifacts.vercelNativeFiles.map(publishedFile),
+      vercelServerFile: publishedFile(artifacts.vercelServerFile),
+    }
   }
+  artifacts = await publishGeneratedArtifacts()
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+    ? createCloudflareOutput(options.rootDir, artifacts, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.cloudflare,
+      })
+    : undefined
+  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+    ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
+        ...options.providerImportAliases,
+        ...options.providerRuntimeImportAliases?.vercel,
+      }, options.serverFunctionName)
+    : undefined
   const writeOutputs = async () => {
     const outputRoot = createDefaultVercelOutputRoot(options.rootDir)
     const previousOutputRoot = `${outputRoot}.vitehub-workflow.previous`
@@ -1483,8 +1540,30 @@ async function generateProviderOutputsWithinLock(
         },
         afterWrite: async (signal) => {
           signal?.throwIfAborted()
-          await publishGeneratedArtifacts()
-          signal?.throwIfAborted()
+          const publishedSourcesDir = resolve(artifacts.generatedDir, "sources")
+          if (cloudflareOutput) {
+            await publishProviderSourcesToDeploymentOutputs({
+              destinations: [{
+                files: [resolve(createDefaultCloudflareOutputRoot(options.rootDir), "worker.mjs")],
+                runtimeSourcesDir: `./${deployedWorkflowSourcesPath}`,
+                sourcesDir: resolve(createDefaultCloudflareOutputRoot(options.rootDir), deployedWorkflowSourcesPath),
+              }],
+              publishedSourcesDir,
+              signal,
+            })
+          }
+          if (vercelOutput) {
+            const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", options.serverFunctionName ?? "__server.func")
+            await publishProviderSourcesToDeploymentOutputs({
+              destinations: [{
+                files: [resolve(functionRoot, "index.mjs")],
+                runtimeSourcesDir: `./${deployedWorkflowSourcesPath}`,
+                sourcesDir: resolve(functionRoot, deployedWorkflowSourcesPath),
+              }],
+              publishedSourcesDir,
+              signal,
+            })
+          }
           if (vercelOutput) {
             await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, {
               ...options.providerImportAliases,
@@ -1499,6 +1578,7 @@ async function generateProviderOutputsWithinLock(
           signal?.throwIfAborted()
         },
         rootDir: options.rootDir,
+        sourceRootDir: options.sourceRootDir,
       }
       if (vercelOutput) deploymentOutput.vercel = vercelOutput
       await writeProviderDeploymentOutputs(deploymentOutput)
@@ -1518,8 +1598,20 @@ async function generateProviderOutputsWithinLock(
       }
     }
   }
-  if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
-  else await writeOutputs()
+  try {
+    if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
+    else await writeOutputs()
+    await commitGeneratedArtifacts()
+  }
+  catch (error) {
+    try {
+      await rollbackGeneratedArtifacts()
+    }
+    catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Generated Workflow artifact rollback failed")
+    }
+    throw error
+  }
   return artifacts
 }
 

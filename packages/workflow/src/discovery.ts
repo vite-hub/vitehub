@@ -7,6 +7,7 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  isGitRepositoryDirectory,
   mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
@@ -41,6 +42,7 @@ function readDirEntries(root: string) {
     return readdirSync(root, { withFileTypes: true })
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return []
     }
@@ -231,6 +233,7 @@ function findWorkflowFolders(workflowsDir: string): string[] {
     }
 
     const directory = resolve(workflowsDir, entry.name)
+    if (isGitRepositoryDirectory(directory)) continue
     if (isWorkflowFolder(directory)) {
       folders.push(directory)
       continue
@@ -254,6 +257,7 @@ function findFolderAgentFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (isGitRepositoryDirectory(absolute)) continue
       if ((entry.name === "workspace" || entry.name === "skills") && hasFolderAgentDefinition(agentsDir)) continue
       files.push(...findFolderAgentFiles(absolute))
       continue

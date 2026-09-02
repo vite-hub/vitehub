@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
 import {
@@ -12,6 +12,14 @@ import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 const viteHubTypesEntry = ".vitehub/types.d.ts"
+
+function isRetainedSourceDirectory(name: string): boolean {
+  return name === "node_modules"
+    || name === "sources"
+    || name === "runtime-sources"
+    || name.endsWith("-generations")
+    || name.endsWith("-sources")
+}
 
 interface ViteHubTypesOptions {
   projectRoot: string
@@ -27,7 +35,21 @@ interface ViteHubPluginConfig {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
-async function collectGeneratedTypeFiles(directory: string, root = directory): Promise<string[]> {
+function isUnresolvableDirectory(error: unknown): boolean {
+  return error instanceof Error && ["ELOOP", "ENOENT"].includes(String(Reflect.get(error, "code")))
+}
+
+async function collectGeneratedTypeFiles(
+  directory: string,
+  root = directory,
+  visitedDirectories = new Set<string>(),
+): Promise<string[]> {
+  const realDirectory = await realpath(directory).catch((error) => {
+    if (isUnresolvableDirectory(error)) return undefined
+    throw error
+  })
+  if (!realDirectory || visitedDirectories.has(realDirectory)) return []
+
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
@@ -36,12 +58,17 @@ async function collectGeneratedTypeFiles(directory: string, root = directory): P
     if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
     throw error
   }
+  visitedDirectories.add(realDirectory)
 
   const files: string[] = []
   for (const entry of entries) {
     const path = join(directory, entry.name)
-    if (entry.isDirectory() && !(directory === root && entry.name === "data")) {
-      files.push(...await collectGeneratedTypeFiles(path, root))
+    const isDirectory = entry.isDirectory() || (entry.isSymbolicLink() && await stat(path).then(value => value.isDirectory()).catch((error) => {
+      if (isUnresolvableDirectory(error)) return false
+      throw error
+    }))
+    if (isDirectory && !(directory === root && entry.name === "data") && !isRetainedSourceDirectory(entry.name)) {
+      for (const file of await collectGeneratedTypeFiles(path, root, visitedDirectories)) files.push(file)
     }
     else if (entry.isFile() && entry.name.endsWith(".d.ts")) {
       const generatedPath = relative(root, path).replaceAll("\\", "/")

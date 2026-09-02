@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -34,6 +34,7 @@ const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
+const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
@@ -393,7 +394,7 @@ interface WriteNitroSchedulePluginOptions {
 async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedulePluginOptions): Promise<string> {
   const pluginFile = resolve(root, generatedNitroSchedulePlugin)
   const moduleFile = resolve(root, generatedNitroCloudflareModule)
-  const providerRegistryFile = resolve(root, registryImportAnchor)
+  const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const runtimeRegistryFile = resolve(root, generatedNitroRuntimeRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   await mkdir(dirname(pluginFile), { recursive: true })
@@ -668,11 +669,13 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ...internalOptions.providerImportAliases,
           ...workflow?.bundleAlias,
         }
-        const retainedSources = await retainProviderOutputSources({
-          artifactDir: resolve(contributionArtifactDir, "sources"),
-          paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
-          roots: [rootDir],
-        })
+        const retainedSources = definitions.length || workflow
+          ? await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "sources"),
+              paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
+              roots: [rootDir],
+            })
+          : { resolve: (path: string) => path }
         const retainedDefinitions = definitions.map(definition => ({
           ...definition,
           handler: retainedSources.resolve(definition.handler),
@@ -682,28 +685,33 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           ? ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"]
           : undefined
         contributeProviderDeploymentOutput(providerOutput, {
-          discard: async () => await rm(contributionArtifactDir, { force: true, recursive: true }),
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
           owner: "schedule",
           rootDir,
           write: async ({ signal }) => {
             signal.throwIfAborted()
-            await generateProviderOutputsWithinLock({
+            const artifacts = await generateProviderOutputsWithinLock({
               bundleAlias: retainedAliases,
               bundleExternal,
               clientOutDir: resolve(config.root, config.build.outDir),
               definitions: retainedDefinitions,
               crons,
               rootDir,
+              retainedSourcesDir: resolve(contributionArtifactDir, "sources"),
               runtimeImport: internalOptions.runtimeImport,
               signal,
               source: standaloneProviderSource,
+              sourceRootDir: retainedSources.resolve(rootDir),
               workflow,
             })
+            if (artifacts.definitions.length === 0) {
+              await rm(resolve(rootDir, ".vitehub", "schedule", "sources"), { force: true, recursive: true })
+            }
           },
         }, providerOutputGenerations.get(this))
       }
       catch (error) {
-        if (artifactDir) await rm(artifactDir, { force: true, recursive: true })
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }

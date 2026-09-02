@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
+import { parse, string } from "valibot"
 
 import { hubAgent } from "../src/vite.ts"
 
@@ -128,6 +129,8 @@ async function createDeploymentRuntimeFixture(
   ].join("\n"), "utf8")
   await writeFile(join(supportRoot, "instructions.md"), "Support the deployment catalog.\n", "utf8")
   await writeFile(join(supportRoot, "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+  await writeFile(join(supportRoot, "workspace", ".git"), "gitdir: /tmp/support-workspace.git\n", "utf8")
+  await writeFile(join(supportRoot, "workspace", "context.md"), "Retained Workspace context.\n", "utf8")
   await mkdir(reviewerRoot, { recursive: true })
   await writeFile(join(reviewerRoot, "agent.ts"), [
     "import { defineAgent, defineCapability } from '@vite-hub/agent'",
@@ -465,6 +468,10 @@ describe("generated Agent deployment catalog", () => {
       name: "reviewer",
     })
     expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
+    const workspace = await runtime.workspace("support")
+    const sourceRootDir = parse(string(), workspace.sourceRootDir)
+    await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
+      .resolves.toBe("Retained Workspace context.\n")
     expect(runtime.waitUntilTasks).toHaveLength(2)
   })
 
