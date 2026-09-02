@@ -95,7 +95,7 @@ export interface AgentInvocationStoreCreateResult {
 
 export interface AgentInvocationStoreUpdateInput {
   annotations?: AgentInvocationRecord["annotations"]
-  capabilityId?: string
+  capabilityIds?: readonly string[]
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
   observationsTruncated?: boolean
@@ -870,10 +870,11 @@ export function applyAgentInvocationStoreUpdate(
     ? configurationAnnotations(input.observation)
     : undefined
   const capabilityIds = invocationCapabilityIds(record)
-  const incomingCapabilityId = normalizedCapabilityId(input.capabilityId)
-    || observationCapabilityId(input.observation)
-  if (incomingCapabilityId && capabilityIds.length < MAX_CAPABILITY_IDS && !capabilityIds.includes(incomingCapabilityId)) {
-    capabilityIds.push(incomingCapabilityId)
+  for (const value of [...(input.capabilityIds || []), observationCapabilityId(input.observation)]) {
+    const incomingCapabilityId = normalizedCapabilityId(value)
+    if (incomingCapabilityId && capabilityIds.length < MAX_CAPABILITY_IDS && !capabilityIds.includes(incomingCapabilityId)) {
+      capabilityIds.push(incomingCapabilityId)
+    }
   }
   const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
@@ -1210,6 +1211,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const terminalRetryObservations: TraceEventLogEntry[] = []
       const terminalObservationRecoveries: Array<() => Promise<void>> = []
       const ambiguouslyPersistingObservations = new Set<string | number>()
+      const observedCapabilityIds = new Set<string>()
       const persistedObservations = new Set<string | number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
@@ -1231,6 +1233,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
               truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
               finished = terminalStatus(result.record.status)
               boundToTerminalRecord = finished
               created = true
@@ -1420,6 +1423,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
       }
       const observe = (observation: TraceEventLogEntry) => {
+        const capabilityId = observationCapabilityId(observation)
+        if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
           if (!boundToTerminalRecord && recoverableOutcomeObservation(observation)) {
             registerAgentInvocationRecovery(context, persistLateObservation(observation))
@@ -1440,9 +1445,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           observationsTruncated = true
           if (persistTruncation) void markTruncated()
           if (priority === undefined) {
-            const capabilityId = observationCapabilityId(observation)
             if (capabilityId) {
-              void update({ capabilityId, timestamp: normalizedTimestamp(observation.timestamp) })
+              void update({ capabilityIds: [capabilityId], timestamp: normalizedTimestamp(observation.timestamp) })
             }
             return
           }
@@ -1497,6 +1501,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
+            ...(observedCapabilityIds.size ? { capabilityIds: [...observedCapabilityIds] } : {}),
             ...(failure ? { error: failure } : {}),
             ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             status,
