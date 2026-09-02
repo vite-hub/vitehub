@@ -378,6 +378,7 @@ async function removeEmptyDirectories(directory: string): Promise<boolean> {
   }
   catch (error) {
     // Another provider finalizer may create or remove the directory after its contents are visited.
+    // SAFETY: Node filesystem failures expose their POSIX code through NodeJS.ErrnoException.
     const code = (error as NodeJS.ErrnoException).code
     if (code === "ENOTEMPTY" || code === "EEXIST") return false
     if (code === "ENOENT") return true
