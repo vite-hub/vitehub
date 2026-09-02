@@ -490,6 +490,7 @@ describe("Agent invocation console", () => {
         "/api/_vitehub/console/agents",
         "/api/_vitehub/console/invocations",
         "/api/_vitehub/console/invocations/:id",
+        "/api/_vitehub/console/invocation-capabilities",
         "/api/_vitehub/console/search",
         "/api/_vitehub/console/usage",
         "/api/_vitehub/console/blob",
