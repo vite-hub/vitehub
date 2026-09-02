@@ -3409,7 +3409,7 @@ describe("Agent invocation console", () => {
           attributes: id === "inv-1"
             ? { "usage.record": { usage: { totalTokens: 42 } } }
             : undefined,
-          name: "private",
+          name: "agent.invocation.finish",
           sequence: 1,
           timestamp: "2026-08-23T12:00:00.000Z",
           type: "run",
