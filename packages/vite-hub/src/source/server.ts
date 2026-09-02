@@ -13,7 +13,9 @@ interface KeyedSourceReader {
 type RuntimeSourceDefinition<TReader extends KeyedSourceReader> =
   (context: SourceContext) => TReader
 
-export type SourceReaderCacheOptions<TKey extends string, TValue> = CacheOptions<TValue, [key: TKey]>
+export type SourceReaderCacheOptions<TKey extends string, TValue> =
+  & Omit<CacheOptions<TValue, [key: TKey]>, "name">
+  & { name: string }
 
 interface CachedSourceReader<TKey extends string, TValue> {
   cache: false | SourceReaderCacheOptions<TKey, TValue>
