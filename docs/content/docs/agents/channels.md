@@ -271,6 +271,19 @@ Set `messages.commentary: 'message'` only when the Driver emits explicit comment
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
 
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+
+```ts
+messages: {
+  loading: {
+    text: ['Looking into it…', 'Still working…'],
+    intervalMs: 1_500,
+    updates: 'commentary',
+  },
+  final: { delivery: 'new-message' },
+}
+```
+
 ## Inspect delivery custody
 
 Every built-in and custom Agent Channel records a delivery timeline before the Agent starts. The record keeps the provider event id separate from ViteHub's delivery id, then appends admission, invocation, retry, outbound, completion, and failure events. Discord Gateway and Telegram polling listeners also emit structured lifecycle events, so a listener gap can be distinguished from an event that reached ViteHub.

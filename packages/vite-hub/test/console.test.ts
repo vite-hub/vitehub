@@ -3706,6 +3706,7 @@ describe("Agent invocation console", () => {
       expect(resolved.invocationUrl(link)).toBe(
         `https://chat.example/portal/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
+      vi.unstubAllGlobals()
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })

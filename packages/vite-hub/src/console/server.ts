@@ -31,10 +31,11 @@ export interface ConsoleRuntime {
   invocationUrl: (invocation: ConsoleInvocationLink) => string
 }
 
-function consoleAppBaseURL(): string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite replaces this build-time constant, while direct source imports leave it undeclared.
-  const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
-  return baseURL === "/" ? "" : `/${baseURL.replace(/^\/+|\/+$/g, "")}`
+function consoleBaseURL(): string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The injected host base is optional in standalone package consumers, so the runtime boundary must detect its presence.
+  const configured = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
+  const segments = configured.split("/").filter(Boolean)
+  return segments.length ? `/${segments.join("/")}` : ""
 }
 
 export const console = {
@@ -46,7 +47,7 @@ export const console = {
         if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
         const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
         const id = encodeURIComponent(invocation.id)
-        return new URL(`${consoleAppBaseURL()}/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
+        return new URL(`${consoleBaseURL()}/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
       },
     }
   },

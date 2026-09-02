@@ -49,6 +49,28 @@ Command `agent:finish` hooks run for completed and failed Agent Invocations.
 The Capability records command names and descriptions in metadata.
 It stops command expansion when no configured command remains.
 
+The handler receives the current Invocation as `context.invocation`; generated hosts add its stable `id` when one is available. `context.reply(body)` sends an immediate Channel reply and returns an empty `204` response. When importing `inputCommands()` from `vite-hub/agent/capabilities`, Console-enabled hosts also expose `context.console.invocations` and `context.console.invocationUrl()` for linking to inspected work. The URL helper requires the request-backed route or Workflow context supplied by a generated host.
+
+```ts [server/agents/support.ts]
+import { inputCommands } from 'vite-hub/agent/capabilities'
+
+const history = inputCommands({
+  commands: {
+    history: {
+      async call({ context }) {
+        const { invocations } = await context.console.invocations.list({ limit: 1 })
+        const latest = invocations[0]
+        if (!latest?.agentName) return 'No previous invocation.'
+        return await context.reply(context.console.invocationUrl({
+          agentName: latest.agentName,
+          id: latest.id,
+        }))
+      },
+    },
+  },
+})
+```
+
 ## Requirements
 
 Command names must be lowercase stable identifiers.
@@ -83,6 +105,8 @@ Check Agent inspection metadata for the `inputCommands` Capability and its comma
 | `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | remove command text | Handler that accepts, rejects, transforms, or enriches invocation input. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
+
+Handler context includes `invocation`, `reply()`, and host Runtime Capabilities. The full `vite-hub` distribution types the optional Console helpers; the standalone `@vite-hub/agent` package remains host-neutral.
 
 ## Related pages
 

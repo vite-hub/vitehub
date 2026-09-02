@@ -6,16 +6,6 @@ interface BootstrapInvocation {
   agentName?: string;
 }
 
-export function shouldResetCapabilityFilter(
-  current: { agent?: string; invocation?: string },
-  previous: { agent?: string; invocation?: string } | undefined,
-): boolean {
-  if (!previous) return false;
-  return current.agent !== previous.agent || Boolean(
-    current.invocation && current.invocation !== previous.invocation,
-  );
-}
-
 export async function refreshCapabilityFilteredInvocations(options: {
   navigate: () => Promise<unknown>;
   refresh: () => Promise<unknown>;
@@ -23,6 +13,18 @@ export async function refreshCapabilityFilteredInvocations(options: {
   const refresh = options.refresh();
   await options.navigate();
   await refresh;
+}
+
+export function resetCapabilityFilterForRouteTransition(options: {
+  preserve: boolean;
+  routeChanged: boolean;
+  scheduleRefresh: () => void;
+  selectedCapabilityId: Ref<string | undefined>;
+}): boolean {
+  if (options.preserve || !options.routeChanged || !options.selectedCapabilityId.value) return false;
+  options.selectedCapabilityId.value = undefined;
+  options.scheduleRefresh();
+  return true;
 }
 
 export function useConsoleSessionBootstrap(options: {

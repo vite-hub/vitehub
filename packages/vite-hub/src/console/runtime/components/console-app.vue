@@ -37,7 +37,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
 import {
   refreshCapabilityFilteredInvocations,
-  shouldResetCapabilityFilter,
+  resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "./console-session-bootstrap";
 import "./console-session.css";
@@ -92,6 +92,7 @@ let capabilitiesRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
+let preserveCapabilityFilterRouteTransition = false;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -416,16 +417,21 @@ async function selectCapability(capabilityId?: string): Promise<void> {
   filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
-  await refreshCapabilityFilteredInvocations({
-    navigate: () =>
-      selectedAgentName.value
-        ? router.replace({
-            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-          })
-        : Promise.resolve(),
-    refresh: () => list.refresh(),
-  });
+  preserveCapabilityFilterRouteTransition = true;
+  try {
+    await refreshCapabilityFilteredInvocations({
+      navigate: () =>
+        selectedAgentName.value
+          ? router.replace({
+              name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+              params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+            })
+          : Promise.resolve(),
+      refresh: () => list.refresh(),
+    });
+  } finally {
+    preserveCapabilityFilterRouteTransition = false;
+  }
 }
 
 async function toggleUsage(): Promise<void> {
@@ -580,33 +586,30 @@ watch(
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    if (
-      selectedCapabilityId.value &&
-      shouldResetCapabilityFilter(
-        { agent: requestedAgent, invocation: requestedInvocation },
-        previous ? { agent: previous[1], invocation: previous[0] } : undefined,
-      )
-    ) {
-      selectedCapabilityId.value = undefined;
-      scheduleInvocationListRefresh();
-    }
+    const filterReset = resetCapabilityFilterForRouteTransition({
+      preserve: preserveCapabilityFilterRouteTransition,
+      routeChanged,
+      scheduleRefresh: scheduleInvocationListRefresh,
+      selectedCapabilityId,
+    });
+    const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
       if (routeChanged) showSessions();
     }
     if (!requestedAgent && !agentName) {
-      if (!firstInvocation) return;
-      if (!firstInvocation.agentName) {
+      if (!availableFirstInvocation) return;
+      if (!availableFirstInvocation.agentName) {
         initialBootstrapPending.value = false;
         return;
       }
-      selectedInvocationId.value = firstInvocation.id;
+      selectedInvocationId.value = availableFirstInvocation.id;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
           params: {
-            agent: encodeAgentRouteParam(firstInvocation.agentName),
-            invocation: firstInvocation.id,
+            agent: encodeAgentRouteParam(availableFirstInvocation.agentName),
+            invocation: availableFirstInvocation.id,
           },
         });
       } finally {
@@ -616,11 +619,11 @@ watch(
     }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
-    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? availableFirstInvocation?.id : undefined);
+    if (!requestedInvocation && availableFirstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
-        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation.id },
+        params: { agent: encodeAgentRouteParam(agentName), invocation: availableFirstInvocation.id },
       });
     }
   },

@@ -4,7 +4,7 @@ import { createExecutionContext, getViteHubErrorShape } from "@vite-hub/runtime"
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
-import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { bindAgentInvocations } from "../invocations.ts"
@@ -309,7 +309,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
     },
   }
   if (payload.agentIdentity) runtimeInput.agentIdentity = payload.agentIdentity
-  if (payload.capabilities) runtimeInput.capabilities = payload.capabilities
+  const capabilities = await loadConfiguredAgentWorkflowCapabilities(payload.capabilities)
+  if (Object.keys(capabilities).length) runtimeInput.capabilities = capabilities
   if (cloudflareEnv) runtimeInput.cloudflare = { env: cloudflareEnv }
   if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
   if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }

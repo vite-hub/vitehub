@@ -29,6 +29,15 @@ export function setAgentWorkflowCapabilityLoaders(loaders: AgentWorkflowCapabili
   workflowCapabilityLoaders = loaders
 }
 
+export async function loadConfiguredAgentWorkflowCapabilities(
+  overrides: Record<string, false> = {},
+): Promise<Record<string, unknown>> {
+  const entries = await Promise.all(Object.entries(workflowCapabilityLoaders).map(async ([name, load]) => (
+    overrides[name] === false ? [name, false] as const : [name, await load()] as const
+  )))
+  return { ...Object.fromEntries(entries), ...overrides }
+}
+
 export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
   return workflowRuntimeLoaders.workflow()
 }
@@ -40,17 +49,20 @@ export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeSt
 export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.blob) return await workflowCapabilityLoaders.blob()
   const packageName: string = "@vite-hub/blob"
+  // SAFETY: The official Blob package export is the primitive registered by generated Workflow hosts.
   return ((await import(/* @vite-ignore */ packageName)) as { blob: unknown }).blob
 }
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.console) return await workflowCapabilityLoaders.console()
   const packageName: string = "vite-hub/console/server"
+  // SAFETY: The full distribution's Console server export is the primitive registered by generated Workflow hosts.
   return ((await import(/* @vite-ignore */ packageName)) as { console: unknown }).console
 }
 
 export async function loadAgentWorkflowDatabasePrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.db) return await workflowCapabilityLoaders.db()
   const packageName: string = "@vite-hub/database/drizzle"
+  // SAFETY: The official Database package export is the primitive registered by generated Workflow hosts.
   return ((await import(/* @vite-ignore */ packageName)) as { agentDb: unknown }).agentDb
 }

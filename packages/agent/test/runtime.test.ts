@@ -15172,20 +15172,79 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("accepts generated Console handles and rejects caller-supplied portable handles", async () => {
+    it("only treats generated Blob, Console, and Database handles as Workflow-portable", async () => {
       const { hasOnlyPortableAgentWorkflowCapabilities } = await import("../src/internal/final-channel-output.ts")
       const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
-      const consolePrimitive = { invocations: {} }
+      const consolePrimitive = { resolve: vi.fn() }
 
-      setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
       try {
-        await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
+        setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
         await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: consolePrimitive })).resolves.toBe(true)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
         await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: {} })).resolves.toBe(false)
         await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
-      }
-      finally {
+      } finally {
         setAgentWorkflowCapabilityLoaders({})
+      }
+    })
+
+    it("reconstructs generated Console context inside required Workflows", async () => {
+      const { inputCommands } = await import("../src/capabilities/input-commands.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const resolve = vi.fn((context: { request?: Request }) => ({
+        invocationUrl: () => new URL("/linked-invocation", context.request?.url).href,
+        invocations: {},
+      }))
+      const consolePrimitive = { resolve }
+      setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const agent = defineAgent({
+          capabilities: [inputCommands({
+            commands: {
+              history: {
+                call: ({ context }) => {
+                  // SAFETY: The fixture supplies the generated Console primitive asserted by this Workflow reconstruction test.
+                  const consoleRuntime = (context as typeof context & {
+                    console: { invocationUrl: () => string }
+                  }).console
+                  return consoleRuntime.invocationUrl()
+                },
+              },
+            },
+          })],
+          driver: { run: ({ input }) => input.prompt },
+        })
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        const run = await runAgent(agent, {
+          agentIdentity: { name: "portable-console" },
+          capabilities: { console: consolePrimitive },
+          memo: vi.fn(),
+          request: new Request("https://example.test/portal/api/agent"),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {
+          context: { [requireAgentWorkflowContextKey]: true },
+          prompt: "/history",
+        }) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("portable-console", run.id)).resolves.toMatchObject({
+          result: "https://example.test/linked-invocation",
+          status: "completed",
+        })
+        expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+          request: expect.objectContaining({ url: "https://example.test/portal/api/agent" }),
+        }))
+      } finally {
+        setAgentWorkflowCapabilityLoaders({})
+        resetWorkflowRuntime()
       }
     })
 

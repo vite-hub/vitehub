@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
 import {
   refreshCapabilityFilteredInvocations,
-  shouldResetCapabilityFilter,
+  resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "../src/console/runtime/components/console-session-bootstrap";
 import { computed, effectScope, nextTick, ref, watch } from "vue";
@@ -44,21 +44,6 @@ it("keeps shared refreshes on Usage free of Invocation requests", () => {
   expect(consolePage).toContain(
     "isUsageRoute.value ? Promise.resolve() : list.refresh()",
   );
-});
-
-it("resets Capability filters for routed Agents and Invocations", () => {
-  expect(shouldResetCapabilityFilter(
-    { agent: "support", invocation: "invocation-b" },
-    { agent: "support", invocation: "invocation-a" },
-  )).toBe(true);
-  expect(shouldResetCapabilityFilter(
-    { agent: "billing" },
-    { agent: "support", invocation: "invocation-a" },
-  )).toBe(true);
-  expect(shouldResetCapabilityFilter(
-    { agent: "support" },
-    { agent: "support", invocation: "invocation-a" },
-  )).toBe(false);
 });
 
 it("selects an Invocation returned by the active Capability filter", async () => {
@@ -104,6 +89,32 @@ it("selects an Invocation returned by the active Capability filter", async () =>
   expect(selectedInvocationId.value).toBe("invocation-b");
   expect(routeInvocation.value).toBeUndefined();
   scope.stop();
+});
+
+it("clears Capability filters for external Agent and Invocation route transitions", () => {
+  const selectedCapabilityId = ref<string | undefined>("papercuts");
+  let refreshes = 0;
+
+  expect(resetCapabilityFilterForRouteTransition({
+    preserve: false,
+    routeChanged: true,
+    scheduleRefresh: () => refreshes++,
+    selectedCapabilityId,
+  })).toBe(true);
+  expect(selectedCapabilityId.value).toBeUndefined();
+  expect(refreshes).toBe(1);
+});
+
+it("preserves Capability filters during their own route transition", () => {
+  const selectedCapabilityId = ref<string | undefined>("papercuts");
+
+  expect(resetCapabilityFilterForRouteTransition({
+    preserve: true,
+    routeChanged: true,
+    scheduleRefresh: () => undefined,
+    selectedCapabilityId,
+  })).toBe(false);
+  expect(selectedCapabilityId.value).toBe("papercuts");
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(
