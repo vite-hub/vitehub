@@ -43,6 +43,7 @@ import agentsHandler from "../src/console/runtime/server/agents.get.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
+import invocationCapabilitiesHandler from "../src/console/runtime/server/invocation-capabilities.get.ts"
 import invocationsHandler from "../src/console/runtime/server/invocations.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
@@ -2076,6 +2077,39 @@ describe("Agent invocation console", () => {
 
     await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
       invocations: [{ agentName: "review" }],
+    })
+  })
+
+  it("filters console sessions by the exact capability that was used", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const [id, capabilityId] of [["reported", "papercuts"], ["measured", "usage"]] as const) {
+      store.create({
+        agentName: "chat",
+        createdAt: "2026-08-23T12:00:00.000Z",
+        id,
+        observations: [{
+          attributes: { "capability.id": capabilityId },
+          name: "agent.tool.finish",
+          sequence: 1,
+          timestamp: "2026-08-23T12:00:00.000Z",
+          type: "run",
+        }],
+        status: "completed",
+        traceId: `trace-${id}`,
+        updatedAt: "2026-08-23T12:00:00.000Z",
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?agent=chat&capability=papercuts"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ id: "reported" }],
+    })
+    await expect(invocationCapabilitiesHandler(requestEvent)).resolves.toEqual({
+      capabilities: ["papercuts", "usage"],
     })
   })
 

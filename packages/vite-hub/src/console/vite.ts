@@ -454,6 +454,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/blob.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
+                join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
                 join(consoleRuntimeRoot, "server/kv.get.js"),
                 join(consoleRuntimeRoot, "server/agents.get.js"),
@@ -488,6 +489,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
               {
                 handler: join(consoleRuntimeRoot, "server/invocation.get.js"),
                 route: "/api/_vitehub/console/invocations/:id",
+              },
+              {
+                handler: join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
+                route: "/api/_vitehub/console/invocation-capabilities",
               },
               {
                 handler: join(consoleRuntimeRoot, "server/search.get.js"),

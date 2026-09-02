@@ -218,6 +218,7 @@ export default defineConfig({
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/definitions.get.ts",
+      "src/console/runtime/server/invocation-capabilities.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/kv.get.ts",
@@ -241,6 +242,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/blob.get"];
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
+        delete exports["./console/runtime/server/invocation-capabilities.get"];
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocations.get"];
         delete exports["./console/runtime/server/kv.get"];

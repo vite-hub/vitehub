@@ -48,10 +48,12 @@ async function listLifecyclePage(
   limit: number,
   cursor: string | null | undefined,
   agentName: string | undefined,
+  capabilityId: string | undefined,
 ): Promise<AgentInvocationListResult> {
   const options: AgentInvocationListOptions = { limit }
   if (status) options.status = status
   if (agentName) options.agentName = agentName
+  if (capabilityId) options.capabilityId = capabilityId
   if (cursor !== null && cursor !== undefined) options.cursor = cursor
   return getConsoleInvocations().list(options)
 }
@@ -85,6 +87,13 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     throw Object.assign(new Error("Invalid Agent name"), {
       statusCode: 400,
       statusMessage: "Invalid Agent name",
+    })
+  }
+  const capabilityId = query.get("capability")?.trim() || undefined
+  if (capabilityId && capabilityId.length > 512) {
+    throw Object.assign(new Error("Invalid Capability id"), {
+      statusCode: 400,
+      statusMessage: "Invalid Capability id",
     })
   }
   const limitValue = query.get("limit")
@@ -126,7 +135,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       continue
     }
     const limit = Math.ceil(remainingLimit / remainingGroups)
-    const page = await listLifecyclePage(statuses, limit, cursor[key], agentName)
+    const page = await listLifecyclePage(statuses, limit, cursor[key], agentName, capabilityId)
     pages[key] = page
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
     remainingLimit = Math.max(0, pageLimit - returnedIds.size)
@@ -137,7 +146,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     const page = pages[key]
     if (page.cursor === undefined) continue
     const backfillBudget = remainingLimit
-    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName)
+    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName, capabilityId)
     pages[key] = {
       ...backfill,
       invocations: [...page.invocations, ...backfill.invocations],
@@ -156,6 +165,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
           recheckLimit,
           cursor[laterKey],
           agentName,
+          capabilityId,
         )
         const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
         const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
@@ -193,7 +203,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
         deferredGroups.add(key)
       }
       else {
-        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName)
+        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName, capabilityId)
       }
       return refillLimit
     }
