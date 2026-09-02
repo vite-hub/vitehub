@@ -31,6 +31,7 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   }
   return defineCapability({
     id: "otlp",
+    instructionCoverage: false,
     metadata: { protocol: "http/json", signals: options.live ? ["logs", "traces"] : ["traces"] },
     telemetry: {
       ...(options.content ? { content: options.content } : {}),

@@ -1065,6 +1065,7 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
     ...existing,
     integrations: [...integrations, aiSdkTelemetryIntegration({
       context: context.context,
+      driverContributions: context.driverContributions,
       input: context.input,
       invoker: context.invoker,
       run: context.runtime.run,

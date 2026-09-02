@@ -1649,9 +1649,13 @@ describe("Agent Invocations", () => {
         "vitehub.activity.phase": "setup",
       },
     })
-    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
-    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+    const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { fingerprint?: unknown } | undefined
+    expect(configuration).not.toHaveProperty("instructions")
+    expect(configured?.attributes?.["vitehub.agent.configuration.fingerprint"])
+      .toBe(configuration?.fingerprint)
+    expect(configuration).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
+      fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
     })
   })
 

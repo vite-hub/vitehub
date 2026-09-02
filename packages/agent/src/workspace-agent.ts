@@ -1459,6 +1459,7 @@ function capabilityCoverageWarnings(
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
     .filter(capability => capability.id !== "skills" && !capability.id.startsWith("skills."))
+    .filter(capability => capability.instructionCoverage !== false)
     .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
     .map(capability => warning(
       `instruction-coverage:capability:${capability.id}`,
