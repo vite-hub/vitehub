@@ -10660,6 +10660,10 @@ describe("agent message protocol", () => {
       { delta: "private phased reasoning", id: "reasoning-2", phase: "reasoning", type: "text-delta" },
       { delta: "private phased suffix", id: "reasoning-2", type: "text-delta" },
       { id: "reasoning-2", type: "text-end" },
+      { id: "commentary-1", type: "text-start" },
+      { delta: "private commentary", id: "commentary-1", phase: "commentary", type: "text-delta" },
+      { delta: "private commentary suffix", id: "commentary-1", type: "text-delta" },
+      { id: "commentary-1", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
       { id: "text-1", type: "text-end" },
@@ -10683,6 +10687,8 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (input.prompt === "hide-reasoning") return { reasoning: "hidden" as const, tools: "full" as const }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      if (input.prompt === "hide-commentary") return { commentary: "hidden" as const, reasoning: "visible" as const, tools: "full" as const }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (input.prompt === "hide-tools") return { reasoning: "visible" as const, tools: "hidden" as const }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { reasoning: "visible" as const, tools: "full" as const }
@@ -10703,6 +10709,7 @@ describe("agent message protocol", () => {
     const omitted = await collect(defaultAgent, "omitted")
     const visible = await collect(agent, "visible")
     const hiddenReasoning = await collect(agent, "hide-reasoning")
+    const hiddenCommentary = await collect(agent, "hide-commentary")
     const hiddenTools = await collect(agent, "hide-tools")
 
     expect(omitted).toEqual(chunks)
@@ -10711,10 +10718,12 @@ describe("agent message protocol", () => {
       !chunk.type.startsWith("reasoning-")
       && chunk.id !== "reasoning-2",
     ))
+    expect(hiddenCommentary).toEqual(chunks.filter(chunk => chunk.id !== "commentary-1"))
     expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
     expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
       "visible",
       "hide-reasoning",
+      "hide-commentary",
       "hide-tools",
     ])
   })
@@ -10728,11 +10737,15 @@ describe("agent message protocol", () => {
           yield { delta: "private", id: "reasoning-1", phase: "reasoning", type: "text-delta" }
           yield { delta: " suffix", id: "reasoning-1", type: "text-delta" }
           yield { id: "reasoning-1", type: "text-end" }
+          yield { id: "commentary-1", type: "text-start" }
+          yield { delta: "commentary", id: "commentary-1", phase: "commentary", type: "text-delta" }
+          yield { delta: " suffix", id: "commentary-1", type: "text-delta" }
+          yield { id: "commentary-1", type: "text-end" }
           yield { delta: "public", id: "final-1", phase: "final", type: "text-delta" }
           yield { type: "finish" }
         },
       },
-      uiMessageStream: { reasoning: "hidden" },
+      uiMessageStream: { commentary: "hidden", reasoning: "hidden" },
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -10742,6 +10755,7 @@ describe("agent message protocol", () => {
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("commentary") }))
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("suffix") }))
     expect(chunks).toContainEqual(expect.objectContaining({ delta: "public" }))
   })

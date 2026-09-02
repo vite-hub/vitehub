@@ -1401,6 +1401,7 @@ export interface AgentOutputDefinition<TOutput = unknown> {
 }
 
 export interface AgentUIMessageStreamProjection {
+  commentary?: "hidden" | "visible"
   reasoning?: "hidden" | "visible"
   tools?: "hidden" | "full"
 }
