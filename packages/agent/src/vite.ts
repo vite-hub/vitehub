@@ -24,6 +24,7 @@ import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteCon
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 
@@ -1438,15 +1439,15 @@ async function resolveEveExtensionPackage(
       const packageName = isRecord(packageJson) ? packageJson.name : undefined
       const eve = isRecord(packageJson) && isRecord(packageJson.eve) ? packageJson.eve : undefined
       const extension = eve && isRecord(eve.extension) ? eve.extension : undefined
-      if (typeof packageName === "string" && extension) {
+      if (hasRuntimeType(packageName, "string") && extension) {
         if (!validate) return packageName
         const dist = extension.dist
-        if (typeof dist !== "string") return false
+        if (!hasRuntimeType(dist, "string")) return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
         const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"))
         const formatVersion = isRecord(manifest) ? manifest.formatVersion : undefined
         const requires = isRecord(manifest) && isRecord(manifest.requires) ? manifest.requires : undefined
-        const contracts = typeof formatVersion === "number"
+        const contracts = hasRuntimeType(formatVersion, "number")
           ? supportedEveExtensionContracts[formatVersion]
           : undefined
         if (!isRecord(manifest) || manifest.kind !== "eve-extension" || !contracts || !requires) {
