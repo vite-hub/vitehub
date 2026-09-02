@@ -48,7 +48,7 @@ export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameter
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
-  capabilities?: Record<string, false>
+  capabilities?: Record<string, boolean>
   input?: AgentRunInput<CALL_OPTIONS>
   invocationRecovery?: {
     agentName?: string

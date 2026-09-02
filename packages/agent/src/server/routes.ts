@@ -55,8 +55,8 @@ import { agentChatInvocationIdHeader } from "../internal/routes.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
-import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
-import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
+import { loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
+import { portableWorkflowCapabilityMask } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
@@ -3274,7 +3274,7 @@ function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: Ag
 }
 
 interface DurableSteerQueueMessage {
-  capabilities: Record<string, false>
+  capabilities: Record<string, boolean>
   claimId?: string
   deliveryIds?: string[]
   errorDeliveries?: DurableSteerErrorDelivery[]
@@ -3291,7 +3291,7 @@ interface DurableSteerQueueMessage {
 }
 
 interface DurableSteerErrorDelivery {
-  capabilities?: Record<string, false>
+  capabilities?: Record<string, boolean>
   fallbackStatus?: "delivered" | "reserved"
   input: AgentRunInput
   message: {
@@ -3380,7 +3380,7 @@ async function postDurableSteerErrorFallback(
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
   const deliveryContext: ViteAgentRouteRuntimeContext = {
     ...context,
-    capabilities: delivery.capabilities || {},
+    capabilities: await loadConfiguredAgentWorkflowCapabilities(delivery.capabilities),
     ...(delivery.requestUrl ? { request: new Request(delivery.requestUrl) } : {}),
     ...(delivery.run ? { run: delivery.run } : {}),
   }
@@ -4895,7 +4895,7 @@ async function handleChatSdkMessage(
       let workflowInputHasParsedMessageMeta = parsedAgentMessageMetaState(agent, workflowInput, run)
       let workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       let workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
-      let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
+      let workflowCapabilities = portableWorkflowCapabilityMask(context.capabilities)
       let workflowRequestUrl = context.request.url
       let workflowRun = run
       let workflowRunContext = runContext
@@ -5046,7 +5046,7 @@ async function handleChatSdkMessage(
             workflowSettlementStatus = previous.message.settlementStatus
             workflowRunContext = {
               ...context,
-              capabilities: workflowCapabilities,
+              capabilities: await loadConfiguredAgentWorkflowCapabilities(workflowCapabilities),
               ...(workflowRequestUrl ? { request: new Request(workflowRequestUrl) } : {}),
               run: workflowRun,
             }

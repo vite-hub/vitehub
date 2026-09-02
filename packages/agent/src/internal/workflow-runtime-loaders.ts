@@ -30,12 +30,14 @@ export function setAgentWorkflowCapabilityLoaders(loaders: AgentWorkflowCapabili
 }
 
 export async function loadConfiguredAgentWorkflowCapabilities(
-  overrides: Record<string, false> = {},
+  mask: Record<string, boolean> = {},
 ): Promise<Record<string, unknown>> {
-  const entries = await Promise.all(Object.entries(workflowCapabilityLoaders).map(async ([name, load]) => (
-    overrides[name] === false ? [name, false] as const : [name, await load()] as const
-  )))
-  return { ...Object.fromEntries(entries), ...overrides }
+  const entries = await Promise.all(Object.entries(mask).map(async ([name, enabled]) => {
+    if (!enabled) return [name, false] as const
+    const load = workflowCapabilityLoaders[name as keyof AgentWorkflowCapabilityLoaders]
+    return load ? [name, await load()] as const : undefined
+  }))
+  return Object.fromEntries(entries.filter((entry): entry is readonly [string, unknown] => entry !== undefined))
 }
 
 export function loadAgentWorkflowModule(): Promise<WorkflowModule> {

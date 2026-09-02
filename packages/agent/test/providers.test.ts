@@ -13095,7 +13095,7 @@ describe("server helpers", () => {
     }
   }, 10_000)
 
-  it("restores queued portable Capability overrides from persistent State", async () => {
+  it("restores the queued portable Capability mask from persistent State", async () => {
     const blobList = vi.fn(async () => ({ blobs: [] }))
     const blobPrimitive = { list: blobList }
     const { blob } = await import("../src/capabilities.ts")
@@ -13152,6 +13152,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(inputs).toHaveLength(1))
       await handler(chatWebhookRequest(91_127), "telegram", {
         agentIdentity: runtime.agentIdentity,
+        capabilities: { blob: blobPrimitive },
         cloudflare: runtime.cloudflare,
         waitUntil: runtime.waitUntil,
       })

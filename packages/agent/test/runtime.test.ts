@@ -15248,6 +15248,38 @@ describe("agent message protocol", () => {
       }
     })
 
+    it("does not add registered portable Capabilities that were absent at Workflow handoff", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const loadConsole = vi.fn(() => ({ resolve: vi.fn() }))
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setAgentWorkflowCapabilityLoaders({ console: loadConsole })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const run = await runAgent(defineAgent({
+          driver: { run: context => Object.keys(context.capabilities || {}) },
+          runtime: workflow("capability-boundary"),
+        }), {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("capability-boundary", run.id)).resolves.toMatchObject({
+          result: [],
+          status: "completed",
+        })
+        expect(loadConsole).not.toHaveBeenCalled()
+      } finally {
+        setAgentWorkflowCapabilityLoaders({})
+        resetWorkflowRuntime()
+      }
+    })
+
     it("rejects required Workflow delivery instead of falling back inline", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
