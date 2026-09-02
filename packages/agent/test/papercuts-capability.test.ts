@@ -64,7 +64,7 @@ describe("papercuts capability", () => {
   it("awaits the reporter with normalized text and invocation provenance", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const report = vi.fn(async () => await gate)
+    const report = vi.fn(async (_event: PapercutReportEvent) => await gate)
     const tool = await resolvePapercutTool(report)
 
     const active = tool.execute?.({ message: "  A flaky command needed a retry.  " })

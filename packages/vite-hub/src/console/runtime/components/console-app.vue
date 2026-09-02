@@ -704,6 +704,10 @@ watch(selectedAgentName, () => {
   void loadCapabilityIds();
 }, { immediate: true });
 
+watch(filterOpen, (open) => {
+  if (open) void loadCapabilityIds();
+});
+
 if (pageVisible.value) void loadAgents();
 
 onMounted(() => {
