@@ -44,6 +44,22 @@ class MutationObserverStub {
 
 const resizeObservers: ResizeObserverStub[] = [];
 
+const ChatButtonStub = defineComponent({
+  name: "UButton",
+  inheritAttrs: false,
+  props: {
+    color: String,
+    icon: String,
+    size: String,
+    type: String,
+    ui: Object,
+    variant: String,
+  },
+  setup(props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: props.type }, slots.default?.());
+  },
+});
+
 beforeEach(() => {
   resizeObservers.length = 0;
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
@@ -96,6 +112,42 @@ describe("message scroller behavior", () => {
       edgeThreshold: 12,
       previousItemPeek: 72,
     });
+  });
+
+  it("renders the styled jump control through Nuxt UI without component-slot warnings", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const wrapper = mount(AgentChat, {
+      global: { components: { UButton: ChatButtonStub } },
+    });
+
+    expect(wrapper.getComponent(ChatButtonStub).props()).toMatchObject({
+      color: "neutral",
+      icon: "i-lucide-chevron-down",
+      size: "xs",
+      type: "button",
+      ui: { leadingIcon: "size-3.5" },
+      variant: "outline",
+    });
+    expect(wrapper.get("[data-slot='message-scroller-button']").attributes()).toMatchObject({
+      "aria-label": "Scroll to end",
+      type: "button",
+    });
+    expect(wrapper.get("[data-slot='message-scroller-button']").text()).toBe("Scroll to end");
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("Non-function value");
+
+    warn.mockRestore();
+  });
+
+  it("preserves custom jump-control content", () => {
+    const wrapper = mount(AgentChat, {
+      global: { components: { UButton: ChatButtonStub } },
+      props: { scrollButtonLabel: "Jump to newest" },
+      slots: { "scroll-button": () => "Newest message" },
+    });
+
+    const button = wrapper.get("[data-slot='message-scroller-button']");
+    expect(button.attributes("aria-label")).toBe("Jump to newest");
+    expect(button.text()).toBe("Newest message");
   });
 
   it("renders root default content once without replacing message bodies", () => {

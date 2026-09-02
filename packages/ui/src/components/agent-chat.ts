@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from "ai";
-import { defineComponent, h, type PropType } from "vue";
+import { defineComponent, h, type PropType, resolveComponent } from "vue";
 import {
   MessageScrollerButton,
   MessageScrollerContent,
@@ -17,10 +17,12 @@ export const AgentChat = defineComponent({
     edgeThreshold: { type: Number },
     messages: { default: () => [], type: Array as PropType<readonly UIMessage[]> },
     previousItemPeek: { type: Number },
+    scrollButtonLabel: { default: "Scroll to end", type: String },
     status: { default: "ready", type: String as PropType<ChatStatus> },
   },
   setup(props, { attrs, slots }) {
     const defaults = useViteHubUI();
+    const UButton = resolveComponent("UButton");
     return () => {
       const messageSlots = Object.fromEntries(
         Object.entries(slots).filter(
@@ -83,8 +85,18 @@ export const AgentChat = defineComponent({
             ),
             h(
               MessageScrollerButton,
-              { class: "vh-chat__scroll-button" },
-              { default: () => slots["scroll-button"]?.() ?? "↓" },
+              {
+                "aria-label": props.scrollButtonLabel,
+                as: UButton,
+                class: "vh-chat__scroll-button",
+                color: "neutral",
+                icon: "i-lucide-chevron-down",
+                size: "xs",
+                type: "button",
+                ui: { leadingIcon: "size-3.5" },
+                variant: "outline",
+              },
+              { default: () => slots["scroll-button"]?.() ?? props.scrollButtonLabel },
             ),
             slots.default?.(),
           ],
