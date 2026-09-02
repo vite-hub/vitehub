@@ -57,6 +57,16 @@ describe("server Source readers", () => {
     await expect(docs.get("shared")).resolves.toBe("docs:shared")
   })
 
+  it("requires a name for cached readers", () => {
+    defineSource({
+      // @ts-expect-error Cached readers require a stable namespace.
+      cache: { maxAge: 60 },
+      async get(key: string) {
+        return key
+      },
+    })
+  })
+
   it("leaves readers without cache settings unchanged", () => {
     const reader = {
       async get(key: string) {
