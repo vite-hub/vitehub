@@ -2302,10 +2302,11 @@ cli_auth_credentials_store = "keyring"
       ],
     })
 
-    await createProviderAgentAdapter({ provider: "claude-code" }).generate({
+    const adapter = createProviderAgentAdapter({ provider: "claude-code" })
+    await Reflect.apply(adapter.generate, adapter, [{
       ...runContext,
       runtime: { ...runContext.runtime, traceLog },
-    } as never)
+    }])
 
     expect(traceLog.entries().filter(observation => observation.name.startsWith("agent.tool.")).map(observation => ({
       capabilityId: observation.attributes?.["capability.id"],

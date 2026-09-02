@@ -57,8 +57,8 @@ describe("papercuts capability", () => {
     })
     expect(tool.description).toContain("Never include secrets or customer data")
     expect(report).not.toHaveBeenCalled()
-    expect(() => papercuts(undefined as never)).toThrow("papercuts() requires a report callback")
-    expect(() => papercuts({ report: undefined as never })).toThrow("papercuts() requires a report callback")
+    expect(() => Reflect.apply(papercuts, undefined, [undefined])).toThrow("papercuts() requires a report callback")
+    expect(() => Reflect.apply(papercuts, undefined, [{ report: undefined }])).toThrow("papercuts() requires a report callback")
   })
 
   it("awaits the reporter with normalized text and invocation provenance", async () => {
@@ -101,10 +101,11 @@ describe("papercuts capability", () => {
   it("rejects invalid messages before reporting", async () => {
     const report = vi.fn()
     const tool = await resolvePapercutTool(report)
+    if (!tool.execute) throw new TypeError("Expected papercut tool execution.")
 
     await expect(tool.execute?.({ message: " " })).rejects.toThrow("requires a non-empty message")
     await expect(tool.execute?.({ message: "x".repeat(1_001) })).rejects.toThrow("at most 1000 characters")
-    await expect(tool.execute?.({ message: 42 } as never)).rejects.toThrow("requires a non-empty message")
+    await expect(Reflect.apply(tool.execute, tool, [{ message: 42 }])).rejects.toThrow("requires a non-empty message")
     expect(report).not.toHaveBeenCalled()
   })
 

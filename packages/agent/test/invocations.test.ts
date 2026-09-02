@@ -1649,7 +1649,8 @@ describe("Agent Invocations", () => {
         "vitehub.activity.phase": "setup",
       },
     })
-    const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { fingerprint?: unknown } | undefined
+    const configurationValue = configured?.attributes?.["vitehub.agent.configuration"]
+    const configuration = isRuntimeRecord(configurationValue) ? configurationValue : undefined
     expect(configuration).not.toHaveProperty("instructions")
     expect(configured?.attributes?.["vitehub.agent.configuration.fingerprint"])
       .toBe(configuration?.fingerprint)

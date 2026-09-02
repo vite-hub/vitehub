@@ -960,7 +960,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         .filter(record => !selectedAgent || record.agentName === selectedAgent)
         .flatMap(record => record.observations.flatMap((observation) => {
           const capabilityId = observation.attributes?.["capability.id"]
-          return typeof capabilityId === "string" && capabilityId.trim() ? [capabilityId.trim()] : []
+          return hasRuntimeType(capabilityId, "string") && capabilityId.trim() ? [capabilityId.trim()] : []
         })))]
         .sort()
     },
@@ -1611,7 +1611,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         for (const record of records) {
           for (const observation of record?.observations || []) {
             const capabilityId = observation.attributes?.["capability.id"]
-            if (typeof capabilityId === "string" && capabilityId.trim()) capabilityIds.add(capabilityId.trim())
+            if (hasRuntimeType(capabilityId, "string") && capabilityId.trim()) capabilityIds.add(capabilityId.trim())
           }
         }
         cursor = page.cursor

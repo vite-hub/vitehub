@@ -317,7 +317,7 @@ async function loadCapabilityIds(): Promise<void> {
       signal: controller.signal,
     }));
     const ids = Array.isArray(value?.capabilities)
-      ? value.capabilities.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+      ? value.capabilities.map(stringValue).filter((id): id is string => Boolean(id?.trim()))
       : [];
     if (capabilityIdsRequest === controller) {
       capabilityIds.value = [...new Set(ids.map(id => id.trim()))].sort();
