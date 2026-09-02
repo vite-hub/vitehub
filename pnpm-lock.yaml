@@ -1975,6 +1975,9 @@ importers:
       '@googleapis/drive':
         specifier: catalog:storage
         version: 20.2.0
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.17.4
       '@microsoft/microsoft-graph-client':
         specifier: catalog:storage
         version: 3.0.7(@azure/identity@4.13.1)
@@ -2120,9 +2123,6 @@ importers:
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
-      '@libsql/client':
-        specifier: catalog:database
-        version: 0.17.4
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.11.0(dc51c387986a40ed3d11a7721c2ab2fd)

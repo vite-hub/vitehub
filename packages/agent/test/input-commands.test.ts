@@ -11,6 +11,40 @@ const runtime = () => ({
 })
 
 describe("inputCommands", () => {
+  it("exposes resolved runtime primitives and can reply without running the driver", async () => {
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const diagnosticsRuntime = { invocations: { db: "db", schema: "schema" } }
+    const runId = "debug-command-run"
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          debug: {
+            async call({ context }) {
+              expect((context as typeof context & { diagnostics: typeof diagnosticsRuntime }).diagnostics).toBe(diagnosticsRuntime)
+              expect(context.invocation.id).toBe(await agentInvocationId(runId, "support"))
+              return context.reply("https://chat.example/_vitehub/invocations/previous")
+            },
+          },
+        },
+      })],
+    }, {
+      ...runtime(),
+      agentIdentity: { name: "support" },
+      capabilities: {
+        diagnostics: { resolve: () => diagnosticsRuntime },
+      },
+      run: { runId },
+    }, { prompt: "/debug" })
+
+    expect(resolved.response?.status).toBe(204)
+    expect(resolved.registries.deliveryEffectIntents).toEqual([
+      { kind: "reply", payload: "https://chat.example/_vitehub/invocations/previous" },
+    ])
+  })
+
   it("replaces command text in a string prompt", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

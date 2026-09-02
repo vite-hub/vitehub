@@ -35,7 +35,6 @@ import { agentInvocationId } from "../invocations.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { agentOutputEventObserverContextKey } from "../internal/agent-output-events.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -1611,7 +1610,7 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
 
 async function collectAgentOutput(
   result: unknown,
-  onProgress?: (summary: string) => void,
+  onProgress?: (event: unknown) => void,
   onToolResult?: (result: AgentToolStepItem) => void,
 ): Promise<string> {
   if (result instanceof Response) {
@@ -1638,6 +1637,7 @@ async function collectAgentOutput(
   let finalTextId: string | undefined
   let unphasedText = ""
   for await (const event of streamAgentOutputToEvents(result)) {
+    onProgress?.(event)
     if (event.type === "text-delta") {
       if (event.phase === undefined) {
         if (!explicitPhaseSeen) unphasedText += event.text
@@ -1651,8 +1651,6 @@ async function collectAgentOutput(
         }
       }
     }
-    const summary = progressSummaryFromEvent(event)
-    if (summary) onProgress?.(summary)
     if (event.type === "tool-result" && !event.error) {
       onToolResult?.({
         output: event.output,
@@ -1679,13 +1677,26 @@ function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
+  options?: { intervalMs?: number, updates?: "commentary" },
 ): {
   finish: () => Promise<void>
-  update: (summary: string) => void
+  update: (event: unknown) => void
 } {
   let latest: string | undefined
+  let commentary = ""
   let active = true
   let draining: Promise<void> | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let lastUpdateAt = 0
+
+  const textFromEvent = (event: unknown): string | undefined => {
+    if (options?.updates === "commentary") {
+      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
+      commentary += event.text
+      return commentary.trim() || undefined
+    }
+    return progressSummaryFromEvent(event)
+  }
 
   const drain = async () => {
     while (active && latest && manualDelivery.placeholder) {
@@ -1694,10 +1705,20 @@ function createManualDeliveryProgressUpdater(
       await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
         markdown: summary,
       }).catch(() => false)
+      lastUpdateAt = Date.now()
     }
   }
   const startDrain = () => {
     if (draining) return
+    const intervalMs = options?.intervalMs ?? 0
+    const delay = Math.max(0, intervalMs - (Date.now() - lastUpdateAt))
+    if (delay > 0) {
+      if (!timer) timer = setTimeout(() => {
+        timer = undefined
+        startDrain()
+      }, delay)
+      return
+    }
     draining = drain().finally(() => {
       draining = undefined
       if (active && latest && manualDelivery.placeholder) startDrain()
@@ -1707,6 +1728,7 @@ function createManualDeliveryProgressUpdater(
   return {
     async finish() {
       active = false
+      if (timer) clearTimeout(timer)
       if (!draining) return
 
       let timeout: ReturnType<typeof setTimeout> | undefined
@@ -1730,8 +1752,10 @@ function createManualDeliveryProgressUpdater(
       })
       waitUntil(cleanup)
     },
-    update(summary) {
+    update(event) {
       if (!manualDelivery.placeholder) return
+      const summary = textFromEvent(event)
+      if (!summary) return
       latest = summary
       startDrain()
     },
@@ -3673,9 +3697,10 @@ async function chatSdkLockKey(adapter: Adapter, threadId: string, options: Agent
 }
 
 function createChatSdkConfig(adapterName: string, adapter: Adapter, state: StateAdapter, options: AgentChatOptions | undefined): ChatConfig {
-  const fallbackStreamingPlaceholderText = isRuntimeString(options?.fallbackStreamingPlaceholderText)
-    ? options.fallbackStreamingPlaceholderText
-    : options?.fallbackStreamingPlaceholderText === null
+  const configuredPlaceholderText = options?.loading?.text ?? options?.fallbackStreamingPlaceholderText
+  const fallbackStreamingPlaceholderText = isRuntimeString(configuredPlaceholderText)
+    ? configuredPlaceholderText
+    : configuredPlaceholderText === null
       ? null
       : undefined
   const identity: ChatConfig["identity"] =
@@ -3694,11 +3719,15 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
     logger: chatSdkOption<ChatConfig["logger"]>(options, "logger"),
     messageHistory: chatSdkOption<ChatConfig["messageHistory"]>(options, "messageHistory"),
     state,
-    streamingUpdateIntervalMs: chatSdkOption<number>(options, "streamingUpdateIntervalMs"),
+    streamingUpdateIntervalMs: options?.loading?.intervalMs ?? chatSdkOption<number>(options, "streamingUpdateIntervalMs"),
     threadHistory: chatSdkOption<ChatConfig["threadHistory"]>(options, "threadHistory"),
     transcripts: options?.transcripts,
     userName: options?.userName || "vitehub",
   }) as ChatConfig
+}
+
+function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | undefined {
+  if (options?.final?.delivery === "new-message" || options?.finalDelivery === "new-message") return "new-message"
 }
 
 function isoDate(value: unknown): string | undefined {
@@ -4497,6 +4526,8 @@ async function flushChatFinishExtensionMessages(
   thread: Thread,
   chat: AgentChatQueuedFinishExtension,
   manualDelivery: ManualChatDeliveryState,
+  waitUntil: AgentWaitUntil,
+  finalDelivery?: "new-message",
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
@@ -4521,6 +4552,28 @@ async function flushChatFinishExtensionMessages(
           abortSignal?.throwIfAborted()
         }
         const placeholder = manualDelivery.placeholder
+        if (finalDelivery === "new-message") {
+          try {
+            await postChatMessage(thread, message, abortSignal)
+            if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+            const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
+            manualDelivery.placeholderCleanup = placeholderCleanup
+            waitUntil(placeholderCleanup.finally(() => {
+              if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
+            }))
+            for (const callback of callbacks) await callback(capture)
+            continue
+          }
+          catch (postError) {
+            abortSignal?.throwIfAborted()
+            if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
+              manualDelivery.placeholder = undefined
+              for (const callback of callbacks) await callback(capture)
+              continue
+            }
+            throw postError
+          }
+        }
         let deliveredToPlaceholder = false
         const placeholderCleanup = (async () => {
           try {
@@ -4766,7 +4819,7 @@ async function handleChatSdkMessage(
       }
     }
 
-    const manualDelivery = options?.delivery === "manual"
+    const manualDelivery = options?.loading !== undefined || options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
     input = { ...input, messages }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -5382,7 +5435,12 @@ async function handleChatSdkMessage(
       )
     }
     chatFinish = createChatFinishExtension(input, registration)
-    progress = manualDelivery ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal) : undefined
+    progress = manualDelivery
+      ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal, {
+          intervalMs: options?.loading?.intervalMs,
+          updates: options?.loading?.updates,
+        })
+      : undefined
     const remainingMaximumInvocationTimeout = maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - Date.now())
     const invocationInput = withChatFinishExtension(
       withResolvedAgentInvokerInput(
@@ -5399,14 +5457,6 @@ async function handleChatSdkMessage(
           context: {
             ...resolvedInvocationInput.context,
             [messageChannelStateContextKey]: state,
-            ...(progress
-              ? {
-                  [agentOutputEventObserverContextKey]: (event: unknown) => {
-                    const summary = progressSummaryFromEvent(event)
-                    if (summary) progress?.update(summary)
-                  },
-                }
-              : {}),
             ...(options?.stream === false || manualDelivery ? { [finalChannelOutputContextKey]: true } : {}),
           },
         },
@@ -5440,7 +5490,7 @@ async function handleChatSdkMessage(
             }
           }
           await progress?.finish()
-          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
+          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, context.waitUntil, chatFinalDelivery(options), invocationDeadlineAbort?.signal)
           invocationDeadlineAbort?.signal.throwIfAborted()
           const completedPlaceholder = manualDeliveryState.placeholder
           if (completedPlaceholder) {
@@ -5522,7 +5572,7 @@ async function handleChatSdkMessage(
           } finally {
             typing?.stop()
           }
-          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, invocationDeadlineAbort?.signal)
+          await flushChatFinishExtensionMessages(thread, chatFinish, manualDeliveryState, context.waitUntil, chatFinalDelivery(options), invocationDeadlineAbort?.signal)
         })(),
         maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
         invocationDeadlineAbort,
@@ -5567,9 +5617,10 @@ function createChatSdkMessageThread(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
 ): Thread {
-  const fallbackStreamingPlaceholderText = isRuntimeString(options?.fallbackStreamingPlaceholderText)
-    ? options.fallbackStreamingPlaceholderText
-    : options?.fallbackStreamingPlaceholderText === null
+  const configuredPlaceholderText = options?.loading?.text ?? options?.fallbackStreamingPlaceholderText
+  const fallbackStreamingPlaceholderText = isRuntimeString(configuredPlaceholderText)
+    ? configuredPlaceholderText
+    : configuredPlaceholderText === null
       ? null
       : undefined
   return new ThreadImpl({
@@ -5583,7 +5634,7 @@ function createChatSdkMessageThread(
     isDM: adapter.isDM?.(message.threadId) ?? false,
     logger: chat.getLogger(),
     stateAdapter: state,
-    streamingUpdateIntervalMs: chatSdkOption<number>(options, "streamingUpdateIntervalMs"),
+    streamingUpdateIntervalMs: options?.loading?.intervalMs ?? chatSdkOption<number>(options, "streamingUpdateIntervalMs"),
     // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
     threadHistory: chatThreadHistoryCache(source) as never,
   })
