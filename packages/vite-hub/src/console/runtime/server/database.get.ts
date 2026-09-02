@@ -100,6 +100,7 @@ function cell(value: unknown): ConsoleDatabaseCell {
   }
   try {
     const rendered = JSON.stringify(value)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify may return undefined for unsupported top-level database values.
     return typeof rendered === "string"
       ? { kind: "json", ...truncate(rendered) }
       : { kind: "text", ...truncate(String(value)) }
@@ -114,6 +115,7 @@ function databaseTables(schema: Record<string, unknown>): DatabaseTableEntry[] {
     .filter((value): value is SQLiteTable => is(value, SQLiteTable))
     .map((table) => {
       const config = getTableConfig(table)
+      // SAFETY: Drizzle's table column map contains SQLiteColumn values, while Object.entries only erases that value type.
       const columns = Object.entries(getTableColumns(table)) as Array<[string, SQLiteColumn]>
       return { columns, name: config.name, table }
     })

@@ -117,6 +117,7 @@ function parseEndpoint(value: unknown): { column: string; table: string } | unde
 
 function parseCell(value: unknown): ConsoleDatabaseCell | undefined {
   const source = record(value);
+  // SAFETY: The cell kind is checked against the complete ConsoleDatabaseCell kind set before it is returned.
   const kind = string(source?.kind) as ConsoleDatabaseCell["kind"] | undefined;
   const rendered = string(source?.value);
   if (!source || !kind || !cellKinds.has(kind) || rendered === undefined) return;
@@ -133,6 +134,7 @@ function positionTables(
   const columnHeights = [32, 32, 32];
   return tables.map((table) => {
     const column = columnHeights.indexOf(Math.min(...columnHeights));
+    // SAFETY: columnHeights always contains three entries and indexOf finds one of those entries.
     const position = { x: 32 + column * 320, y: columnHeights[column]! };
     columnHeights[column] = position.y + 58 + table.columns.length * 25;
     return { ...table, position };

@@ -136,15 +136,13 @@ function databaseInspection(url: URL): Record<string, unknown> {
     ? url.searchParams.get("sort") || undefined
     : undefined
   const direction = url.searchParams.get("direction") === "desc" ? "desc" : "asc"
-  const rows = table
-    ? (table.rows as Array<Record<string, unknown>>)
-        .filter(row => !search || Object.values(row).some(value => JSON.stringify(value)?.toLowerCase().includes(search)))
-        .toSorted((left, right) => {
-          if (!sort) return 0
-          const compared = String(left[sort] ?? "").localeCompare(String(right[sort] ?? ""), undefined, { numeric: true })
-          return direction === "desc" ? -compared : compared
-        })
-    : []
+  const rows = (table?.rows ?? [])
+    .filter(row => !search || Object.values(row).some(value => JSON.stringify(value)?.toLowerCase().includes(search)))
+    .toSorted((left, right) => {
+      if (!sort) return 0
+      const compared = String(left[sort] ?? "").localeCompare(String(right[sort] ?? ""), undefined, { numeric: true })
+      return direction === "desc" ? -compared : compared
+    })
   return {
     database: databaseFixture.schema,
     databases: [databaseFixture.schema],
