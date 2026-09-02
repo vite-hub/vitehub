@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
 import {
+  isCapabilityFilterRouteTransition,
   refreshCapabilityFilteredInvocations,
   resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
@@ -115,6 +116,23 @@ it("preserves Capability filters during their own route transition", () => {
     selectedCapabilityId,
   })).toBe(false);
   expect(selectedCapabilityId.value).toBe("papercuts");
+});
+
+it("does not preserve Capability filters for unrelated navigation during refresh", () => {
+  const expected = { agent: "alpha", invocation: undefined };
+
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "alpha",
+    invocation: undefined,
+  })).toBe(true);
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "alpha",
+    invocation: "invocation-b",
+  })).toBe(false);
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "beta",
+    invocation: undefined,
+  })).toBe(false);
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(

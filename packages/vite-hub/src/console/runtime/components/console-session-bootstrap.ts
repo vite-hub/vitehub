@@ -6,6 +6,11 @@ interface BootstrapInvocation {
   agentName?: string;
 }
 
+export interface CapabilityFilterRouteTransition {
+  agent?: string;
+  invocation?: string;
+}
+
 export async function refreshCapabilityFilteredInvocations(options: {
   navigate: () => Promise<unknown>;
   refresh: () => Promise<unknown>;
@@ -13,6 +18,15 @@ export async function refreshCapabilityFilteredInvocations(options: {
   const refresh = options.refresh();
   await options.navigate();
   await refresh;
+}
+
+export function isCapabilityFilterRouteTransition(
+  expected: CapabilityFilterRouteTransition | undefined,
+  route: CapabilityFilterRouteTransition,
+): boolean {
+  return Boolean(
+    expected && expected.agent === route.agent && expected.invocation === route.invocation,
+  );
 }
 
 export function resetCapabilityFilterForRouteTransition(options: {

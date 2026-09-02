@@ -36,10 +36,12 @@ import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
 import {
+  isCapabilityFilterRouteTransition,
   refreshCapabilityFilteredInvocations,
   resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "./console-session-bootstrap";
+import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -92,7 +94,7 @@ let capabilitiesRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
-let preserveCapabilityFilterRouteTransition = false;
+let pendingCapabilityFilterRouteTransition: CapabilityFilterRouteTransition | undefined;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -417,7 +419,11 @@ async function selectCapability(capabilityId?: string): Promise<void> {
   filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
-  preserveCapabilityFilterRouteTransition = true;
+  const transition = {
+    agent: selectedAgentName.value,
+    invocation: undefined,
+  } satisfies CapabilityFilterRouteTransition;
+  pendingCapabilityFilterRouteTransition = transition;
   try {
     await refreshCapabilityFilteredInvocations({
       navigate: () =>
@@ -430,7 +436,9 @@ async function selectCapability(capabilityId?: string): Promise<void> {
       refresh: () => list.refresh(),
     });
   } finally {
-    preserveCapabilityFilterRouteTransition = false;
+    if (pendingCapabilityFilterRouteTransition === transition) {
+      pendingCapabilityFilterRouteTransition = undefined;
+    }
   }
 }
 
@@ -586,8 +594,13 @@ watch(
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
+    const preserveCapabilityFilter = routeChanged && isCapabilityFilterRouteTransition(
+      pendingCapabilityFilterRouteTransition,
+      { agent: requestedAgent, invocation: requestedInvocation },
+    );
+    if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
     const filterReset = resetCapabilityFilterForRouteTransition({
-      preserve: preserveCapabilityFilterRouteTransition,
+      preserve: preserveCapabilityFilter,
       routeChanged,
       scheduleRefresh: scheduleInvocationListRefresh,
       selectedCapabilityId,
