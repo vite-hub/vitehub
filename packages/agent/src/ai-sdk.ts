@@ -390,7 +390,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   const byteLength = attachmentDataByteLength(resolved) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
-  const { fetchData: _fetchData, ...rest } = part
+  const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)
     : undefined
@@ -432,8 +432,8 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
       const isHistoricalChannelMessage = currentMessageId !== undefined
         && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
       if (isHistoricalChannelMessage) {
-        const { fetchData: _fetchData, ...reference } = part
-        if (reference.data || reference.url) {
+        const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...reference } = part
+        if (reference.data) {
           const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
           remainingBytes -= resolved.byteLength
           parts.push(resolved.part)

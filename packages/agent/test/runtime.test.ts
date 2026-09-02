@@ -15036,8 +15036,20 @@ describe("agent message protocol", () => {
         message: {
           id: "message-1",
           parts: [
-            { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
-            { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
+            {
+              fetchData: () => new Uint8Array([1, 2, 3]),
+              fetchMetadata: { fileId: "private-photo" },
+              mediaType: "image/jpeg",
+              type: "image",
+              url: "https://signed.example/photo.jpg?token=secret",
+            },
+            {
+              data: new Blob([new Uint8Array([4, 5, 6])]),
+              fetchMetadata: { downloadUrl: "https://signed.example/audio.mp3?token=secret" },
+              mediaType: "audio/mpeg",
+              type: "audio",
+              url: "https://signed.example/audio.mp3?token=secret",
+            },
             { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
             { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
           ],
@@ -15055,6 +15067,27 @@ describe("agent message protocol", () => {
         ],
         status: "completed",
       })
+      expect(JSON.stringify(await getWorkflowRun("portable-attachments", run.id))).not.toContain("signed.example")
+    })
+
+    it("rejects unavailable message attachments before Workflow handoff", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({ driver: { run: () => "unused" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "unavailable-attachment" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {
+        message: {
+          id: "message-1",
+          parts: [{ fetchData: () => "", mediaType: "image/jpeg", type: "image" }],
+          role: "user",
+        },
+      })).rejects.toThrow("[vitehub] image attachment fetchData() did not return supported attachment data.")
     })
 
     it("rejects non-JSON data in non-attachment message parts", async () => {

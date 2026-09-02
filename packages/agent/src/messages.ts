@@ -192,12 +192,17 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
   const materialized = await Promise.all(messages.map(async (message) => {
     let messageChanged = false
     const parts = await Promise.all(message.parts.map(async (part) => {
-      if (!isAttachmentPart(part) || !hasRuntimeType(part.fetchData, "function")) return part
+      if (!isAttachmentPart(part)) return part
+      const hasFetchData = hasRuntimeType(part.fetchData, "function")
+      if (!hasFetchData && !isAttachmentData(part.data)) return part
       changed = true
       messageChanged = true
-      const { fetchData: _fetchData, ...resolved } = part
+      const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...resolved } = part
       const data = await resolveAttachmentData(part)
-      return data === undefined ? resolved : { ...resolved, data }
+      if (hasFetchData && data === undefined) {
+        throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
+      }
+      return { ...resolved, data }
     }))
     return messageChanged ? { ...message, parts } : message
   }))
