@@ -6,6 +6,16 @@ interface BootstrapInvocation {
   agentName?: string;
 }
 
+export function shouldResetCapabilityFilter(
+  current: { agent?: string; invocation?: string },
+  previous: { agent?: string; invocation?: string } | undefined,
+): boolean {
+  if (!previous) return false;
+  return current.agent !== previous.agent || Boolean(
+    current.invocation && current.invocation !== previous.invocation,
+  );
+}
+
 export async function refreshCapabilityFilteredInvocations(options: {
   navigate: () => Promise<unknown>;
   refresh: () => Promise<unknown>;

@@ -723,7 +723,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         command: "build",
         createResolver: () => async (id) => `/app/node_modules/${id}`,
-        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "vite-hub/console" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
         root,
       })
 
@@ -742,7 +742,7 @@ describe("agent Vite plugin", () => {
       await nitroConfig(
         {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-          plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }],
+          plugins: [{ name: "@vite-hub/blob/vite" }, { name: "vite-hub/console" }, { name: "@vite-hub/database/vite" }],
           root,
         },
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -755,11 +755,13 @@ describe("agent Vite plugin", () => {
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { console as vitehubConsole } from "vite-hub/console/server"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(registry).toContain(
         'import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from "@vite-hub/agent/server/internal"',
       )
       expect(registry).toContain("blob: () => vitehubBlob")
+      expect(registry).toContain("console: () => vitehubConsole")
       expect(registry).toContain("db: () => vitehubDb")
       expect(registry).not.toContain("vitehubEmail")
       expect(providerRegistry).toBe(registry)

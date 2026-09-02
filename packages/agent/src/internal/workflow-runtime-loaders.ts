@@ -11,6 +11,7 @@ export interface AgentWorkflowRuntimeLoaders {
 
 export interface AgentWorkflowCapabilityLoaders {
   blob?: () => Promise<unknown> | unknown
+  console?: () => Promise<unknown> | unknown
   db?: () => Promise<unknown> | unknown
 }
 
@@ -40,6 +41,12 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.blob) return await workflowCapabilityLoaders.blob()
   const packageName: string = "@vite-hub/blob"
   return ((await import(/* @vite-ignore */ packageName)) as { blob: unknown }).blob
+}
+
+export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
+  if (workflowCapabilityLoaders.console) return await workflowCapabilityLoaders.console()
+  const packageName: string = "vite-hub/console/server"
+  return ((await import(/* @vite-ignore */ packageName)) as { console: unknown }).console
 }
 
 export async function loadAgentWorkflowDatabasePrimitive(): Promise<unknown> {

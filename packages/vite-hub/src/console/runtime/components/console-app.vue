@@ -37,6 +37,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
 import {
   refreshCapabilityFilteredInvocations,
+  shouldResetCapabilityFilter,
   useConsoleSessionBootstrap,
 } from "./console-session-bootstrap";
 import "./console-session.css";
@@ -579,6 +580,16 @@ watch(
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
+    if (
+      selectedCapabilityId.value &&
+      shouldResetCapabilityFilter(
+        { agent: requestedAgent, invocation: requestedInvocation },
+        previous ? { agent: previous[1], invocation: previous[0] } : undefined,
+      )
+    ) {
+      selectedCapabilityId.value = undefined;
+      scheduleInvocationListRefresh();
+    }
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
       if (routeChanged) showSessions();

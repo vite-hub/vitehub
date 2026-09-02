@@ -15158,11 +15158,21 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("does not treat caller-supplied Blob and Database handles as Workflow-portable", async () => {
+    it("accepts generated Console handles and rejects caller-supplied portable handles", async () => {
       const { hasOnlyPortableAgentWorkflowCapabilities } = await import("../src/internal/final-channel-output.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const consolePrimitive = { invocations: {} }
 
-      await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
-      await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
+      setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
+      try {
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: consolePrimitive })).resolves.toBe(true)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: {} })).resolves.toBe(false)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
+      }
+      finally {
+        setAgentWorkflowCapabilityLoaders({})
+      }
     })
 
     it("rejects required Workflow delivery instead of falling back inline", async () => {

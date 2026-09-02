@@ -19,6 +19,8 @@ import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/serv
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { RuntimeHostContext } from "@vite-hub/runtime"
 
+declare const __VITEHUB_APP_BASE_URL__: string
+
 export interface ConsoleInvocationLink {
   agentName: string
   id: string
@@ -27,6 +29,12 @@ export interface ConsoleInvocationLink {
 export interface ConsoleRuntime {
   invocations: AgentInvocations
   invocationUrl: (invocation: ConsoleInvocationLink) => string
+}
+
+function consoleAppBaseURL(): string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite replaces this build-time constant, while direct source imports leave it undeclared.
+  const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
+  return baseURL === "/" ? "" : `/${baseURL.replace(/^\/+|\/+$/g, "")}`
 }
 
 export const console = {
@@ -38,7 +46,7 @@ export const console = {
         if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
         const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
         const id = encodeURIComponent(invocation.id)
-        return new URL(`/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
+        return new URL(`${consoleAppBaseURL()}/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
       },
     }
   },
