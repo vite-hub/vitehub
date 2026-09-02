@@ -14,6 +14,7 @@ import { getConsoleProjectName, getConsoleSections, installConsoleProjectName, i
 import { getConsoleKV, installConsoleKV } from "./runtime/server/kv.ts"
 import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
+import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
 export {
   createConsoleInvocations,
@@ -21,6 +22,7 @@ export {
   getConsoleBlob,
   getConsoleAgents,
   getConsoleDefinitions,
+  getConsoleDatabase,
   getConsoleInvocations,
   getConsoleKV,
   getConsoleSections,
@@ -29,6 +31,7 @@ export {
   installConsoleAgents,
   installConsoleFixtureInvocations,
   installConsoleDefinitions,
+  installConsoleDatabase,
   installConsoleInvocations,
   installConsoleBlob,
   installConsoleKV,

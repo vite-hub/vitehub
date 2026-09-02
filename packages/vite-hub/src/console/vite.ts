@@ -168,6 +168,7 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
+  const databaseEnabled = sections.includes("databases")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
@@ -184,6 +185,12 @@ function renderConsoleNitroPlugin(
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`]
       : []),
     ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
+    ...(databaseEnabled
+      ? [
+          `import { installConsoleDatabase } from "vite-hub/console/database"`,
+          `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
+        ]
+      : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -197,6 +204,9 @@ function renderConsoleNitroPlugin(
       : []),
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
+    ...(databaseEnabled
+      ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.definitions.databases?.map(definition => definition.name) ?? [])})`]
+      : []),
     ...(agentsEnabled
       ? fixture
         ? [
@@ -338,6 +348,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     nitro.handlers = handlers
   }
 
+  function reconcileDatabaseHandler(nitro: ConsoleNitroConfig): void {
+    const route = "/api/_vitehub/console/database"
+    const databaseHandler = join(consoleRuntimeRoot, "server/database.get.js")
+    const handlers = Array.isArray(nitro.handlers)
+      ? nitro.handlers.filter(handler => handler?.handler !== databaseHandler)
+      : []
+    if (sections.includes("databases")) {
+      const conflictingHandler = handlers.find(handler => handler?.route === route)
+      if (conflictingHandler) {
+        throw new TypeError(`[vitehub] Cannot install the Console Database handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+      }
+      handlers.push({ handler: databaseHandler, route })
+    }
+    nitro.handlers = handlers
+  }
+
   function reconcileBlobHandler(nitro: ConsoleNitroConfig): void {
     const route = "/api/_vitehub/console/blob"
     const blobHandler = join(consoleRuntimeRoot, "server/blob.get.js")
@@ -452,6 +478,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
                 join(consoleRuntimeRoot, "server/blob.get.js"),
+                join(consoleRuntimeRoot, "server/database.get.js"),
                 join(consoleRuntimeRoot, "server/definitions.get.js"),
                 join(consoleRuntimeRoot, "server/invocation.get.js"),
                 join(consoleRuntimeRoot, "server/invocations.get.js"),
@@ -509,6 +536,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       )
       nitro.handlers = handlers
       reconcileKVHandler(nitro)
+      reconcileDatabaseHandler(nitro)
       reconcileDefinitionsHandler(nitro)
       reconcileBlobHandler(nitro)
       const plugins = Array.isArray(nitro.plugins)
@@ -571,6 +599,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       }
       const nitro = viteConfig.nitro ??= {}
       reconcileKVHandler(nitro)
+      reconcileDatabaseHandler(nitro)
       reconcileDefinitionsHandler(nitro)
       reconcileBlobHandler(nitro)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)

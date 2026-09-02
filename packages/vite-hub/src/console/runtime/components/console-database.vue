@@ -21,61 +21,103 @@ interface SchemaLine {
   y2: number;
 }
 
-const props = defineProps<{
-  agentsBase: string;
-  databaseBase: string;
-  definitionsBase: string;
-  kvBase: string;
-  searchBase: string;
-  sectionsBase: string;
-  view: "data" | "schema";
-}>();
+const props = withDefaults(
+  defineProps<{
+    agentsBase: string;
+    databaseBase: string;
+    definitionsBase: string;
+    kvBase: string;
+    searchBase: string;
+    section?: "database" | "databases";
+    sectionsBase: string;
+    view: "data" | "schema";
+  }>(),
+  { section: "database" },
+);
 
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
 const sidebarCollapsed = ref(false);
 const filter = ref("");
+const appliedSearch = ref("");
+const sort = ref("");
+const direction = ref<"asc" | "desc">("asc");
+const offset = ref(0);
 const database = ref<ReturnType<typeof parseConsoleDatabase>>();
 const loading = ref(true);
 const error = ref<unknown>();
 let request: AbortController | undefined;
+let filterTimer: ReturnType<typeof setTimeout> | undefined;
+const defaultSort = "__vitehub_default__";
 
-const selectedTable = computed(() => {
-  const routeTable = Array.isArray(route.params.table) ? route.params.table[0] : route.params.table;
-  return (
-    database.value?.tables.find((table) => table.name === routeTable) ?? database.value?.tables[0]
-  );
+const dataRouteName = computed(() =>
+  props.section === "databases" ? "vitehub-console-databases" : "vitehub-console-database",
+);
+const schemaRouteName = computed(() =>
+  props.section === "databases"
+    ? "vitehub-console-databases-schema"
+    : "vitehub-console-database-schema",
+);
+const routeDatabase = computed(() => {
+  const value = Array.isArray(route.params.database)
+    ? route.params.database[0]
+    : route.params.database;
+  return props.section === "databases" ? value : database.value?.database;
 });
+const routeTable = computed(() => {
+  const value = Array.isArray(route.params.table) ? route.params.table[0] : route.params.table;
+  return value;
+});
+const selectedTable = computed(
+  () =>
+    database.value?.tables.find((table) => table.name === database.value?.table) ??
+    database.value?.tables.find((table) => table.name === routeTable.value) ??
+    database.value?.tables[0],
+);
 const columns = computed<TableColumn<Record<string, string>>[]>(() =>
   (selectedTable.value?.columns ?? []).map((column) => ({
-    accessorKey: column.name,
+    accessorKey: column.key,
     header: column.name,
   })),
 );
-const filteredRows = computed(() => {
-  const rows = selectedTable.value?.rows ?? [];
-  const query = filter.value.trim().toLocaleLowerCase();
-  return rows
-    .filter(
-      (row) =>
-        !query ||
-        Object.values(row).some((value) => formatValue(value).toLocaleLowerCase().includes(query)),
-    )
-    .map((row) =>
-      Object.fromEntries(
-        (selectedTable.value?.columns ?? []).map((column) => [
-          column.name,
-          formatValue(row[column.name]),
-        ]),
-      ),
-    );
-});
+const tableRows = computed(() =>
+  (database.value?.rows ?? []).map((row) =>
+    Object.fromEntries(
+      (selectedTable.value?.columns ?? []).map((column) => {
+        const cell = row[column.key];
+        return [column.key, cell ? `${cell.value}${cell.truncated ? "…" : ""}` : "NULL"];
+      }),
+    ),
+  ),
+);
+const databaseItems = computed(() =>
+  (database.value?.databases ?? []).map((name) => ({ label: name, value: name })),
+);
+const sortItems = computed(() => [
+  { label: "Default order", value: defaultSort },
+  ...(selectedTable.value?.columns ?? []).map((column) => ({
+    label: column.name,
+    value: column.key,
+  })),
+]);
+const pageStart = computed(() => (database.value?.total ? database.value.offset + 1 : 0));
+const pageEnd = computed(() =>
+  database.value
+    ? Math.min(database.value.offset + database.value.rows.length, database.value.total)
+    : 0,
+);
+const canGoBack = computed(() => (database.value?.offset ?? 0) > 0);
+const canGoForward = computed(() =>
+  database.value
+    ? database.value.offset + database.value.rows.length < database.value.total
+    : false,
+);
 const schemaSize = computed(() => {
   const tables = database.value?.tables ?? [];
   return {
-    height: Math.max(720, ...tables.map((table) => table.position.y + tableHeight(table) + 48)),
-    width: Math.max(1060, ...tables.map((table) => table.position.x + 304)),
+    height: Math.max(640, ...tables.map((table) => table.position.y + tableHeight(table) + 32)),
+    width: Math.max(1000, ...tables.map((table) => table.position.x + 312)),
   };
 });
 const schemaLines = computed<SchemaLine[]>(() =>
@@ -96,12 +138,6 @@ const schemaLines = computed<SchemaLine[]>(() =>
   }),
 );
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (value instanceof Object) return JSON.stringify(value);
-  return String(value);
-}
-
 function tableHeight(table: ConsoleDatabaseTable): number {
   return 42 + table.columns.length * 25;
 }
@@ -115,14 +151,10 @@ function endpointPosition(
   if (!table) return;
   const column = table.columns.findIndex((entry) => entry.name === endpoint.column);
   if (column < 0) return;
-  const pointsRight =
-    side === "from"
-      ? table.position.x <
-        (database.value?.tables.find((entry) => entry.name === relationship.to.table)?.position.x ??
-          table.position.x)
-      : table.position.x <
-        (database.value?.tables.find((entry) => entry.name === relationship.from.table)?.position
-          .x ?? table.position.x);
+  const otherTable = database.value?.tables.find(
+    (entry) => entry.name === relationship[side === "from" ? "to" : "from"].table,
+  );
+  const pointsRight = table.position.x < (otherTable?.position.x ?? table.position.x);
   return {
     x: table.position.x + (pointsRight ? 280 : 0),
     y: table.position.y + 54 + column * 25,
@@ -137,6 +169,18 @@ function errorMessage(value: unknown): string | undefined {
       : undefined;
 }
 
+function routeParams(databaseName: string, table?: string): Record<string, string | undefined> {
+  return props.section === "databases" ? { database: databaseName, table } : { table };
+}
+
+function resetTableState(): void {
+  filter.value = "";
+  appliedSearch.value = "";
+  sort.value = "";
+  direction.value = "asc";
+  offset.value = 0;
+}
+
 async function loadDatabase(): Promise<void> {
   request?.abort();
   const controller = new AbortController();
@@ -144,13 +188,35 @@ async function loadDatabase(): Promise<void> {
   loading.value = true;
   try {
     const value = parseConsoleDatabase(
-      await requestConsole(props.databaseBase, { signal: controller.signal }),
+      await requestConsole(props.databaseBase, {
+        query: {
+          database: routeDatabase.value,
+          direction: direction.value,
+          limit: 50,
+          offset: offset.value,
+          search: appliedSearch.value || undefined,
+          sort: sort.value || undefined,
+          table: props.view === "data" ? routeTable.value : undefined,
+        },
+        signal: controller.signal,
+      }),
     );
     if (request !== controller) return;
     database.value = value;
     error.value = undefined;
-    if (props.view === "data" && !value.tables.some((table) => table.name === route.params.table)) {
-      await openTable(value.tables[0]!.name, true);
+    if (props.view === "data") {
+      const table = value.table ?? value.tables[0]?.name;
+      if (table && (routeDatabase.value !== value.database || routeTable.value !== table)) {
+        await router.replace({
+          name: resolveConsoleRouteName(route.name, dataRouteName.value),
+          params: routeParams(value.database, table),
+        });
+      }
+    } else if (props.section === "databases" && routeDatabase.value !== value.database) {
+      await router.replace({
+        name: resolveConsoleRouteName(route.name, schemaRouteName.value),
+        params: { database: value.database },
+      });
     }
   } catch (requestError) {
     if (
@@ -169,33 +235,82 @@ async function loadDatabase(): Promise<void> {
 }
 
 async function openTable(name: string, replace = false): Promise<void> {
+  const databaseName = database.value?.database ?? routeDatabase.value;
+  if (!databaseName) return;
   sidebarOpen.value = false;
-  filter.value = "";
+  resetTableState();
   const location = {
-    name: resolveConsoleRouteName(route.name, "vitehub-console-database"),
-    params: { table: name },
+    name: resolveConsoleRouteName(route.name, dataRouteName.value),
+    params: routeParams(databaseName, name),
   };
   await (replace ? router.replace(location) : router.push(location));
 }
 
-async function openSchema(): Promise<void> {
+async function openDatabase(value: unknown): Promise<void> {
+  if (typeof value !== "string" || value === database.value?.database) return;
   sidebarOpen.value = false;
+  resetTableState();
   await router.push({
-    name: resolveConsoleRouteName(route.name, "vitehub-console-database-schema"),
+    name: resolveConsoleRouteName(route.name, dataRouteName.value),
+    params: routeParams(value),
   });
 }
 
+async function openSchema(): Promise<void> {
+  const databaseName = database.value?.database ?? routeDatabase.value;
+  if (!databaseName) return;
+  sidebarOpen.value = false;
+  await router.push({
+    name: resolveConsoleRouteName(route.name, schemaRouteName.value),
+    params: props.section === "databases" ? { database: databaseName } : {},
+  });
+}
+
+function applyFilter(): void {
+  if (filterTimer) clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => {
+    const value = filter.value.trim();
+    if (value === appliedSearch.value) return;
+    appliedSearch.value = value;
+    offset.value = 0;
+    void loadDatabase();
+  }, 250);
+}
+
+function setSort(value: unknown): void {
+  if (typeof value !== "string") return;
+  const nextSort = value === defaultSort ? "" : value;
+  if (nextSort === sort.value) return;
+  sort.value = nextSort;
+  offset.value = 0;
+  void loadDatabase();
+}
+
+function toggleDirection(): void {
+  direction.value = direction.value === "asc" ? "desc" : "asc";
+  offset.value = 0;
+  void loadDatabase();
+}
+
+function movePage(delta: -1 | 1): void {
+  if (!database.value) return;
+  offset.value = Math.max(0, offset.value + delta * database.value.limit);
+  void loadDatabase();
+}
+
 onMounted(() => {
-  rememberConsoleSection("database");
+  rememberConsoleSection(props.section);
   void loadDatabase();
 });
+watch(filter, applyFilter);
 watch(
-  () => route.params.table,
-  () => {
-    filter.value = "";
-  },
+  () => [route.params.database, route.params.table, props.view],
+  () => void loadDatabase(),
 );
-onBeforeUnmount(() => request?.abort());
+onBeforeUnmount(() => {
+  request?.abort();
+  if (filterTimer) clearTimeout(filterTimer);
+});
 </script>
 
 <template>
@@ -227,40 +342,25 @@ onBeforeUnmount(() => request?.abort());
           />
         </div>
 
-        <nav class="grid gap-0.5 border-b border-default px-2 pb-2" aria-label="Database views">
-          <UTooltip text="Table editor" :disabled="!collapsed" :content="{ side: 'right' }">
-            <UButton
-              block
-              class="justify-start"
-              color="neutral"
-              icon="i-ph-table-light"
-              :label="collapsed ? undefined : 'Table editor'"
-              :aria-label="collapsed ? 'Table editor' : undefined"
-              :variant="view === 'data' ? 'soft' : 'ghost'"
-              @click="selectedTable && openTable(selectedTable.name)"
-            />
-          </UTooltip>
-          <UTooltip text="Schema" :disabled="!collapsed" :content="{ side: 'right' }">
-            <UButton
-              block
-              class="justify-start"
-              color="neutral"
-              icon="i-ph-share-network-light"
-              :label="collapsed ? undefined : 'Schema'"
-              :aria-label="collapsed ? 'Schema' : undefined"
-              :variant="view === 'schema' ? 'soft' : 'ghost'"
-              @click="openSchema"
-            />
-          </UTooltip>
-        </nav>
-
-        <div v-if="!collapsed" class="flex items-center justify-between px-3 pb-1.5 pt-3">
+        <div v-if="!collapsed" class="flex items-center gap-2 px-3 pb-1.5 pt-3">
           <span class="font-mono text-[10px] font-medium uppercase tracking-[.1em] text-muted">
-            {{ database?.schema || "Schema" }}
+            Database
           </span>
-          <span class="text-[10px] tabular-nums text-muted">{{
+          <span class="ml-auto text-[10px] tabular-nums text-muted">{{
             database?.tables.length || 0
           }}</span>
+        </div>
+        <div v-if="!collapsed && database" class="px-2 pb-2">
+          <USelect
+            v-if="database.databases.length > 1"
+            :model-value="database.database"
+            :items="databaseItems"
+            class="w-full"
+            aria-label="Database"
+            size="sm"
+            @update:model-value="openDatabase"
+          />
+          <div v-else class="px-2 py-1 font-mono text-xs text-toned">{{ database.database }}</div>
         </div>
         <div v-if="loading && !database" class="grid gap-1 px-2 py-1">
           <USkeleton v-for="index in 5" :key="index" :class="collapsed ? 'h-8' : 'h-9'" />
@@ -286,12 +386,8 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? table.name : undefined"
               @click="openTable(table.name)"
             >
-              <span
-                v-if="!collapsed"
-                class="flex min-w-0 flex-1 items-center justify-between gap-2"
-              >
-                <span class="truncate font-mono text-xs">{{ table.name }}</span>
-                <span class="text-[10px] tabular-nums text-muted">{{ table.rows.length }}</span>
+              <span v-if="!collapsed" class="min-w-0 flex-1 truncate text-start font-mono text-xs">
+                {{ table.name }}
               </span>
             </UButton>
           </UTooltip>
@@ -300,7 +396,7 @@ onBeforeUnmount(() => request?.abort());
 
       <template #footer="{ collapsed, collapse }">
         <ConsolePrimitiveSwitcher
-          active="database"
+          :active="section"
           :collapsed="collapsed"
           :sections-base="sectionsBase"
         />
@@ -328,21 +424,60 @@ onBeforeUnmount(() => request?.abort());
     <UDashboardPanel id="database-inspector" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
         <UDashboardNavbar
-          :title="view === 'schema' ? 'Schema' : selectedTable?.name || 'Table editor'"
           :toggle="{ 'aria-label': 'Open database navigation' }"
-          :ui="{ root: 'border-b border-default' }"
+          :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
         >
-          <template #leading>
-            <UIcon
-              :name="view === 'schema' ? 'i-ph-share-network-light' : 'i-ph-table-light'"
-              class="size-3.5 text-muted opacity-65"
-            />
+          <template #title>
+            <div class="flex min-w-0 items-center gap-2 text-sm">
+              <UIcon name="i-lucide-database" class="size-3.5 shrink-0 text-muted" />
+              <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{
+                database?.database || "Database"
+              }}</span>
+              <span class="text-dimmed" aria-hidden="true">/</span>
+              <strong class="min-w-0 truncate font-medium text-highlighted">
+                {{ view === "schema" ? "Schema" : selectedTable?.name || "Table" }}
+              </strong>
+            </div>
           </template>
           <template #right>
-            <span v-if="database" class="hidden font-mono text-[10px] text-muted sm:inline">{{
-              database.schema
-            }}</span>
-            <UBadge color="neutral" label="Read-only" size="sm" variant="subtle" />
+            <UTooltip text="Table data">
+              <UButton
+                aria-label="Table data"
+                color="neutral"
+                icon="i-ph-table-light"
+                size="sm"
+                :variant="view === 'data' ? 'soft' : 'ghost'"
+                @click="selectedTable && openTable(selectedTable.name)"
+              />
+            </UTooltip>
+            <UTooltip text="Schema diagram">
+              <UButton
+                aria-label="Schema diagram"
+                color="neutral"
+                icon="i-ph-share-network-light"
+                size="sm"
+                :variant="view === 'schema' ? 'soft' : 'ghost'"
+                @click="openSchema"
+              />
+            </UTooltip>
+            <UTooltip text="Refresh database">
+              <UButton
+                aria-label="Refresh database"
+                color="neutral"
+                icon="i-lucide-refresh-cw"
+                size="sm"
+                variant="ghost"
+                :loading="loading"
+                @click="loadDatabase"
+              />
+            </UTooltip>
+            <UBadge
+              class="hidden sm:inline-flex"
+              color="neutral"
+              label="Read-only"
+              size="sm"
+              variant="soft"
+            />
           </template>
         </UDashboardNavbar>
       </template>
@@ -374,29 +509,33 @@ onBeforeUnmount(() => request?.abort());
           <header
             class="flex min-h-10 flex-wrap items-center gap-2 border-b border-default px-2.5 py-1.5"
           >
-            <div class="mr-auto flex min-w-0 items-center gap-1.5 text-xs">
-              <span class="font-mono text-muted">{{ database.schema }}</span>
-              <UIcon name="i-ph-caret-right-light" class="size-3 text-muted opacity-50" />
-              <span class="truncate font-mono font-medium text-highlighted">{{
-                selectedTable.name
-              }}</span>
-            </div>
             <UInput
               v-model="filter"
-              class="w-48 sm:w-56"
+              class="mr-auto w-52 sm:w-64"
               icon="i-ph-magnifying-glass-light"
               :placeholder="`Filter ${selectedTable.name}`"
               aria-label="Filter rows"
             />
-            <UTooltip text="Refresh table">
+            <USelect
+              :model-value="sort || defaultSort"
+              :items="sortItems"
+              class="w-40"
+              aria-label="Sort column"
+              size="sm"
+              @update:model-value="setSort"
+            />
+            <UTooltip :text="direction === 'asc' ? 'Ascending' : 'Descending'">
               <UButton
-                aria-label="Refresh table"
+                :aria-label="direction === 'asc' ? 'Sort ascending' : 'Sort descending'"
                 color="neutral"
-                icon="i-ph-arrows-clockwise-light"
-                size="xs"
+                :icon="
+                  direction === 'asc'
+                    ? 'i-lucide-arrow-up-narrow-wide'
+                    : 'i-lucide-arrow-down-wide-narrow'
+                "
+                size="sm"
                 variant="ghost"
-                :loading="loading"
-                @click="loadDatabase"
+                @click="toggleDirection"
               />
             </UTooltip>
           </header>
@@ -404,22 +543,47 @@ onBeforeUnmount(() => request?.abort());
           <div class="min-h-0 flex-1 overflow-auto">
             <UTable
               :columns="columns"
-              :data="filteredRows"
-              :empty="filter ? 'No rows match this filter.' : 'This table is empty.'"
+              :data="tableRows"
+              :empty="appliedSearch ? 'No rows match this filter.' : 'This table is empty.'"
+              :loading="loading"
               sticky="header"
               :ui="{
                 base: 'min-w-max',
                 th: 'whitespace-nowrap border-r border-default last:border-r-0',
-                td: 'max-w-64 whitespace-nowrap border-r border-default font-mono last:border-r-0',
+                td: 'max-w-72 whitespace-nowrap border-r border-default font-mono last:border-r-0',
                 tr: 'border-b border-default hover:bg-elevated/35',
               }"
             />
           </div>
           <footer
-            class="flex h-8 shrink-0 items-center justify-between border-t border-default px-3 text-[10px] text-muted"
+            class="flex h-9 shrink-0 items-center gap-2 border-t border-default px-3 text-[10px] text-muted"
           >
-            <span>{{ filteredRows.length }} of {{ selectedTable.rows.length }} rows</span>
-            <span>{{ selectedTable.columns.length }} columns</span>
+            <span>{{ pageStart }}–{{ pageEnd }} of {{ database.total }} rows</span>
+            <span class="hidden sm:inline">{{ selectedTable.columns.length }} columns</span>
+            <div class="ml-auto flex items-center gap-0.5">
+              <UTooltip text="Previous page">
+                <UButton
+                  aria-label="Previous page"
+                  color="neutral"
+                  icon="i-lucide-chevron-left"
+                  size="xs"
+                  variant="ghost"
+                  :disabled="!canGoBack || loading"
+                  @click="movePage(-1)"
+                />
+              </UTooltip>
+              <UTooltip text="Next page">
+                <UButton
+                  aria-label="Next page"
+                  color="neutral"
+                  icon="i-lucide-chevron-right"
+                  size="xs"
+                  variant="ghost"
+                  :disabled="!canGoForward || loading"
+                  @click="movePage(1)"
+                />
+              </UTooltip>
+            </div>
           </footer>
         </main>
 
@@ -427,13 +591,6 @@ onBeforeUnmount(() => request?.abort());
           v-else-if="database && view === 'schema'"
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <header class="flex min-h-10 items-center gap-2 border-b border-default px-3 py-1.5">
-            <span class="text-xs font-medium text-highlighted">{{ database.schema }} schema</span>
-            <span class="text-[10px] text-muted"
-              >{{ database.tables.length }} tables ·
-              {{ database.relationships.length }} relationships</span
-            >
-          </header>
           <div class="schema-scroll min-h-0 flex-1 overflow-auto bg-elevated/20">
             <div
               class="schema-canvas relative"
@@ -468,12 +625,14 @@ onBeforeUnmount(() => request?.abort());
                     class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted"
                     >{{ table.name }}</span
                   >
-                  <span class="text-[10px] tabular-nums text-muted">{{ table.rows.length }}</span>
+                  <span class="text-[10px] tabular-nums text-muted">{{
+                    table.columns.length
+                  }}</span>
                 </button>
                 <ul>
                   <li
                     v-for="column in table.columns"
-                    :key="column.name"
+                    :key="column.key"
                     class="flex h-[25px] items-center gap-1.5 border-b border-default/60 px-2.5 last:border-b-0"
                   >
                     <UIcon

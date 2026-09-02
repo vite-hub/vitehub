@@ -217,6 +217,7 @@ export default defineConfig({
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
+      "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
@@ -239,6 +240,8 @@ export default defineConfig({
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
         delete exports["./console/runtime/server/blob.get"];
+        delete exports["./console/runtime/server/database"];
+        delete exports["./console/runtime/server/database.get"];
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation.get"];
@@ -253,6 +256,7 @@ export default defineConfig({
         return {
           ...exports,
           "./console/blob": "./dist/console/runtime/server/blob.js",
+          "./console/database": "./dist/console/runtime/server/database.js",
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
           "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",

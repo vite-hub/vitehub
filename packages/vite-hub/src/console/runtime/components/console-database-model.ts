@@ -1,17 +1,23 @@
+export interface ConsoleDatabaseCell {
+  kind: "bigint" | "boolean" | "bytes" | "date" | "json" | "null" | "number" | "text";
+  truncated?: true;
+  value: string;
+}
+
 export interface ConsoleDatabaseColumn {
   foreignKey?: { column: string; table: string };
+  key: string;
   name: string;
-  nullable?: boolean;
-  primary?: boolean;
+  nullable: boolean;
+  primary: boolean;
   type: string;
-  unique?: boolean;
+  unique: boolean;
 }
 
 export interface ConsoleDatabaseTable {
   columns: ConsoleDatabaseColumn[];
   name: string;
   position: { x: number; y: number };
-  rows: Record<string, unknown>[];
 }
 
 export interface ConsoleDatabaseRelationship {
@@ -20,10 +26,30 @@ export interface ConsoleDatabaseRelationship {
 }
 
 export interface ConsoleDatabase {
+  database: string;
+  databases: string[];
+  direction: "asc" | "desc";
+  limit: number;
+  offset: number;
   relationships: ConsoleDatabaseRelationship[];
-  schema: string;
+  rows: Array<Record<string, ConsoleDatabaseCell>>;
+  search: string;
+  sort?: string;
+  table?: string;
   tables: ConsoleDatabaseTable[];
+  total: number;
 }
+
+const cellKinds = new Set<ConsoleDatabaseCell["kind"]>([
+  "bigint",
+  "boolean",
+  "bytes",
+  "date",
+  "json",
+  "null",
+  "number",
+  "text",
+]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -36,21 +62,28 @@ function string(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function finiteInteger(value: unknown): number | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
 function parseColumn(value: unknown): ConsoleDatabaseColumn | undefined {
   const source = record(value);
+  const key = string(source?.key);
   const name = string(source?.name);
   const type = string(source?.type);
-  if (!source || !name || !type) return;
+  if (!source || !key || !name || !type) return;
   const reference = record(source.foreignKey);
   const table = string(reference?.table);
   const column = string(reference?.column);
   return {
     ...(table && column ? { foreignKey: { column, table } } : {}),
+    key,
     name,
-    ...(source.nullable === true ? { nullable: true } : {}),
-    ...(source.primary === true ? { primary: true } : {}),
+    nullable: source.nullable === true,
+    primary: source.primary === true,
     type,
-    ...(source.unique === true ? { unique: true } : {}),
+    unique: source.unique === true,
   };
 }
 
@@ -61,48 +94,103 @@ function parseEndpoint(value: unknown): { column: string; table: string } | unde
   return table && column ? { column, table } : undefined;
 }
 
+function parseCell(value: unknown): ConsoleDatabaseCell | undefined {
+  const source = record(value);
+  const kind = string(source?.kind) as ConsoleDatabaseCell["kind"] | undefined;
+  const rendered = string(source?.value);
+  if (!source || !kind || !cellKinds.has(kind) || rendered === undefined) return;
+  return {
+    kind,
+    ...(source.truncated === true ? { truncated: true } : {}),
+    value: rendered,
+  };
+}
+
+function positionTables(
+  tables: Array<Omit<ConsoleDatabaseTable, "position">>,
+): ConsoleDatabaseTable[] {
+  const columnHeights = [32, 32, 32];
+  return tables.map((table) => {
+    const column = columnHeights.indexOf(Math.min(...columnHeights));
+    const position = { x: 32 + column * 320, y: columnHeights[column]! };
+    columnHeights[column] = position.y + 58 + table.columns.length * 25;
+    return { ...table, position };
+  });
+}
+
 export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
   const source = record(value);
-  const schema = string(source?.schema);
-  if (!source || !schema || !Array.isArray(source.tables) || !Array.isArray(source.relationships)) {
+  const database = string(source?.database);
+  const direction =
+    source?.direction === "desc" ? "desc" : source?.direction === "asc" ? "asc" : undefined;
+  const limit = finiteInteger(source?.limit);
+  const offset = finiteInteger(source?.offset);
+  const total = finiteInteger(source?.total);
+  const search = string(source?.search);
+  if (
+    !source ||
+    !database ||
+    !direction ||
+    limit === undefined ||
+    limit < 1 ||
+    offset === undefined ||
+    total === undefined ||
+    search === undefined ||
+    !Array.isArray(source.databases) ||
+    !Array.isArray(source.tables) ||
+    !Array.isArray(source.relationships) ||
+    !Array.isArray(source.rows)
+  ) {
     throw new TypeError("The Console returned an invalid database inspection.");
   }
-  const tables = source.tables.flatMap((value): ConsoleDatabaseTable[] => {
-    const table = record(value);
-    const name = string(table?.name);
-    const position = record(table?.position);
-    if (
-      !table ||
-      !name ||
-      !Array.isArray(table.columns) ||
-      !Array.isArray(table.rows) ||
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
-      typeof position?.x !== "number" ||
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
-      typeof position.y !== "number"
-    )
-      return [];
-    const columns = table.columns.map(parseColumn).filter((column) => column !== undefined);
-    return columns.length
-      ? [
-          {
-            columns,
-            name,
-            position: { x: position.x, y: position.y },
-            rows: table.rows.flatMap((row): Record<string, unknown>[] => {
-              const parsed = record(row);
-              return parsed ? [parsed] : [];
-            }),
-          },
-        ]
-      : [];
-  });
+  const databases = source.databases.filter(
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
+    (name): name is string => typeof name === "string" && Boolean(name),
+  );
+  const tableEntries = source.tables.flatMap(
+    (value): Array<Omit<ConsoleDatabaseTable, "position">> => {
+      const table = record(value);
+      const name = string(table?.name);
+      if (!table || !name || !Array.isArray(table.columns)) return [];
+      const columns = table.columns.map(parseColumn).filter((column) => column !== undefined);
+      return columns.length ? [{ columns, name }] : [];
+    },
+  );
   const relationships = source.relationships.flatMap((value): ConsoleDatabaseRelationship[] => {
     const relationship = record(value);
     const from = parseEndpoint(relationship?.from);
     const to = parseEndpoint(relationship?.to);
     return from && to ? [{ from, to }] : [];
   });
-  if (!tables.length) throw new TypeError("The Console returned an empty database inspection.");
-  return { relationships, schema, tables };
+  const rows = source.rows.flatMap((value): Array<Record<string, ConsoleDatabaseCell>> => {
+    const row = record(value);
+    if (!row) return [];
+    const cells = Object.entries(row).flatMap(([key, value]) => {
+      const parsed = parseCell(value);
+      return parsed ? [[key, parsed] as const] : [];
+    });
+    return cells.length === Object.keys(row).length ? [Object.fromEntries(cells)] : [];
+  });
+  if (!databases.includes(database)) {
+    throw new TypeError("The Console returned an invalid database inspection.");
+  }
+  const table = string(source.table);
+  if (table && !tableEntries.some((entry) => entry.name === table)) {
+    throw new TypeError("The Console returned an invalid database inspection.");
+  }
+  const sort = string(source.sort);
+  return {
+    database,
+    databases,
+    direction,
+    limit,
+    offset,
+    relationships,
+    rows,
+    search,
+    ...(sort ? { sort } : {}),
+    ...(table ? { table } : {}),
+    tables: positionTables(tableEntries),
+    total,
+  };
 }

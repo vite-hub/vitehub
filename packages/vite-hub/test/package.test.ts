@@ -220,6 +220,7 @@ describe("framework package contract", () => {
       "./agent",
       "./console",
       "./console/blob",
+      "./console/database",
       "./console/definitions",
       "./console/kv",
       "./console/sections",

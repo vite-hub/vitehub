@@ -306,6 +306,7 @@ function renderConsoleNitroPlugin(
 ): string {
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
+  const databaseEnabled = sections.includes("databases")
   const kvEnabled = sections.includes("kv")
   const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
@@ -322,6 +323,12 @@ function renderConsoleNitroPlugin(
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`]
       : []),
     ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
+    ...(databaseEnabled
+      ? [
+          `import { installConsoleDatabase } from "vite-hub/console/database"`,
+          `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
+        ]
+      : []),
     ...(kvEnabled
       ? [
           `import { installConsoleKV } from "vite-hub/console/kv"`,
@@ -335,6 +342,9 @@ function renderConsoleNitroPlugin(
       : []),
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
+    ...(databaseEnabled
+      ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.definitions.databases?.map(definition => definition.name) ?? [])})`]
+      : []),
     ...(agentsEnabled
       ? fixture
         ? [
@@ -441,6 +451,25 @@ function reconcileConsoleDefinitionsHandler(
   if (index === -1) handlers.push({ handler, route })
 }
 
+function reconcileConsoleDatabaseHandler(
+  nitro: { handlers?: Array<{ handler: string, route: string }> },
+  enabled: boolean,
+): void {
+  const route = "/api/_vitehub/console/database"
+  const handler = join(consoleRuntimeRoot, "server/database.get.js")
+  const handlers = (nitro.handlers ??= [])
+  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
+  if (!enabled) {
+    if (index !== -1) handlers.splice(index, 1)
+    return
+  }
+  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
+  if (conflictingHandler) {
+    throw new TypeError(`[vitehub] Cannot install the Console Database handler because ${route} is already configured from ${conflictingHandler.handler}.`)
+  }
+  if (index === -1) handlers.push({ handler, route })
+}
+
 async function installConsole(
   nuxt: NuxtLike,
   projectRoot: string,
@@ -521,11 +550,18 @@ async function installConsole(
           }]
         : []),
       ...(sections.includes("databases")
-        ? [{
-            file: join(consoleRuntimeRoot, "pages/databases.vue"),
-            name: "vitehub-console-databases",
-            path: "/_vitehub/databases",
-          }]
+        ? [
+            {
+              file: join(consoleRuntimeRoot, "pages/databases.vue"),
+              name: "vitehub-console-databases-schema",
+              path: "/_vitehub/databases/:database/schema",
+            },
+            {
+              file: join(consoleRuntimeRoot, "pages/databases.vue"),
+              name: "vitehub-console-databases",
+              path: "/_vitehub/databases/:database?/:table?",
+            },
+          ]
         : []),
       ...(sections.includes("workflows")
         ? [{
@@ -621,6 +657,12 @@ async function installConsole(
       ? [{
           handler: join(consoleRuntimeRoot, "server/kv.get.js"),
           route: "/api/_vitehub/console/kv",
+        }]
+      : []),
+    ...(sections.includes("databases")
+      ? [{
+          handler: join(consoleRuntimeRoot, "server/database.get.js"),
+          route: "/api/_vitehub/console/database",
         }]
       : []),
     ...(sections.includes("usage")
@@ -1317,6 +1359,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       reconcileConsoleBlobHandler(config, consoleSections.includes("blob"), hostHandlers)
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
+      reconcileConsoleDatabaseHandler(config, consoleSections.includes("databases"))
       reconcileConsoleDefinitionsHandler(
         config,
         consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
