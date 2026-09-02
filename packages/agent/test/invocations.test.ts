@@ -516,6 +516,46 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("filters invocation stores by the exact capability that was used", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-capability-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    try {
+      for (const [storeIndex, store] of stores.entries()) {
+        for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
+          await store.create({
+            agentName: "chat",
+            createdAt: timestamp,
+            id: `${storeIndex}-${recordIndex}`,
+            observations: capabilityId
+              ? [{
+                  attributes: { "capability.id": capabilityId },
+                  name: "agent.tool.finish",
+                  sequence: 1,
+                  timestamp,
+                  type: "run",
+                }]
+              : [],
+            status: "completed",
+            traceId: `${storeIndex}-${recordIndex}-trace`,
+            updatedAt: timestamp,
+          })
+        }
+
+        await expect(Promise.resolve(store.list({ capabilityId: "papercuts" }))).resolves.toMatchObject({
+          invocations: [{ id: `${storeIndex}-0` }],
+        })
+        await expect(defineAgentInvocations({ store }).listCapabilityIds("chat"))
+          .resolves.toEqual(["papercuts", "usage"])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("lists distinct Agent names without paging through invocation summaries", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

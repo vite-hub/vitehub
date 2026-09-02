@@ -68,6 +68,7 @@ export interface AgentInvocationRecord {
 
 export interface AgentInvocationListOptions {
   agentName?: string
+  capabilityId?: string
   cursor?: string
   limit?: number
   search?: string
@@ -110,6 +111,7 @@ export interface AgentInvocationStore {
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
+  listCapabilityIds?(agentName?: string): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -129,6 +131,7 @@ export interface AgentInvocations {
   getSummary?(id: string): Promise<AgentInvocationSummary | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
+  listCapabilityIds(agentName?: string): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -926,6 +929,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const cursor = normalizeBuiltInCursor(options.cursor)
       const search = normalizeSearch(options.search)
       const agentName = options.agentName?.trim()
+      const capabilityId = options.capabilityId?.trim()
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
@@ -933,6 +937,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const candidates = [...records.values()]
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
+          && (!capabilityId || record.observations.some(observation => observation.attributes?.["capability.id"] === capabilityId))
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -947,6 +952,16 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     },
     listAgentNames() {
       return [...new Set([...records.values()].flatMap(record => record.agentName?.trim() || []))]
+        .sort()
+    },
+    listCapabilityIds(agentName) {
+      const selectedAgent = agentName?.trim()
+      return [...new Set([...records.values()]
+        .filter(record => !selectedAgent || record.agentName === selectedAgent)
+        .flatMap(record => record.observations.flatMap((observation) => {
+          const capabilityId = observation.attributes?.["capability.id"]
+          return typeof capabilityId === "string" && capabilityId.trim() ? [capabilityId.trim()] : []
+        })))]
         .sort()
     },
     release(id, claimId) {
@@ -1557,6 +1572,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async list(options = {}) {
       const search = normalizeSearch(options.search)
       const normalized = { ...options, limit: normalizeLimit(options.limit) }
+      const capabilityId = options.capabilityId?.trim()
+      if (capabilityId) normalized.capabilityId = capabilityId
+      else delete normalized.capabilityId
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
@@ -1576,6 +1594,29 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         cursor = page.cursor
       } while (cursor)
       return [...names].sort()
+    },
+    async listCapabilityIds(agentName) {
+      const selectedAgent = agentName?.trim()
+      if (store.listCapabilityIds) {
+        return [...new Set((await store.listCapabilityIds(selectedAgent))
+          .map(capabilityId => capabilityId.trim())
+          .filter(Boolean))]
+          .sort()
+      }
+      const capabilityIds = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
+        for (const record of records) {
+          for (const observation of record?.observations || []) {
+            const capabilityId = observation.attributes?.["capability.id"]
+            if (typeof capabilityId === "string" && capabilityId.trim()) capabilityIds.add(capabilityId.trim())
+          }
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...capabilityIds].sort()
     },
   }
   return invocations

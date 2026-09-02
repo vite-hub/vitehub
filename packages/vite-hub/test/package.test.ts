@@ -315,6 +315,9 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
     expect(consolePage).toContain("AgentInvocationList");
+    expect(consolePage).toContain('aria-label="Filter sessions"');
+    expect(consolePage).toContain("selectedCapabilityId");
+    expect(consolePage).not.toContain(':workspace-base="`${hostBase}/api/invocations`"');
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
     expect(consolePage).toContain("ConsoleHealth");
