@@ -6,6 +6,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 import type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
+  AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
   AgentInvocations,
@@ -72,10 +73,11 @@ async function listLifecyclePage(
 async function summaryWithUsage(
   invocations: AgentInvocations,
   summary: AgentInvocationSummary,
+  record?: AgentInvocationRecord,
 ): Promise<ConsoleInvocationSummary> {
-  const record = await invocations.get(summary.id)
-  if (!record) return summary
-  const usage = invocationUsage(record)
+  const invocation = record ?? await invocations.get(summary.id)
+  if (!invocation) return summary
+  const usage = invocationUsage(invocation)
   return {
     ...summary,
     ...(usage ? { usage } : {}),
@@ -95,11 +97,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   if (ids.length > 0) {
     const invocations = getConsoleInvocations()
     const records = await Promise.all(ids.map(async (id) => {
-      if (invocations.getSummary) return await invocations.getSummary(id)
+      if (invocations.getSummary) {
+        const summary = await invocations.getSummary(id)
+        return summary && summaryWithUsage(invocations, summary)
+      }
       const record = await invocations.get(id)
       if (!record) return
       const { observations: _observations, ...summary } = record
-      return summary
+      return summaryWithUsage(invocations, summary, record)
     }))
     return {
       invocations: records.filter(record => record !== undefined),
