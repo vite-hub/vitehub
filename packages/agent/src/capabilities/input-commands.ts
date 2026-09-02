@@ -1,3 +1,6 @@
+import { getCapability, resolveRuntimeValue } from "@vite-hub/runtime"
+
+import { agentInvocationId } from "../invocations.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
@@ -54,10 +57,17 @@ export interface InputCommand {
 
 export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
 
+export interface ViteHubInputCommandContext {}
+
+export interface InputCommandRuntimeContext extends AgentCapabilityRuntimeContext, ViteHubInputCommandContext {
+  invocation: AgentCapabilityRuntimeContext["invocation"] & { id?: string }
+  reply: (body: string) => Promise<Response>
+}
+
 export interface InputCommandRunInput {
   args: string
   command: InputCommand
-  context: AgentCapabilityRuntimeContext
+  context: InputCommandRuntimeContext
   input: AgentRunInput
   message?: Message
   name: string
@@ -351,6 +361,28 @@ function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommand
   })
 }
 
+async function inputCommandRuntimeContext(context: AgentCapabilityRuntimeContext): Promise<InputCommandRuntimeContext> {
+  const capabilities = await Promise.all(Object.keys(context.capabilities).map(async (name) => {
+    if (name in context) return [] as const
+    const value = getCapability(context, name).value
+    if (value === false || value === undefined) return [] as const
+    return [name, await resolveRuntimeValue(value as never, context as never)] as const
+  }))
+  const message = inputPhaseMessage(context)
+  const id = context.run?.runId && context.agentIdentity?.name
+    ? await agentInvocationId(context.run.runId, context.agentIdentity.name)
+    : undefined
+  return {
+    ...context,
+    ...Object.fromEntries(capabilities.filter(entry => entry.length === 2)),
+    invocation: { ...context.invocation, ...(id ? { id } : {}) },
+    async reply(body) {
+      await message.reply(body)
+      return new Response(null, { status: 204 })
+    },
+  } as InputCommandRuntimeContext
+}
+
 function finishPhaseMessage(effects: AgentChannelDeliveryEffectIntent[]): InputCommandDeliveryMessage {
   return createInputCommandMessage(intent => effects.push(intent))
 }
@@ -433,7 +465,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           args: invocation.args,
           command,
           // SAFETY: Input command parsing establishes the asserted command contract.
-          context: context as AgentCapabilityRuntimeContext,
+          context: await inputCommandRuntimeContext(context as AgentCapabilityRuntimeContext),
           input,
           message: target.message,
           name: invocation.name,
