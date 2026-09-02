@@ -2644,25 +2644,48 @@ describe("Agent Invocation UI", () => {
         driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "openai" } },
         instructions: ["Follow repository instructions."],
         runtime: { name: "node" },
-        tools: [{ name: "exec" }],
+        tools: [
+          { description: "Run a command in the workspace.", name: "exec" },
+          { description: "Search the workspace.", name: "search" },
+        ],
         workspace: { mode: "write", name: "babysitter", sources: ["github:vite-hub/vitehub"] },
       },
       createdAt: "2026-08-24T00:00:00.000Z",
       id: "configured",
-      observations: [],
+      observations: [
+        {
+          attributes: { "tool.id": "call-1", "tool.name": "exec" },
+          name: "execute_tool.start",
+          sequence: 1,
+          timestamp: "2026-08-24T00:00:00.100Z",
+          type: "run",
+        },
+        {
+          attributes: { "tool.id": "call-1", "tool.name": "exec" },
+          name: "execute_tool.finish",
+          sequence: 2,
+          timestamp: "2026-08-24T00:00:00.200Z",
+          type: "run",
+        },
+      ],
       status: "completed",
       traceId: "trace",
       updatedAt: "2026-08-24T00:00:01.000Z",
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("gpt-5.6-sol");
-    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("openai");
+    expect(wrapper.get(".vh-invocation-execution__model").attributes("title")).toBe("gpt-5.6-sol");
+    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
     expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
+    expect(wrapper.get(".vh-invocation-execution").text()).toContain("GPT 5.6 Sol");
+    expect(wrapper.get(".vh-invocation-execution").text()).toContain("OpenAI");
+    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("1 of 2 used");
+    expect(wrapper.get(".vh-invocation-tool-list").text()).toContain("Run a command in the workspace.");
+    expect(wrapper.findAll(".vh-invocation-tool-list > li").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
 
     const compact = mount(AgentInvocationInspector, {
       props: { invocation, showStatus: false, showTimeline: false },
