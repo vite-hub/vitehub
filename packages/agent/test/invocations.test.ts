@@ -597,10 +597,11 @@ describe("Agent Invocations", () => {
   })
 
   it.each(["completed", "failed", "cancelled"] as const)(
-    "persists post-capacity Capability use when its first write stalls before %s finalization",
+    "persists post-capacity Capability use through the %s terminal fallback",
     async (status) => {
       vi.useFakeTimers()
       let releaseCapabilityWrite: (() => void) | undefined
+      let rejectTerminalOutcome = true
       try {
         const memory = createMemoryAgentInvocationStore()
         const capabilityWriteReleased = new Promise<void>((resolve) => { releaseCapabilityWrite = resolve })
@@ -613,6 +614,10 @@ describe("Agent Invocations", () => {
               if (input.status === undefined && input.capabilityIds?.includes("late-capability")) {
                 reportCapabilityWriteStarted()
                 await capabilityWriteReleased
+              }
+              if (rejectTerminalOutcome && input.status === status && input.observation) {
+                rejectTerminalOutcome = false
+                return
               }
               return memory.update(id, input, claimId)
             },
@@ -633,11 +638,13 @@ describe("Agent Invocations", () => {
           name: "agent.tool.start",
           type: "run",
         })
+        await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
         await capabilityWriteStarted
 
         const finishing = journal.finish(status, status === "failed" ? new Error("provider failed") : undefined)
         await vi.advanceTimersByTimeAsync(1_000)
         await finishing
+        expect(rejectTerminalOutcome).toBe(false)
         releaseCapabilityWrite?.()
         await vi.advanceTimersByTimeAsync(0)
 
