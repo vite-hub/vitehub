@@ -1580,6 +1580,16 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "lookup",
+        tools: {
+          lookup: {
+            description: "Find matching records for a private account.",
+            execute: () => "unused",
+            name: "lookup",
+          },
+        },
+      })],
       channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
@@ -1612,6 +1622,10 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
+      tools: [{ name: "lookup" }],
+    })
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toMatchObject({
+      tools: [{ description: expect.any(String) }],
     })
   })
 
@@ -1648,9 +1662,12 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("persists compact tool descriptions for Console inspection", async () => {
+  it("persists compact tool descriptions for content-enabled Console inspection", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
     const agent = defineAgent({
       capabilities: [defineCapability({
         id: "lookup",
