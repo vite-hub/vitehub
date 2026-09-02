@@ -627,6 +627,7 @@ export function progressSummary<TRuntimeConfig extends AgentRuntimeConfig = Agen
       invocationStarts.delete(context.context)
     },
     id: options.id || "progress-summary",
+    instructionCoverage: false,
     output(context) {
       context.context.set(progressSummaryOutputContextKey, true, { overwrite: true })
       let state: ProgressSummaryState | undefined

@@ -2206,7 +2206,8 @@ cli_auth_credentials_store = "keyring"
     ])
     const traceLog = createTraceEventLog({ content: "content" })
     const runContext = context(threadId)
-    setAgentTelemetryConfiguration(runContext.context, { driver: { kind: "provider" }, runtime: { name: "vite" } })
+    await setAgentTelemetryConfiguration(runContext.context, { driver: { kind: "provider" }, runtime: { name: "vite" } })
+    const initialFingerprint = getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint
     const adapter = createProviderAgentAdapter({ instructions: "System instructions", provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2234,8 +2235,10 @@ cli_auth_credentials_store = "keyring"
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.progress")?.attributes?.["tool.output"]).toBe("Checking status")
     expect(getAgentTelemetryConfiguration(runContext.context)?.value).toMatchObject({
       driver: { kind: "provider", provider: "codex" },
+      fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
       instructions: ["System instructions"],
     })
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
   it("persists provider-native activity through a complete Agent invocation", async () => {
@@ -2273,6 +2276,45 @@ cli_auth_credentials_store = "keyring"
       "agent.message.delta",
       "agent.stream.finish",
     ]))
+  })
+
+  it("attributes provider tool activity from resolved Capability contributions", async () => {
+    const threadId = "thread-provider-capability-trace"
+    runtime(threadId, [
+      event("item.started", threadId, {
+        data: { input: { query: "orders" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        title: "MCP tool call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("item.completed", threadId, {
+        data: { input: { query: "orders" }, result: { content: "12 records" }, toolName: "mcp__airtable__search_records" },
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "MCP tool call",
+      }, { itemId: "mcp-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const traceLog = createTraceEventLog({ content: "content" })
+    const runContext = context(threadId, {
+      driverContributions: [
+        { capabilityId: "mcp", kind: "Capability tools", names: ["mcp__airtable__search_records"] },
+        { capabilityId: "unused", kind: "Capability tools", names: ["unused_tool"] },
+      ],
+    })
+
+    await createProviderAgentAdapter({ provider: "claude-code" }).generate({
+      ...runContext,
+      runtime: { ...runContext.runtime, traceLog },
+    } as never)
+
+    expect(traceLog.entries().filter(observation => observation.name.startsWith("agent.tool.")).map(observation => ({
+      capabilityId: observation.attributes?.["capability.id"],
+      name: observation.name,
+    }))).toEqual([
+      { capabilityId: "mcp", name: "agent.tool.start" },
+      { capabilityId: "mcp", name: "agent.tool.finish" },
+    ])
+    expect(JSON.stringify(traceLog.entries())).not.toContain('"capability.id":"unused"')
   })
 
   it.each([
@@ -3102,7 +3144,7 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     })
-    setAgentTelemetryConfiguration(runContext.context, {
+    await setAgentTelemetryConfiguration(runContext.context, {
       driver: { kind: "provider", provider: "claude-code" },
       runtime: { name: "vite" },
     })

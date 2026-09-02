@@ -11,6 +11,7 @@ declare global {
 export function usage<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(): AgentCapabilityDefinition<TRuntimeConfig> {
   return Object.assign(defineCapability<TRuntimeConfig>({
     id: "usage",
+    instructionCoverage: false,
     metadata: {
       kind: "usage",
     },
