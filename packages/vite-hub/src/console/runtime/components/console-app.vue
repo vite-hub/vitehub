@@ -35,7 +35,10 @@ import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import { useConsoleSessionBootstrap } from "./console-session-bootstrap";
+import {
+  refreshCapabilityFilteredInvocations,
+  useConsoleSessionBootstrap,
+} from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -412,13 +415,16 @@ async function selectCapability(capabilityId?: string): Promise<void> {
   filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
-  if (selectedAgentName.value) {
-    await router.replace({
-      name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-      params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-    });
-  }
-  await list.refresh();
+  await refreshCapabilityFilteredInvocations({
+    navigate: () =>
+      selectedAgentName.value
+        ? router.replace({
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+          })
+        : Promise.resolve(),
+    refresh: () => list.refresh(),
+  });
 }
 
 async function toggleUsage(): Promise<void> {

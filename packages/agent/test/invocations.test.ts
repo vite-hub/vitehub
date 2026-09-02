@@ -556,6 +556,46 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("keeps Capability use queryable after the observation journal is truncated", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-truncated-capability-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    try {
+      for (const [index, store] of stores.entries()) {
+        const runId = `truncated-capability-${index}`
+        const invocations = defineAgentInvocations({ store })
+        const journal = await bindAgentInvocations(invocations, runtime(runId))
+        if (!journal) throw new Error("Expected the invocation journal to be configured.")
+        await journal.running()
+        for (let observation = 0; observation < 256; observation++) {
+          await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
+        }
+        await journal.context.traceLog?.append({
+          attributes: { "capability.id": "late-capability" },
+          name: "agent.tool.start",
+          type: "run",
+        })
+
+        await vi.waitFor(async () => {
+          await expect(invocations.list({ capabilityId: "late-capability" })).resolves.toMatchObject({
+            invocations: [{ capabilityIds: ["late-capability"], id: expect.any(String) }],
+          })
+          await expect(invocations.listCapabilityIds()).resolves.toEqual(["late-capability"])
+        })
+        const record = await invocations.getByRunId(runId)
+        expect(record).toMatchObject({ observationsTruncated: true })
+        expect(record?.observations).toHaveLength(256)
+        expect(record?.observations.some(observation => observation.attributes?.["capability.id"] === "late-capability"))
+          .toBe(false)
+        await journal.finish("completed")
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("lists distinct Agent names without paging through invocation summaries", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })

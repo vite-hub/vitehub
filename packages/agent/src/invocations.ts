@@ -16,6 +16,7 @@ const MAX_LIST_LIMIT = 100
 const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
+const MAX_CAPABILITY_IDS = 256
 const MAX_METADATA_STRING_LENGTH = 512
 const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
 const MAX_OBSERVATIONS = 256
@@ -47,6 +48,8 @@ export type AgentInvocationRecordStatus = AgentInvocationStatus
 export interface AgentInvocationRecord {
   agentName?: string
   annotations?: Record<string, AgentInvocationAnnotationValue>
+  /** Capability IDs observed during this Invocation, including uses omitted from a truncated trace. */
+  capabilityIds?: readonly string[]
   cancelledAt?: string
   channelId?: string
   completedAt?: string
@@ -92,6 +95,7 @@ export interface AgentInvocationStoreCreateResult {
 
 export interface AgentInvocationStoreUpdateInput {
   annotations?: AgentInvocationRecord["annotations"]
+  capabilityId?: string
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
   observationsTruncated?: boolean
@@ -178,9 +182,35 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
   return {
     ...record,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
+    ...(record.capabilityIds ? { capabilityIds: [...record.capabilityIds] } : {}),
     ...(record.error ? { error: structuredClone(record.error) } : {}),
     observations: record.observations.map(cloneObservation),
   }
+}
+
+function normalizedCapabilityId(value: unknown): string | undefined {
+  if (!hasRuntimeType(value, "string")) return
+  const capabilityId = boundedString(value.trim())
+  return capabilityId || undefined
+}
+
+function observationCapabilityId(observation: TraceEventLogEntry | undefined): string | undefined {
+  return normalizedCapabilityId(observation?.attributes?.["capability.id"])
+}
+
+function invocationCapabilityIds(record: Pick<AgentInvocationRecord, "capabilityIds" | "observations">): string[] {
+  const capabilityIds = new Set<string>()
+  for (const value of record.capabilityIds || []) {
+    const capabilityId = normalizedCapabilityId(value)
+    if (capabilityId) capabilityIds.add(capabilityId)
+    if (capabilityIds.size >= MAX_CAPABILITY_IDS) return [...capabilityIds]
+  }
+  for (const observation of record.observations) {
+    const capabilityId = observationCapabilityId(observation)
+    if (capabilityId) capabilityIds.add(capabilityId)
+    if (capabilityIds.size >= MAX_CAPABILITY_IDS) break
+  }
+  return [...capabilityIds]
 }
 
 async function boundedStoreOperation<T>(
@@ -839,6 +869,12 @@ export function applyAgentInvocationStoreUpdate(
   const configuredAnnotations = input.observation
     ? configurationAnnotations(input.observation)
     : undefined
+  const capabilityIds = invocationCapabilityIds(record)
+  const incomingCapabilityId = normalizedCapabilityId(input.capabilityId)
+    || observationCapabilityId(input.observation)
+  if (incomingCapabilityId && capabilityIds.length < MAX_CAPABILITY_IDS && !capabilityIds.includes(incomingCapabilityId)) {
+    capabilityIds.push(incomingCapabilityId)
+  }
   const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
@@ -870,6 +906,7 @@ export function applyAgentInvocationStoreUpdate(
     ...(configuredAnnotations
       ? { annotations: mergeConfigurationAnnotations(record.annotations, configuredAnnotations) }
       : {}),
+    ...(capabilityIds.length ? { capabilityIds } : {}),
     ...(input.error ? { error: input.error } : {}),
     observations,
     ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
@@ -937,7 +974,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const candidates = [...records.values()]
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
-          && (!capabilityId || record.observations.some(observation => observation.attributes?.["capability.id"] === capabilityId))
+          && (!capabilityId || invocationCapabilityIds(record).includes(capabilityId))
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -958,10 +995,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const selectedAgent = agentName?.trim()
       return [...new Set([...records.values()]
         .filter(record => !selectedAgent || record.agentName === selectedAgent)
-        .flatMap(record => record.observations.flatMap((observation) => {
-          const capabilityId = observation.attributes?.["capability.id"]
-          return hasRuntimeType(capabilityId, "string") && capabilityId.trim() ? [capabilityId.trim()] : []
-        })))]
+        .flatMap(record => invocationCapabilityIds(record)))]
         .sort()
     },
     release(id, claimId) {
@@ -1405,7 +1439,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const persistTruncation = !observationsTruncated
           observationsTruncated = true
           if (persistTruncation) void markTruncated()
-          if (priority === undefined) return
+          if (priority === undefined) {
+            const capabilityId = observationCapabilityId(observation)
+            if (capabilityId) {
+              void update({ capabilityId, timestamp: normalizedTimestamp(observation.timestamp) })
+            }
+            return
+          }
           prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
           writeNextObservation()
           return
@@ -1609,10 +1649,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
         const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
         for (const record of records) {
-          for (const observation of record?.observations || []) {
-            const capabilityId = observation.attributes?.["capability.id"]
-            if (hasRuntimeType(capabilityId, "string") && capabilityId.trim()) capabilityIds.add(capabilityId.trim())
-          }
+          if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
         }
         cursor = page.cursor
       } while (cursor)
