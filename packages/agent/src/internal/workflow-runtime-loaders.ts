@@ -29,12 +29,21 @@ export function setAgentWorkflowCapabilityLoaders(loaders: AgentWorkflowCapabili
   workflowCapabilityLoaders = loaders
 }
 
+function getAgentWorkflowCapabilityLoader(name: string): (() => Promise<unknown> | unknown) | undefined {
+  switch (name) {
+    case "blob": return workflowCapabilityLoaders.blob
+    case "console": return workflowCapabilityLoaders.console
+    case "db": return workflowCapabilityLoaders.db
+    default: return undefined
+  }
+}
+
 export async function loadConfiguredAgentWorkflowCapabilities(
   mask: Record<string, boolean> = {},
 ): Promise<Record<string, unknown>> {
   const entries = await Promise.all(Object.entries(mask).map(async ([name, enabled]) => {
     if (!enabled) return [name, false] as const
-    const load = workflowCapabilityLoaders[name as keyof AgentWorkflowCapabilityLoaders]
+    const load = getAgentWorkflowCapabilityLoader(name)
     return load ? [name, await load()] as const : undefined
   }))
   return Object.fromEntries(entries.filter((entry): entry is readonly [string, unknown] => entry !== undefined))

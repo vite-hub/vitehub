@@ -2782,12 +2782,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                   agent as never,
                   // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                  {
-                    ...context,
-                    capabilities: restoredMessage.capabilities,
-                    ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
-                    ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
-                  } as never,
+                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
                   // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                   recoveredWorkflowInput as never,
                 )
@@ -2810,12 +2805,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                         // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                         agent as never,
                         // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                        {
-                          ...context,
-                          capabilities: restoredMessage.capabilities,
-                          ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
-                          ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
-                        } as never,
+                        await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
                         // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                         recoveredWorkflowInput as never,
                       )
@@ -3049,12 +3039,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          {
-            ...context,
-            capabilities: queued.message.capabilities,
-            ...(queued.message.requestUrl ? { request: new Request(queued.message.requestUrl) } : {}),
-            ...(queued.message.run ? { run: queued.message.run } : {}),
-          } as never,
+          await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, queued.message) as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           successorInput as never,
         )
@@ -3079,12 +3064,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The route normalized this value for the internal startup boundary.
                   agent as never,
                   // SAFETY: The successor retains the persisted capabilities, request, and logical run context.
-                  {
-                    ...context,
-                    capabilities: retryMessage.capabilities,
-                    ...(retryMessage.requestUrl ? { request: new Request(retryMessage.requestUrl) } : {}),
-                    ...(retryMessage.run ? { run: retryMessage.run } : {}),
-                  } as never,
+                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, retryMessage) as never,
                   // SAFETY: The successor input was cloned and JSON-validated before State persistence.
                   retryInput as never,
                 ),
@@ -3144,12 +3124,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
                 agent as never,
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                {
-                  ...context,
-                  capabilities: successorPending.message.capabilities,
-                  ...(successorPending.message.requestUrl ? { request: new Request(successorPending.message.requestUrl) } : {}),
-                  ...(successorPending.message.run ? { run: successorPending.message.run } : {}),
-                } as never,
+                await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, successorPending.message) as never,
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                 retryInput as never,
               )
@@ -3188,13 +3163,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
             agent as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            {
-              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              ...context,
-              capabilities: claimedPending.message.capabilities,
-              ...(claimedPending.message.requestUrl ? { request: new Request(claimedPending.message.requestUrl) } : {}),
-              ...(claimedPending.message.run ? { run: claimedPending.message.run } : {}),
-            } as never,
+            await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, claimedPending.message) as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             retryInput as never,
           )
@@ -3307,6 +3276,19 @@ interface DurableSteerQueueEntry {
   enqueuedAt?: number
   expiresAt?: number
   message?: DurableSteerQueueMessage
+}
+
+async function restoreDurableSteerRuntimeContext(
+  context: ViteAgentRouteRuntimeContext,
+  message: Pick<DurableSteerQueueMessage, "capabilities" | "requestUrl" | "run">,
+): Promise<ViteAgentRouteRuntimeContext> {
+  const restored: ViteAgentRouteRuntimeContext = {
+    ...context,
+    capabilities: await loadConfiguredAgentWorkflowCapabilities(message.capabilities),
+  }
+  if (message.requestUrl) restored.request = new Request(message.requestUrl)
+  if (message.run) restored.run = message.run
+  return restored
 }
 
 const durableSteerQueueMaximum = Number.MAX_SAFE_INTEGER
