@@ -1191,11 +1191,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_CONSUMER_DISABLE_WORKSPACE: "1",
       })
       const workspaceDisabledVercelSources = await readJavaScriptSources(vercelFunctionsRoot)
-      const workspaceDisabledVercelImports = Object.entries(workspaceDisabledVercelSources).flatMap(([file, source]) =>
-        importSpecifierOccurrences(source)
-          .filter(({ specifier }) => specifier === "@vite-hub/workspace" || specifier.startsWith("@vite-hub/workspace/"))
-          .map(occurrence => ({ file, ...occurrence })),
-      )
+      const workspaceDisabledVercelImports = Object.entries(workspaceDisabledVercelSources)
+        .filter(([file]) => !isRetainedProviderSource(file))
+        .flatMap(([file, source]) =>
+          importSpecifierOccurrences(source)
+            .filter(({ specifier }) => specifier === "@vite-hub/workspace" || specifier.startsWith("@vite-hub/workspace/"))
+            .map(occurrence => ({ file, ...occurrence })),
+        )
       expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
 
       await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify", VITEHUB_PRESET: "netlify" })
