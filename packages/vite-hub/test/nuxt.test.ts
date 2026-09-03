@@ -665,20 +665,24 @@ describe("ViteHub Nuxt integration", () => {
     conflicting.nuxt.options.vite.kv = { driver: "fs-lite" }
     conflicting.nuxt.options.nitro = { handlers: [applicationKVHandler] }
 
-    await expect(viteHubNuxtModule({ console: true, kv: true, preset: "node" }, conflicting.nuxt)).rejects.toThrow(
-      "Cannot install the Console Devframe while the legacy /api/_vitehub/console/kv handler",
-    )
+    await viteHubNuxtModule({ console: true, kv: true, preset: "node" }, conflicting.nuxt)
+    expect(nitroOptions(conflicting.nuxt).handlers).toEqual(expect.arrayContaining([
+      applicationKVHandler,
+      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+    ]))
   })
 
-  it("rejects a conflicting Blob inspection handler after Nitro config replay", async () => {
+  it("keeps an application Blob route beside the Console Devframe", async () => {
     const development = createNuxt(true)
     development.nuxt.options.nitro = {
       handlers: [{ handler: "~/server/api/blob.ts", route: "/api/_vitehub/console/blob" }],
     }
 
-    await expect(viteHubNuxtModule({ blob: true, console: true, preset: "node" }, development.nuxt)).rejects.toThrow(
-      "Cannot install the Console Devframe while the legacy /api/_vitehub/console/blob handler",
-    )
+    await viteHubNuxtModule({ blob: true, console: true, preset: "node" }, development.nuxt)
+    expect(nitroOptions(development.nuxt).handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: "/api/_vitehub/console/blob" }),
+      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+    ]))
   })
 
   it("uses the effective Vite Blob stores for the Nuxt Console", async () => {

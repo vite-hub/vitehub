@@ -557,7 +557,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("rejects a conflicting standalone Blob inspection handler", async () => {
+  it("keeps an application Blob route beside the standalone Console Devframe", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-conflict-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -575,8 +575,11 @@ describe("Agent invocation console", () => {
         root,
       }
 
-      await expect(callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }]))
-        .rejects.toThrow("Cannot install the Console Devframe while the legacy /api/_vitehub/console/blob handler")
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro.handlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/api/_vitehub/console/blob" }),
+        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+      ]))
     }
     finally {
       await rm(root, { force: true, recursive: true })

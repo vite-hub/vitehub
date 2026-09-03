@@ -403,22 +403,25 @@ describe("vitehub", () => {
     }
   })
 
-  it("rejects a conflicting standalone Console KV handler", async () => {
+  it("keeps an application KV route beside the Console Devframe", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, kv: true, preset: "node" }),
       "vite-hub/console",
     )
 
-    await expect(callHook(plugin.config, [{
+    const config = {
       nitro: {
         handlers: [{
           handler: "/app/server/api/custom-kv.ts",
           route: "/api/_vitehub/console/kv",
         }],
       },
-    }, { command: "serve", mode: "development" }])).rejects.toThrow(
-      "Cannot install the Console Devframe while the legacy /api/_vitehub/console/kv handler",
-    )
+    }
+    await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+    expect(config.nitro.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: "/api/_vitehub/console/kv" }),
+      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+    ]))
   })
 
   it("passes discovered Auth access policy to production Console builds", async () => {

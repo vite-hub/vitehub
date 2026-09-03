@@ -17,6 +17,7 @@ import {
   requestConsole,
 } from "../src/console/runtime/client/request.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
 afterEach(() => {
   mocks.call.mockReset()
@@ -42,9 +43,8 @@ describe("Console requests", () => {
       simpleAuth: false,
       transport: "sse",
     })
-    expect(mocks.call).toHaveBeenCalledWith("vitehub:console:request", {
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
       method: "GET",
-      path: "/first/api/_vitehub/console/sections",
       query: {},
     })
   })
@@ -58,6 +58,11 @@ describe("Console requests", () => {
         name: "ConsoleRequestError",
         status: 502,
       })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocation, {
+      id: "selected",
+      method: "GET",
+      query: {},
+    })
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(408))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(429))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
@@ -72,10 +77,9 @@ describe("Console requests", () => {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
-    expect(mocks.call).toHaveBeenCalledWith("vitehub:console:request", {
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.kv, {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
-      path: "/third/api/_vitehub/console/kv",
       query: {},
     })
   })
@@ -95,12 +99,12 @@ describe("Console requests", () => {
       })
     expect(mocks.call).toHaveBeenNthCalledWith(
       1,
-      "vitehub:console:request",
+      consoleRpcMethods.kv,
       expect.objectContaining({ query: { store: "cache" } }),
     )
     expect(mocks.call).toHaveBeenNthCalledWith(
       2,
-      "vitehub:console:request",
+      consoleRpcMethods.kv,
       expect.objectContaining({ query: { cursor: "next", store: "cache" } }),
     )
   })
@@ -125,7 +129,7 @@ describe("Console requests", () => {
     })
     expect(mocks.call).toHaveBeenNthCalledWith(
       2,
-      "vitehub:console:request",
+      consoleRpcMethods.kv,
       expect.objectContaining({
         query: { cursor: "next", limit: "50", prefix: "match", store: "cache" },
       }),
@@ -163,7 +167,7 @@ describe("Console requests", () => {
     })
 
     await expect(
-      loadConsoleNavigation("/navigation-test/api/_vitehub/console/navigation-test"),
+      loadConsoleNavigation("/navigation-test/api/_vitehub/console/sections"),
     ).resolves.toEqual({
       projectName: "console-host",
       sections: ["kv"],

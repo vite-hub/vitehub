@@ -434,6 +434,9 @@ patchedDependencies:
   '@vercel/blob@2.8.0':
     hash: 015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25
     path: patches/@vercel__blob@2.8.0.patch
+  devframe@0.9.9:
+    hash: 829d2a09f0dd3c2645f164514632a50eee65083dc7687f10ff3dd8b03dd72de7
+    path: patches/devframe@0.9.9.patch
   nitro@3.0.260610-beta:
     hash: c9de7f8985f39c0733c1fbeb992d7fbabd2fa5e68f44efff313ffee0abc418bf
     path: patches/nitro@3.0.260610-beta.patch
@@ -2082,7 +2085,7 @@ importers:
         version: 0.3.0(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.11.1)(shiki@4.3.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
       devframe:
         specifier: catalog:runtime
-        version: 0.9.9(cac@7.0.0)(srvx@1.0.0)
+        version: 0.9.9(patch_hash=829d2a09f0dd3c2645f164514632a50eee65083dc7687f10ff3dd8b03dd72de7)(cac@7.0.0)(srvx@1.0.0)
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.10
@@ -26111,7 +26114,7 @@ snapshots:
       - webpack
     optional: true
 
-  devframe@0.9.9(cac@7.0.0)(srvx@1.0.0):
+  devframe@0.9.9(patch_hash=829d2a09f0dd3c2645f164514632a50eee65083dc7687f10ff3dd8b03dd72de7)(cac@7.0.0)(srvx@1.0.0):
     dependencies:
       '@standard-schema/spec': 1.1.0
       birpc: 4.2.0

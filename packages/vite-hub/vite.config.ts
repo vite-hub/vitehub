@@ -214,6 +214,7 @@ export default defineConfig({
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
+      "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
@@ -238,6 +239,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
+        delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];

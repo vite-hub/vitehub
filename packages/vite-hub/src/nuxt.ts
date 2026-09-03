@@ -24,7 +24,7 @@ import { installConsoleProjectName, installConsoleSections } from "./console/run
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
-import { reconcileConsoleDevframeHandler } from "./console/nitro.ts"
+import { addConsoleDevframeHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -538,7 +538,7 @@ async function installConsole(
     handlers?: Array<{ handler: string, route: string }>
     plugins?: string[]
   }
-  reconcileConsoleDevframeHandler(nitro, consoleRuntimeRoot)
+  addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
@@ -1223,7 +1223,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-      reconcileConsoleDevframeHandler(config, consoleRuntimeRoot)
+      addConsoleDevframeHandler(config, consoleRuntimeRoot)
       const consoleCatalog = await discoverConsoleBuildCatalog({
         databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
           ? replayedDatabaseDiscoveryRoot

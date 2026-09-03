@@ -3,34 +3,22 @@ import { createSseRpcChannel } from "devframe/rpc/transports/sse-client"
 import { describe, expect, it } from "vitest"
 
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
-import {
-  installConsoleProjectName,
-  installConsoleSections,
-} from "../src/console/runtime/server/sections.ts"
+import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
-
-interface ConsoleRpcRequest {
-  method: "GET" | "POST"
-  path: string
-  query: Record<string, string | string[]>
-}
-
-type ConsoleRpcResult =
-  | { ok: true; value: unknown }
-  | { message: string; ok: false; status: number }
+type ConsoleRpcResult = { ok: true; value: unknown } | { message: string; ok: false; status: number }
 
 describe("Console Devframe", () => {
   it("carries Console reads over an SSE-only RPC instance and closes cleanly", async () => {
     installConsoleSections("/console-devframe-test", ["agents", "usage"])
     installConsoleProjectName("/console-devframe-test", "SSE Console")
-    const devframe = await createConsoleDevframeHandler()
+    const handler = createConsoleDevframeHandler()
     const fetchThroughNitroHandler: typeof fetch = async (input, init) => {
       const request = new Request(input, init)
-      return await devframe.handler({
+      return (await handler({
         method: request.method,
         req: request,
-      } as unknown as ConsoleRequestEvent)
+      } as never)) as Response
     }
     const channel = createSseRpcChannel({
       fetch: fetchThroughNitroHandler,
@@ -39,20 +27,16 @@ describe("Console Devframe", () => {
     const client = createRpcClient<Record<string, never>, Record<string, never>>({}, { channel })
 
     try {
-      await devframe.instance.ready
-      expect(devframe.instance.connectionMeta()).toMatchObject({
+      const connection = await fetchThroughNitroHandler("http://vitehub.local/_vitehub/rpc/__connection.json")
+      await expect(connection.json()).resolves.toMatchObject({
         backend: "sse",
         sse: { path: "__sse" },
       })
       const result = await (
         client as unknown as {
-          $call(name: string, input: ConsoleRpcRequest): Promise<ConsoleRpcResult>
+          $call(name: string, input: unknown): Promise<ConsoleRpcResult>
         }
-      ).$call("vitehub:console:request", {
-        method: "GET",
-        path: "/api/_vitehub/console/sections",
-        query: {},
-      })
+      ).$call(consoleRpcMethods.sections, {})
 
       expect(result).toEqual({
         ok: true,
@@ -60,19 +44,19 @@ describe("Console Devframe", () => {
       })
     } finally {
       channel.close()
-      await devframe.close()
+      await handler.close()
     }
   })
 
-  it("returns protocol errors through the same RPC method", async () => {
-    const devframe = await createConsoleDevframeHandler()
+  it("returns operation errors through their RPC method", async () => {
+    const handler = createConsoleDevframeHandler()
     const channel = createSseRpcChannel({
       fetch: async (input, init) => {
         const request = new Request(input, init)
-        return await devframe.handler({
+        return (await handler({
           method: request.method,
           req: request,
-        } as unknown as ConsoleRequestEvent)
+        } as never)) as Response
       },
       url: "http://vitehub.local/_vitehub/rpc/__sse",
     })
@@ -81,18 +65,18 @@ describe("Console Devframe", () => {
     try {
       const result = await (
         client as unknown as {
-          $call(name: string, input: ConsoleRpcRequest): Promise<ConsoleRpcResult>
+          $call(name: string, input: unknown): Promise<ConsoleRpcResult>
         }
-      ).$call("vitehub:console:request", {
-        method: "GET",
-        path: "/api/_vitehub/console/unknown",
-        query: {},
-      })
+      ).$call(consoleRpcMethods.definitions, {})
 
-      expect(result).toEqual({ message: "Console operation not found.", ok: false, status: 404 })
+      expect(result).toEqual({
+        message: "A valid definition section is required.",
+        ok: false,
+        status: 400,
+      })
     } finally {
       channel.close()
-      await devframe.close()
+      await handler.close()
     }
   })
 })

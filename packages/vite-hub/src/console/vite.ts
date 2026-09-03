@@ -20,7 +20,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
-import { reconcileConsoleDevframeHandler } from "./nitro.ts"
+import { addConsoleDevframeHandler } from "./nitro.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -434,7 +434,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
       nitro.handlers = handlers
-      reconcileConsoleDevframeHandler(nitro, consoleRuntimeRoot)
+      addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
@@ -494,7 +494,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
       const nitro = viteConfig.nitro ??= {}
-      reconcileConsoleDevframeHandler(nitro, consoleRuntimeRoot)
+      addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
