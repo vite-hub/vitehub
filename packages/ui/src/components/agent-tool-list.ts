@@ -14,6 +14,7 @@ export const AgentToolList = defineComponent({
   props: {
     tools: {
       required: true,
+      // SAFETY: Vue uses Array at runtime while PropType carries the readonly element contract.
       type: Array as PropType<readonly AgentToolInspection[]>,
     },
   },
