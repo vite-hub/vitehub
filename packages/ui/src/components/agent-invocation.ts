@@ -71,6 +71,87 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
   ].filter(Boolean).join(" · ") || undefined;
 }
 
+interface InvocationBrand {
+  id: "fallback" | "openrouter" | "z-ai";
+  label: string;
+}
+
+function invocationBrand(value: string | undefined): InvocationBrand | undefined {
+  const id = value?.trim().toLocaleLowerCase();
+  if (!id) return;
+  if (id.includes("openrouter")) return { id: "openrouter", label: "OpenRouter" };
+  if (id === "z-ai" || id.includes("z-ai.")) return { id: "z-ai", label: "Z.AI" };
+  if (id === "openai") return { id: "fallback", label: "OpenAI" };
+  return {
+    id: "fallback",
+    label: id
+      .split(/[._-]/g)
+      .filter(Boolean)
+      .map(part => part.length <= 3 ? part.toLocaleUpperCase() : `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`)
+      .join(" "),
+  };
+}
+
+function invocationBrandMark(brand: InvocationBrand | undefined, className: string) {
+  if (!brand) return null;
+  if (brand.id === "z-ai") {
+    return h("svg", {
+      "aria-hidden": "true",
+      class: `vh-invocation-brand__logo ${className}`,
+      viewBox: "0 0 30 30",
+    }, [
+      h("rect", { fill: "#2d2d2d", height: "28", rx: "4", width: "28", x: "1", y: "1" }),
+      h("path", {
+        d: "M15.47 7.1l-1.3 1.85c-.2.29-.54.47-.9.47h-7.1V7.09h9.3Zm8.83 0L13.14 22.91H5.7L16.86 7.1h7.44Zm-9.77 15.81 1.31-1.86c.2-.29.54-.47.9-.47h7.09v2.33h-9.3Z",
+        fill: "#fff",
+      }),
+    ]);
+  }
+  if (brand.id === "openrouter") {
+    return h("svg", {
+      "aria-hidden": "true",
+      class: `vh-invocation-brand__logo ${className}`,
+      viewBox: "0 0 401.4 293.7",
+    }, [
+      h("path", { d: "M303.9475 17.1993c42.7973 0 77.4893 34.6933 77.4893 77.4893s-34.692 77.4893-77.4893 77.4893l76.8617 76.8625c9.7637 9.7631 2.849 26.4566-10.957 26.4566H148.9688C77.642 275.497 19.82 217.675 19.82 146.348S77.642 17.199 148.9688 17.199h154.9787ZM148.9688 68.8588c-42.796 0-77.4893 34.6933-77.4893 77.4893s34.6933 77.4894 77.4893 77.4894 77.4894-34.6933 77.4894-77.4894-34.6933-77.4893-77.4894-77.4893Z" }),
+    ]);
+  }
+  return h("span", { class: `vh-invocation-brand__fallback ${className}` }, brand.label.slice(0, 1));
+}
+
+function invocationModelName(value: string): string {
+  const slug = value.split("/").at(-1) ?? "";
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLocaleLowerCase();
+      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
+      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
+      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
+    })
+    .join(" ") || "Configured model";
+}
+
+function invocationToolUsage(invocation: AgentInvocationView): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const observation of invocation.observations) {
+    const name = observation.attributes?.["tool.name"];
+    if (!hasRuntimeType(name, "string") || !name) continue;
+    const id = observation.attributes?.["tool.id"];
+    if (hasRuntimeType(id, "string") && id) {
+      const key = `${name}:${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    } else if (!observation.name.endsWith(".start")) {
+      continue;
+    }
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
   const workspace = configuration.workspace;
   return workspace ? [workspace.name, workspace.mode].filter(Boolean).join(" · ") : undefined;
@@ -909,6 +990,59 @@ function inspectorCollection(title: string, items: readonly string[]) {
   ]);
 }
 
+function inspectorExecution(configuration: AgentInvocationConfiguration) {
+  const model = configuration.driver?.model;
+  if (!model?.id) return null;
+  const maker = invocationBrand(model.id.includes("/") ? model.id.split("/")[0] : undefined);
+  const provider = invocationBrand(model.provider ?? configuration.driver?.provider);
+  const modelBrand = maker ?? provider;
+  const context = [
+    inspectorRow("Driver", configuration.driver?.kind),
+    inspectorRow("Runtime", configuration.runtime?.name),
+    inspectorRow("Workspace", workspaceLabel(configuration)),
+  ].filter(item => item !== null);
+  return h("div", {
+    class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution",
+  }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Execution")]),
+    h("div", { class: "vh-invocation-execution" }, [
+      h("div", { class: "vh-invocation-execution__model", title: model.id }, [
+        invocationBrandMark(modelBrand, "vh-invocation-execution__model-logo"),
+        h("div", [
+          h("strong", invocationModelName(model.id)),
+          maker ? h("span", `by ${maker.label}`) : null,
+        ]),
+      ]),
+      provider
+        ? h("div", { class: "vh-invocation-execution__route" }, [
+            h("span", "via"),
+            invocationBrandMark(provider, "vh-invocation-execution__provider-logo"),
+            h("strong", provider.label),
+          ])
+        : null,
+    ]),
+    context.length ? h("dl", { class: "vh-invocation-inspector__list" }, context) : null,
+  ]);
+}
+
+function inspectorTools(
+  tools: NonNullable<AgentInvocationConfiguration["tools"]>,
+  counts: ReadonlyMap<string, number>,
+) {
+  const rows = [...tools].sort((left, right) =>
+    (counts.get(right.name) ?? 0) - (counts.get(left.name) ?? 0)
+    || left.name.localeCompare(right.name),
+  );
+  const used = rows.filter(tool => (counts.get(tool.name) ?? 0) > 0).length;
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [
+      h("strong", "Tools"),
+      h("small", `${used} of ${rows.length} used`),
+    ]),
+    h(AgentToolList, { calls: Object.fromEntries(counts), tools: rows }),
+  ]);
+}
+
 function inspectorDisclosure(
   title: string,
   summary: string,
@@ -928,7 +1062,7 @@ function inspectorDisclosure(
   );
 }
 
-function renderConfiguration(configuration: AgentInvocationConfiguration) {
+function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -936,8 +1070,10 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
     inspectorRow("Runtime", configuration.runtime?.name),
     inspectorRow("Workspace", workspace),
   ].filter((item) => item !== null);
+  const execution = inspectorExecution(configuration);
   const groups = [
-    setup.length
+    execution,
+    !execution && setup.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
             h("strong", "Execution"),
@@ -987,13 +1123,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
         ])
       : null,
     configuration.tools?.length
-      ? h("div", { class: "vh-invocation-inspector__group" }, [
-          h("div", { class: "vh-invocation-inspector__group-heading" }, [
-            h("strong", "Tools"),
-            h("small", configuration.tools.length),
-          ]),
-          h(AgentToolList, { tools: configuration.tools }),
-        ])
+      ? inspectorTools(configuration.tools, invocationToolUsage(invocation))
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
@@ -1465,7 +1595,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

@@ -6,7 +6,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 
 import { normalizeWorkflowOptions } from "./config.ts"
@@ -74,6 +74,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  let hasFinalNitroEnvironment = false
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -84,6 +85,12 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   const fallbackEnvironment = {}
   const buildEnvironment = (context: { environment?: object } | undefined): object =>
     context?.environment ?? context ?? fallbackEnvironment
+  const shouldSkipProviderOutputEnvironment = (context: { environment?: { name?: string } } | undefined): boolean => {
+    const environmentName = context?.environment?.name
+    const viteHubNitroContext = resolved && Reflect.get(resolved, VITEHUB_NITRO_CONFIG_CONTEXT) === true
+    const ownerEnvironment = hasFinalNitroEnvironment ? "nitro" : "ssr"
+    return Boolean(environmentName && environmentName !== ownerEnvironment && viteHubNitroContext)
+  }
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration): Record<string, string> {
     const database = getProviderRuntimeModule(providerOutput, "database", provider, generation)
@@ -166,6 +173,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     },
     configResolved(config) {
       resolved = config
+      hasFinalNitroEnvironment = Boolean(config.environments?.nitro)
       providerOutput = useProviderOutputCatalog(config)
       workflow = config.workflow ?? workflow
     },
@@ -197,9 +205,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       },
     },
     buildStart() {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       if (error) {
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
@@ -293,6 +303,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }
     },
     async renderError(error) {
+      if (shouldSkipProviderOutputEnvironment(this)) return
       const environment = providerOutputGenerations.get(this) ?? buildEnvironment(this)
       await providerOutputGenerations.reset(this, providerOutput, error)
       const artifactDir = stagedArtifactDirs.get(environment)
@@ -305,6 +316,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       order: "post",
       sequential: true,
       async handler() {
+        if (shouldSkipProviderOutputEnvironment(this)) return
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },

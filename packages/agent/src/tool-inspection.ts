@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { AgentInspectionValue, AgentToolInspection } from "./types.ts"
 
 const emptyToolInputSchema = {
@@ -10,22 +10,31 @@ const emptyToolInputSchema = {
 function inspectionValue(value: unknown): AgentInspectionValue | undefined {
   if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
   if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!isRuntimeRecord(value)) return
   if (Array.isArray(value)) {
-    const values = value.map(inspectionValue)
-    return values.some(item => item === undefined) ? undefined : values as AgentInspectionValue[]
+    const values: AgentInspectionValue[] = []
+    for (const item of value) {
+      const inspected = inspectionValue(item)
+      if (inspected === undefined) return
+      values.push(inspected)
+    }
+    return values
   }
-  const entries = Object.entries(value).map(([key, child]) => [key, inspectionValue(child)] as const)
-  if (entries.some(([, child]) => child === undefined)) return
-  return Object.fromEntries(entries) as Record<string, AgentInspectionValue>
+  const record: Record<string, AgentInspectionValue> = {}
+  for (const [key, child] of Object.entries(value)) {
+    const inspected = inspectionValue(child)
+    if (inspected === undefined) return
+    record[key] = inspected
+  }
+  return record
 }
 
 function standardJsonSchema(value: Record<string, unknown>, direction: "input" | "output"): AgentInspectionValue | undefined {
   const standard = value["~standard"]
-  if (!standard || !hasRuntimeType(standard, "object")) return
-  const jsonSchema = (standard as Record<string, unknown>).jsonSchema
+  if (!isRuntimeRecord(standard)) return
+  const jsonSchema = Reflect.get(standard, "jsonSchema")
   if (!jsonSchema || !hasRuntimeType(jsonSchema, "object")) return
-  const resolve = (jsonSchema as Record<string, unknown>)[direction]
+  const resolve = Reflect.get(jsonSchema, direction)
   if (!hasRuntimeType(resolve, "function")) return
   try {
     return inspectionValue(resolve({ target: "draft-07" }))
@@ -36,7 +45,7 @@ function standardJsonSchema(value: Record<string, unknown>, direction: "input" |
 }
 
 function toolJsonSchema(value: unknown, direction: "input" | "output"): AgentInspectionValue | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!isRuntimeRecord(value)) return
   if ("~standard" in value) return standardJsonSchema(value, direction)
   if ("jsonSchema" in value) return inspectionValue(value.jsonSchema)
   return inspectionValue(value)
@@ -48,13 +57,16 @@ export function inspectAgentTools(tools: Record<string, unknown> | undefined): A
   const inspected = Object.entries(tools)
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([key, value]) => {
-      const tool = value && hasRuntimeType(value, "object") ? value as Record<string, unknown> : {}
+      const tool = isRuntimeRecord(value) ? value : {}
       const providerDefined = tool.type === "provider" || tool.type === "provider-defined"
+      const description = hasRuntimeType(tool.description, "string")
+        ? tool.description.trim().replace(/\s+/g, " ").slice(0, 240)
+        : ""
       const inputSchema = toolJsonSchema(tool.inputSchema, "input")
         ?? (!providerDefined ? emptyToolInputSchema : undefined)
       const outputSchema = toolJsonSchema(tool.outputSchema, "output")
       return {
-        ...(hasRuntimeType(tool.description, "string") ? { description: tool.description } : {}),
+        ...(description ? { description } : {}),
         ...(inputSchema ? { inputSchema } : {}),
         name: key,
         ...(outputSchema ? { outputSchema } : {}),

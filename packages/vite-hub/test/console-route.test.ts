@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 import {
   consoleDatabaseSchemaPath,
   consoleDatabaseTablePath,
+  consoleDatabasesSchemaPath,
+  consoleDatabasesTablePath,
   decodeAgentRouteParam,
   encodeAgentRouteParam,
   resolveConsoleRouteName,
@@ -12,6 +14,10 @@ describe("Console routes", () => {
   it("keeps the schema view outside the table route namespace", () => {
     expect(consoleDatabaseTablePath.replace(":table?", "schema")).toBe("/database/schema")
     expect(consoleDatabaseSchemaPath).toBe("/database/schema/diagram")
+    expect(
+      consoleDatabasesTablePath.replace(":database?", "default").replace(":table?", "schema"),
+    ).toBe("/databases/default/schema")
+    expect(consoleDatabasesSchemaPath).toBe("/databases/:database/schema/diagram")
   })
 
   it.each([".", "..", "~", "support/team"])(

@@ -10,12 +10,23 @@ export interface CapabilityReference {
 
 export type CapabilityReferences = Record<string, CapabilityReference>;
 
+function isCallable(value: unknown): value is CallableFunction {
+  if (value === null || value === undefined || Object(value) !== value) return false;
+  try {
+    Function.prototype.toString.call(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function resolveReference(
   capability: AgentCapabilityDefinition,
   context: Record<string, unknown> = {},
 ): Promise<CapabilityReference> {
   const tools =
-    typeof capability.tools === "function"
+    isCallable(capability.tools)
+      // SAFETY: Documentation fixtures supply only the minimal runtime primitives required by each known built-in Capability.
       ? await capability.tools(context as never)
       : await capability.tools;
   return { tools: inspectAgentTools(tools) || [] };
