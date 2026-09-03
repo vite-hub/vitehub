@@ -10673,6 +10673,15 @@ describe("agent message protocol", () => {
       { delta: "private phased reasoning", id: "reasoning-2", phase: "reasoning", type: "text-delta" },
       { delta: "private phased suffix", id: "reasoning-2", type: "text-delta" },
       { id: "reasoning-2", type: "text-end" },
+      { id: "commentary-1", type: "text-start" },
+      { delta: "private commentary", id: "commentary-1", phase: "commentary", type: "text-delta" },
+      { delta: "private commentary suffix", id: "commentary-1", type: "text-delta" },
+      { id: "commentary-1", type: "text-end" },
+      { id: "transition-1", type: "text-start" },
+      { delta: "hidden transition", id: "transition-1", phase: "commentary", type: "text-delta" },
+      { delta: "visible transition", id: "transition-1", phase: "final", type: "text-delta" },
+      { delta: " visible suffix", id: "transition-1", type: "text-delta" },
+      { id: "transition-1", type: "text-end" },
       { id: "text-1", type: "text-start" },
       { delta: "public answer", id: "text-1", type: "text-delta" },
       { id: "text-1", type: "text-end" },
@@ -10696,6 +10705,8 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (input.prompt === "hide-reasoning") return { reasoning: "hidden" as const, tools: "full" as const }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      if (input.prompt === "hide-commentary") return { commentary: "hidden" as const, reasoning: "visible" as const, tools: "full" as const }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (input.prompt === "hide-tools") return { reasoning: "visible" as const, tools: "hidden" as const }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { reasoning: "visible" as const, tools: "full" as const }
@@ -10716,6 +10727,7 @@ describe("agent message protocol", () => {
     const omitted = await collect(defaultAgent, "omitted")
     const visible = await collect(agent, "visible")
     const hiddenReasoning = await collect(agent, "hide-reasoning")
+    const hiddenCommentary = await collect(agent, "hide-commentary")
     const hiddenTools = await collect(agent, "hide-tools")
 
     expect(omitted).toEqual(chunks)
@@ -10724,10 +10736,15 @@ describe("agent message protocol", () => {
       !chunk.type.startsWith("reasoning-")
       && chunk.id !== "reasoning-2",
     ))
+    expect(hiddenCommentary).toEqual(chunks.filter(chunk =>
+      chunk.id !== "commentary-1"
+      && chunk.delta !== "hidden transition",
+    ))
     expect(hiddenTools).toEqual(chunks.filter(chunk => !chunk.type.startsWith("tool-")))
     expect(resolveProjection.mock.calls.map(([context]) => context.input.prompt)).toEqual([
       "visible",
       "hide-reasoning",
+      "hide-commentary",
       "hide-tools",
     ])
   })
@@ -10741,11 +10758,18 @@ describe("agent message protocol", () => {
           yield { delta: "private", id: "reasoning-1", phase: "reasoning", type: "text-delta" }
           yield { delta: " suffix", id: "reasoning-1", type: "text-delta" }
           yield { id: "reasoning-1", type: "text-end" }
+          yield { id: "commentary-1", type: "text-start" }
+          yield { delta: "commentary", id: "commentary-1", phase: "commentary", type: "text-delta" }
+          yield { delta: " suffix", id: "commentary-1", type: "text-delta" }
+          yield { id: "commentary-1", type: "text-end" }
+          yield { delta: "hidden transition", id: "transition-1", phase: "commentary", type: "text-delta" }
+          yield { delta: "visible transition", id: "transition-1", phase: "final", type: "text-delta" }
+          yield { delta: " visible suffix", id: "transition-1", type: "text-delta" }
           yield { delta: "public", id: "final-1", phase: "final", type: "text-delta" }
           yield { type: "finish" }
         },
       },
-      uiMessageStream: { reasoning: "hidden" },
+      uiMessageStream: { commentary: "hidden", reasoning: "hidden" },
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -10755,7 +10779,11 @@ describe("agent message protocol", () => {
     const chunks = []
     for await (const chunk of stream) chunks.push(chunk)
     expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("private") }))
-    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("suffix") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: expect.stringContaining("commentary") }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: " suffix" }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({ delta: "hidden transition" }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: "visible transition" }))
+    expect(chunks).toContainEqual(expect.objectContaining({ delta: " visible suffix" }))
     expect(chunks).toContainEqual(expect.objectContaining({ delta: "public" }))
   })
 
@@ -15198,11 +15226,112 @@ describe("agent message protocol", () => {
       }
     })
 
-    it("does not treat caller-supplied Blob and Database handles as Workflow-portable", async () => {
+    it("only treats generated Blob, Console, and Database handles as Workflow-portable", async () => {
       const { hasOnlyPortableAgentWorkflowCapabilities } = await import("../src/internal/final-channel-output.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const consolePrimitive = { resolve: vi.fn() }
 
-      await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
-      await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
+      try {
+        setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: consolePrimitive })).resolves.toBe(true)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ blob: {} })).resolves.toBe(false)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ console: {} })).resolves.toBe(false)
+        await expect(hasOnlyPortableAgentWorkflowCapabilities({ db: {} })).resolves.toBe(false)
+      } finally {
+        setAgentWorkflowCapabilityLoaders({})
+      }
+    })
+
+    it("reconstructs generated Console context inside required Workflows", async () => {
+      const { inputCommands } = await import("../src/capabilities/input-commands.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const resolve = vi.fn((context: { request?: Request }) => ({
+        invocationUrl: () => new URL("/linked-invocation", context.request?.url).href,
+        invocations: {},
+      }))
+      const consolePrimitive = { resolve }
+      setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const agent = defineAgent({
+          capabilities: [inputCommands({
+            commands: {
+              history: {
+                call: ({ context }) => {
+                  // SAFETY: The fixture supplies the generated Console primitive asserted by this Workflow reconstruction test.
+                  const consoleRuntime = (context as typeof context & {
+                    console: { invocationUrl: () => string }
+                  }).console
+                  return consoleRuntime.invocationUrl()
+                },
+              },
+            },
+          })],
+          driver: { run: ({ input }) => input.prompt },
+        })
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        const run = await runAgent(agent, {
+          agentIdentity: { name: "portable-console" },
+          capabilities: { console: consolePrimitive },
+          memo: vi.fn(),
+          request: new Request("https://example.test/portal/api/agent"),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {
+          context: { [requireAgentWorkflowContextKey]: true },
+          prompt: "/history",
+        }) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("portable-console", run.id)).resolves.toMatchObject({
+          result: "https://example.test/linked-invocation",
+          status: "completed",
+        })
+        expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+          request: expect.objectContaining({ url: "https://example.test/portal/api/agent" }),
+        }))
+      } finally {
+        setAgentWorkflowCapabilityLoaders({})
+        resetWorkflowRuntime()
+      }
+    })
+
+    it("does not add registered portable Capabilities that were absent at Workflow handoff", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const loadConsole = vi.fn(() => ({ resolve: vi.fn() }))
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setAgentWorkflowCapabilityLoaders({ console: loadConsole })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      try {
+        const run = await runAgent(defineAgent({
+          driver: { run: context => Object.keys(context.capabilities || {}) },
+          runtime: workflow("capability-boundary"),
+        }), {
+          memo: vi.fn(),
+          runtime: "vercel",
+          waitUntil: promise => waitUntilTasks.push(promise),
+        }, {}) as { id: string }
+
+        await Promise.all(waitUntilTasks)
+        await expect(getWorkflowRun("capability-boundary", run.id)).resolves.toMatchObject({
+          result: [],
+          status: "completed",
+        })
+        expect(loadConsole).not.toHaveBeenCalled()
+      } finally {
+        setAgentWorkflowCapabilityLoaders({})
+        resetWorkflowRuntime()
+      }
     })
 
     it("rejects required Workflow delivery instead of falling back inline", async () => {

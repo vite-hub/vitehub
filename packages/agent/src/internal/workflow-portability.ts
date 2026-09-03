@@ -1,4 +1,5 @@
 import { isRuntimeBoolean, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "./runtime-value.ts"
+import { isPortableAgentWorkflowCapability } from "./final-channel-output.ts"
 
 export function workflowBytesToBase64(data: Uint8Array): string {
   let binary = ""
@@ -8,9 +9,12 @@ export function workflowBytesToBase64(data: Uint8Array): string {
   return btoa(binary)
 }
 
-export function portableWorkflowCapabilityOverrides(capabilities: Record<string, unknown> | undefined): Record<string, false> {
-  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-  return Object.fromEntries(Object.entries(capabilities || {}).filter(([, capability]) => capability === false)) as Record<string, false>
+export function portableWorkflowCapabilityMask(capabilities: Record<string, unknown> | undefined): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(capabilities || {})
+      .filter(([name, capability]) => capability === false || isPortableAgentWorkflowCapability(name))
+      .map(([name, capability]) => [name, capability !== false]),
+  )
 }
 
 const omittedWorkflowValue = Symbol("vitehub.agent.omitted-workflow-value")

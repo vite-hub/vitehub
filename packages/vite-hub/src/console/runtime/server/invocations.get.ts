@@ -1,8 +1,20 @@
 import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { invocationUsage } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { AgentInvocationListOptions, AgentInvocationListResult, AgentInvocationRecordStatus } from "@vite-hub/agent"
+import type {
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecord,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+} from "@vite-hub/agent"
+
+type ConsoleInvocationSummary = AgentInvocationSummary & {
+  usage?: ReturnType<typeof invocationUsage>
+}
 
 interface ConsoleInvocationCursor {
   done?: string | null
@@ -58,6 +70,20 @@ async function listLifecyclePage(
   return getConsoleInvocations().list(options)
 }
 
+async function summaryWithUsage(
+  invocations: AgentInvocations,
+  summary: AgentInvocationSummary,
+  record?: AgentInvocationRecord,
+): Promise<ConsoleInvocationSummary> {
+  const invocation = record ?? await invocations.get(summary.id)
+  if (!invocation) return summary
+  const usage = invocationUsage(invocation)
+  return {
+    ...summary,
+    ...(usage ? { usage } : {}),
+  }
+}
+
 const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
   assertConsoleRequest(event)
   const query = consoleRequestURL(event).searchParams
@@ -71,11 +97,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   if (ids.length > 0) {
     const invocations = getConsoleInvocations()
     const records = await Promise.all(ids.map(async (id) => {
-      if (invocations.getSummary) return await invocations.getSummary(id)
+      if (invocations.getSummary) {
+        const summary = await invocations.getSummary(id)
+        return summary && summaryWithUsage(invocations, summary)
+      }
       const record = await invocations.get(id)
       if (!record) return
       const { observations: _observations, ...summary } = record
-      return summary
+      return summaryWithUsage(invocations, summary, record)
     }))
     return {
       invocations: records.filter(record => record !== undefined),
@@ -230,13 +259,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const historyIds = new Set(history.invocations.map(invocation => invocation.id))
   const doneIds = new Set(done.invocations.map(invocation => invocation.id))
   const workingIds = new Set(working.invocations.map(invocation => invocation.id))
+  const invocations = getConsoleInvocations()
   const result: AgentInvocationListResult = {
-    invocations: [
+    invocations: await Promise.all([
       ...working.invocations.filter(invocation => !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
       ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
       ...done.invocations.filter(invocation => !historyIds.has(invocation.id)),
       ...history.invocations,
-    ],
+    ].map(summary => summaryWithUsage(invocations, summary))),
     remainingStatuses: [...new Set<AgentInvocationRecordStatus>([
       ...("working" in next ? ["running" as const] : []),
       ...("queued" in next ? ["pending" as const] : []),

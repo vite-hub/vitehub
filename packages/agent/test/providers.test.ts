@@ -725,7 +725,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         command: "build",
         createResolver: () => async (id) => `/app/node_modules/${id}`,
-        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "vite-hub/console" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
         root,
       })
 
@@ -744,7 +744,7 @@ describe("agent Vite plugin", () => {
       await nitroConfig(
         {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-          plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/database/vite" }],
+          plugins: [{ name: "@vite-hub/blob/vite" }, { name: "vite-hub/console" }, { name: "@vite-hub/database/vite" }],
           root,
         },
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -757,11 +757,13 @@ describe("agent Vite plugin", () => {
       )
 
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { console as vitehubConsole } from "vite-hub/console/server"')
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(registry).toContain(
         'import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from "@vite-hub/agent/server/internal"',
       )
       expect(registry).toContain("blob: () => vitehubBlob")
+      expect(registry).toContain("console: () => vitehubConsole")
       expect(registry).toContain("db: () => vitehubDb")
       expect(registry).not.toContain("vitehubEmail")
       expect(providerRegistry).toBe(registry)
@@ -13313,7 +13315,7 @@ describe("server helpers", () => {
     }
   }, 10_000)
 
-  it("restores queued portable Capability overrides from persistent State", async () => {
+  it("restores the queued portable Capability mask from persistent State", async () => {
     const blobList = vi.fn(async () => ({ blobs: [] }))
     const blobPrimitive = { list: blobList }
     const { blob } = await import("../src/capabilities.ts")
@@ -13370,6 +13372,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(inputs).toHaveLength(1))
       await handler(chatWebhookRequest(91_127), "telegram", {
         agentIdentity: runtime.agentIdentity,
+        capabilities: { blob: blobPrimitive },
         cloudflare: runtime.cloudflare,
         waitUntil: runtime.waitUntil,
       })
@@ -15201,11 +15204,12 @@ describe("server helpers", () => {
       title: "retries terminal successor settlement from the predecessor Workflow when recovery cannot start",
     },
   ] as const)("$title", async ({ fallbackReservationFailures, recoveryStartFailures = false, stalledFallback }) => {
+    const { blob } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createChannelWebhookRouteHandler, setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
@@ -15228,6 +15232,7 @@ describe("server helpers", () => {
       return await replaceQueueHead(...args)
     })
     const adapter = createTestChatAdapter()
+    const blobPrimitive = { list: vi.fn(async () => ({ blobs: [] })) }
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     const createBatch = vi.fn(async ([{ id, params }]: Array<{ id: string; params: { input?: AgentRunInput } }>) => {
       workflowPayloads.push(params)
@@ -15242,6 +15247,7 @@ describe("server helpers", () => {
     })
     let metadataParses = 0
     const agent = defineAgent({
+      capabilities: [blob()],
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -15273,13 +15279,14 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
+    setAgentWorkflowCapabilityLoaders({ blob: () => blobPrimitive })
     const bindingName = getCloudflareWorkflowBindingName("calories")
     const env = { [bindingName]: { createBatch, get: vi.fn() } }
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
     try {
       await state.connect()
-      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      const runtime = { agentIdentity: { name: "calories" }, capabilities: { blob: blobPrimitive }, cloudflare: { env } }
       await handler(chatWebhookRequest(91_140), "telegram", runtime)
       await handler(chatWebhookRequest(91_141), "telegram", runtime)
       expect(createBatch).toHaveBeenCalledOnce()
@@ -15359,6 +15366,7 @@ describe("server helpers", () => {
       expect(metadataParses).toBe(2)
     } finally {
       queueReplaceHead.mockRestore()
+      setAgentWorkflowCapabilityLoaders({})
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()
@@ -15548,11 +15556,12 @@ describe("server helpers", () => {
   }, 15_000)
 
   it("restarts pending steer input when terminal settlement cannot read its delivery", async () => {
+    const { blob } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createChannelWebhookRouteHandler, setAgentWorkflowCapabilityLoaders } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const { getCloudflareWorkflowBindingName } = await import("@vite-hub/workflow")
     const { setActiveCloudflareEnv } = await import("@vite-hub/workflow/runtime/cloudflare-shared")
@@ -15560,6 +15569,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-terminal-state-failure-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
     const adapter = createTestChatAdapter()
+    const blobPrimitive = { list: vi.fn(async () => ({ blobs: [] })) }
     const workflowPayloads: Array<{ input?: AgentRunInput }> = []
     let failDeliveryRead = false
     const originalGet = state.get.bind(state)
@@ -15579,6 +15589,7 @@ describe("server helpers", () => {
       return [{ id, status: async () => ({ status: "queued" }) }]
     })
     const agent = defineAgent({
+      capabilities: [blob()],
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -15591,12 +15602,13 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
+    setAgentWorkflowCapabilityLoaders({ blob: () => blobPrimitive })
     const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
 
     try {
       await state.connect()
-      const runtime = { agentIdentity: { name: "calories" }, cloudflare: { env } }
+      const runtime = { agentIdentity: { name: "calories" }, capabilities: { blob: blobPrimitive }, cloudflare: { env } }
       await handler(chatWebhookRequest(91_143), "telegram", runtime)
       await handler(chatWebhookRequest(91_144), "telegram", runtime)
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -15642,6 +15654,7 @@ describe("server helpers", () => {
       expect(successor).toMatchObject({ status: "queued" })
     } finally {
       get.mockRestore()
+      setAgentWorkflowCapabilityLoaders({})
       setActiveCloudflareEnv(undefined)
       resetWorkflowRuntime()
       await state.disconnect()
@@ -16663,6 +16676,45 @@ describe("server helpers", () => {
       markdown: "Final reply",
     })
     expect(adapter.deleteMessage).not.toHaveBeenCalled()
+  })
+
+  it("does not replace the loading message after a successful final post", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            final: { delivery: "new-message" },
+            loading: { text: "Loading…", updates: "commentary" },
+          },
+        }),
+      },
+      driver: { run: () => "Private output" },
+      hooks: {
+        "agent:finish": event => event.reply("Final reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_215), "telegram", {
+      waitUntil(task) {
+        void task.catch(() => undefined)
+        if (adapter.postMessage.mock.calls.length === 2) throw new Error("cleanup registration failed")
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: "Final reply",
+    })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("does not redeliver a posted final reply when its delivery callback rejects", async () => {

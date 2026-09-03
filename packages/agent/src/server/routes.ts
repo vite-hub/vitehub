@@ -55,8 +55,8 @@ import { agentChatInvocationIdHeader } from "../internal/routes.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
-import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
-import { portableWorkflowCapabilityOverrides } from "../internal/workflow-portability.ts"
+import { loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
+import { portableWorkflowCapabilityMask } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
@@ -2782,12 +2782,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                   agent as never,
                   // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                  {
-                    ...context,
-                    capabilities: restoredMessage.capabilities,
-                    ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
-                    ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
-                  } as never,
+                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
                   // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                   recoveredWorkflowInput as never,
                 )
@@ -2810,12 +2805,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                         // SAFETY: The route resolver receives the internal Agent representation expected by startup.
                         agent as never,
                         // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                        {
-                          ...context,
-                          capabilities: restoredMessage.capabilities,
-                          ...(restoredMessage.requestUrl ? { request: new Request(restoredMessage.requestUrl) } : {}),
-                          ...(restoredMessage.run ? { run: restoredMessage.run } : {}),
-                        } as never,
+                        await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
                         // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
                         recoveredWorkflowInput as never,
                       )
@@ -3049,12 +3039,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          {
-            ...context,
-            capabilities: queued.message.capabilities,
-            ...(queued.message.requestUrl ? { request: new Request(queued.message.requestUrl) } : {}),
-            ...(queued.message.run ? { run: queued.message.run } : {}),
-          } as never,
+          await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, queued.message) as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           successorInput as never,
         )
@@ -3079,12 +3064,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The route normalized this value for the internal startup boundary.
                   agent as never,
                   // SAFETY: The successor retains the persisted capabilities, request, and logical run context.
-                  {
-                    ...context,
-                    capabilities: retryMessage.capabilities,
-                    ...(retryMessage.requestUrl ? { request: new Request(retryMessage.requestUrl) } : {}),
-                    ...(retryMessage.run ? { run: retryMessage.run } : {}),
-                  } as never,
+                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, retryMessage) as never,
                   // SAFETY: The successor input was cloned and JSON-validated before State persistence.
                   retryInput as never,
                 ),
@@ -3144,12 +3124,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
                 agent as never,
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                {
-                  ...context,
-                  capabilities: successorPending.message.capabilities,
-                  ...(successorPending.message.requestUrl ? { request: new Request(successorPending.message.requestUrl) } : {}),
-                  ...(successorPending.message.run ? { run: successorPending.message.run } : {}),
-                } as never,
+                await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, successorPending.message) as never,
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                 retryInput as never,
               )
@@ -3188,13 +3163,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
             agent as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            {
-              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              ...context,
-              capabilities: claimedPending.message.capabilities,
-              ...(claimedPending.message.requestUrl ? { request: new Request(claimedPending.message.requestUrl) } : {}),
-              ...(claimedPending.message.run ? { run: claimedPending.message.run } : {}),
-            } as never,
+            await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, claimedPending.message) as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             retryInput as never,
           )
@@ -3274,7 +3243,7 @@ function mergeDurableSteerInput(previous: AgentRunInput | undefined, current: Ag
 }
 
 interface DurableSteerQueueMessage {
-  capabilities: Record<string, false>
+  capabilities: Record<string, boolean>
   claimId?: string
   deliveryIds?: string[]
   errorDeliveries?: DurableSteerErrorDelivery[]
@@ -3291,7 +3260,7 @@ interface DurableSteerQueueMessage {
 }
 
 interface DurableSteerErrorDelivery {
-  capabilities?: Record<string, false>
+  capabilities?: Record<string, boolean>
   fallbackStatus?: "delivered" | "reserved"
   input: AgentRunInput
   message: {
@@ -3307,6 +3276,19 @@ interface DurableSteerQueueEntry {
   enqueuedAt?: number
   expiresAt?: number
   message?: DurableSteerQueueMessage
+}
+
+async function restoreDurableSteerRuntimeContext(
+  context: ViteAgentRouteRuntimeContext,
+  message: Pick<DurableSteerQueueMessage, "capabilities" | "requestUrl" | "run">,
+): Promise<ViteAgentRouteRuntimeContext> {
+  const restored: ViteAgentRouteRuntimeContext = {
+    ...context,
+    capabilities: await loadConfiguredAgentWorkflowCapabilities(message.capabilities),
+  }
+  if (message.requestUrl) restored.request = new Request(message.requestUrl)
+  if (message.run) restored.run = message.run
+  return restored
 }
 
 const durableSteerQueueMaximum = Number.MAX_SAFE_INTEGER
@@ -3380,7 +3362,7 @@ async function postDurableSteerErrorFallback(
   const options = getChannelChatOptions(agent, registration.channelId, baseOptions)
   const deliveryContext: ViteAgentRouteRuntimeContext = {
     ...context,
-    capabilities: delivery.capabilities || {},
+    capabilities: await loadConfiguredAgentWorkflowCapabilities(delivery.capabilities),
     ...(delivery.requestUrl ? { request: new Request(delivery.requestUrl) } : {}),
     ...(delivery.run ? { run: delivery.run } : {}),
   }
@@ -4474,6 +4456,13 @@ function captureStaticChatFinishMessage(message: AgentChatMessage, capture: Chat
   capture.truncated = content.length > 16 * 1024
 }
 
+async function settleChatFinishDeliveryCallbacks(
+  callbacks: readonly ChatFinishDeliveryCallback[],
+  capture: ChatFinishDeliveryCapture,
+): Promise<void> {
+  await Promise.allSettled(callbacks.map(callback => Promise.resolve().then(() => callback(capture))))
+}
+
 function captureStreamedChatFinishMessage(
   source: AsyncIterable<string>,
   capture: ChatFinishDeliveryCapture,
@@ -4517,9 +4506,6 @@ async function flushChatFinishExtensionMessages(
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (const [index, queued] of messages.entries()) {
     const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
-    const runCallbacks = async (capture: ChatFinishDeliveryCapture) => {
-      await Promise.allSettled(callbacks.map(callback => Promise.resolve().then(() => callback(capture))))
-    }
     let { message } = queued
     const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
     if (isAsyncIterable(message) && callbacks.length) {
@@ -4553,12 +4539,15 @@ async function flushChatFinishExtensionMessages(
             if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
             const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
             manualDelivery.placeholderCleanup = placeholderCleanup
-            waitUntil(placeholderCleanup.finally(() => {
-              if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
-            }))
+            try {
+              waitUntil(placeholderCleanup.finally(() => {
+                if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
+              }))
+            }
+            catch {}
           }
           else if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
-          await runCallbacks(capture)
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
           continue
         }
         let deliveredToPlaceholder = false
@@ -4582,7 +4571,7 @@ async function flushChatFinishExtensionMessages(
           }
         }
         if (deliveredToPlaceholder) {
-          await runCallbacks(capture)
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
           continue
         }
       }
@@ -4590,7 +4579,7 @@ async function flushChatFinishExtensionMessages(
     }
     catch (error) {
       capture.error = error instanceof Error ? error.message : String(error)
-      await runCallbacks(capture)
+      await settleChatFinishDeliveryCallbacks(callbacks, capture)
       const skippedCapture: ChatFinishDeliveryCapture = {
         content: "",
         skipped: `Skipped after an earlier queued reply failed: ${capture.error}`,
@@ -4598,11 +4587,11 @@ async function flushChatFinishExtensionMessages(
       }
       for (const skipped of messages.slice(index + 1)) {
         const skippedCallbacks = skipped.directCallback ? [skipped.directCallback, ...skipped.callbacks] : skipped.callbacks
-        for (const callback of skippedCallbacks) await callback(skippedCapture)
+        await settleChatFinishDeliveryCallbacks(skippedCallbacks, skippedCapture)
       }
       throw error
     }
-    await runCallbacks(capture)
+    await settleChatFinishDeliveryCallbacks(callbacks, capture)
   }
 }
 
@@ -4613,7 +4602,7 @@ async function skipChatFinishExtensionMessages(chat: AgentChatQueuedFinishExtens
     const capture: ChatFinishDeliveryCapture = { content: "", skipped, truncated: false }
     captureStaticChatFinishMessage(queued.message, capture)
     const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
-    for (const callback of callbacks) await callback(capture)
+    await settleChatFinishDeliveryCallbacks(callbacks, capture)
   }
 }
 
@@ -4873,7 +4862,7 @@ async function handleChatSdkMessage(
       let workflowInputHasParsedMessageMeta = parsedAgentMessageMetaState(agent, workflowInput, run)
       let workflowInputHasResolvedInvoker = hasResolvedAgentInvokerInput(workflowInput)
       let workflowInvokerKey = JSON.stringify(resolveInputAgentInvoker(workflowInput.context) ?? null)
-      let workflowCapabilities = portableWorkflowCapabilityOverrides(context.capabilities)
+      let workflowCapabilities = portableWorkflowCapabilityMask(context.capabilities)
       let workflowRequestUrl = context.request.url
       let workflowRun = run
       let workflowRunContext = runContext
@@ -5024,7 +5013,7 @@ async function handleChatSdkMessage(
             workflowSettlementStatus = previous.message.settlementStatus
             workflowRunContext = {
               ...context,
-              capabilities: workflowCapabilities,
+              capabilities: await loadConfiguredAgentWorkflowCapabilities(workflowCapabilities),
               ...(workflowRequestUrl ? { request: new Request(workflowRequestUrl) } : {}),
               run: workflowRun,
             }

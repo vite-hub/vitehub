@@ -42,6 +42,7 @@ ViteHub's `useChat()` wrapper has the same UI boundary and supplies the ViteHub 
 ```vue
 <AgentChat>
   <template #message="{ message, index }" />
+  <template #composer />
   <template #scroll-button />
 </AgentChat>
 ```

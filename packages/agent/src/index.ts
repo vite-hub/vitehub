@@ -8,7 +8,7 @@ import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./i
 import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
-import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
+import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import {
@@ -686,7 +686,7 @@ type AgentDefinitionWithBaseResolve<
   [colocatedAgentSkillsSymbol]?: ColocatedAgentSkills
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
-  capabilities?: Record<string, false>
+  capabilities?: Record<string, boolean>
   input?: AgentRunInput<CALL_OPTIONS>
   invocationRecovery?: {
     agentName?: string
@@ -957,10 +957,7 @@ async function runAgentAsWorkflow<
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  const disabledCapabilities = Object.fromEntries(
-    Object.entries(context.capabilities || {}).filter(([, capability]) => capability === false),
-  ) as Record<string, false>
+  const workflowCapabilities = portableWorkflowCapabilityMask(context.capabilities)
   const hasNonportableCapabilities = !await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities)
   if (input.context?.[requireAgentWorkflowContextKey] === true && hasNonportableCapabilities) return undefined
   if ("discoveryDefault" in binding && hasNonportableCapabilities) return undefined
@@ -995,7 +992,7 @@ async function runAgentAsWorkflow<
   const parsedMessageMeta = parsedAgentMessageMetaState(agent, parsedInput as AgentRunInput<CALL_OPTIONS>, context.run)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
-    ...(Object.keys(disabledCapabilities).length ? { capabilities: disabledCapabilities } : {}),
+    ...(Object.keys(workflowCapabilities).length ? { capabilities: workflowCapabilities } : {}),
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     input: cloneWorkflowJsonValue(workflowInput) as AgentRunInput<CALL_OPTIONS>,
     // Headers and bodies may contain webhook credentials and remain process-local by design.

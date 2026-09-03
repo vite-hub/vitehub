@@ -54,7 +54,37 @@
   margin-inline: auto;
   max-width: 48rem;
   min-height: 100%;
-  padding: 1.5rem 1rem 6rem;
+  padding: var(--vh-chat-content-padding, 1.5rem 1rem 6rem);
+}
+
+.vh-chat__composer {
+  bottom: 0;
+  inset-inline: 0;
+  padding: var(--vh-chat-composer-padding, 2rem 1rem 1rem);
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+}
+
+.vh-chat__composer::before {
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  background: linear-gradient(to bottom, transparent, color-mix(in oklab, var(--vh-ui-bg) 86%, transparent) 45%, var(--vh-ui-bg) 100%);
+  content: "";
+  inset: 0;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 2rem);
+  mask-image: linear-gradient(to bottom, transparent, black 2rem);
+  pointer-events: none;
+  position: absolute;
+}
+
+.vh-chat__composer > * {
+  pointer-events: auto;
+  position: relative;
+}
+
+.vh-chat:has(.vh-chat__composer) .vh-chat__scroll-button {
+  bottom: var(--vh-chat-scroll-button-offset, 7rem);
 }
 
 .vh-chat__scroll-button {

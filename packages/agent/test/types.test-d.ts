@@ -274,6 +274,7 @@ describe("agent public types", () => {
 
   it("types static and per-invocation UI message stream projection", () => {
     const projection = {
+      commentary: "visible",
       reasoning: "visible",
       tools: "full",
     } satisfies AgentUIMessageStreamProjection
@@ -288,7 +289,7 @@ describe("agent public types", () => {
         expectTypeOf(context.input).toEqualTypeOf<AgentRunInput>()
         expectTypeOf(context.context.get("chat.secret")).toEqualTypeOf<string | undefined>()
         return context.input.prompt === "private"
-          ? { reasoning: "hidden", tools: "hidden" }
+          ? { commentary: "hidden", reasoning: "hidden", tools: "hidden" }
           : projection
       },
     })

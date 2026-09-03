@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 const props = defineProps<{
+  cost?: string;
   detailsOpen: boolean;
   externalUrl?: string;
   hasDisplay: boolean;
@@ -9,6 +10,7 @@ const props = defineProps<{
   loading: boolean;
   project: string;
   title: string;
+  tokens?: string;
 }>();
 
 const externalTarget = computed(() => {
@@ -46,6 +48,18 @@ defineEmits<{
       <span v-else class="text-sm font-medium">{{ title }}</span>
     </template>
     <template #right>
+      <div
+        v-if="cost || tokens"
+        class="hidden shrink-0 items-center gap-3 text-xs tabular-nums text-muted sm:flex"
+        aria-label="Session usage"
+      >
+        <span v-if="cost" class="inline-flex items-center gap-1" title="Total session cost">
+          <UIcon name="i-lucide-circle-dollar-sign" class="size-3.5" />{{ cost }}
+        </span>
+        <span v-if="tokens" class="inline-flex items-center gap-1" title="Processed tokens">
+          <UIcon name="i-lucide-gauge" class="size-3.5" />{{ tokens }}
+        </span>
+      </div>
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"

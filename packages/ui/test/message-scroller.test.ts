@@ -174,6 +174,29 @@ describe("message scroller behavior", () => {
     expect(wrapper.find(".message-body").text()).toBe("Message body");
   });
 
+  it("renders a composer overlay once without forwarding it to message bodies", () => {
+    const wrapper = mount(AgentChat, {
+      global: {
+        components: {
+          UChatMessage: defineComponent({
+            setup(_props, { slots }) {
+              return () => h("div", [slots.body?.(), slots.composer?.()]);
+            },
+          }),
+        },
+      },
+      props: {
+        messages: [{ id: "message", parts: [{ text: "Message body", type: "text" }], role: "assistant" }],
+      },
+      slots: {
+        composer: () => h("form", { class: "composer" }, "Composer"),
+      },
+    });
+
+    expect(wrapper.get("[data-slot='chat-composer']").findAll(".composer")).toHaveLength(1);
+    expect(wrapper.findAll(".composer")).toHaveLength(1);
+  });
+
   it("preserves the reader offset when older content prepends", () => {
     expect(calculatePrependScrollTop(240, 800, 1_100)).toBe(540);
   });

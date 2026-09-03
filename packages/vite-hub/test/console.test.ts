@@ -2120,6 +2120,50 @@ describe("Agent invocation console", () => {
     })
   })
 
+  it("includes projected usage in Console session summaries", async () => {
+    const store = createMemoryAgentInvocationStore()
+    store.create({
+      agentName: "chat",
+      annotations: { "agent.model.id": "claude-sonnet-4-5" },
+      completedAt: "2026-08-23T12:01:00.000Z",
+      createdAt: "2026-08-23T12:00:00.000Z",
+      id: "usage-summary",
+      observations: [{
+        attributes: {
+          "usage.record": {
+            cost: {
+              display: "$0.03",
+              estimated: false,
+              source: "provider",
+              usd: "0.03",
+            },
+            usage: { totalTokens: 42 },
+          },
+        },
+        name: "agent.invocation.finish",
+        sequence: 1,
+        timestamp: "2026-08-23T12:01:00.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      traceId: "trace-usage-summary",
+      updatedAt: "2026-08-23T12:01:00.000Z",
+    })
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{
+        id: "usage-summary",
+        usage: {
+          cost: { display: "$0.03" },
+          model: "claude-sonnet-4-5",
+          totalTokens: 42,
+        },
+      }],
+    })
+  })
+
   it("returns only observations after a matching detail prefix", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
@@ -3360,13 +3404,21 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("refreshes invocation summaries in one request without observations", async () => {
+  it("refreshes invocation summaries with usage in one request without observations", async () => {
     const store = createMemoryAgentInvocationStore()
     for (const id of ["inv-1", "inv-2"]) {
       store.create({
         createdAt: "2026-08-23T12:00:00.000Z",
         id,
-        observations: [{ name: "private", sequence: 1, timestamp: "2026-08-23T12:00:00.000Z", type: "run" }],
+        observations: [{
+          attributes: id === "inv-1"
+            ? { "usage.record": { usage: { totalTokens: 42 } } }
+            : undefined,
+          name: "agent.invocation.finish",
+          sequence: 1,
+          timestamp: "2026-08-23T12:00:00.000Z",
+          type: "run",
+        }],
         status: "running",
         traceId: `trace-${id}`,
         updatedAt: "2026-08-23T12:00:00.000Z",
@@ -3382,7 +3434,7 @@ describe("Agent invocation console", () => {
 
     const result = await invocationsHandler(requestEvent)
     expect(result).toMatchObject({
-      invocations: [{ id: "inv-1" }, { id: "inv-2" }],
+      invocations: [{ id: "inv-1", usage: { totalTokens: 42 } }, { id: "inv-2" }],
     })
     expect(result).toEqual({
       invocations: [
@@ -3391,7 +3443,7 @@ describe("Agent invocation console", () => {
       ],
     })
     expect(getSummary).toHaveBeenCalledTimes(2)
-    expect(get).not.toHaveBeenCalled()
+    expect(get).toHaveBeenCalledTimes(2)
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {
@@ -3705,6 +3757,12 @@ describe("Agent invocation console", () => {
       expect(resolved.invocationUrl(invocation)).toBe(
         `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
+
+      vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
+      expect(resolved.invocationUrl(invocation)).toBe(
+        `https://chat.example/portal/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
+      )
+      vi.unstubAllGlobals()
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })

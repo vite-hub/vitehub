@@ -601,6 +601,12 @@ function message(error: unknown) {
                 {{ formatTokens(invocationUsage.cachedInputTokens) }}
               </dd>
             </div>
+            <div v-if="numericValue(invocationUsage.cacheWriteTokens) !== undefined">
+              <dt class="text-xs text-muted">Cache writes</dt>
+              <dd class="mt-1 text-xs tabular-nums text-toned">
+                {{ formatTokens(invocationUsage.cacheWriteTokens) }}
+              </dd>
+            </div>
             <div v-if="numericValue(invocationUsage.reasoningTokens) !== undefined">
               <dt class="text-xs text-muted">Reasoning</dt>
               <dd class="mt-1 text-xs tabular-nums text-toned">

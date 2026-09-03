@@ -24,6 +24,7 @@ import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteCon
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 
@@ -1407,17 +1408,6 @@ export async function transformEveExtensionCapabilities(
   return applyCodeReplacements(code, replacements)
 }
 
-interface EveExtensionPackageJson {
-  eve?: { extension?: { dist?: unknown } }
-  name?: unknown
-}
-
-interface EveExtensionManifest {
-  formatVersion?: unknown
-  kind?: unknown
-  requires?: unknown
-}
-
 const supportedEveExtensionContracts: Record<number, Record<string, number>> = {
   1: {
     config: 1,
@@ -1445,29 +1435,30 @@ async function resolveEveExtensionPackage(
   while (true) {
     const packagePath = join(directory, "package.json")
     if (existsSync(packagePath)) {
-      const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as EveExtensionPackageJson
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the package name must be validated before use.
-      if (typeof packageJson.name === "string" && packageJson.eve?.extension) {
-        if (!validate) return packageJson.name
-        const dist = packageJson.eve?.extension?.dist
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- package.json is external input and the manifest path must be a string.
-        if (typeof dist !== "string") return false
+      const packageJson: unknown = JSON.parse(await readFile(packagePath, "utf8"))
+      const packageName = isRecord(packageJson) ? packageJson.name : undefined
+      const eve = isRecord(packageJson) && isRecord(packageJson.eve) ? packageJson.eve : undefined
+      const extension = eve && isRecord(eve.extension) ? eve.extension : undefined
+      if (hasRuntimeType(packageName, "string") && extension) {
+        if (!validate) return packageName
+        const dist = extension.dist
+        if (!hasRuntimeType(dist, "string")) return false
         const manifestPath = resolve(directory, dist, "_manifest.json")
-        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as EveExtensionManifest
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The external manifest version selects the supported contract table.
-        const contracts = typeof manifest.formatVersion === "number"
-          ? supportedEveExtensionContracts[manifest.formatVersion]
+        const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"))
+        const formatVersion = isRecord(manifest) ? manifest.formatVersion : undefined
+        const requires = isRecord(manifest) && isRecord(manifest.requires) ? manifest.requires : undefined
+        const contracts = hasRuntimeType(formatVersion, "number")
+          ? supportedEveExtensionContracts[formatVersion]
           : undefined
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External manifests must supply a contract-version record before enumeration.
-        if (manifest.kind !== "eve-extension" || !contracts || !manifest.requires || typeof manifest.requires !== "object") {
+        if (!isRecord(manifest) || manifest.kind !== "eve-extension" || !contracts || !requires) {
           throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
         }
-        for (const [contract, version] of Object.entries(manifest.requires)) {
+        for (const [contract, version] of Object.entries(requires)) {
           if (contracts[contract] !== version) {
             throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
           }
         }
-        return packageJson.name
+        return packageName
       }
     }
     const parent = dirname(directory)
@@ -2381,12 +2372,13 @@ function createNetlifyAgentFunctionConfig(options: { discordGatewayRoute?: false
     options.inspectionRoute ? normalizeNitroRoute(options.inspectionRoute) : undefined,
   ].filter((path): path is string => Boolean(path))
 
-  return {
-    ...(options.includedFiles?.length ? { includedFiles: options.includedFiles } : {}),
+  const config: { includedFiles?: string[], name: string, nodeBundler: string, path: string | string[] | undefined } = {
     path: paths.length === 1 ? paths[0] : paths,
     name: netlifyAgentFunctionName,
     nodeBundler: "esbuild",
   }
+  if (options.includedFiles?.length) config.includedFiles = options.includedFiles
+  return config
 }
 
 async function writeNetlifyAgentProviderOutput(

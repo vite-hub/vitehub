@@ -230,10 +230,12 @@ function usageNode(value: unknown, includeCalls = true, inheritedModel?: string)
 }
 
 function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsageProjection {
+  const annotations = object(record.annotations)
+  const configuredModel = stringValue(annotations?.["agent.model.id"])?.trim()
   for (let index = record.observations.length - 1; index >= 0; index--) {
     const observation = record.observations[index]!
     if (observation.name !== "agent.invocation.finish") continue
-    const usage = usageNode(observation.attributes?.["usage.record"])
+    const usage = usageNode(observation.attributes?.["usage.record"], true, configuredModel)
     if (observation.attributes?.["vitehub.observation.truncated"] === true) {
       return { incomplete: true }
     }

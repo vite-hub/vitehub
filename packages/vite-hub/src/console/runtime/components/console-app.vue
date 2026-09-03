@@ -36,9 +36,12 @@ import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
 import {
+  isCapabilityFilterRouteTransition,
   refreshCapabilityFilteredInvocations,
+  resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "./console-session-bootstrap";
+import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -91,6 +94,7 @@ let capabilitiesRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
+let pendingCapabilityFilterRouteTransition: CapabilityFilterRouteTransition | undefined;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -164,7 +168,10 @@ watch(
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
-    context: agentInvocationContext(invocation),
+    context:
+      [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ") || undefined,
     description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
@@ -224,6 +231,8 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   return view;
 });
 const selectedDisplay = computed(() => invocationView.value ?? selectedSummary.value);
+const selectedCost = computed(() => invocationCostDisplay(selectedDisplay.value));
+const selectedTokens = computed(() => invocationTokenDisplay(selectedDisplay.value));
 const selectedTitle = computed(() =>
   selectedDisplay.value
     ? agentInvocationTitle(selectedDisplay.value)
@@ -357,6 +366,27 @@ function numericValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function invocationUsage(value: unknown): Record<string, unknown> | undefined {
+  return record(record(value)?.usage);
+}
+
+function invocationCostDisplay(value: unknown): string | undefined {
+  const cost = record(invocationUsage(value)?.cost);
+  return stringValue(cost?.display);
+}
+
+function invocationTokenDisplay(value: unknown): string | undefined {
+  const total = numericValue(invocationUsage(value)?.totalTokens);
+  return total === undefined ? undefined : formatTokens(total);
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: 1,
+    notation: value >= 10_000 ? "compact" : "standard",
+  }).format(value);
+}
+
 function invocationConfiguration(value: unknown): AgentInvocationConfiguration | undefined {
   const configuration = record(value);
   if (!configuration) return;
@@ -415,16 +445,27 @@ async function selectCapability(capabilityId?: string): Promise<void> {
   filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
-  await refreshCapabilityFilteredInvocations({
-    navigate: () =>
-      selectedAgentName.value
-        ? router.replace({
-            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-          })
-        : Promise.resolve(),
-    refresh: () => list.refresh(),
-  });
+  const transition = {
+    agent: selectedAgentName.value,
+    invocation: undefined,
+  } satisfies CapabilityFilterRouteTransition;
+  pendingCapabilityFilterRouteTransition = transition;
+  try {
+    await refreshCapabilityFilteredInvocations({
+      navigate: () =>
+        selectedAgentName.value
+          ? router.replace({
+              name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+              params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+            })
+          : Promise.resolve(),
+      refresh: () => list.refresh(),
+    });
+  } finally {
+    if (pendingCapabilityFilterRouteTransition === transition) {
+      pendingCapabilityFilterRouteTransition = undefined;
+    }
+  }
 }
 
 async function toggleUsage(): Promise<void> {
@@ -579,23 +620,35 @@ watch(
     }
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
+    const preserveCapabilityFilter = routeChanged && isCapabilityFilterRouteTransition(
+      pendingCapabilityFilterRouteTransition,
+      { agent: requestedAgent, invocation: requestedInvocation },
+    );
+    if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
+    const filterReset = resetCapabilityFilterForRouteTransition({
+      preserve: preserveCapabilityFilter,
+      routeChanged,
+      scheduleRefresh: scheduleInvocationListRefresh,
+      selectedCapabilityId,
+    });
+    const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
       if (routeChanged) showSessions();
     }
     if (!requestedAgent && !agentName) {
-      if (!firstInvocation) return;
-      if (!firstInvocation.agentName) {
+      if (!availableFirstInvocation) return;
+      if (!availableFirstInvocation.agentName) {
         initialBootstrapPending.value = false;
         return;
       }
-      selectedInvocationId.value = firstInvocation.id;
+      selectedInvocationId.value = availableFirstInvocation.id;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
           params: {
-            agent: encodeAgentRouteParam(firstInvocation.agentName),
-            invocation: firstInvocation.id,
+            agent: encodeAgentRouteParam(availableFirstInvocation.agentName),
+            invocation: availableFirstInvocation.id,
           },
         });
       } finally {
@@ -605,11 +658,11 @@ watch(
     }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
-    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? availableFirstInvocation?.id : undefined);
+    if (!requestedInvocation && availableFirstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
-        params: { agent: encodeAgentRouteParam(agentName), invocation: firstInvocation.id },
+        params: { agent: encodeAgentRouteParam(agentName), invocation: availableFirstInvocation.id },
       });
     }
   },
@@ -1109,6 +1162,7 @@ onBeforeUnmount(() => {
             <template #thread>
               <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
                 <ConsoleSessionNavbar
+                  :cost="selectedCost"
                   :details-open="detailsOpen"
                   :external-url="selectedExternalUrl"
                   :has-display="Boolean(selectedDisplay)"
@@ -1116,6 +1170,7 @@ onBeforeUnmount(() => {
                   :loading="refreshing"
                   :project="selectedProject"
                   :title="selectedTitle"
+                  :tokens="selectedTokens"
                   @open-sessions="sessionsOpen = true"
                   @refresh="refresh"
                   @toggle-details="detailsOpen = !detailsOpen"
@@ -1197,6 +1252,7 @@ onBeforeUnmount(() => {
           </USplitter>
           <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
             <ConsoleSessionNavbar
+              :cost="selectedCost"
               :details-open="detailsOpen"
               :external-url="selectedExternalUrl"
               :has-display="Boolean(selectedDisplay)"
@@ -1204,6 +1260,7 @@ onBeforeUnmount(() => {
               :loading="refreshing"
               :project="selectedProject"
               :title="selectedTitle"
+              :tokens="selectedTokens"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
               @toggle-details="detailsOpen = !detailsOpen"

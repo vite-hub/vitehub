@@ -661,6 +661,11 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/workspace",
     })
 
+    vitehub({ agent: true, console: true, preset: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
+    }))
+
     vitehub({
       agent: { imports: false },
       database: { cli: { generate: false } },

@@ -21,6 +21,15 @@ import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/dat
 import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
 import type { RuntimeHostContext } from "@vite-hub/runtime"
 
+declare const __VITEHUB_APP_BASE_URL__: string
+
+function consoleBaseURL(): string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The injected host base is optional in standalone package consumers, so the runtime boundary must detect its presence.
+  const configured = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
+  const segments = configured.split("/").filter(Boolean)
+  return segments.length ? `/${segments.join("/")}` : ""
+}
+
 export interface ConsoleInvocationLink {
   agentName: string
   id: string
@@ -44,7 +53,7 @@ export const console = {
         }
         const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
         const id = encodeURIComponent(invocation.id)
-        return new URL(`/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
+        return new URL(`${consoleBaseURL()}/_vitehub/agents/${agent}/invocations/${id}`, request.url).href
       },
     }
   },

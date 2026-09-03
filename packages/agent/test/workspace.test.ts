@@ -26,7 +26,19 @@ const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const tempRoots: string[] = []
-const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
+function writableWorkspaceFixture(value: object): WritableWorkspaceFacade {
+  // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
+  return value as WritableWorkspaceFacade
+}
+
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
+function readonlyWorkspaceTestFixture(value: object): ReadonlyWorkspaceFacade {
+  // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
+  return value as ReadonlyWorkspaceFacade
+}
+
+const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => writableWorkspaceFixture({
   diff,
   fs: { exists, list, readFile, stat, writeFile },
   history: { rebase },
@@ -36,7 +48,7 @@ const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => 
     none: vi.fn(() => ({})),
     readonly: inspectTools,
   }),
-} as unknown as WritableWorkspaceFacade))
+}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const jsonSchema = vi.hoisted(() => vi.fn(schema => ({ schema, type: "json-schema" })))
@@ -97,10 +109,10 @@ function withExplicitWorkspaceName<
   TAgent extends { name?: string, __vitehubWorkspaceAgentOptions: Record<string, unknown> },
 >(agent: TAgent, options: { workspace?: string }): TAgent {
   if (!options.workspace || agent.name) return agent
-  return defineNamedWorkspaceTestAgent({
+  return Object.assign(agent, defineNamedWorkspaceTestAgent({
     ...agent.__vitehubWorkspaceAgentOptions,
     name: options.workspace,
-  } as never) as unknown as TAgent
+  } as never))
 }
 
 function context(runtimeConfig: Record<string, unknown> = {}) {
@@ -114,14 +126,14 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
 }
 
 function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
-  return {
+  return readonlyWorkspaceTestFixture({
     fs: { exists, list, readFile, stat },
     tools: Object.assign(vi.fn(() => ({})), {
       inspect: inspectTools,
       none: vi.fn(() => ({})),
       readonly: inspectTools,
     }),
-  } as unknown as ReadonlyWorkspaceFacade
+  })
 }
 
 describe("defineAgent workspace option", () => {
@@ -303,7 +315,7 @@ describe("defineAgent workspace option", () => {
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
-    useWorkspace.mockReturnValueOnce({
+    useWorkspace.mockReturnValueOnce(writableWorkspaceFixture({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
@@ -313,7 +325,7 @@ describe("defineAgent workspace option", () => {
         none: vi.fn(() => ({})),
         readonly: inspectTools,
       }),
-    } as unknown as WritableWorkspaceFacade)
+    }))
     exists.mockResolvedValue(true)
 
     const agent = defineAgent({
@@ -605,7 +617,7 @@ describe("defineAgent workspace option", () => {
     writeTools.mockReturnValueOnce({
       workspace_write: { name: "workspace_write" },
     })
-    useWorkspace.mockReturnValueOnce({
+    useWorkspace.mockReturnValueOnce(writableWorkspaceFixture({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
@@ -615,7 +627,7 @@ describe("defineAgent workspace option", () => {
         readonly: inspectTools,
         write: writeTools,
       }),
-    } as unknown as WritableWorkspaceFacade)
+    }))
     agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, unknown> } }) {
       return { finishReason: "stop", text: Object.keys(this.settings.tools).sort().join(",") }
     })
@@ -1945,9 +1957,10 @@ describe("defineAgent workspace option", () => {
       })()
 
       toUIMessageStream() {
-        const lockedBranch = (this.fullStream as unknown as ReadableStream<unknown>).getReader()
+        if (!(this.fullStream instanceof ReadableStream)) throw new Error("Expected streamAgent to preserve a readable stream")
+        const lockedBranch = this.fullStream.getReader()
         void lockedBranch
-        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream({
+        return this.fullStream.pipeThrough(new TransformStream({
           transform(part: unknown, controller) {
             if (typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text-delta" && typeof (part as { id?: unknown }).id !== "string") {
               throw new Error("AI SDK text deltas require an id")
@@ -2658,7 +2671,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { run: () => "ok" },
-      uiMessageStream: context => (context as unknown as { runtimeConfig: unknown }).runtimeConfig === runtimeConfig
+      uiMessageStream: context => Reflect.get(context, "runtimeConfig") === runtimeConfig
         ? { reasoning: "hidden", tools: "hidden" }
         : { reasoning: "visible", tools: "full" },
     })

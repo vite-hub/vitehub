@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
 import {
+  isCapabilityFilterRouteTransition,
   refreshCapabilityFilteredInvocations,
+  resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "../src/console/runtime/components/console-session-bootstrap";
 import { computed, effectScope, nextTick, ref, watch } from "vue";
@@ -88,6 +90,49 @@ it("selects an Invocation returned by the active Capability filter", async () =>
   expect(selectedInvocationId.value).toBe("invocation-b");
   expect(routeInvocation.value).toBeUndefined();
   scope.stop();
+});
+
+it("clears Capability filters for external Agent and Invocation route transitions", () => {
+  const selectedCapabilityId = ref<string | undefined>("papercuts");
+  let refreshes = 0;
+
+  expect(resetCapabilityFilterForRouteTransition({
+    preserve: false,
+    routeChanged: true,
+    scheduleRefresh: () => refreshes++,
+    selectedCapabilityId,
+  })).toBe(true);
+  expect(selectedCapabilityId.value).toBeUndefined();
+  expect(refreshes).toBe(1);
+});
+
+it("preserves Capability filters during their own route transition", () => {
+  const selectedCapabilityId = ref<string | undefined>("papercuts");
+
+  expect(resetCapabilityFilterForRouteTransition({
+    preserve: true,
+    routeChanged: true,
+    scheduleRefresh: () => undefined,
+    selectedCapabilityId,
+  })).toBe(false);
+  expect(selectedCapabilityId.value).toBe("papercuts");
+});
+
+it("does not preserve Capability filters for unrelated navigation during refresh", () => {
+  const expected = { agent: "alpha", invocation: undefined };
+
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "alpha",
+    invocation: undefined,
+  })).toBe(true);
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "alpha",
+    invocation: "invocation-b",
+  })).toBe(false);
+  expect(isCapabilityFilterRouteTransition(expected, {
+    agent: "beta",
+    invocation: undefined,
+  })).toBe(false);
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(

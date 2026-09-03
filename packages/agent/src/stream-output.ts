@@ -375,34 +375,41 @@ function projectUiMessageStream(
 ): ReadableStream<unknown> {
   if (!projection) return stream
   const pendingTextStarts = new Map<string, unknown>()
-  const reasoningTextIds = new Set<string>()
+  const hiddenTextIds = new Set<string>()
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
     flush(controller) {
       for (const start of pendingTextStarts.values()) controller.enqueue(start)
     },
     transform(chunk, controller) {
       const type = streamEventType(chunk)
-      if (projection.reasoning === "hidden") {
-        if (type?.startsWith("reasoning-")) return
+      if (projection.reasoning === "hidden" || projection.commentary === "hidden") {
+        if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
         const text = isRuntimeRecord(chunk) ? chunk : {}
         const id = hasRuntimeType(text.id, "string") ? text.id : undefined
         if (type === "text-start" && id) {
-          reasoningTextIds.delete(id)
+          hiddenTextIds.delete(id)
           pendingTextStarts.delete(id)
-          if (text.phase === "reasoning") {
-            reasoningTextIds.add(id)
+          if (isHiddenTextPhase(projection, text.phase)) {
+            hiddenTextIds.add(id)
             return
           }
           pendingTextStarts.set(id, chunk)
           return
         }
-        if (text.phase === "reasoning" && id) {
-          pendingTextStarts.delete(id)
-          reasoningTextIds.add(id)
+        if (text.phase !== undefined && id) {
+          if (isHiddenTextPhase(projection, text.phase)) {
+            hiddenTextIds.add(id)
+          }
+          else {
+            hiddenTextIds.delete(id)
+          }
         }
-        const reasoning = text.phase === "reasoning" || Boolean(id && reasoningTextIds.has(id))
-        if (type === "text-end" && id) reasoningTextIds.delete(id)
-        if (reasoning) return
+        const hidden = isHiddenTextPhase(projection, text.phase) || Boolean(id && hiddenTextIds.has(id))
+        if (type === "text-end" && id) hiddenTextIds.delete(id)
+        if (hidden) {
+          if (type === "text-end" && id) pendingTextStarts.delete(id)
+          return
+        }
         if (id && pendingTextStarts.has(id)) {
           controller.enqueue(pendingTextStarts.get(id))
           pendingTextStarts.delete(id)
@@ -412,6 +419,11 @@ function projectUiMessageStream(
       controller.enqueue(chunk)
     },
   }))
+}
+
+function isHiddenTextPhase(projection: AgentUIMessageStreamProjection, phase: unknown): boolean {
+  return (projection.reasoning === "hidden" && phase === "reasoning")
+    || (projection.commentary === "hidden" && phase === "commentary")
 }
 
 function uiDataType(data: unknown): `data-${string}` {
@@ -433,7 +445,7 @@ async function writeEventsToUiMessageStream(
   const messageId = crypto.randomUUID()
   let textStarted = false
   let finished = false
-  const reasoningTextIds = new Set<string>()
+  const hiddenTextIds = new Set<string>()
   writer.write({ type: "start", messageId })
   for await (const event of events) {
     const usageRecord = usageRecordFromStreamChunk(event, events)
@@ -441,17 +453,20 @@ async function writeEventsToUiMessageStream(
     const type = streamEventType(event)
     if (!type || !isRuntimeRecord(event)) continue
     if (type === "usage" && usageRecord) continue
-    if (options.projection?.reasoning === "hidden") {
+    if (options.projection?.reasoning === "hidden" || options.projection?.commentary === "hidden") {
       const id = hasRuntimeType(event.id, "string") ? event.id : undefined
       if (type === "text-start" && id) {
-        reasoningTextIds.delete(id)
+        hiddenTextIds.delete(id)
       }
-      if (event.phase === "reasoning" && id) reasoningTextIds.add(id)
-      const reasoning = type.startsWith("reasoning-")
-        || event.phase === "reasoning"
-        || Boolean(id && reasoningTextIds.has(id))
-      if (type === "text-end" && id) reasoningTextIds.delete(id)
-      if (reasoning) continue
+      if (event.phase !== undefined && id) {
+        if (isHiddenTextPhase(options.projection, event.phase)) hiddenTextIds.add(id)
+        else hiddenTextIds.delete(id)
+      }
+      const hidden = (options.projection.reasoning === "hidden" && type.startsWith("reasoning-"))
+        || isHiddenTextPhase(options.projection, event.phase)
+        || Boolean(id && hiddenTextIds.has(id))
+      if (type === "text-end" && id) hiddenTextIds.delete(id)
+      if (hidden) continue
     }
     if (type === "text-delta") {
       const text = event.text ?? event.delta
