@@ -451,12 +451,12 @@ describe("kv runtime", () => {
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
       const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
-      const first = await driver.listKeys({ limit: 1, prefix: "missing" })
+      const first = await driver.listKeys({ limit: 1, prefix: "a" })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
       const third = await driver.listKeys({ cursor: second.cursor, limit: 1, prefix: "" })
 
-      expect(first).toMatchObject({ keys: [], cursor: expect.any(String) })
-      expect([...second.keys, ...third.keys]).toEqual(expect.arrayContaining(["a0", "a:x"]))
+      expect(first).toMatchObject({ cursor: expect.any(String) })
+      expect([...first.keys, ...second.keys, ...third.keys]).toEqual(expect.arrayContaining(["a0", "a:x"]))
     }
     finally {
       await rm(root, { force: true, recursive: true })

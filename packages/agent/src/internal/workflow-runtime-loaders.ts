@@ -65,10 +65,9 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 }
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
-  if (workflowCapabilityLoaders.console) return await workflowCapabilityLoaders.console()
-  const packageName: string = "vite-hub/console/server"
-  // SAFETY: The full distribution's Console server export is the primitive registered by generated Workflow hosts.
-  return ((await import(/* @vite-ignore */ packageName)) as { console: unknown }).console
+  const load = workflowCapabilityLoaders.console
+  if (!load) throw new Error("[vitehub] The Console Workflow capability requires a generated runtime loader.")
+  return await load()
 }
 
 export async function loadAgentWorkflowDatabasePrimitive(): Promise<unknown> {

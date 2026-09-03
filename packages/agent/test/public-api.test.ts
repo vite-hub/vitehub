@@ -108,6 +108,16 @@ it("statically imports the provider runtime in the published Agent build", async
   expect(javascript).not.toMatch(/\bimport\s*\(\s*["']@t3tools\/provider-runtime["']/)
 })
 
+it("keeps the generated Console runtime out of the base Agent bundle", async () => {
+  const javascript = (await Promise.all(
+    ["index.js", "server.js", "runtime/workflow.js"].map(entry =>
+      readBundleGraph(new URL(`../dist/${entry}`, import.meta.url)),
+    ),
+  )).join("\n")
+
+  expect(javascript).not.toContain("vite-hub/console/server")
+})
+
 it.each([
   'import { Effect } from "effect"',
   'export type { Effect } from "effect/Effect"',

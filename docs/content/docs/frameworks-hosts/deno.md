@@ -33,6 +33,8 @@ export default defineConfig({
     vitehub({
       preset: 'deno',
       agent: true,
+      console: false,
+      workflow: false,
       kv: {
         driver: 'deno-kv',
       },

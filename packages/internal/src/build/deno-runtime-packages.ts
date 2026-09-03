@@ -127,10 +127,30 @@ const staticFromPattern = new RegExp(
   "gmu",
 )
 
-function collectImportedPackageNames(source: string): Set<string> {
-  const names = new Set<string>()
+interface ImportSourceAnalysis {
+  createRequireAliases: Set<string>
+  executableSource: string
+}
+
+function analyzeImportSource(source: string): ImportSourceAnalysis {
   const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
-  const executableSource = maskInertImportText(source, createRequireAliases)
+  return {
+    createRequireAliases,
+    executableSource: maskInertImportText(source, createRequireAliases),
+  }
+}
+
+function cachedImportSourceAnalysis(source: string, cache?: Map<string, ImportSourceAnalysis>): ImportSourceAnalysis {
+  const existing = cache?.get(source)
+  if (existing) return existing
+  const analysis = analyzeImportSource(source)
+  cache?.set(source, analysis)
+  return analysis
+}
+
+function collectImportedPackageNamesFromAnalysis(analysis: ImportSourceAnalysis): Set<string> {
+  const names = new Set<string>()
+  const { createRequireAliases, executableSource } = analysis
   const patterns = [
     /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
     staticFromPattern,
@@ -164,9 +184,13 @@ function collectImportedPackageNames(source: string): Set<string> {
   return names
 }
 
-function collectStaticPackageNames(source: string): Set<string> {
+function collectImportedPackageNames(source: string, analysis = analyzeImportSource(source)): Set<string> {
+  return collectImportedPackageNamesFromAnalysis(analysis)
+}
+
+function collectStaticPackageNames(analysis: ImportSourceAnalysis): Set<string> {
   const names = new Set<string>()
-  const executableSource = maskInertImportText(source)
+  const { executableSource } = analysis
   for (const pattern of [
     /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
     staticFromPattern,
@@ -179,8 +203,8 @@ function collectStaticPackageNames(source: string): Set<string> {
   return names
 }
 
-function collectOptionalDynamicPackageNames(source: string): Set<string> {
-  const executableSource = maskInertImportText(source)
+function collectOptionalDynamicPackageNames(analysis: ImportSourceAnalysis): Set<string> {
+  const { createRequireAliases, executableSource } = analysis
   const dynamicImports = findLiteralDynamicImports(executableSource)
   const dynamicNames = new Set(dynamicImports
     .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start, dynamicImport.literalEnd))
@@ -194,7 +218,7 @@ function collectOptionalDynamicPackageNames(source: string): Set<string> {
       + " ".repeat(dynamicImport.literalEnd - dynamicImport.start)
       + withoutDynamicImports.slice(dynamicImport.literalEnd)
   }
-  for (const name of collectImportedPackageNames(withoutDynamicImports)) dynamicNames.delete(name)
+  for (const name of collectImportedPackageNamesFromAnalysis({ createRequireAliases, executableSource: withoutDynamicImports })) dynamicNames.delete(name)
   return dynamicNames
 }
 
@@ -260,21 +284,21 @@ function tryBlockHasCatch(source: string, opening: number): boolean {
   return closing !== undefined && /^\s*catch\b/.test(source.slice(closing + 1))
 }
 
-function collectOptionalRequirePackageNames(source: string): Set<string> {
-  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
-  const executableSource = maskInertImportText(source, createRequireAliases)
+function collectOptionalRequirePackageNames(analysis: ImportSourceAnalysis): Set<string> {
+  const { createRequireAliases, executableSource } = analysis
   const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
   const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
   const optionalNames = new Set<string>()
   const requiredNames = new Set<string>()
+  const openings: number[] = []
+  let braceCursor = 0
   for (const match of executableSource.matchAll(requirePattern)) {
     if (!isStandaloneCall(executableSource, match.index)) continue
     const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
     if (!name) continue
-    const openings: number[] = []
-    for (let index = 0; index < match.index!; index++) {
-      if (executableSource[index] === "{") openings.push(index)
-      else if (executableSource[index] === "}") openings.pop()
+    for (; braceCursor < match.index!; braceCursor++) {
+      if (executableSource[braceCursor] === "{") openings.push(braceCursor)
+      else if (executableSource[braceCursor] === "}") openings.pop()
     }
     const guarded = isGuardedConciseArrow(executableSource, match.index!, match.index! + match[0].length) || openings.some((opening) => {
       const prefix = executableSource.slice(0, opening).trimEnd()
@@ -415,6 +439,9 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
   let output = ""
   let recentOutput = ""
   let index = 0
+  const packageCallPattern = packageCallNames.size
+    ? new RegExp(`(?:^|[^\\w$.#])(?:${[...packageCallNames].map(escapeRegExp).join("|")})(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`)
+    : undefined
 
   function appendOutput(value: string): void {
     output += value
@@ -528,9 +555,7 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
       }
       if (character === "`") {
         const prefix = recentOutput.slice(-160)
-        const keepPackageCall = [...packageCallNames].some((name) =>
-          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
-        )
+        const keepPackageCall = packageCallPattern?.test(prefix) === true
         if (keepPackageCall || /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*$/.test(prefix)) {
           let end = index + 1
           while (end < source.length) {
@@ -550,9 +575,7 @@ function maskInertImportText(source: string, packageCallNames = new Set<string>(
       }
       if (character === '"' || character === "'") {
         const prefix = recentOutput.slice(-120)
-        const keepPackageCall = [...packageCallNames].some((name) =>
-          new RegExp(`(?:^|[^\\w$.#])${escapeRegExp(name)}(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`).test(prefix),
-        )
+        const keepPackageCall = packageCallPattern?.test(prefix) === true
         const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
         let end = index + 1
         while (end < source.length) {
@@ -696,9 +719,10 @@ function recordRuntimePackageResolution(packageJsonPaths: Map<string, string>, n
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {
+  const analysis = analyzeImportSource(source)
   return [...new Set([
     ...collectBundledPackageNames(source),
-    ...collectImportedPackageNames(source),
+    ...collectImportedPackageNames(source, analysis),
   ])].sort()
 }
 
@@ -985,6 +1009,7 @@ async function recordServerRuntimePackageResolutions(
   serverDir: string,
   rootDir: string,
   resolvedPackageJsonPaths: Map<string, string>,
+  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
 ): Promise<void> {
   const files = await runtimeSourceFiles(serverDir)
   const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
@@ -1024,8 +1049,9 @@ async function recordServerRuntimePackageResolutions(
   }
   for (const [index, file] of files.entries()) {
     const source = sources[index]!
-    const externalPackageNames = collectImportedPackageNames(maskBundledPackageRegions(source))
-    for (const name of collectImportedPackageNames(source)) {
+    const externalSource = maskBundledPackageRegions(source)
+    const externalPackageNames = collectImportedPackageNames(externalSource, cachedImportSourceAnalysis(externalSource, sourceAnalyses))
+    for (const name of collectImportedPackageNames(source, cachedImportSourceAnalysis(source, sourceAnalyses))) {
       const bundledPaths = bundledPackageJsonPaths.get(name)
       const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
       const resolvedPackageJsonPath = localBundledPaths?.size && !externalPackageNames.has(name)
@@ -1051,6 +1077,7 @@ async function readRuntimePackages(
   runtimeDirs: string[],
   rootDir: string,
   resolvedPackageJsonPaths: Map<string, string>,
+  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
 ): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
   const bundledPackageJsonPaths = new Map<string, Set<string>>()
@@ -1116,13 +1143,14 @@ async function readRuntimePackages(
     }
   }
   for (const source of sources) {
-    const staticNames = collectStaticPackageNames(source)
+    const analysis = cachedImportSourceAnalysis(source, sourceAnalyses)
+    const staticNames = collectStaticPackageNames(analysis)
     const optionalNames = new Set([
-      ...collectOptionalDynamicPackageNames(source),
-      ...collectOptionalRequirePackageNames(source),
+      ...collectOptionalDynamicPackageNames(analysis),
+      ...collectOptionalRequirePackageNames(analysis),
     ])
     const requiredNames = new Set([
-      ...collectImportedPackageNames(source),
+      ...collectImportedPackageNames(source, analysis),
       ...staticNames,
     ])
     for (const name of requiredNames) {
@@ -1155,8 +1183,7 @@ async function readRuntimePackages(
 }
 
 export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
-  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
-  const executableSource = maskInertImportText(source, createRequireAliases)
+  const { createRequireAliases, executableSource } = analyzeImportSource(source)
   for (const match of executableSource.matchAll(/new URL\(\s*(["'`])(\.[^"'`]*)\1\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = cookImportSpecifier(match[2]!)
     if (allowedLocalImports.includes(specifier)) continue
@@ -1198,7 +1225,7 @@ function isUnconditionalTopLevelExpression(source: string, expressionStart: numb
 }
 
 function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
-  const executableSource = maskInertImportText(source)
+  const { executableSource } = analyzeImportSource(source)
   if (findLiteralDynamicImports(executableSource)
     .some(entry => entry.specifier === specifier && isUnconditionalTopLevelExpression(executableSource, entry.start, entry.literalEnd))) return true
   return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
@@ -1206,7 +1233,7 @@ function hasTopLevelRelocatableDynamicImport(source: string, specifier: string):
 }
 
 function hasRelocatableStaticImport(source: string, specifier: string): boolean {
-  const executableSource = maskInertImportText(source)
+  const { executableSource } = analyzeImportSource(source)
   const patterns = [
     /(?:^|;)\s*import\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*import[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
@@ -1447,7 +1474,8 @@ async function finalizeStagedDenoDeploymentOutput(
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
   const resolvedPackageJsonPaths = new Map<string, string>()
-  await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths)
+  const sourceAnalyses = new Map<string, ImportSourceAnalysis>()
+  await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
   try {
@@ -1490,6 +1518,7 @@ async function finalizeStagedDenoDeploymentOutput(
       await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
         external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
         alias: options.alias,
+        banner: "// @ts-nocheck -- generated JavaScript is emitted with a .ts entrypoint for Deno Deploy",
         conditions: options.conditions,
         extensions: options.extensions,
         format: "esm",
@@ -1534,7 +1563,8 @@ async function finalizeStagedDenoDeploymentOutput(
   const packages = await readRuntimePackages([
     runtimeServerDir,
     ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
-  ], options.rootDir, resolvedPackageJsonPaths)
+  ], options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
+  sourceAnalyses.clear()
   const nodeTypesPackageJson = await resolvePackageJson(
     "@types/node",
     createRequire(join(options.rootDir, "package.json")),
