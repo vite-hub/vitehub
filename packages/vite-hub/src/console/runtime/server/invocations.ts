@@ -21,7 +21,7 @@ import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
-import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core"
+import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 
 const consoleMetadataContent = [
   "channel.effect.content",
@@ -34,11 +34,31 @@ const consoleMetadataContent = [
   "vitehub.activity.progress",
 ] as const
 
-type ConsoleInvocationsTable = ReturnType<typeof sqliteTable> & Record<
-  "agentName" | "id" | "record" | "search" | "searchVersion" | "sequence" | "status" | "summary" | "updatedAt",
-  AnySQLiteColumn
->
+type ConsoleInvocationColumn<Data, NotNull extends boolean> = AnySQLiteColumn<{
+  data: Data
+  notNull: NotNull
+  tableName: "vitehub_agent_invocations"
+}>
 
+type ConsoleInvocationsTable = SQLiteTableWithColumns<{
+  columns: {
+    agentName: ConsoleInvocationColumn<string, true>
+    id: ConsoleInvocationColumn<string, true>
+    record: ConsoleInvocationColumn<Omit<AgentInvocationRecord, "cursor">, true>
+    search: ConsoleInvocationColumn<string, false>
+    searchVersion: ConsoleInvocationColumn<number, true>
+    sequence: ConsoleInvocationColumn<number, true>
+    status: ConsoleInvocationColumn<string, true>
+    summary: ConsoleInvocationColumn<AgentInvocationSummary, false>
+    updatedAt: ConsoleInvocationColumn<string, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_agent_invocations"
+  schema: undefined
+}>
+
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
+// SAFETY: The explicit table type mirrors every column constructed immediately below.
 const consoleInvocationsTable = sqliteTable("vitehub_agent_invocations", {
   sequence: integer().primaryKey({ autoIncrement: true }),
   id: text().notNull().unique(),
