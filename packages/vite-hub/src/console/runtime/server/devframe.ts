@@ -32,6 +32,7 @@ interface DevframeH3Handler extends EventHandler {
 function createDevframeH3Handler(definition: DevframeDefinition, options: DevframeH3HandlerOptions): DevframeH3Handler {
   const { responseHeaders, ...initOptions } = options
   let instance: DevframeInstance | undefined
+  // SAFETY: H3 returns an EventHandler; this adapter adds the close method assigned below.
   const handler = fromWebHandler(async (request) => {
     instance ??= initDevframe(definition, initOptions)
     const url = new URL(request.url)
