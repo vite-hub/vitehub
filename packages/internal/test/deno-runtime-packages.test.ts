@@ -308,6 +308,7 @@ import "real"
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     const applicationBundle = await readFile(join(root, ".output/main.ts"), "utf8")
+    expect(applicationBundle).toMatch(/^\/\/ @ts-nocheck/)
     expect(applicationBundle).toContain("application-helper")
     expect(applicationBundle).not.toContain("./instrumentation.ts")
     expect(applicationBundle).toContain("./schedule/deno-cron.mjs")
