@@ -1748,8 +1748,16 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   durable?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  final?: {
+    delivery: "new-message"
+  }
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
+  loading?: {
+    intervalMs?: number
+    text: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+    updates?: "commentary"
+  }
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
   meta?: StandardSchemaV1<unknown, Record<string, unknown>>
