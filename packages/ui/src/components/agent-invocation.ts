@@ -19,6 +19,7 @@ import {
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
+import { AgentToolList } from "./agent-tool-list.ts";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -1084,6 +1085,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
     inspectorRow("Workspace", workspace),
   ].filter((item) => item !== null);
   const execution = inspectorExecution(configuration);
+  const toolUsage = invocationToolUsage(invocation);
   const groups = [
     execution,
     !execution && setup.length
@@ -1136,7 +1138,13 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
         ])
       : null,
     configuration.tools?.length
-      ? inspectorTools(configuration.tools, invocationToolUsage(invocation))
+      ? h("div", { class: "vh-invocation-inspector__group" }, [
+          h("div", { class: "vh-invocation-inspector__group-heading" }, [
+            h("strong", "Tools"),
+            h("small", `${configuration.tools.filter(tool => (toolUsage.get(tool.name) ?? 0) > 0).length} of ${configuration.tools.length} used`),
+          ]),
+          h(AgentToolList, { callCounts: toolUsage, tools: configuration.tools }),
+        ])
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(

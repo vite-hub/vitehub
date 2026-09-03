@@ -2009,64 +2009,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   font-weight: 600;
 }
 
-.vh-invocation-tool-list {
-  border-block: 1px solid var(--vh-ui-border);
-  list-style: none;
-  margin: 0.55rem 0 0;
-  padding: 0;
-}
-
-.vh-invocation-tool-list > li {
-  min-width: 0;
-  padding: 0.55rem 0.15rem 0.6rem;
-}
-
-.vh-invocation-tool-list > li + li {
-  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 72%, transparent);
-}
-
-.vh-invocation-tool-list > li[data-used="false"] {
-  opacity: 0.66;
-}
-
-.vh-invocation-tool-list__heading {
-  align-items: baseline;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.vh-invocation-tool-list__heading code {
-  color: var(--vh-ui-text);
-  font-size: 0.6875rem;
-  font-weight: 580;
-  overflow-wrap: anywhere;
-}
-
 .vh-invocation-tool-list__count {
   color: var(--vh-ui-dimmed);
   font: 0.6875rem/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   min-width: 1.5rem;
   text-align: end;
-}
-
-.vh-invocation-tool-list > li[data-used="true"] .vh-invocation-tool-list__count {
-  background: color-mix(in oklab, var(--vh-ui-success) 11%, transparent);
-  border-radius: 999px;
-  color: color-mix(in oklab, var(--vh-ui-success) 60%, var(--vh-ui-text));
-  padding: 0.08rem 0.4rem;
-}
-
-.vh-invocation-tool-list p {
-  color: var(--vh-ui-dimmed);
-  display: -webkit-box;
-  font-size: 0.65625rem;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.45;
-  margin: 0.22rem 2.25rem 0 0;
-  overflow: hidden;
 }
 
 .vh-invocation-inspector__group-heading {
@@ -2219,6 +2167,115 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   display: grid;
   gap: 0.125rem;
   margin-block-start: 0.45rem;
+}
+
+.vh-agent-tool-list {
+  display: grid;
+  gap: 0.125rem;
+  margin-block-start: 0.45rem;
+}
+
+.vh-agent-tool-list > [data-used="false"] {
+  opacity: 0.66;
+}
+
+.vh-agent-tool-list > [data-used="true"] .vh-invocation-tool-list__count {
+  background: color-mix(in oklab, var(--vh-ui-success) 11%, transparent);
+  border-radius: 999px;
+  color: color-mix(in oklab, var(--vh-ui-success) 60%, var(--vh-ui-text));
+  padding: 0.08rem 0.4rem;
+}
+
+.vh-agent-tool-list__item,
+.vh-agent-tool-list__disclosure > summary {
+  align-items: center;
+  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  display: flex;
+  gap: 0.5rem;
+  min-height: 1.8rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.vh-agent-tool-list__item code,
+.vh-agent-tool-list__disclosure > summary code {
+  flex: none;
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+}
+
+.vh-agent-tool-list__disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.vh-agent-tool-list__disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-agent-tool-list__disclosure > summary:hover {
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 70%, transparent);
+}
+
+.vh-agent-tool-list__disclosure > summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.vh-agent-tool-list__disclosure > summary small {
+  color: var(--vh-ui-dimmed);
+  flex: 1;
+  font-size: 0.625rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-agent-tool-list__chevron {
+  height: 0.8rem;
+  stroke: currentColor;
+  stroke-width: 2;
+  transition: transform 150ms ease;
+  width: 0.8rem;
+}
+
+.vh-agent-tool-list__disclosure[open] > summary .vh-agent-tool-list__chevron {
+  transform: rotate(180deg);
+}
+
+.vh-agent-tool-list__body {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.35rem 0.45rem 0.75rem;
+}
+
+.vh-agent-tool-list__body > p {
+  color: var(--vh-ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.vh-agent-tool-list__schema strong {
+  color: var(--vh-ui-dimmed);
+  display: block;
+  font-size: 0.625rem;
+  margin-block-end: 0.35rem;
+  text-transform: uppercase;
+}
+
+.vh-agent-tool-list__schema pre {
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
+  border: 1px solid var(--vh-ui-border);
+  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  color: var(--vh-ui-muted);
+  font-size: 0.625rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.6rem 0.65rem;
+  white-space: pre;
 }
 
 .vh-invocation-inspector__item,

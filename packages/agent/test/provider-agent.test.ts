@@ -2205,7 +2205,16 @@ cli_auth_credentials_store = "keyring"
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     const traceLog = createTraceEventLog({ content: "content" })
-    const runContext = context(threadId)
+    const runContext = context(threadId, {
+      tools: {
+        search: {
+          description: "Search indexed records.",
+          execute: () => [],
+          inputSchema: { properties: { query: { type: "string" } }, required: ["query"], type: "object" },
+          name: "search",
+        },
+      },
+    })
     await setAgentTelemetryConfiguration(runContext.context, { driver: { kind: "provider" }, runtime: { name: "vite" } })
     const initialFingerprint = getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint
     const adapter = createProviderAgentAdapter({ instructions: "System instructions", provider: "codex" })
@@ -2237,6 +2246,11 @@ cli_auth_credentials_store = "keyring"
       driver: { kind: "provider", provider: "codex" },
       fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
       instructions: ["System instructions"],
+      tools: [{
+        description: "Search indexed records.",
+        inputSchema: { properties: { query: { type: "string" } }, required: ["query"], type: "object" },
+        name: "search",
+      }],
     })
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })

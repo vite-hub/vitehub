@@ -23,6 +23,31 @@ describe("writeDocsArtifacts", () => {
     expect(toRawMarkdown("    first\n    second\n")).toBe("    first\n    second\n");
   });
 
+  it("expands generated Capability tool contracts for raw Markdown", () => {
+    const raw = toRawMarkdown([
+      "---",
+      "title: Database",
+      "---",
+      "::agent-capability-tools{name=\"db\" variant=\"read\"}",
+      "::",
+    ].join("\n"), {
+      capabilityReferences: {
+        "db.read": {
+          tools: [{
+            description: "Run one read-only query.",
+            inputSchema: { properties: { statement: { type: "string" } }, type: "object" },
+            name: "db_query",
+          }],
+        },
+      },
+    });
+
+    expect(raw).toContain("#### `db_query`");
+    expect(raw).toContain("Run one read-only query.");
+    expect(raw).toContain('"statement"');
+    expect(raw).not.toContain("agent-capability-tools");
+  });
+
   it("parses YAML block scalar titles", () => {
     expect(toRawMarkdown("---\ntitle: >\n  Source-backed raw Markdown\n---\nBody")).toBe(
       "# Source-backed raw Markdown\n\nBody\n",

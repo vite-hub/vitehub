@@ -101,6 +101,7 @@ import {
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
+import { inspectAgentTools } from "./tool-inspection.ts"
 import {
   createAgentStreamEventTracer,
   agentInvocationJournalContentTraceLogSymbol,
@@ -453,6 +454,7 @@ export type {
   AgentTelemetryLogsExportContext,
   AgentTelemetryRegistration,
   AgentTelemetryTracesExportContext,
+  AgentToolInspection,
   AgentTriggerContext,
   AgentTriggerDefinition,
   AgentTriggerInvokeResult,
@@ -1525,6 +1527,7 @@ async function applyChannelDeliveryEffectIntents<
 }
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
+export { inspectAgentTools } from "./tool-inspection.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
@@ -2771,13 +2774,7 @@ function agentTelemetryConfigurationForContent(
         }
       : capability),
     ...(policy.instructions === true && instructions ? { instructions } : {}),
-    ...(tools
-      ? {
-          tools: tools.map(tool => policy.instructions === true
-            ? tool
-            : { name: tool.name }),
-        }
-      : {}),
+    ...(tools ? { tools: policy.instructions === true ? tools : tools.map(({ name }) => ({ name })) } : {}),
   }
 }
 
@@ -3538,6 +3535,7 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
     const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
+    const inspectedTools = inspectAgentTools(tools)
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
@@ -3561,7 +3559,7 @@ async function createAgentInvocationContext<
       runtime: {
         name: runtimeContext.runtime,
       },
-      ...(tools ? { tools: Object.keys(tools).sort().map(name => ({ name })) } : {}),
+      ...(inspectedTools ? { tools: inspectedTools } : {}),
       ...(activeWorkspaceDefinition
         ? {
             workspace: {
