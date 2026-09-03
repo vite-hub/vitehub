@@ -21,6 +21,7 @@ import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core"
 
 const consoleMetadataContent = [
   "channel.effect.content",
@@ -33,6 +34,11 @@ const consoleMetadataContent = [
   "vitehub.activity.progress",
 ] as const
 
+type ConsoleInvocationsTable = ReturnType<typeof sqliteTable> & Record<
+  "agentName" | "id" | "record" | "search" | "searchVersion" | "sequence" | "status" | "summary" | "updatedAt",
+  AnySQLiteColumn
+>
+
 const consoleInvocationsTable = sqliteTable("vitehub_agent_invocations", {
   sequence: integer().primaryKey({ autoIncrement: true }),
   id: text().notNull().unique(),
@@ -43,7 +49,7 @@ const consoleInvocationsTable = sqliteTable("vitehub_agent_invocations", {
   summary: text({ mode: "json" }).$type<AgentInvocationSummary>(),
   updatedAt: text("updated_at").notNull().default(""),
   record: text({ mode: "json" }).$type<Omit<AgentInvocationRecord, "cursor">>().notNull(),
-})
+}) as unknown as ConsoleInvocationsTable
 
 const consoleInvocationSchema: { invocations: typeof consoleInvocationsTable } = {
   invocations: consoleInvocationsTable,
