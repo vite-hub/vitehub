@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const cache = new Map<string, unknown>()
+let cacheModuleLoads = 0
 const defineCachedFunction = vi.fn(
   (reader: (...args: unknown[]) => unknown, options: { name?: string }) => async (...args: unknown[]) => {
     const key = `${options.name}:${JSON.stringify(args)}`
@@ -11,7 +12,10 @@ const defineCachedFunction = vi.fn(
   },
 )
 
-vi.mock("nitro/cache", () => ({ defineCachedFunction }))
+vi.mock("nitro/cache", () => {
+  cacheModuleLoads += 1
+  return { defineCachedFunction }
+})
 
 const { defineSource } = await import("../src/source/server.ts")
 
@@ -19,6 +23,28 @@ describe("server Source readers", () => {
   beforeEach(() => {
     cache.clear()
     defineCachedFunction.mockClear()
+  })
+
+  it("loads Nitro cache only when a cached reader is used", async () => {
+    expect(cacheModuleLoads).toBe(0)
+
+    defineSource({
+      async get(key: string) {
+        return key
+      },
+    })
+    expect(cacheModuleLoads).toBe(0)
+
+    const source = defineSource({
+      cache: { name: "lazy" },
+      async get(key: string) {
+        return key
+      },
+    })
+    expect(cacheModuleLoads).toBe(0)
+
+    await expect(source.get("news")).resolves.toBe("news")
+    expect(cacheModuleLoads).toBe(1)
   })
 
   it("wraps keyed readers with the configured Nitro cache", async () => {

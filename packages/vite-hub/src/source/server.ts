@@ -1,5 +1,4 @@
 import { defineSource as defineCoreSource } from "@vite-hub/source"
-import { defineCachedFunction } from "nitro/cache"
 
 import type { Source, SourceContext } from "@vite-hub/source"
 import type { CacheOptions } from "nitro/types"
@@ -29,6 +28,21 @@ function isCachedSourceReader(source: unknown): source is CachedSourceReader<str
     && Boolean(Reflect.get(Object(source), "cache"))
 }
 
+function defineCachedSourceGet(source: CachedSourceReader<string, unknown>) {
+  let cachedGet: Promise<(key: string) => Promise<unknown>> | undefined
+
+  return async (key: string) => {
+    cachedGet ??= import("nitro/cache").then(({ defineCachedFunction }) => defineCachedFunction(
+      value => source.get.call(source, value),
+      {
+        swr: false,
+        ...source.cache,
+      },
+    ))
+    return await (await cachedGet)(key)
+  }
+}
+
 export function defineSource<
   const TKey extends string,
   TValue,
@@ -47,9 +61,6 @@ export function defineSource(source: unknown): unknown {
   }
   return {
     ...source,
-    get: defineCachedFunction((...args) => source.get.apply(source, args), {
-      swr: false,
-      ...source.cache,
-    }),
+    get: defineCachedSourceGet(source),
   }
 }
