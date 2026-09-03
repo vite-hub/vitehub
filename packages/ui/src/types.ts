@@ -64,7 +64,7 @@ export interface AgentInvocationConfiguration {
   runtime?: {
     name?: string;
   };
-  tools?: readonly { name: string }[];
+  tools?: readonly { description?: string; name: string }[];
   workspace?: {
     mode?: string;
     name?: string;

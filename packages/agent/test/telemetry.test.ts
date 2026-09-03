@@ -627,6 +627,16 @@ describe("Agent telemetry", () => {
         defineCapability({ id: "input-traces", telemetry: { content: { inputs: true }, exporter: inputs } }),
         defineCapability({ id: "instruction-traces", telemetry: { content: { instructions: true }, exporter: instructions } }),
         defineCapability({ id: "output-traces", telemetry: { content: { outputs: true }, exporter: outputs } }),
+        defineCapability({
+          id: "lookup",
+          tools: {
+            lookup: {
+              description: "Find matching records for a private account.",
+              execute: () => "unused",
+              name: "lookup",
+            },
+          },
+        }),
       ],
       driver: {
         instructions: "system instructions",
@@ -661,7 +671,14 @@ describe("Agent telemetry", () => {
       .attributes["vitehub.agent.configuration"]
     expect(configuration(inputs)).not.toHaveProperty("instructions")
     expect(configuration(outputs)).not.toHaveProperty("instructions")
-    expect(configuration(instructions)).toMatchObject({ instructions: ["system instructions"] })
+    expect(configuration(inputs)).toMatchObject({ tools: [{ name: "lookup" }] })
+    expect(configuration(inputs)).not.toMatchObject({ tools: [{ description: expect.any(String) }] })
+    expect(configuration(outputs)).toMatchObject({ tools: [{ name: "lookup" }] })
+    expect(configuration(outputs)).not.toMatchObject({ tools: [{ description: expect.any(String) }] })
+    expect(configuration(instructions)).toMatchObject({
+      instructions: ["system instructions"],
+      tools: [{ description: "Find matching records for a private account.", name: "lookup" }],
+    })
     expect(configuration(inputs).fingerprint).toMatch(/^sha256_[a-f0-9]{64}$/)
     expect(configuration(inputs).fingerprint).toBe(configuration(instructions).fingerprint)
     expect(inputs.mock.calls[0]![0].spans[0].events[0].attributes["vitehub.agent.configuration.fingerprint"])

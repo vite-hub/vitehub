@@ -1319,7 +1319,7 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("installs only discovered Database metadata for a Database-only Console", async () => {
+  it("installs read-only Database inspection for a Database-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })
     await writeFile(
@@ -1335,21 +1335,26 @@ describe("ViteHub Nuxt integration", () => {
 
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-databases", path: "/_vitehub/databases" }),
+        expect.objectContaining({ name: "vitehub-console-databases-schema", path: "/_vitehub/databases/:database/schema/diagram" }),
+        expect.objectContaining({ name: "vitehub-console-databases", path: "/_vitehub/databases/:database?/:table?" }),
       ])
       expect(development.nuxt.options.nitro).toMatchObject({
         handlers: [
           { route: "/api/_vitehub/console/sections" },
           { route: "/api/_vitehub/console/definitions" },
+          { route: "/api/_vitehub/console/database" },
         ],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
+      expect(generated).toContain(`from "vite-hub/console/database"`)
+      expect(generated).toContain(`from "vite-hub/database/drizzle"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["databases"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"databases":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"custom-server/databases/config.ts","name":"default","source":"server-database-default"}]})`)
+      expect(generated).toContain(`installConsoleDatabase("/tmp/vitehub-nuxt", vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
     }

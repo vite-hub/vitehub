@@ -2757,7 +2757,7 @@ function agentTelemetryConfigurationForContent(
   configuration: AgentTelemetryConfiguration,
   policy: AgentTelemetryContentOptions,
 ): AgentTelemetryConfiguration {
-  const { instructions, ...metadata } = configuration
+  const { instructions, tools, ...metadata } = configuration
   return {
     ...metadata,
     capabilities: configuration.capabilities?.map(capability => capability.metadata
@@ -2768,6 +2768,13 @@ function agentTelemetryConfigurationForContent(
         }
       : capability),
     ...(policy.instructions === true && instructions ? { instructions } : {}),
+    ...(tools
+      ? {
+          tools: tools.map(tool => policy.instructions === true
+            ? tool
+            : { name: tool.name }),
+        }
+      : {}),
   }
 }
 

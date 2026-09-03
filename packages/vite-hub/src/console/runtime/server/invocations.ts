@@ -2,8 +2,11 @@ import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { createClient } from "@libsql/client"
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { drizzle } from "drizzle-orm/libsql"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import {
   createConsoleInvocationsIdentity,
@@ -15,8 +18,10 @@ import {
 } from "../../internal.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
-import type { AgentInvocations } from "@vite-hub/agent"
+import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
 import type { ConsoleFixture } from "../../fixture.ts"
+import type { LibSQLDatabase } from "drizzle-orm/libsql"
+import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 
 const consoleMetadataContent = [
   "channel.effect.content",
@@ -29,12 +34,69 @@ const consoleMetadataContent = [
   "vitehub.activity.progress",
 ] as const
 
+type ConsoleInvocationColumn<Data, NotNull extends boolean> = AnySQLiteColumn<{
+  data: Data
+  notNull: NotNull
+  tableName: "vitehub_agent_invocations"
+}>
+
+type ConsoleInvocationsTable = SQLiteTableWithColumns<{
+  columns: {
+    agentName: ConsoleInvocationColumn<string, true>
+    id: ConsoleInvocationColumn<string, true>
+    record: ConsoleInvocationColumn<Omit<AgentInvocationRecord, "cursor">, true>
+    search: ConsoleInvocationColumn<string, false>
+    searchVersion: ConsoleInvocationColumn<number, true>
+    sequence: ConsoleInvocationColumn<number, true>
+    status: ConsoleInvocationColumn<string, true>
+    summary: ConsoleInvocationColumn<AgentInvocationSummary, false>
+    updatedAt: ConsoleInvocationColumn<string, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_agent_invocations"
+  schema: undefined
+}>
+
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
+// SAFETY: The explicit table type mirrors every column constructed immediately below.
+const consoleInvocationsTable = sqliteTable("vitehub_agent_invocations", {
+  sequence: integer().primaryKey({ autoIncrement: true }),
+  id: text().notNull().unique(),
+  status: text().notNull(),
+  agentName: text("agent_name").notNull().default(""),
+  search: text(),
+  searchVersion: integer("search_version").notNull().default(0),
+  summary: text({ mode: "json" }).$type<AgentInvocationSummary>(),
+  updatedAt: text("updated_at").notNull().default(""),
+  record: text({ mode: "json" }).$type<Omit<AgentInvocationRecord, "cursor">>().notNull(),
+}) as unknown as ConsoleInvocationsTable
+
+const consoleInvocationSchema: { invocations: typeof consoleInvocationsTable } = {
+  invocations: consoleInvocationsTable,
+}
+
+export interface ConsoleInvocationsDatabase {
+  db: LibSQLDatabase<typeof consoleInvocationSchema>
+  schema: typeof consoleInvocationSchema
+}
+
+const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocationsDatabase>()
+
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
   if (!invocations) {
     throw new TypeError("[vitehub] The Agent invocation console has not been installed for this runtime.")
   }
   return invocations
+}
+
+export function getConsoleInvocationsDatabase(): ConsoleInvocationsDatabase {
+  const invocations = getConsoleInvocations()
+  const database = consoleInvocationDatabases.get(invocations)
+  if (!database) {
+    throw new TypeError("[vitehub] The Agent invocation console is not backed by the Console Drizzle database.")
+  }
+  return database
 }
 
 interface ConsoleDatabaseOptions {
@@ -70,14 +132,20 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
 }
 
 export function createConsoleInvocations(projectRoot: string): AgentInvocations {
-  return defineAgentInvocations({
+  const client = createClient(resolveConsoleDatabaseOptions(projectRoot))
+  const invocations = defineAgentInvocations({
     metadataContent: consoleMetadataContent,
     store: createLibsqlAgentInvocationStore({
+      client,
       maxAgeMs: false,
       maxRecords: false,
-      ...resolveConsoleDatabaseOptions(projectRoot),
     }),
   })
+  consoleInvocationDatabases.set(invocations, {
+    db: drizzle(client, { schema: consoleInvocationSchema }),
+    schema: consoleInvocationSchema,
+  })
+  return invocations
 }
 
 function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): AgentInvocations {

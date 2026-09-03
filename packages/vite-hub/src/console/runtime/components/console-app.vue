@@ -817,10 +817,9 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default="{ collapsed }">
-        <div class="px-2 pb-2 pt-1">
+        <div v-if="hasMultipleAgents" class="px-2 pb-2 pt-1">
           <UDropdownMenu
             :items="agentMenuItems"
-            :disabled="!hasMultipleAgents"
             :content="{ align: 'start', collisionPadding: 12 }"
             :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
           >
@@ -858,8 +857,9 @@ onBeforeUnmount(() => {
           <UDashboardSearchButton
             :collapsed="collapsed"
             block
-            class="min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
+            class="vitehub-console__search min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
             label="Search console"
+            :ui="{ trailing: 'vitehub-console__search-shortcut' }"
           />
           <UPopover
             v-if="!collapsed"
@@ -1373,6 +1373,38 @@ onBeforeUnmount(() => {
 
 .vitehub-console__sessions[data-slot="root"] {
   background: var(--ui-bg-muted);
+}
+
+.vitehub-console__search {
+  border: 1px solid var(--ui-border);
+}
+
+.vitehub-console__search-shortcut {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0.25rem);
+  transition:
+    opacity 150ms ease,
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .vitehub-console__search:hover .vitehub-console__search-shortcut {
+    opacity: 0.75;
+    transform: translateX(0);
+  }
+}
+
+.vitehub-console__search:focus-visible .vitehub-console__search-shortcut {
+  opacity: 0.75;
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vitehub-console__search-shortcut {
+    transform: none;
+    transition: opacity 150ms ease;
+  }
 }
 
 .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {

@@ -1,5 +1,7 @@
 export const consoleDatabaseSchemaPath = "/database/schema/diagram"
 export const consoleDatabaseTablePath = "/database/:table?"
+export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
+export const consoleDatabasesTablePath = "/databases/:database?/:table?"
 
 export function encodeAgentRouteParam(name: string): string {
   return `~${name}`
@@ -15,6 +17,7 @@ export function resolveConsoleRouteName(currentRouteName: string | symbol | null
   if (typeof currentRouteName !== "string") return targetRouteName
 
   const consoleRouteName = [
+    "vitehub-console-databases-schema",
     "vitehub-console-database-schema",
     "vitehub-console-invocation",
     "vitehub-console-rate-limits",

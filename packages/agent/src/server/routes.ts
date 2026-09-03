@@ -3708,7 +3708,7 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
 }
 
 function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | undefined {
-  if (options?.final?.delivery === "new-message") return "new-message"
+  if (options?.final?.delivery === "new-message" || options?.finalDelivery === "new-message") return "new-message"
 }
 
 function isoDate(value: unknown): string | undefined {
@@ -4460,7 +4460,7 @@ async function settleChatFinishDeliveryCallbacks(
   callbacks: readonly ChatFinishDeliveryCallback[],
   capture: ChatFinishDeliveryCapture,
 ): Promise<void> {
-  for (const callback of callbacks) await callback(capture).catch(() => undefined)
+  await Promise.allSettled(callbacks.map(callback => Promise.resolve().then(() => callback(capture))))
 }
 
 function captureStreamedChatFinishMessage(
@@ -4526,27 +4526,27 @@ async function flushChatFinishExtensionMessages(
         }
         const placeholder = manualDelivery.placeholder
         if (finalDelivery === "new-message") {
+          let posted = false
           try {
             await postChatMessage(thread, message, abortSignal)
+            posted = true
           }
           catch (postError) {
             abortSignal?.throwIfAborted()
-            if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
-              manualDelivery.placeholder = undefined
-              await settleChatFinishDeliveryCallbacks(callbacks, capture)
-              continue
+            if (!await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) throw postError
+          }
+          if (posted) {
+            if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+            const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
+            manualDelivery.placeholderCleanup = placeholderCleanup
+            try {
+              waitUntil(placeholderCleanup.finally(() => {
+                if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
+              }))
             }
-            throw postError
+            catch {}
           }
-          if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
-          const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
-          manualDelivery.placeholderCleanup = placeholderCleanup
-          try {
-            waitUntil(placeholderCleanup.finally(() => {
-              if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
-            }))
-          }
-          catch {}
+          else if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
           await settleChatFinishDeliveryCallbacks(callbacks, capture)
           continue
         }
