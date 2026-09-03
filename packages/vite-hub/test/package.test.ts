@@ -688,10 +688,17 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/server/page.get.js`,
       "utf8",
     );
+    const consoleDevframeSource = readFileSync(
+      `${packageRoot}/dist/console/runtime/server/devframe.js`,
+      "utf8",
+    );
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleClientFile.split("/").at(-1)}`);
     expect(consolePageSource).toContain(`/_vitehub/assets/${consoleCssFile.split("/").at(-1)}`);
     expect(consolePageSource).not.toContain("__VITEHUB_CONSOLE_");
+    expect(consoleDevframeSource).not.toContain("devframe/adapters/h3");
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
+    expect(manifest.dependencies).toHaveProperty("h3");
+    expect(manifest.dependencies).toHaveProperty("ocache");
   });
 
   it("configures Nitro with Console files from the distributed package", async () => {

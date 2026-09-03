@@ -16757,7 +16757,7 @@ describe("server helpers", () => {
     await expect(handler(chatWebhookRequest(91_116), "telegram")).resolves.toMatchObject({ status: 200 })
     expect(callback).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Final reply" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Final reply")
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
