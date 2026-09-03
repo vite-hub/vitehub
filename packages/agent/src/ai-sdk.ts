@@ -380,17 +380,19 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
   }
 }
 
-async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
+async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part?: AttachmentPart }> {
+  const hasFetchData = hasRuntimeType(part.fetchData, "function")
+  if (!hasFetchData && !isAttachmentData(part.data)) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = await resolveAttachmentData(part)
-  if (hasRuntimeType(part.fetchData, "function") && !isAttachmentData(resolved)) {
+  if (hasFetchData && !isAttachmentData(resolved)) {
     throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
   }
-  if (!resolved) return { byteLength: part.size ?? 0, part }
+  if (!resolved) return { byteLength: 0 }
   const byteLength = attachmentDataByteLength(resolved) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
-  const { fetchData: _fetchData, ...rest } = part
+  const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)
     : undefined
@@ -432,17 +434,17 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
       const isHistoricalChannelMessage = currentMessageId !== undefined
         && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
       if (isHistoricalChannelMessage) {
-        const { fetchData: _fetchData, ...reference } = part
-        if (reference.data || reference.url) {
+        const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...reference } = part
+        if (reference.data) {
           const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
           remainingBytes -= resolved.byteLength
-          parts.push(resolved.part)
+          if (resolved.part) parts.push(resolved.part)
         }
         continue
       }
       const resolved = await resolveModelAttachmentPart(part, remainingBytes)
       remainingBytes -= resolved.byteLength
-      parts.push(resolved.part)
+      if (resolved.part) parts.push(resolved.part)
     }
     resolvedMessages.push({ ...message, parts })
   }
@@ -1065,6 +1067,7 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
     ...existing,
     integrations: [...integrations, aiSdkTelemetryIntegration({
       context: context.context,
+      driverContributions: context.driverContributions,
       input: context.input,
       invoker: context.invoker,
       run: context.runtime.run,

@@ -3327,6 +3327,37 @@ describe("defineAgent workspace option", () => {
     ]))
   })
 
+  it("does not warn when a Capability opts out of model-facing instruction coverage", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never,
+      },
+      capabilities: [{ id: "runtime-only", instructionCoverage: false }],
+    }), { workspace: "support" })
+
+    expect((await resolveAgentInspectionMetadata(agent)).warnings ?? []).toEqual([])
+  })
+
+  it("requires and recognizes instruction coverage for papercut reporting", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const { papercuts } = await import("../src/capabilities.ts")
+    const createAgent = (instructions: string) => withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: { instructions, model: {} as never },
+      capabilities: [papercuts({ report: () => undefined })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentInspectionMetadata(createAgent("Report useful failures."))).toMatchObject({
+      warnings: [expect.objectContaining({ id: "instruction-coverage:capability:papercuts", primitive: "capability" })],
+    })
+    expect((await resolveAgentInspectionMetadata(createAgent(`::capability{key="papercuts"}
+Report unexpected failures and wasted work, then continue the task.
+::`))).warnings ?? []).toEqual([])
+  })
+
   it("warns run drivers when configured skills lack explicit instruction coverage", async () => {
     const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

@@ -12,6 +12,7 @@ import {
   reactive,
   ref,
   type CSSProperties,
+  type Component,
   type InjectionKey,
   type PropType,
   type Ref,
@@ -338,13 +339,18 @@ export const MessageScrollerButton = defineComponent({
   name: "MessageScrollerButton",
   inheritAttrs: false,
   props: {
-    as: { default: "button", type: String },
+    as: {
+      default: "button",
+      type: [String, Object, Function] as PropType<string | Component>,
+    },
     behavior: { default: "smooth", type: String as PropType<MessageScrollBehavior> },
   },
   setup(props, { attrs, slots }) {
     const context = useInternalMessageScroller();
     return () => {
       const active = context.isScrollable.value && !context.atEnd.value;
+      const content = slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓";
+      const children = String(props.as) === props.as ? content : { default: () => content };
       return h(
         props.as,
         mergeProps({
@@ -362,9 +368,9 @@ export const MessageScrollerButton = defineComponent({
           hidden: active ? attrs.hidden : true,
           inert: active ? undefined : true,
           tabindex: active ? attrs.tabindex : -1,
-          type: props.as === "button" ? "button" : undefined,
+          type: attrs.type ?? (props.as === "button" ? "button" : undefined),
         }),
-        slots.default?.({ scrollToEnd: context.scrollToEnd }) ?? "↓",
+        children,
       );
     };
   },

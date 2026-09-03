@@ -214,7 +214,10 @@ function dependencyRoots(root: string): string[] {
   while (current !== dirname(current)) {
     const nested = resolve(current, "node_modules")
     if (existsSync(nested)) roots.push(nested)
-    if (basename(current) === "node_modules") roots.push(current)
+    if (basename(current) === "node_modules") {
+      roots.push(current)
+      break
+    }
     current = dirname(current)
   }
   return [...new Set(roots)]

@@ -5,6 +5,7 @@ import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemet
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { agentTelemetryConfigurationFingerprint } from "../src/internal/agent-telemetry.ts"
 
 function telemetryCapability(exporter: AgentTelemetry) {
   return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
@@ -16,6 +17,52 @@ afterEach(() => {
 })
 
 describe("Agent telemetry", () => {
+  it("fingerprints semantic Agent configuration independently of object key order", async () => {
+    const left = {
+      capabilities: [{ id: "search", metadata: { mode: "read", provider: "docs" } }],
+      driver: { kind: "model" as const },
+      instructions: ["Use the docs before answering."],
+      runtime: { name: "unknown" },
+      tools: [{ name: "search" }],
+    }
+    const right = {
+      tools: [{ name: "search" }],
+      runtime: { name: "unknown" },
+      instructions: ["Use the docs before answering."],
+      driver: { kind: "model" as const },
+      capabilities: [{ metadata: { provider: "docs", mode: "read" }, id: "search" }],
+    }
+
+    const leftFingerprint = await agentTelemetryConfigurationFingerprint(left)
+    expect(await agentTelemetryConfigurationFingerprint(right)).toBe(leftFingerprint)
+    expect(await agentTelemetryConfigurationFingerprint({
+      ...left,
+      instructions: ["Use the runbooks before answering."],
+    })).not.toBe(leftFingerprint)
+  })
+
+  it("fingerprints non-ASCII metadata keys independently of the host locale", async () => {
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare")
+    const configuration = {
+      capabilities: [{ id: "search", metadata: { z: "last", ä: "accented" } }],
+      driver: { kind: "model" as const },
+      instructions: [],
+      runtime: { name: "unknown" },
+      tools: [],
+    }
+
+    try {
+      localeCompare.mockReturnValue(-1)
+      const first = await agentTelemetryConfigurationFingerprint(configuration)
+      localeCompare.mockReturnValue(1)
+
+      await expect(agentTelemetryConfigurationFingerprint(configuration)).resolves.toBe(first)
+    }
+    finally {
+      localeCompare.mockRestore()
+    }
+  })
+
   it("sends completed spans as OTLP/HTTP JSON", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
     vi.stubGlobal("fetch", fetch)
@@ -501,9 +548,72 @@ describe("Agent telemetry", () => {
       driver: { kind: "run" },
       runtime: { name: "unknown" },
     })
+    expect(configured.attributes["vitehub.agent.configuration.fingerprint"])
+      .toBe(configured.attributes["vitehub.agent.configuration"].fingerprint)
     expect(JSON.stringify(configured)).not.toContain("user prompt")
     expect(JSON.stringify(configured)).not.toContain("runtime-secret")
     expect(JSON.stringify(configured)).not.toContain("definition-secret")
+  })
+
+  it("exports the owning Capability only when its tool is used", async () => {
+    const tasks: Promise<unknown>[] = []
+    const telemetry = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        telemetryCapability(telemetry),
+        defineCapability({
+          id: "papercuts",
+          tools: {
+            report_papercut: { name: "report_papercut" },
+          },
+        }),
+        defineCapability({
+          id: "unused",
+          tools: {
+            unused_tool: { name: "unused_tool" },
+          },
+        }),
+      ],
+      driver: { run: () => (async function* () {
+        yield { id: "papercut-1", input: { message: "private report" }, name: "report_papercut", type: "tool-call" }
+        yield { id: "papercut-1", name: "report_papercut", output: { stored: true }, type: "tool-result" }
+        yield { id: "papercut-2", input: { message: "private failure" }, name: "report_papercut", type: "tool-call" }
+        yield { error: "storage failed", id: "papercut-2", name: "report_papercut", type: "tool-result" }
+        yield { id: "direct-1", name: "direct_tool", type: "tool-call" }
+        yield { id: "direct-1", name: "direct_tool", output: "done", type: "tool-result" }
+        yield { type: "finish" }
+      })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-capability-use" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { prompt: "report a problem" })
+    // SAFETY: This test fixture intentionally supplies an async-iterable custom Driver result.
+    for await (const _event of stream as AsyncIterable<unknown>) {
+      // Consume the invocation so telemetry reaches its terminal export.
+    }
+    await Promise.all(tasks)
+
+    const events = telemetry.mock.calls[0]![0].spans
+      .filter((span: { name: string }) => span.name === "agent.tool")
+      .flatMap((span: { events?: Array<{ attributes: Record<string, unknown>, name: string }> }) => span.events || [])
+    expect(events.map((event: { attributes: Record<string, unknown>, name: string }) => ({
+      capabilityId: event.attributes["capability.id"],
+      name: event.name,
+    }))).toEqual([
+      { capabilityId: "papercuts", name: "agent.tool.start" },
+      { capabilityId: "papercuts", name: "agent.tool.finish" },
+      { capabilityId: "papercuts", name: "agent.tool.start" },
+      { capabilityId: "papercuts", name: "agent.tool.error" },
+      { capabilityId: undefined, name: "agent.tool.start" },
+      { capabilityId: undefined, name: "agent.tool.finish" },
+    ])
+    expect(JSON.stringify(events)).not.toContain("private report")
+    expect(JSON.stringify(events)).not.toContain("private failure")
+    expect(JSON.stringify(events)).not.toContain('"capability.id":"unused"')
   })
 
   it("opts into input and output trace content independently", async () => {
@@ -569,6 +679,10 @@ describe("Agent telemetry", () => {
       instructions: ["system instructions"],
       tools: [{ description: "Find matching records for a private account.", name: "lookup" }],
     })
+    expect(configuration(inputs).fingerprint).toMatch(/^sha256_[a-f0-9]{64}$/)
+    expect(configuration(inputs).fingerprint).toBe(configuration(instructions).fingerprint)
+    expect(inputs.mock.calls[0]![0].spans[0].events[0].attributes["vitehub.agent.configuration.fingerprint"])
+      .toBe(configuration(inputs).fingerprint)
   })
 
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
@@ -811,6 +925,7 @@ describe("Agent telemetry", () => {
     expect(configurationRecords[0]?.attributes).toMatchObject({
       "vitehub.activity.owner": "vitehub",
       "vitehub.activity.phase": "setup",
+      "vitehub.agent.configuration.fingerprint": expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
     })
     expect(configurationRecords[0]?.attributes["vitehub.agent.configuration"]).toMatchObject({
       driver: { model: { id: "late-model", provider: "late-provider" } },

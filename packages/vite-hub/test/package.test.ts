@@ -316,6 +316,9 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
     expect(consolePage).toContain("AgentInvocationList");
+    expect(consolePage).toContain('aria-label="Filter sessions"');
+    expect(consolePage).toContain("selectedCapabilityId");
+    expect(consolePage).not.toContain(':workspace-base="`${hostBase}/api/invocations`"');
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
     expect(consolePage).toContain("ConsoleHealth");
@@ -718,7 +721,12 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(10);
+      expect(handlers).toHaveLength(11);
+      expect(handlers).toContainEqual(
+        expect.objectContaining({
+          route: "/api/_vitehub/console/invocation-capabilities",
+        }),
+      );
       expect(handlers).toContainEqual(
         expect.objectContaining({ route: "/api/_vitehub/console/usage" }),
       );

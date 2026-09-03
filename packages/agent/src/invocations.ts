@@ -16,6 +16,7 @@ const MAX_LIST_LIMIT = 100
 const MAX_ANNOTATIONS = 32
 const MAX_ANNOTATION_KEY_LENGTH = 64
 const MAX_ANNOTATION_STRING_LENGTH = 512
+const MAX_CAPABILITY_IDS = 256
 const MAX_METADATA_STRING_LENGTH = 512
 const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
 const MAX_OBSERVATIONS = 256
@@ -47,6 +48,8 @@ export type AgentInvocationRecordStatus = AgentInvocationStatus
 export interface AgentInvocationRecord {
   agentName?: string
   annotations?: Record<string, AgentInvocationAnnotationValue>
+  /** Capability IDs observed during this Invocation, including uses omitted from a truncated trace. */
+  capabilityIds?: readonly string[]
   cancelledAt?: string
   channelId?: string
   completedAt?: string
@@ -68,6 +71,7 @@ export interface AgentInvocationRecord {
 
 export interface AgentInvocationListOptions {
   agentName?: string
+  capabilityId?: string
   cursor?: string
   limit?: number
   search?: string
@@ -91,6 +95,7 @@ export interface AgentInvocationStoreCreateResult {
 
 export interface AgentInvocationStoreUpdateInput {
   annotations?: AgentInvocationRecord["annotations"]
+  capabilityIds?: readonly string[]
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
   observationsTruncated?: boolean
@@ -110,6 +115,7 @@ export interface AgentInvocationStore {
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
+  listCapabilityIds?(agentName?: string): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -129,6 +135,7 @@ export interface AgentInvocations {
   getSummary?(id: string): Promise<AgentInvocationSummary | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
+  listCapabilityIds(agentName?: string): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -175,9 +182,35 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
   return {
     ...record,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
+    ...(record.capabilityIds ? { capabilityIds: [...record.capabilityIds] } : {}),
     ...(record.error ? { error: structuredClone(record.error) } : {}),
     observations: record.observations.map(cloneObservation),
   }
+}
+
+function normalizedCapabilityId(value: unknown): string | undefined {
+  if (!hasRuntimeType(value, "string")) return
+  const capabilityId = boundedString(value.trim())
+  return capabilityId || undefined
+}
+
+function observationCapabilityId(observation: TraceEventLogEntry | undefined): string | undefined {
+  return normalizedCapabilityId(observation?.attributes?.["capability.id"])
+}
+
+function invocationCapabilityIds(record: Pick<AgentInvocationRecord, "capabilityIds" | "observations">): string[] {
+  const capabilityIds = new Set<string>()
+  for (const value of record.capabilityIds || []) {
+    const capabilityId = normalizedCapabilityId(value)
+    if (capabilityId) capabilityIds.add(capabilityId)
+    if (capabilityIds.size >= MAX_CAPABILITY_IDS) return [...capabilityIds]
+  }
+  for (const observation of record.observations) {
+    const capabilityId = observationCapabilityId(observation)
+    if (capabilityId) capabilityIds.add(capabilityId)
+    if (capabilityIds.size >= MAX_CAPABILITY_IDS) break
+  }
+  return [...capabilityIds]
 }
 
 async function boundedStoreOperation<T>(
@@ -836,6 +869,13 @@ export function applyAgentInvocationStoreUpdate(
   const configuredAnnotations = input.observation
     ? configurationAnnotations(input.observation)
     : undefined
+  const capabilityIds = invocationCapabilityIds(record)
+  for (const value of [...(input.capabilityIds || []), observationCapabilityId(input.observation)]) {
+    const incomingCapabilityId = normalizedCapabilityId(value)
+    if (incomingCapabilityId && capabilityIds.length < MAX_CAPABILITY_IDS && !capabilityIds.includes(incomingCapabilityId)) {
+      capabilityIds.push(incomingCapabilityId)
+    }
+  }
   const observations = input.observation && !duplicateObservation
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
@@ -867,6 +907,7 @@ export function applyAgentInvocationStoreUpdate(
     ...(configuredAnnotations
       ? { annotations: mergeConfigurationAnnotations(record.annotations, configuredAnnotations) }
       : {}),
+    ...(capabilityIds.length ? { capabilityIds } : {}),
     ...(input.error ? { error: input.error } : {}),
     observations,
     ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
@@ -926,6 +967,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const cursor = normalizeBuiltInCursor(options.cursor)
       const search = normalizeSearch(options.search)
       const agentName = options.agentName?.trim()
+      const capabilityId = options.capabilityId?.trim()
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
@@ -933,6 +975,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const candidates = [...records.values()]
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
+          && (!capabilityId || invocationCapabilityIds(record).includes(capabilityId))
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -947,6 +990,13 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     },
     listAgentNames() {
       return [...new Set([...records.values()].flatMap(record => record.agentName?.trim() || []))]
+        .sort()
+    },
+    listCapabilityIds(agentName) {
+      const selectedAgent = agentName?.trim()
+      return [...new Set([...records.values()]
+        .filter(record => !selectedAgent || record.agentName === selectedAgent)
+        .flatMap(record => invocationCapabilityIds(record)))]
         .sort()
     },
     release(id, claimId) {
@@ -1161,6 +1211,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const terminalRetryObservations: TraceEventLogEntry[] = []
       const terminalObservationRecoveries: Array<() => Promise<void>> = []
       const ambiguouslyPersistingObservations = new Set<string | number>()
+      const observedCapabilityIds = new Set<string>()
       const persistedObservations = new Set<string | number>()
       const retriedObservations = new WeakSet<TraceEventLogEntry>()
       const stopHeartbeat = () => {
@@ -1182,6 +1233,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
               truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
+              invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
               finished = terminalStatus(result.record.status)
               boundToTerminalRecord = finished
               created = true
@@ -1371,6 +1423,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
       }
       const observe = (observation: TraceEventLogEntry) => {
+        const capabilityId = observationCapabilityId(observation)
+        if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
           if (!boundToTerminalRecord && recoverableOutcomeObservation(observation)) {
             registerAgentInvocationRecovery(context, persistLateObservation(observation))
@@ -1390,7 +1444,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const persistTruncation = !observationsTruncated
           observationsTruncated = true
           if (persistTruncation) void markTruncated()
-          if (priority === undefined) return
+          if (priority === undefined) {
+            if (capabilityId) {
+              void update({ capabilityIds: [capabilityId], timestamp: normalizedTimestamp(observation.timestamp) })
+            }
+            return
+          }
           prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
           writeNextObservation()
           return
@@ -1442,6 +1501,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }
           const terminalOutcome = pendingOutcomes.at(-1)
           const finishInput: AgentInvocationStoreUpdateInput = {
+            ...(observedCapabilityIds.size ? { capabilityIds: [...observedCapabilityIds] } : {}),
             ...(failure ? { error: failure } : {}),
             ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             status,
@@ -1453,6 +1513,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             let terminalOutcomePersisted = updated || terminalOutcome === undefined
             if (!updated && terminalOutcome !== undefined) {
               updated = await update({
+                ...(observedCapabilityIds.size ? { capabilityIds: [...observedCapabilityIds] } : {}),
                 ...(failure ? { error: failure } : {}),
                 status,
                 timestamp: finishInput.timestamp,
@@ -1557,6 +1618,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async list(options = {}) {
       const search = normalizeSearch(options.search)
       const normalized = { ...options, limit: normalizeLimit(options.limit) }
+      const capabilityId = options.capabilityId?.trim()
+      if (capabilityId) normalized.capabilityId = capabilityId
+      else delete normalized.capabilityId
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
@@ -1576,6 +1640,26 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         cursor = page.cursor
       } while (cursor)
       return [...names].sort()
+    },
+    async listCapabilityIds(agentName) {
+      const selectedAgent = agentName?.trim()
+      if (store.listCapabilityIds) {
+        return [...new Set((await store.listCapabilityIds(selectedAgent))
+          .map(capabilityId => capabilityId.trim())
+          .filter(Boolean))]
+          .sort()
+      }
+      const capabilityIds = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
+        for (const record of records) {
+          if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...capabilityIds].sort()
     },
   }
   return invocations

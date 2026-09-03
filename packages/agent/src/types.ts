@@ -325,6 +325,8 @@ export interface AgentTelemetryConfiguration {
     }
     provider?: string
   }
+  /** Stable SHA-256 of the resolved behavior-relevant configuration. */
+  fingerprint?: string
   instructions?: string[]
   runtime: {
     name: string
@@ -1033,6 +1035,8 @@ export interface AgentCapabilityDefinition<
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
+  /** Set to false when the Capability has no model-facing behavior to explain in Agent Driver Instructions. */
+  instructionCoverage?: boolean
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode

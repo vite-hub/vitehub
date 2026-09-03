@@ -2844,6 +2844,7 @@ function agentTelemetryConfigurationLogRecord(
       "vitehub.activity.owner": "vitehub",
       "vitehub.activity.phase": "setup",
       "vitehub.agent.configuration": configuration,
+      ...(configuration.fingerprint ? { "vitehub.agent.configuration.fingerprint": configuration.fingerprint } : {}),
       "vitehub.event.sequence": 0,
       "vitehub.event.type": "capability",
     },
@@ -2941,6 +2942,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
                   "vitehub.activity.owner": "vitehub",
                   "vitehub.activity.phase": "setup",
                   "vitehub.agent.configuration": configurationValue,
+                  ...(configurationValue.fingerprint ? { "vitehub.agent.configuration.fingerprint": configurationValue.fingerprint } : {}),
                 },
                 name: "vitehub.agent.configured",
                 time: span.startTime,
@@ -3536,7 +3538,7 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
     const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
-    if (capabilities.registries.telemetry.length || invocationJournal) setAgentTelemetryConfiguration(invocationContext, {
+    if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
         ...(definition?.version ? { version: definition.version } : {}),
@@ -3647,7 +3649,10 @@ async function createAgentInvocationContext<
           : agentTelemetryConfigurationForContent(configuration, {})
         await runtimeContext.traceLog?.append({
           activity: { owner: "vitehub", phase: "setup" },
-          attributes: { "vitehub.agent.configuration": persistedConfiguration },
+          attributes: {
+            "vitehub.agent.configuration": persistedConfiguration,
+            ...(persistedConfiguration.fingerprint ? { "vitehub.agent.configuration.fingerprint": persistedConfiguration.fingerprint } : {}),
+          },
           name: "vitehub.agent.configured",
           ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
           type: "run",
@@ -3732,6 +3737,7 @@ type InvocationRunContext<
   close: () => Promise<void>
   context: AgentInvocationContextStore
   deliveryEffectIntents?: readonly AgentChannelDeliveryEffectIntent[]
+  driverContributions?: AgentDriverContribution[]
   durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
@@ -3767,6 +3773,7 @@ function toTraceContext<
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AgentTraceContext<TRuntimeConfig> {
   return {
     context: context.context,
+    driverContributions: context.driverContributions,
     input: context.input,
     invoker: context.invoker,
     run: context.run,
