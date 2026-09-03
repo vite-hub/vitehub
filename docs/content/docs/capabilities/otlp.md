@@ -37,13 +37,15 @@ export default defineAgent({
 
 ## Trace contract
 
-ViteHub always exports one completed trace. Its ordinary OTLP spans carry structural timing and `gen_ai.*` attributes. Without `live`, the root span also contains the invocation's Trace Events, including one `vitehub.agent.configured` event with sanitized Agent Definition metadata: Agent identity, Capability metadata, Driver and model identity when resolved, tool names, runtime, and Workspace name, mode, and Sources.
+ViteHub always exports one completed trace. Its ordinary OTLP spans carry structural timing and `gen_ai.*` attributes. Without `live`, the root span also contains the invocation's Trace Events, including one `vitehub.agent.configured` event with sanitized Agent Definition metadata: Agent identity, Capability metadata, Driver and model identity when resolved, tool names, runtime, and Workspace name, mode, and Sources. The event's `vitehub.agent.configuration.fingerprint` attribute is a `sha256_...` digest of these facts and the final resolved instructions. Receivers can compare context revisions without receiving raw instruction text.
 
 With `live: true`, each Trace Event is exported once as a correlated OTLP LogRecord while the invocation runs. LogRecords use the same trace and span IDs as the completed trace and carry `agent.invocation.id` plus `vitehub.event.sequence` for deduplication. ViteHub batches for up to five seconds or 512 new Trace Events, whichever comes first, and flushes immediately when the invocation ends. After all records are delivered, the completed trace omits span events because those events were already sent as logs. If a live batch fails, the completed trace retains its span events so the terminal export does not lose that evidence.
 
 This is append-only export, not polling: ViteHub never resends an evolving in-progress span snapshot. OTLP's HTTP and gRPC exports are request/response protocols, so ViteHub does not add a receiver-specific SSE or WebSocket channel.
 
 The configuration event is not a user message. User prompts and model or tool content remain governed by trace content policy and are metadata-only in this exporter.
+
+When a tool came from a Capability, its start, finish, and error events carry `capability.id`. A configured but unused Capability does not add this attribute. Tool input and output remain excluded unless content export is enabled.
 
 Agent instructions are prompt content, so they are excluded by default. Opt in explicitly when the receiver is trusted:
 

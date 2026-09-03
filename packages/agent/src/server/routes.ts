@@ -3730,6 +3730,11 @@ const imageAttachmentMimeTypes: Record<string, string> = {
   webp: "image/webp",
 }
 
+interface ChatMessagePartOptions {
+  includeReplyAttachmentInput?: boolean
+  rejectOversizedTextAttachments?: boolean
+}
+
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
   if (attachment.data instanceof Blob && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
@@ -3748,7 +3753,7 @@ function isTextAttachment(attachment: Attachment): boolean {
   return !!extension && textAttachmentExtensions.has(extension)
 }
 
-function checkedTextAttachmentBytes(value: unknown, options: { rejectOversizedTextAttachments?: boolean } = {}): Uint8Array | undefined {
+function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
   const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
@@ -3762,45 +3767,7 @@ function isTextAttachmentOversizeError(error: unknown): boolean {
   return error instanceof Error && error.message === chatTextAttachmentOversizeMessage
 }
 
-async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
-  const response = await fetch(url)
-  if (!response.ok) return
-  const contentLengthHeader = response.headers.get("content-length")
-  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  if (isRuntimeNumber(contentLength) && Number.isFinite(contentLength) && contentLength > chatTextAttachmentMaxBytes) {
-    if (!options.rejectOversizedTextAttachments) return
-    throw new Error(chatTextAttachmentOversizeMessage)
-  }
-  if (!response.body) {
-    return checkedTextAttachmentBytes(await response.arrayBuffer(), options)
-  }
-
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let byteLength = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
-    byteLength += chunk.byteLength
-    if (byteLength > chatTextAttachmentMaxBytes) {
-      await reader.cancel().catch(() => undefined)
-      if (!options.rejectOversizedTextAttachments) return
-      throw new Error(chatTextAttachmentOversizeMessage)
-    }
-    chunks.push(chunk)
-  }
-
-  const bytes = new Uint8Array(byteLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
-
-async function textAttachmentBytes(attachment: Attachment, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
+async function textAttachmentBytes(attachment: Attachment, options: ChatMessagePartOptions = {}): Promise<Uint8Array | undefined> {
   if (isRuntimeNumber(attachment.size) && attachment.size > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
     throw new Error(chatTextAttachmentOversizeMessage)
@@ -3816,21 +3783,13 @@ async function textAttachmentBytes(attachment: Attachment, options: { rejectOver
   if (attachment.data instanceof Blob) {
     return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
-  const bytes = checkedTextAttachmentBytes(attachment.data, options)
-  if (bytes) return bytes
-  if (!isRuntimeString(attachment.url) || !attachment.url) return undefined
-  try {
-    return await fetchTextAttachmentBytes(attachment.url, options)
-  } catch (error) {
-    if (isTextAttachmentOversizeError(error)) throw error
-    return undefined
-  }
+  return checkedTextAttachmentBytes(attachment.data, options)
 }
 
 async function textPartFromAttachment(
   attachment: Attachment,
   index: number,
-  options: { rejectOversizedTextAttachments?: boolean } = {},
+  options: ChatMessagePartOptions = {},
 ): Promise<MessagePart | undefined> {
   if (!isTextAttachment(attachment)) return undefined
   const bytes = await textAttachmentBytes(attachment, options)
@@ -3855,12 +3814,17 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
   const data = isAttachmentData(attachment.data) ? attachment.data : undefined
   const fetchData = isRuntimeFunction(attachment.fetchData)
     ? async () => {
-        const value = await attachment.fetchData?.()
-        const resolved = isAttachmentData(value) ? value : undefined
-        if (!resolved) {
-          throw new Error("[vitehub] Chat attachment fetchData() did not return supported attachment data.")
+        try {
+          const value = await attachment.fetchData?.()
+          const resolved = isAttachmentData(value) ? value : undefined
+          if (!resolved) {
+            throw new Error("[vitehub] Chat attachment fetchData() did not return supported attachment data.")
+          }
+          return resolved
+        } catch (cause) {
+          if (cause instanceof Error && cause.message.startsWith("[vitehub] Chat attachment fetchData()")) throw cause
+          throw new Error("[vitehub] Chat attachment fetchData() failed.", { cause })
         }
-        return resolved
       }
     : undefined
   const url = isRuntimeString(attachment.url) && attachment.url ? attachment.url : undefined
@@ -3878,6 +3842,22 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
   })
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return part as AttachmentPart
+}
+
+function chatAttachmentReference(part: AttachmentPart): Record<string, unknown> {
+  return objectWithoutUndefined({
+    id: part.id,
+    mediaType: part.mediaType,
+    name: part.name,
+    size: part.size,
+    type: part.type,
+  })
+}
+
+function replyAttachmentInputPart(part: AttachmentPart, index: number): AttachmentPart | undefined {
+  if (!part.data && !part.fetchData) return
+  const { fetchMetadata: _fetchMetadata, url: _url, ...input } = part
+  return { ...input, id: `reply-input-attachment-${index + 1}` }
 }
 
 function attachmentFallbackLabel(attachment: Attachment): string {
@@ -3901,7 +3881,7 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessageParts(message: ChatSdkMessage, options: ChatMessagePartOptions = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
@@ -3922,7 +3902,7 @@ async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversi
   return parts
 }
 
-async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessagePartsWithReply(message: ChatSdkMessage, options: ChatMessagePartOptions = {}): Promise<MessagePart[]> {
   const parts = await chatMessageParts(message, options)
   if (!parts.length || !message.replyTo) return parts
   const replyContext = chatReplyMetadata(message)!
@@ -3938,12 +3918,16 @@ async function chatMessagePartsWithReply(message: ChatSdkMessage, options: { rej
   for (const [index, source] of message.replyTo.attachments.entries()) {
     const part = attachmentPartFromAttachment(source, index)
     if (!part) continue
-    const { data: _data, fetchData: _fetchData, ...attachment } = part
+    const input = options.includeReplyAttachmentInput ? replyAttachmentInputPart(part, index) : undefined
     replyParts.push({
-      data: { attachment },
+      data: {
+        attachment: chatAttachmentReference(part),
+        availability: input ? "included" : "reference-only",
+      },
       id: `reply-${part.id || index + 1}`,
       type: "data-chat-reply-attachment",
     })
+    if (input) replyParts.push(input)
   }
   return [
     {
@@ -4002,7 +3986,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { rejectOversizedTextAttachments?: boolean },
+  options?: ChatMessagePartOptions,
 ): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
@@ -4056,6 +4040,7 @@ async function chatTriggerMessages(
   historyThroughCurrent = false,
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
+    includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))

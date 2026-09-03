@@ -5,6 +5,7 @@ import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 import type { AgentActivity, StreamEvent } from "./messages.ts"
 import type {
+  AgentDriverContribution,
   AgentInvocationContextStore,
   AgentChannelDeliveryEffectIntent,
   AgentInvoker,
@@ -23,6 +24,7 @@ const MAX_CHANNEL_EFFECT_CONTENT_LENGTH = 16 * 1024
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   context: AgentInvocationContextStore
+  driverContributions?: readonly AgentDriverContribution[]
   input: AgentRunInput
   invoker: AgentInvoker
   run?: AgentRunMetadata
@@ -160,6 +162,17 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
   return {}
 }
 
+function toolCapabilityId(
+  contributions: readonly AgentDriverContribution[] | undefined,
+  toolName: unknown,
+): string | undefined {
+  if (!hasRuntimeType(toolName, "string")) return
+  for (let index = (contributions?.length || 0) - 1; index >= 0; index--) {
+    const contribution = contributions?.[index]
+    if (contribution?.names?.includes(toolName)) return contribution.capabilityId
+  }
+}
+
 function streamTitle(event: StreamEvent): string | undefined {
   if ((event.type !== "data" && !event.type.startsWith("data-")) || !("data" in event)) return
   if (!event.data || !hasRuntimeType(event.data, "object")) return
@@ -290,10 +303,12 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
 ): Promise<void> {
   try {
     const invocationId = context.context.get(agentInvocationTraceIdContextKey)
+    const capabilityId = toolCapabilityId(context.driverContributions, event.attributes?.["tool.name"])
     const attributes = {
       ...(invocationId ? { "agent.invocation.id": invocationId } : {}),
       ...(context.run?.runId ? { "agent.run.id": context.run.runId } : {}),
       ...event.attributes,
+      ...(capabilityId ? { "capability.id": capabilityId } : {}),
     }
     await emitTraceEvent(context.runtime, {
       ...event,

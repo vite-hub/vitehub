@@ -6,6 +6,15 @@ interface BootstrapInvocation {
   agentName?: string;
 }
 
+export async function refreshCapabilityFilteredInvocations(options: {
+  navigate: () => Promise<unknown>;
+  refresh: () => Promise<unknown>;
+}): Promise<void> {
+  const refresh = options.refresh();
+  await options.navigate();
+  await refresh;
+}
+
 export function useConsoleSessionBootstrap(options: {
   agentNames: Readonly<Ref<readonly string[]>>;
   firstInvocation: Readonly<Ref<BootstrapInvocation | undefined>>;

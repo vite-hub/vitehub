@@ -137,6 +137,16 @@ export type {
   OtlpCapabilityOptions,
 } from "./otlp.ts"
 export {
+  papercuts,
+} from "./papercuts.ts"
+export type {
+  Papercut,
+  PapercutReportContext,
+  PapercutReportEvent,
+  PapercutsOptions,
+  PapercutSource,
+} from "./papercuts.ts"
+export {
   webSearch,
 } from "./web-search/index.ts"
 

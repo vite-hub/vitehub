@@ -1193,9 +1193,15 @@ export const AgentInvocation = defineComponent({
     header: { default: true, type: Boolean },
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     selectedActivityId: { default: undefined, type: String },
+    workspaceInspectable: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
-    const activities = computed(() => invocationActivities(props.invocation));
+    const activities = computed(() => invocationActivities(props.invocation).map((activity) => {
+      if (props.workspaceInspectable || activity.attributes["vitehub.inspect.target"] !== "workspace") return activity;
+      const attributes = { ...activity.attributes };
+      delete attributes["vitehub.inspect.target"];
+      return { ...activity, attributes };
+    }));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const workOpen = ref(false);
     const root = ref<HTMLElement>();
