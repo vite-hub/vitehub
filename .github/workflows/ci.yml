@@ -9,18 +9,47 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  quality:
-    name: quality
+  ci:
+    name: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
+
+      - name: Knip catalog
+        run: vp run knip:catalog
+
+      - run: vp run lint
+      - run: vp run doctor:typescript
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
+      - run: vp run typecheck
+      - run: vp run examples:verify
+      - name: Docs links
+        run: vp run --filter vitehub-docs test:links
+
+      - name: Fast contracts
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          vp run build
+          vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
+
+  fallow:
+    name: Fallow dead-code
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
 
       - name: Fallow dead-code
         shell: bash
@@ -37,20 +66,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-      - name: Knip catalog
-        run: vp run knip:catalog
-
-      - run: vp run lint
-      - run: vp run doctor:typescript
-        env:
-          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
-      - run: vp run typecheck
-      - run: vp run examples:verify
-      - name: Docs links
-        run: vp run --filter vitehub-docs test:links
-
   contract-tests:
     name: contract tests
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +80,7 @@ jobs:
 
   package-tests:
     name: package tests
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,6 +92,7 @@ jobs:
 
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -88,30 +108,9 @@ jobs:
       - uses: ./.github/actions/setup-deno
       - run: vp run test:consumer --shard=${{ matrix.shard }}
 
-  ci:
-    name: ci
-    if: ${{ always() }}
-    needs:
-      - quality
-      - contract-tests
-      - package-tests
-      - consumer-contracts
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every CI shard
-        env:
-          QUALITY: ${{ needs.quality.result }}
-          CONTRACT_TESTS: ${{ needs.contract-tests.result }}
-          PACKAGE_TESTS: ${{ needs.package-tests.result }}
-          CONSUMER_CONTRACTS: ${{ needs.consumer-contracts.result }}
-        run: |
-          test "$QUALITY" = success
-          test "$CONTRACT_TESTS" = success
-          test "$PACKAGE_TESTS" = success
-          test "$CONSUMER_CONTRACTS" = success
-
   windows-agent-credentials:
     name: agent credentials (windows)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,6 +126,7 @@ jobs:
 
   docs:
     name: docs
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,7 +140,7 @@ jobs:
 
   verify-providers:
     name: verify providers
-    needs: quality
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
