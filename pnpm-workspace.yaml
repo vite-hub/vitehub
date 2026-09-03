@@ -11,7 +11,7 @@ catalog:
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
   unified: ^11.0.5
-  vite-doctor: https://pkg.pr.new/vite-doctor@db34a0d
+  vite-doctor: 0.0.9
 
 catalogMode: prefer
 
@@ -114,7 +114,6 @@ catalogs:
     "@types/node": ^24.13.3
     "@types/picomatch": ^4.0.3
     esbuild: ^0.28.1
-    fallow: 3.17.0
     knip: 6.27.0
     local-pkg: ^1.2.1
     oxlint: ^1.74.0
@@ -168,8 +167,6 @@ catalogs:
     picomatch: ^4.0.5
     tinyglobby: ^0.2.17
 
-ignoredOptionalDependencies:
-  - fallow-type-aware
 overrides:
   "@vercel/blob>undici": ^6.28.0
   "glob": ^13.0.6
