@@ -724,22 +724,13 @@
 
 .vh-invocation-message__content {
   min-width: 0;
-  position: relative;
 }
 
 .vh-invocation-message__content[data-collapsed="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.75rem), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 1.75rem), transparent);
   max-height: 10.5rem;
   overflow: hidden;
-}
-
-.vh-invocation-message__content[data-collapsed="true"]::after {
-  background: linear-gradient(to bottom, transparent, var(--vh-ui-bg-elevated));
-  bottom: 0;
-  content: "";
-  height: 3.5rem;
-  inset-inline: 0;
-  pointer-events: none;
-  position: absolute;
 }
 
 .vh-invocation-message__more {
