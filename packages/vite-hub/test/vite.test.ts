@@ -259,7 +259,7 @@ describe("vitehub", () => {
 
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
@@ -349,7 +349,7 @@ describe("vitehub", () => {
       const namedConfig: Record<string, unknown> = { root }
       await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
       namedConfig.kv = { stores: { cache: { driver: "memory" }, sessions: { driver: "memory" } } }
       await callHook(named.configResolved, [namedConfig])
@@ -358,7 +358,7 @@ describe("vitehub", () => {
       expect(generated).toContain('installConsoleKV(')
       expect(generated).toContain('["cache","sessions"]')
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
 
       const disabledRoot = join(root, "disabled")
@@ -403,22 +403,25 @@ describe("vitehub", () => {
     }
   })
 
-  it("rejects a conflicting standalone Console KV handler", async () => {
+  it("keeps an application KV route beside the Console Devframe", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: true, kv: true, preset: "node" }),
       "vite-hub/console",
     )
 
-    await expect(callHook(plugin.config, [{
+    const config = {
       nitro: {
         handlers: [{
           handler: "/app/server/api/custom-kv.ts",
           route: "/api/_vitehub/console/kv",
         }],
       },
-    }, { command: "serve", mode: "development" }])).rejects.toThrow(
-      "Cannot install the Console KV handler because /api/_vitehub/console/kv is already configured from /app/server/api/custom-kv.ts.",
-    )
+    }
+    await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+    expect(config.nitro.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: "/api/_vitehub/console/kv" }),
+      expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+    ]))
   })
 
   it("passes discovered Auth access policy to production Console builds", async () => {
@@ -427,10 +430,7 @@ describe("vitehub", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
         access: {
-          routes: [
-            { authorize: true, route: "/_vitehub/**" },
-            { authorize: true, route: "/api/_vitehub/console/**" },
-          ],
+          routes: [{ authorize: true, route: "/_vitehub/**" }],
         },
       })
       const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }), "vite-hub/console")
@@ -444,7 +444,7 @@ describe("vitehub", () => {
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
           expect.objectContaining({ route: "/_vitehub/**" }),
-          expect.objectContaining({ route: "/api/_vitehub/console/agents" }),
+          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
         ]),
       })
     }
@@ -477,8 +477,8 @@ describe("vitehub", () => {
 
       expect(implicitConfig).toMatchObject({
         nitro: {
-          handlers: expect.not.arrayContaining([
-            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+          handlers: expect.arrayContaining([
+            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
           ]),
         },
       })
@@ -498,7 +498,7 @@ describe("vitehub", () => {
       expect(explicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/api/_vitehub/console/definitions" }),
+            expect.objectContaining({ route: "/_vitehub/rpc/**" }),
           ]),
         },
       })

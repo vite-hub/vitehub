@@ -20,6 +20,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { installConsoleFixtureInvocations } from "./runtime/server/invocations.ts"
 import { consoleDefinitionSectionIds } from "./runtime/definitions.ts"
+import { addConsoleDevframeHandler } from "./nitro.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -121,7 +122,7 @@ export function updateConsoleInvocationRootState(
   bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
-const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
+const consoleAccessRoutes = ["/_vitehub/**"] as const
 
 function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
   if (!route.authorize || route.method) return false
@@ -316,70 +317,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
     if (configured) sections = [...sections, "queues"]
   }
 
-  function reconcileKVHandler(nitro: ConsoleNitroConfig): void {
-    const route = "/api/_vitehub/console/kv"
-    const kvHandler = join(consoleRuntimeRoot, "server/kv.get.js")
-    const handlers = Array.isArray(nitro.handlers)
-      ? nitro.handlers.filter(handler => handler?.handler !== kvHandler)
-      : []
-    if (sections.includes("kv")) {
-      const conflictingHandler = handlers.find(handler => handler?.route === route)
-      if (conflictingHandler) {
-        throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-      }
-      handlers.push({ handler: kvHandler, route })
-    }
-    nitro.handlers = handlers
-  }
-
-  function reconcileDefinitionsHandler(nitro: ConsoleNitroConfig): void {
-    const route = "/api/_vitehub/console/definitions"
-    const definitionsHandler = join(consoleRuntimeRoot, "server/definitions.get.js")
-    const handlers = Array.isArray(nitro.handlers)
-      ? nitro.handlers.filter(handler => handler?.handler !== definitionsHandler)
-      : []
-    if (consoleDefinitionSectionIds.some(section => sections.includes(section))) {
-      const conflictingHandler = handlers.find(handler => handler?.route === route)
-      if (conflictingHandler) {
-        throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-      }
-      handlers.push({ handler: definitionsHandler, route })
-    }
-    nitro.handlers = handlers
-  }
-
-  function reconcileDatabaseHandler(nitro: ConsoleNitroConfig): void {
-    const route = "/api/_vitehub/console/database"
-    const databaseHandler = join(consoleRuntimeRoot, "server/database.get.js")
-    const handlers = Array.isArray(nitro.handlers)
-      ? nitro.handlers.filter(handler => handler?.handler !== databaseHandler)
-      : []
-    if (sections.includes("databases")) {
-      const conflictingHandler = handlers.find(handler => handler?.route === route)
-      if (conflictingHandler) {
-        throw new TypeError(`[vitehub] Cannot install the Console Database handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-      }
-      handlers.push({ handler: databaseHandler, route })
-    }
-    nitro.handlers = handlers
-  }
-
-  function reconcileBlobHandler(nitro: ConsoleNitroConfig): void {
-    const route = "/api/_vitehub/console/blob"
-    const blobHandler = join(consoleRuntimeRoot, "server/blob.get.js")
-    const handlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
-    if (sections.includes("blob")) {
-      const conflictingHandler = handlers.find(handler => handler?.route === route && handler?.handler !== blobHandler)
-      if (conflictingHandler) {
-        throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-      }
-      if (!handlers.some(handler => handler?.handler === blobHandler)) handlers.push({ handler: blobHandler, route })
-    }
-    nitro.handlers = sections.includes("blob")
-      ? handlers
-      : handlers.filter(handler => handler?.handler !== blobHandler)
-  }
-
   const plugin: Plugin & ViteHubCliContributingPlugin = {
     name: "vite-hub/console",
     async config(config, environment) {
@@ -493,57 +430,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           )
         : []
       handlers.push(
-        {
-          handler: join(consoleRuntimeRoot, "server/sections.get.js"),
-          route: "/api/_vitehub/console/sections",
-        },
-        ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
-          ? [{
-              handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
-              route: "/api/_vitehub/console/definitions",
-            }]
-          : []),
-        ...(sections.includes("agents")
-          ? [
-              {
-                handler: join(consoleRuntimeRoot, "server/agents.get.js"),
-                route: "/api/_vitehub/console/agents",
-              },
-              {
-                handler: join(consoleRuntimeRoot, "server/invocations.get.js"),
-                route: "/api/_vitehub/console/invocations",
-              },
-              {
-                handler: join(consoleRuntimeRoot, "server/invocation.get.js"),
-                route: "/api/_vitehub/console/invocations/:id",
-              },
-              {
-                handler: join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
-                route: "/api/_vitehub/console/invocation-capabilities",
-              },
-              {
-                handler: join(consoleRuntimeRoot, "server/search.get.js"),
-                route: "/api/_vitehub/console/search",
-              },
-            ]
-          : []),
-        ...(sections.includes("usage")
-          ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
-          : []),
-        ...(sections.includes("blob")
-          ? [{
-              handler: join(consoleRuntimeRoot, "server/blob.get.js"),
-              route: "/api/_vitehub/console/blob",
-            }]
-          : []),
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
       nitro.handlers = handlers
-      reconcileKVHandler(nitro)
-      reconcileDatabaseHandler(nitro)
-      reconcileDefinitionsHandler(nitro)
-      reconcileBlobHandler(nitro)
+      addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
       const plugins = Array.isArray(nitro.plugins)
         ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
@@ -603,10 +494,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
       const nitro = viteConfig.nitro ??= {}
-      reconcileKVHandler(nitro)
-      reconcileDatabaseHandler(nitro)
-      reconcileDefinitionsHandler(nitro)
-      reconcileBlobHandler(nitro)
+      addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
       generatedPlugin ||= resolveGeneratedConsolePlugin(config.root, fixture, options.invocationRootState)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

@@ -214,12 +214,14 @@ export default defineConfig({
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
+      "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
+      "src/console/runtime/server/devframe.ts",
       "src/console/runtime/server/invocation.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/kv.get.ts",
@@ -237,6 +239,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
+        delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
@@ -246,6 +249,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
         delete exports["./console/runtime/server/invocation-capabilities.get"];
+        delete exports["./console/runtime/server/devframe"];
         delete exports["./console/runtime/server/invocation.get"];
         delete exports["./console/runtime/server/invocations.get"];
         delete exports["./console/runtime/server/kv.get"];

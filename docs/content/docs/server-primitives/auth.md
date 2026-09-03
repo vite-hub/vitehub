@@ -164,10 +164,6 @@ export default defineAuth({
         route: '/_vitehub/**',
         authorize: ({ user }) => user.isAdmin === true,
       },
-      {
-        route: '/api/_vitehub/console/**',
-        authorize: ({ user }) => user.isAdmin === true,
-      },
     ],
   },
 })
@@ -175,7 +171,7 @@ export default defineAuth({
 
 The callback receives the authenticated `user`, `session`, and request. ViteHub does not define an admin role. The host maps its own role or permission model here.
 
-Read [Console](/docs/development/console#protect-both-route-groups) for its page and API routes, plus the behavior when Console is disabled.
+Read [Console](/docs/development/console#protect-the-console-route) for its page and Devframe transport route, plus the behavior when Console is disabled.
 
 ## Storage placement metadata
 

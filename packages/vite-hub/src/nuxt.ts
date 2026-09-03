@@ -24,6 +24,7 @@ import { installConsoleProjectName, installConsoleSections } from "./console/run
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleDefinitionSectionIds } from "./console/runtime/definitions.ts"
+import { addConsoleDevframeHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleProductionAccess, closeConsoleInvocationRootState, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -392,84 +393,6 @@ async function writeConsoleNitroPlugin(
   return identity
 }
 
-function reconcileConsoleKVHandler(
-  nitro: { handlers?: Array<{ handler: string, route: string }> },
-  enabled: boolean,
-): void {
-  const route = "/api/_vitehub/console/kv"
-  const handler = join(consoleRuntimeRoot, "server/kv.get.js")
-  const handlers = (nitro.handlers ??= [])
-  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
-  if (!enabled) {
-    if (index !== -1) handlers.splice(index, 1)
-    return
-  }
-  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
-  if (conflictingHandler) {
-    throw new TypeError(`[vitehub] Cannot install the Console KV handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-  }
-  if (index === -1) handlers.push({ handler, route })
-}
-
-function reconcileConsoleBlobHandler(
-  nitro: { handlers?: Array<{ handler: string, route: string }> },
-  enabled: boolean,
-  hostHandlers: ReadonlyArray<{ handler: string, route: string }> = [],
-): void {
-  const route = "/api/_vitehub/console/blob"
-  const handler = join(consoleRuntimeRoot, "server/blob.get.js")
-  const handlers = (nitro.handlers ??= [])
-  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
-  if (!enabled) {
-    if (index !== -1) handlers.splice(index, 1)
-    return
-  }
-  const conflictingHandler = [...hostHandlers, ...handlers]
-    .find(candidate => candidate.route === route && candidate.handler !== handler)
-  if (conflictingHandler) {
-    throw new TypeError(`[vitehub] Cannot install the Console Blob handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-  }
-  if (index === -1) handlers.push({ handler, route })
-}
-
-function reconcileConsoleDefinitionsHandler(
-  nitro: { handlers?: Array<{ handler: string, route: string }> },
-  enabled: boolean,
-): void {
-  const route = "/api/_vitehub/console/definitions"
-  const handler = join(consoleRuntimeRoot, "server/definitions.get.js")
-  const handlers = (nitro.handlers ??= [])
-  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
-  if (!enabled) {
-    if (index !== -1) handlers.splice(index, 1)
-    return
-  }
-  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
-  if (conflictingHandler) {
-    throw new TypeError(`[vitehub] Cannot install the Console definitions handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-  }
-  if (index === -1) handlers.push({ handler, route })
-}
-
-function reconcileConsoleDatabaseHandler(
-  nitro: { handlers?: Array<{ handler: string, route: string }> },
-  enabled: boolean,
-): void {
-  const route = "/api/_vitehub/console/database"
-  const handler = join(consoleRuntimeRoot, "server/database.get.js")
-  const handlers = (nitro.handlers ??= [])
-  const index = handlers.findIndex(candidate => candidate.route === route && candidate.handler === handler)
-  if (!enabled) {
-    if (index !== -1) handlers.splice(index, 1)
-    return
-  }
-  const conflictingHandler = handlers.find(candidate => candidate.route === route && candidate.handler !== handler)
-  if (conflictingHandler) {
-    throw new TypeError(`[vitehub] Cannot install the Console Database handler because ${route} is already configured from ${conflictingHandler.handler}.`)
-  }
-  if (index === -1) handlers.push({ handler, route })
-}
-
 async function installConsole(
   nuxt: NuxtLike,
   projectRoot: string,
@@ -615,63 +538,7 @@ async function installConsole(
     handlers?: Array<{ handler: string, route: string }>
     plugins?: string[]
   }
-  const handlers = (nitro.handlers ??= [])
-  const additions = [
-    {
-      handler: join(consoleRuntimeRoot, "server/sections.get.js"),
-      route: "/api/_vitehub/console/sections",
-    },
-    ...(consoleDefinitionSectionIds.some(section => sections.includes(section))
-      ? [{
-          handler: join(consoleRuntimeRoot, "server/definitions.get.js"),
-          route: "/api/_vitehub/console/definitions",
-        }]
-      : []),
-    ...(sections.includes("agents")
-      ? [
-          {
-            handler: join(consoleRuntimeRoot, "server/agents.get.js"),
-            route: "/api/_vitehub/console/agents",
-          },
-          {
-            handler: join(consoleRuntimeRoot, "server/invocations.get.js"),
-            route: "/api/_vitehub/console/invocations",
-          },
-          {
-            handler: join(consoleRuntimeRoot, "server/invocation.get.js"),
-            route: "/api/_vitehub/console/invocations/:id",
-          },
-          {
-            handler: join(consoleRuntimeRoot, "server/search.get.js"),
-            route: "/api/_vitehub/console/search",
-          },
-        ]
-      : []),
-    ...(sections.includes("blob")
-      ? [{
-          handler: join(consoleRuntimeRoot, "server/blob.get.js"),
-          route: "/api/_vitehub/console/blob",
-        }]
-      : []),
-    ...(sections.includes("kv")
-      ? [{
-          handler: join(consoleRuntimeRoot, "server/kv.get.js"),
-          route: "/api/_vitehub/console/kv",
-        }]
-      : []),
-    ...(sections.includes("databases")
-      ? [{
-          handler: join(consoleRuntimeRoot, "server/database.get.js"),
-          route: "/api/_vitehub/console/database",
-        }]
-      : []),
-    ...(sections.includes("usage")
-      ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage" }]
-      : []),
-  ]
-  for (const handler of additions) {
-    if (!handlers.some((candidate) => candidate.route === handler.route)) handlers.push(handler)
-  }
+  addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
@@ -1314,7 +1181,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       : {}),
   }
   nuxt.hook?.("nitro:config", async (config) => {
-    const hostHandlers = Array.isArray(config.handlers) ? [...config.handlers] : []
     const {
       config: replayConfig,
       hasReplayedDatabaseDiscoveryRoot,
@@ -1356,14 +1222,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
-      reconcileConsoleBlobHandler(config, consoleSections.includes("blob"), hostHandlers)
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-      reconcileConsoleKVHandler(config, consoleSections.includes("kv"))
-      reconcileConsoleDatabaseHandler(config, consoleSections.includes("databases"))
-      reconcileConsoleDefinitionsHandler(
-        config,
-        consoleDefinitionSectionIds.some(section => consoleSections.includes(section)),
-      )
+      addConsoleDevframeHandler(config, consoleRuntimeRoot)
       const consoleCatalog = await discoverConsoleBuildCatalog({
         databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
           ? replayedDatabaseDiscoveryRoot

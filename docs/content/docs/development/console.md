@@ -8,6 +8,8 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
+ViteHub renders the Console UI and serves its static assets. One embedded Devframe instance carries all Console reads over SSE, so the same interface works in development and production hosts without exposing separate resource routes.
+
 The Console currently exposes Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
@@ -74,7 +76,7 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
-If `console` is omitted or set to `false`, ViteHub does not register a Console page, API handler, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
+If `console` is omitted or set to `false`, ViteHub does not register a Console page, Devframe transport, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
 ## Develop against a fixture
 
@@ -121,13 +123,13 @@ The wrapper preserves the child command's exit status, translating signal termin
 
 Fixtures often contain prompts and model output. Use synthetic or scrubbed records before committing them.
 
-## Protect both route groups
+## Protect the Console route
 
-The Console registers the page under `/_vitehub/**` and its read API under `/api/_vitehub/console/**`. A production build rejects bare `console: true` so these inspection routes cannot be exposed accidentally.
+The Console registers its page, assets, and Devframe SSE transport under `/_vitehub/**`. The transport uses `/_vitehub/rpc/**`; the previous `/api/_vitehub/console/**` handlers are not registered. A production build rejects bare `console: true` so this inspection surface cannot be exposed accidentally.
 
-ViteHub sends `X-Robots-Tag: noindex, nofollow` on both route groups and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
+ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
 
-If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard both route groups in the Primary Auth Definition. The host decides what makes a user an administrator.
+If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard `/_vitehub/**` in the Primary Auth Definition. The host decides what makes a user an administrator.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -150,7 +152,6 @@ export default defineAuth({
   access: {
     routes: [
       { route: '/_vitehub/**', authorize: authorizeConsole },
-      { route: '/api/_vitehub/console/**', authorize: authorizeConsole },
     ],
   },
 })
@@ -160,7 +161,7 @@ ViteHub checks for an Auth Session before it calls `authorizeConsole`. A missing
 
 The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host.
 
-Apps that use another authentication library must protect both route groups in host middleware and acknowledge that boundary explicitly:
+Apps that use another authentication library must protect `/_vitehub/**` in host middleware and acknowledge that boundary explicitly:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -216,7 +217,7 @@ The Agent Console uses an invocation journal configured on the discovered Agent 
 
 When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Cloudflare, Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
 
-The Console API uses `GET` for bounded listings and metadata, and a JSON-body `POST` to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The Console sends every read through one Devframe SSE instance at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
@@ -252,7 +253,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Sandboxes is absent from the Console home | Configure `sandbox: true` with a deployment preset that supports Sandbox. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with callback-backed policies for both route groups, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. |
+| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with a callback-backed policy for `/_vitehub/**`, or acknowledge host middleware with `console: { exposure: 'host-managed' }`. |
 | Agent Console startup fails on a hosted preset | Configure one durable Agent Invocations journal and attach it to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the host's `authorize` callback and the current user's role or permission. |

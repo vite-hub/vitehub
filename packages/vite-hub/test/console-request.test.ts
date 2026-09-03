@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+const mocks = vi.hoisted(() => ({
+  call: vi.fn(),
+  connectDevframe: vi.fn(),
+}));
+
+vi.mock("devframe/client", () => ({
+  connectDevframe: mocks.connectDevframe,
+}));
+
 import {
   appendUniqueConsoleKeys,
   ConsoleRequestError,
@@ -8,10 +17,14 @@ import {
   requestConsole,
 } from "../src/console/runtime/client/request.ts"
 import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
 afterEach(() => {
-  vi.unstubAllGlobals()
+  mocks.call.mockReset()
+  mocks.connectDevframe.mockClear()
 })
+
+mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call }));
 
 describe("Console requests", () => {
   it("deduplicates keys repeated across provider pages", () => {
@@ -20,23 +33,36 @@ describe("Console requests", () => {
   })
 
   it("supports requests without query or signal options", async () => {
-    const fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ sections: ["kv"] }),
-      ok: true,
-    })
-    vi.stubGlobal("fetch", fetch)
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
 
-    await expect(requestConsole("/api/_vitehub/console/sections"))
+    await expect(requestConsole("/first/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
-    expect(fetch).toHaveBeenCalledWith("/api/_vitehub/console/sections", { method: "GET", signal: undefined })
+    expect(mocks.connectDevframe).toHaveBeenCalledWith({
+      baseURL: "/first/_vitehub/rpc/",
+      otpParam: false,
+      simpleAuth: false,
+      transport: "sse",
+    })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
+      method: "GET",
+      query: {},
+    })
   })
 
-  it("preserves HTTP status and retries only transient request failures", async () => {
-    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 502 })
-    vi.stubGlobal("fetch", fetch)
+  it("preserves remote status and retries only transient request failures", async () => {
+    mocks.call.mockResolvedValue({ message: "Upstream unavailable.", ok: false, status: 502 })
 
-    await expect(requestConsole("/api/_vitehub/console/invocations/selected"))
-      .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
+    await expect(requestConsole("/second/api/_vitehub/console/invocations/selected"))
+      .rejects.toMatchObject({
+        message: "Upstream unavailable.",
+        name: "ConsoleRequestError",
+        status: 502,
+      })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocation, {
+      id: "selected",
+      method: "GET",
+      query: {},
+    })
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(408))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(429))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
@@ -44,27 +70,24 @@ describe("Console requests", () => {
     expect(isRetryableConsoleRequestError(new TypeError("network unavailable"))).toBe(true)
   })
 
-  it("sends read-only actions as JSON POST requests", async () => {
-    const fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve({ found: true }), ok: true })
-    vi.stubGlobal("fetch", fetch)
+  it("sends read-only action bodies through RPC", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { found: true } })
 
-    await expect(requestConsole("/api/_vitehub/console/kv", {
+    await expect(requestConsole("/third/api/_vitehub/console/kv", {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
-    expect(fetch).toHaveBeenCalledWith("/api/_vitehub/console/kv", {
-      body: expect.stringContaining('"store":"default"'),
-      headers: { "content-type": "application/json" },
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.kv, {
+      body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
-      signal: undefined,
+      query: {},
     })
   })
 
   it("loads every KV page using the configured base and stops repeated cursors", async () => {
-    const fetch = vi.fn()
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["second"] }), ok: true })
-    vi.stubGlobal("fetch", fetch)
+    mocks.call
+      .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["first"] } })
+      .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["second"] } })
 
     await expect(loadConsoleKVPages("/host/api/_vitehub/console/kv", "cache", new AbortController().signal))
       .resolves.toEqual({
@@ -74,15 +97,22 @@ describe("Console requests", () => {
         ],
         truncated: true,
       })
-    expect(fetch).toHaveBeenNthCalledWith(1, "/host/api/_vitehub/console/kv?store=cache", expect.any(Object))
-    expect(fetch).toHaveBeenNthCalledWith(2, "/host/api/_vitehub/console/kv?cursor=next&store=cache", expect.any(Object))
+    expect(mocks.call).toHaveBeenNthCalledWith(
+      1,
+      consoleRpcMethods.kv,
+      expect.objectContaining({ query: { store: "cache" } }),
+    )
+    expect(mocks.call).toHaveBeenNthCalledWith(
+      2,
+      consoleRpcMethods.kv,
+      expect.objectContaining({ query: { cursor: "next", store: "cache" } }),
+    )
   })
 
   it("continues through empty KV pages within a bounded search budget", async () => {
-    const fetch = vi.fn()
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: [] }), ok: true })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "last", keys: ["matching"] }), ok: true })
-    vi.stubGlobal("fetch", fetch)
+    mocks.call
+      .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: [] } })
+      .mockResolvedValueOnce({ ok: true, value: { cursor: "last", keys: ["matching"] } })
 
     await expect(loadConsoleKVPages(
       "/api/_vitehub/console/kv",
@@ -97,53 +127,62 @@ describe("Console requests", () => {
       ],
       truncated: true,
     })
-    expect(fetch).toHaveBeenNthCalledWith(
+    expect(mocks.call).toHaveBeenNthCalledWith(
       2,
-      "/api/_vitehub/console/kv?cursor=next&limit=50&prefix=match&store=cache",
-      expect.any(Object),
+      consoleRpcMethods.kv,
+      expect.objectContaining({
+        query: { cursor: "next", limit: "50", prefix: "match", store: "cache" },
+      }),
     )
   })
 
   it("rejects a KV page that reports a provider error", async () => {
-    const fetch = vi.fn()
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ cursor: "next", keys: ["first"] }), ok: true })
+    mocks.call
+      .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["first"] } })
       .mockResolvedValueOnce({
-        json: () => Promise.resolve({ error: "KV unavailable", errorCode: "provider_failed", keys: [] }),
         ok: true,
+        value: { error: "KV unavailable", errorCode: "provider_failed", keys: [] },
       })
-    vi.stubGlobal("fetch", fetch)
 
     await expect(loadConsoleKVPages("/api/_vitehub/console/kv", "cache", new AbortController().signal))
       .rejects.toMatchObject({ code: "provider_failed", message: "KV unavailable" })
   })
 
   it("retries section discovery after a failed request and caches a successful response", async () => {
-    const fetch = vi.fn()
+    mocks.call
       .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValue({
-        json: () => Promise.resolve({ sections: ["kv"] }),
-        ok: true,
-      })
-    vi.stubGlobal("fetch", fetch)
-    const loadSections = createConsoleSectionLoader("/api/_vitehub/console/sections")
+      .mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    const loadSections = createConsoleSectionLoader("/sections-test/api/_vitehub/console/sections")
 
     await expect(loadSections()).resolves.toBeUndefined()
     await expect(loadSections()).resolves.toEqual(["kv"])
     await expect(loadSections()).resolves.toEqual(["kv"])
-    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(mocks.call).toHaveBeenCalledTimes(2)
   })
 
   it("loads the project name and enabled sections as one navigation response", async () => {
-    const fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ projectName: " console-host ", sections: ["kv", "unknown"] }),
+    mocks.call.mockResolvedValue({
       ok: true,
+      value: { projectName: " console-host ", sections: ["kv", "unknown"] },
     })
-    vi.stubGlobal("fetch", fetch)
 
-    await expect(loadConsoleNavigation("/api/_vitehub/console/navigation-test")).resolves.toEqual({
+    await expect(
+      loadConsoleNavigation("/navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toEqual({
       projectName: "console-host",
       sections: ["kv"],
     })
-    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(mocks.call).toHaveBeenCalledTimes(1)
+  })
+
+  it("stops waiting for an RPC result when navigation is aborted", async () => {
+    mocks.call.mockReturnValue(new Promise(() => undefined))
+    const controller = new AbortController()
+    const request = requestConsole("/abort-test/api/_vitehub/console/sections", {
+      signal: controller.signal,
+    })
+    controller.abort(new Error("navigation changed"))
+
+    await expect(request).rejects.toThrow("navigation changed")
   })
 })
