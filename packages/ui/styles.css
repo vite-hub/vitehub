@@ -2060,6 +2060,104 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   margin-block-start: 0.45rem;
 }
 
+.vh-agent-tool-list {
+  display: grid;
+  gap: 0.125rem;
+  margin-block-start: 0.45rem;
+}
+
+.vh-agent-tool-list__item,
+.vh-agent-tool-list__disclosure > summary {
+  align-items: center;
+  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  display: flex;
+  gap: 0.5rem;
+  min-height: 1.8rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.vh-agent-tool-list__item code,
+.vh-agent-tool-list__disclosure > summary code {
+  flex: none;
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+}
+
+.vh-agent-tool-list__disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.vh-agent-tool-list__disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-agent-tool-list__disclosure > summary:hover {
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 70%, transparent);
+}
+
+.vh-agent-tool-list__disclosure > summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.vh-agent-tool-list__disclosure > summary small {
+  color: var(--vh-ui-dimmed);
+  flex: 1;
+  font-size: 0.625rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-agent-tool-list__chevron {
+  height: 0.8rem;
+  stroke: currentColor;
+  stroke-width: 2;
+  transition: transform 150ms ease;
+  width: 0.8rem;
+}
+
+.vh-agent-tool-list__disclosure[open] > summary .vh-agent-tool-list__chevron {
+  transform: rotate(180deg);
+}
+
+.vh-agent-tool-list__body {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.35rem 0.45rem 0.75rem;
+}
+
+.vh-agent-tool-list__body > p {
+  color: var(--vh-ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.vh-agent-tool-list__schema strong {
+  color: var(--vh-ui-dimmed);
+  display: block;
+  font-size: 0.625rem;
+  margin-block-end: 0.35rem;
+  text-transform: uppercase;
+}
+
+.vh-agent-tool-list__schema pre {
+  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
+  border: 1px solid var(--vh-ui-border);
+  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  color: var(--vh-ui-muted);
+  font-size: 0.625rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.6rem 0.65rem;
+  white-space: pre;
+}
+
 .vh-invocation-inspector__item,
 .vh-invocation-inspector__item-disclosure summary {
   align-items: center;

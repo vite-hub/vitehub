@@ -13,8 +13,10 @@ import {
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { docsLanes, parseDocsLanes } from "./docs-lanes";
 import { toRawMarkdown } from "./artifacts/raw-markdown";
+import type { CapabilityReferences } from "./capability-references";
 
 type DocsArtifactOptions = {
+  capabilityReferences?: CapabilityReferences;
   docsRoot: string;
   outputDir: string;
 };
@@ -281,7 +283,7 @@ function withArtifactLock<T>(outputDir: string, callback: () => T) {
   }
 }
 
-function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
+function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string, capabilityReferences?: CapabilityReferences) {
   const rawOutputDir = resolve(outputDir, "raw");
   const expectedPaths = new Set<string>();
   for (const [directory, prefix] of [["docs", "docs"], ["blog", "blog"], ["trust", ""]] as const) {
@@ -292,7 +294,7 @@ function writeRawMarkdownArtifacts(docsRoot: string, outputDir: string) {
       mkdirSync(resolve(destination, ".."), { recursive: true });
       const temporaryPath = `${destination}.${process.pid}.${randomUUID()}.tmp`;
       try {
-        writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8")));
+        writeFileSync(temporaryPath, toRawMarkdown(readFileSync(absolutePath, "utf8"), { capabilityReferences }));
         renameSync(temporaryPath, destination);
       } finally {
         rmSync(temporaryPath, { force: true });
@@ -480,14 +482,14 @@ function collectSections(localDocsRoot: string) {
     });
 }
 
-export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions) {
+export function writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir }: DocsArtifactOptions) {
   return withArtifactLock(outputDir, () => {
     const localDocsRoot = resolve(docsRoot, "content", "docs");
     const rootPage = collectRootPage(localDocsRoot);
     const sections = collectSections(localDocsRoot);
     const manifest = { version: docsManifestVersion, rootPage, sections };
 
-    writeRawMarkdownArtifacts(docsRoot, outputDir);
+    writeRawMarkdownArtifacts(docsRoot, outputDir, capabilityReferences);
     mkdirSync(outputDir, { recursive: true });
 
     const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;

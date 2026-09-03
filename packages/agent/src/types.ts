@@ -307,6 +307,13 @@ export interface AgentTelemetryCapabilityMetadata {
   metadata?: Record<string, AgentInspectionValue>
 }
 
+export interface AgentToolInspection {
+  description?: string
+  inputSchema?: AgentInspectionValue
+  name: string
+  outputSchema?: AgentInspectionValue
+}
+
 export interface AgentTelemetryConfiguration {
   agent?: {
     name?: string
@@ -331,7 +338,7 @@ export interface AgentTelemetryConfiguration {
   runtime: {
     name: string
   }
-  tools?: Array<{ name: string }>
+  tools?: AgentToolInspection[]
   workspace?: {
     mode: AgentCapabilityMode
     name?: string

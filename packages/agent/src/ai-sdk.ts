@@ -19,6 +19,7 @@ import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { inspectAgentTools } from "./tool-inspection.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -1272,6 +1273,7 @@ async function createAgent(
     type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
+  const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
   await updateAgentTelemetryConfiguration(context.context, {
@@ -1282,7 +1284,7 @@ async function createAgent(
       },
     },
     ...(instructions ? { instructions: [instructions] } : {}),
-    ...(Object.keys(toolSet).length ? { tools: Object.keys(toolSet).sort().map(name => ({ name })) } : {}),
+    ...(inspectedTools ? { tools: inspectedTools } : {}),
   })
   const {
     instructions: _instructions,

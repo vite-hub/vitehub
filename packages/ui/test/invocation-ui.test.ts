@@ -2650,7 +2650,11 @@ describe("Agent Invocation UI", () => {
         driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "openai" } },
         instructions: ["Follow repository instructions."],
         runtime: { name: "node" },
-        tools: [{ name: "exec" }],
+        tools: [{
+          description: "Run a shell command.",
+          inputSchema: { properties: { command: { type: "string" } }, required: ["command"], type: "object" },
+          name: "exec",
+        }],
         workspace: { mode: "write", name: "babysitter", sources: ["github:vite-hub/vitehub"] },
       },
       createdAt: "2026-08-24T00:00:00.000Z",
@@ -2669,6 +2673,8 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
+    expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
+    expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
 
     const compact = mount(AgentInvocationInspector, {
       props: { invocation, showStatus: false, showTimeline: false },

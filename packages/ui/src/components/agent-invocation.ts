@@ -19,6 +19,7 @@ import {
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
+import { AgentToolList } from "./agent-tool-list.ts";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -986,10 +987,13 @@ function renderConfiguration(configuration: AgentInvocationConfiguration) {
         ])
       : null,
     configuration.tools?.length
-      ? inspectorCollection(
-          "Tools",
-          configuration.tools.map((tool) => tool.name),
-        )
+      ? h("div", { class: "vh-invocation-inspector__group" }, [
+          h("div", { class: "vh-invocation-inspector__group-heading" }, [
+            h("strong", "Tools"),
+            h("small", configuration.tools.length),
+          ]),
+          h(AgentToolList, { tools: configuration.tools }),
+        ])
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(

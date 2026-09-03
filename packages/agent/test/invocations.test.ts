@@ -26,6 +26,24 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
   }
 }
 
+function inspectableToolCapability() {
+  return defineCapability({
+    id: "search",
+    tools: {
+      search: {
+        description: "Search indexed records.",
+        inputSchema: {
+          additionalProperties: false,
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          type: "object",
+        },
+        name: "search",
+      },
+    },
+  })
+}
+
 describe("Agent Invocations", () => {
   it("does not mark a full journal truncated when retrying an identified observation", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
@@ -1742,6 +1760,7 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
+      capabilities: [inspectableToolCapability()],
       channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
@@ -1779,7 +1798,9 @@ describe("Agent Invocations", () => {
     expect(configuration).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
       fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
+      tools: [{ name: "search" }],
     })
+    expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).not.toContain("Search indexed records")
   })
 
   it("persists resolved instructions when invocation content is enabled", async () => {
@@ -1789,6 +1810,7 @@ describe("Agent Invocations", () => {
       store: createMemoryAgentInvocationStore(),
     })
     const agent = defineAgent({
+      capabilities: [inspectableToolCapability()],
       driver: {
         instructions: "Inspectable resolved instructions",
         model: new MockLanguageModelV3({
@@ -1812,6 +1834,16 @@ describe("Agent Invocations", () => {
       .findLast(entry => entry.name === "vitehub.agent.configured")
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
       instructions: ["Inspectable resolved instructions"],
+      tools: [{
+        description: "Search indexed records.",
+        inputSchema: {
+          additionalProperties: false,
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          type: "object",
+        },
+        name: "search",
+      }],
     })
   })
 

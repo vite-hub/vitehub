@@ -8,7 +8,7 @@
   },
   "scripts": {
     "clean": "rm -rf .nuxt .output node_modules/.cache .generated",
-    "postinstall": "vp run -t @vite-hub/ui#build && nuxi prepare",
+    "postinstall": "vp run -t @vite-hub/agent#build && vp run -t @vite-hub/ui#build && nuxi prepare",
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "node scripts/build.mjs",
@@ -26,6 +26,7 @@
     "@nuxt/content": "catalog:nuxt",
     "@nuxt/icon": "^2.5.0",
     "@nuxt/ui": "catalog:nuxt",
+    "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai",

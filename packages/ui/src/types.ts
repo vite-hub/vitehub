@@ -38,6 +38,13 @@ export type AgentInspectionValue =
   | readonly AgentInspectionValue[]
   | { readonly [key: string]: AgentInspectionValue };
 
+export interface AgentToolInspection {
+  description?: string;
+  inputSchema?: AgentInspectionValue;
+  name: string;
+  outputSchema?: AgentInspectionValue;
+}
+
 export interface AgentInvocationConfiguration {
   agent?: {
     name?: string;
@@ -64,7 +71,7 @@ export interface AgentInvocationConfiguration {
   runtime?: {
     name?: string;
   };
-  tools?: readonly { name: string }[];
+  tools?: readonly AgentToolInspection[];
   workspace?: {
     mode?: string;
     name?: string;

@@ -8,6 +8,7 @@ export * from "./components/agent-invocation-list.ts";
 export * from "./components/agent-markdown.ts";
 export * from "./components/agent-message-parts.ts";
 export * from "./components/agent-session.ts";
+export * from "./components/agent-tool-list.ts";
 export * from "./components/agent-trace.ts";
 export * from "./composables/attachments.ts";
 export * from "./config.ts";

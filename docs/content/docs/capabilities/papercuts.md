@@ -9,6 +9,13 @@ icon: i-lucide-bandage
 
 `papercuts()` adds a `report_papercut` tool. The Agent can record non-blocking friction while it continues the user's task. Your application owns storage and review.
 
+## Agent-visible tool contract
+
+This definition is resolved from the real Capability during the docs build.
+
+::agent-capability-tools{name="papercuts"}
+::
+
 ## Store reports
 
 Pass a callback that writes each report to your preferred store:

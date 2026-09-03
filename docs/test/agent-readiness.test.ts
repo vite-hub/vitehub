@@ -8,6 +8,7 @@ import {
   withVary,
 } from "../server/utils/markdown-negotiation";
 import { rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
+import { createCapabilityReferences } from "../modules/vitehub-docs/capability-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const trustPages = ["about", "contact", "privacy"];
@@ -39,7 +40,25 @@ describe("agent-ready HTTP contracts", () => {
     expect(module).toContain('baseURL: "/raw"');
     expect(module).toContain('dir: resolve(outputDir, "raw")');
     expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
-    expect(module).toContain("const manifest = writeDocsArtifacts({ docsRoot, outputDir });");
+    expect(module).toContain("const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });");
+    expect(module).toContain("const capabilityReferences = await createCapabilityReferences();");
+  });
+
+  it("derives Capability references from the real model-facing tools", async () => {
+    const references = await createCapabilityReferences();
+
+    expect(references["papercuts.default"]?.tools).toEqual([
+      expect.objectContaining({
+        description: expect.stringContaining("Never include secrets or customer data"),
+        inputSchema: expect.objectContaining({ required: ["message"], type: "object" }),
+        name: "report_papercut",
+      }),
+    ]);
+    expect(references["db.write"]?.tools.map(tool => tool.name)).toEqual([
+      "db_exec",
+      "db_query",
+      "db_schema",
+    ]);
   });
 
   it("keeps the compact index routed to raw Markdown", () => {

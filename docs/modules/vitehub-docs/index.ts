@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
 import { writeDocsArtifacts } from "./artifacts";
+import { createCapabilityReferences, writeCapabilityReferences } from "./capability-references";
 
 function collectPrerenderRoutes(manifest: { sections: Array<{ pages: Array<{ path: string }> }> }) {
   const routes: string[] = ["/docs", "/about", "/contact", "/privacy"];
@@ -38,11 +39,14 @@ export default defineNuxtModule({
     const agentErrorHandler = resolve(docsRoot, "server/error-handler.ts");
     const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
 
-    const manifest = writeDocsArtifacts({ docsRoot, outputDir });
+    const capabilityReferences = await createCapabilityReferences();
+    const capabilityReferencesPath = writeCapabilityReferences(outputDir, capabilityReferences);
+    const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });
+    nuxt.options.alias["#vitehub-capability-references"] = capabilityReferencesPath;
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
     nuxt.hook("builder:watch", (_event, path) => {
       if (isDocsArtifactSource(path)) {
-        writeDocsArtifacts({ docsRoot, outputDir });
+        writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });
       }
     });
     nuxt.hook("prerender:routes", (context) => {

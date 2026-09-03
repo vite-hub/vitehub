@@ -28,6 +28,7 @@ const componentNames = [
   "AgentMultiFileDiff",
   "AgentPatchDiff",
   "AgentSession",
+  "AgentToolList",
   "AgentTrace",
   "AgentUnresolvedFile",
 ] as const;
