@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
-import { useConsoleSessionBootstrap } from "../src/console/runtime/components/console-session-bootstrap";
-import { computed, effectScope, nextTick, ref } from "vue";
+import {
+  refreshCapabilityFilteredInvocations,
+  useConsoleSessionBootstrap,
+} from "../src/console/runtime/components/console-session-bootstrap";
+import { computed, effectScope, nextTick, ref, watch } from "vue";
 import { describe, expect, it } from "vitest";
 
 const consolePage = readFileSync(
@@ -40,6 +43,51 @@ it("keeps shared refreshes on Usage free of Invocation requests", () => {
   expect(consolePage).toContain(
     "isUsageRoute.value ? Promise.resolve() : list.refresh()",
   );
+});
+
+it("selects an Invocation returned by the active Capability filter", async () => {
+  const routeInvocation = ref<string | undefined>("invocation-a");
+  const invocations = ref([{ id: "invocation-a" }]);
+  const selectedInvocationId = ref<string>();
+  const scope = effectScope();
+  let completeRefresh: (() => void) | undefined;
+
+  scope.run(() => {
+    watch(
+      [routeInvocation, computed(() => invocations.value[0])],
+      ([requestedInvocation, firstInvocation]) => {
+        selectedInvocationId.value = requestedInvocation || firstInvocation?.id;
+      },
+      { immediate: true },
+    );
+  });
+
+  const transition = refreshCapabilityFilteredInvocations({
+    navigate: async () => {
+      expect(invocations.value).toEqual([]);
+      routeInvocation.value = undefined;
+      await nextTick();
+    },
+    refresh: () => {
+      invocations.value = [];
+      return new Promise<void>((resolve) => {
+        completeRefresh = () => {
+          invocations.value = [{ id: "invocation-b" }];
+          resolve();
+        };
+      });
+    },
+  });
+
+  await nextTick();
+  expect(selectedInvocationId.value).toBeUndefined();
+  completeRefresh?.();
+  await transition;
+  await nextTick();
+
+  expect(selectedInvocationId.value).toBe("invocation-b");
+  expect(routeInvocation.value).toBeUndefined();
+  scope.stop();
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(

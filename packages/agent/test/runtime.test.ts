@@ -1626,6 +1626,7 @@ describe("agent message protocol", () => {
         set: (key: string, value: unknown) => invocationContext.set(key, value),
         toJSON: () => Object.fromEntries(invocationContext),
       },
+      driverContributions: [{ capabilityId: "repository-host", kind: "Capability tools", names: ["repository_host_write"] }],
       input: {},
       invoker: { id: "test", kind: "user" },
       runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, traceLog, waitUntil: vi.fn() },
@@ -1633,12 +1634,21 @@ describe("agent message protocol", () => {
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await telemetry.onToolExecutionStart?.({ toolCallId: "action-1", toolName: "repository_host_write" } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await telemetry.onToolExecutionEnd?.({ toolCallId: "action-1", toolName: "repository_host_write", toolOutput: { type: "text", value: "done" } } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await telemetry.onToolExecutionEnd?.({ toolCallId: "action-2", toolName: "repository_host_write", toolOutput: { error: "failed", type: "tool-error" } } as never)
 
-    expect(traceLog.entries()[0]?.attributes).toMatchObject({
-      "tool.name": "repository_host_write",
-      "vitehub.action.name": "repository-host.write",
-      "vitehub.activity.kind": "action",
-    })
+    expect(traceLog.entries()).toHaveLength(3)
+    expect(traceLog.entries().map(entry => entry.name)).toEqual(["agent.tool.start", "agent.tool.finish", "agent.tool.error"])
+    for (const entry of traceLog.entries()) {
+      expect(entry.attributes).toMatchObject({
+        "capability.id": "repository-host",
+        "tool.name": "repository_host_write",
+        "vitehub.action.name": "repository-host.write",
+        "vitehub.activity.kind": "action",
+      })
+    }
   })
 
   it("captures yielded usage in runAgent invocation data after final rendering", async () => {

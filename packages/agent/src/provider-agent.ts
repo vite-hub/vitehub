@@ -2452,7 +2452,14 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
   const tracer = context.runtime.traceLog
-    ? createAgentStreamEventTracer({ context: context.context, input: context.input, invoker: context.invoker, run: context.runtime.run, runtime: context.runtime })
+    ? createAgentStreamEventTracer({
+        context: context.context,
+        driverContributions: context.driverContributions,
+        input: context.input,
+        invoker: context.invoker,
+        run: context.runtime.run,
+        runtime: context.runtime,
+      })
     : undefined
   try {
     for await (const event of iterable) {

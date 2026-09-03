@@ -516,6 +516,168 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("filters invocation stores by the exact capability that was used", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-capability-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    try {
+      for (const [storeIndex, store] of stores.entries()) {
+        for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
+          await store.create({
+            agentName: "chat",
+            createdAt: timestamp,
+            id: `${storeIndex}-${recordIndex}`,
+            observations: capabilityId
+              ? [{
+                  attributes: { "capability.id": capabilityId },
+                  name: "agent.tool.finish",
+                  sequence: 1,
+                  timestamp,
+                  type: "run",
+                }]
+              : [],
+            status: "completed",
+            traceId: `${storeIndex}-${recordIndex}-trace`,
+            updatedAt: timestamp,
+          })
+        }
+
+        await expect(Promise.resolve(store.list({ capabilityId: "papercuts" }))).resolves.toMatchObject({
+          invocations: [{ id: `${storeIndex}-0` }],
+        })
+        await expect(defineAgentInvocations({ store }).listCapabilityIds("chat"))
+          .resolves.toEqual(["papercuts", "usage"])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps Capability use queryable after the observation journal is truncated", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-truncated-capability-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    try {
+      for (const [index, store] of stores.entries()) {
+        const runId = `truncated-capability-${index}`
+        const invocations = defineAgentInvocations({ store })
+        const journal = await bindAgentInvocations(invocations, runtime(runId))
+        if (!journal) throw new Error("Expected the invocation journal to be configured.")
+        await journal.running()
+        for (let observation = 0; observation < 256; observation++) {
+          await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
+        }
+        await journal.context.traceLog?.append({
+          attributes: { "capability.id": "late-capability" },
+          name: "agent.tool.start",
+          type: "run",
+        })
+
+        await vi.waitFor(async () => {
+          await expect(invocations.list({ capabilityId: "late-capability" })).resolves.toMatchObject({
+            invocations: [{ capabilityIds: ["late-capability"], id: expect.any(String) }],
+          })
+          await expect(invocations.listCapabilityIds()).resolves.toEqual(["late-capability"])
+        })
+        const record = await invocations.getByRunId(runId)
+        expect(record).toMatchObject({ observationsTruncated: true })
+        expect(record?.observations).toHaveLength(256)
+        expect(record?.observations.some(observation => observation.attributes?.["capability.id"] === "late-capability"))
+          .toBe(false)
+        await journal.finish("completed")
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "persists post-capacity Capability use through the %s terminal fallback",
+    async (status) => {
+      vi.useFakeTimers()
+      let releaseCapabilityWrite: (() => void) | undefined
+      let releaseTerminalObservationWrite: (() => void) | undefined
+      let rejectTerminalOutcome = true
+      try {
+        const memory = createMemoryAgentInvocationStore()
+        const capabilityWriteReleased = new Promise<void>((resolve) => { releaseCapabilityWrite = resolve })
+        const terminalObservationWriteReleased = new Promise<void>((resolve) => {
+          releaseTerminalObservationWrite = resolve
+        })
+        let reportCapabilityWriteStarted!: () => void
+        const capabilityWriteStarted = new Promise<void>((resolve) => { reportCapabilityWriteStarted = resolve })
+        let reportTerminalObservationWriteStarted!: () => void
+        const terminalObservationWriteStarted = new Promise<void>((resolve) => {
+          reportTerminalObservationWriteStarted = resolve
+        })
+        const invocations = defineAgentInvocations({
+          store: {
+            ...memory,
+            async update(id, input, claimId) {
+              if (input.status === undefined && input.capabilityIds?.includes("late-capability")) {
+                reportCapabilityWriteStarted()
+                await capabilityWriteReleased
+              }
+              if (input.status === undefined && input.observation?.name === "agent.invocation.finish") {
+                reportTerminalObservationWriteStarted()
+                await terminalObservationWriteReleased
+              }
+              if (rejectTerminalOutcome && input.status === status && input.observation) {
+                rejectTerminalOutcome = false
+                return
+              }
+              return memory.update(id, input, claimId)
+            },
+          },
+        })
+        const runId = `stalled-capability-${status}`
+        const journal = await bindAgentInvocations(invocations, runtime(runId))
+        if (!journal) throw new Error("Expected the invocation journal to be configured.")
+        await journal.running()
+        for (let observation = 0; observation < 256; observation++) {
+          await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
+        }
+        await vi.waitFor(async () => {
+          expect((await invocations.getByRunId(runId))?.observations).toHaveLength(256)
+        })
+        await journal.context.traceLog?.append({
+          attributes: { "capability.id": "late-capability" },
+          name: "agent.tool.start",
+          type: "run",
+        })
+        await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+        await Promise.all([capabilityWriteStarted, terminalObservationWriteStarted])
+
+        const finishing = journal.finish(status, status === "failed" ? new Error("provider failed") : undefined)
+        await vi.advanceTimersByTimeAsync(1_000)
+        await finishing
+        expect(rejectTerminalOutcome).toBe(false)
+        releaseCapabilityWrite?.()
+        releaseTerminalObservationWrite?.()
+        await vi.advanceTimersByTimeAsync(0)
+
+        await expect(invocations.getByRunId(runId)).resolves.toMatchObject({
+          capabilityIds: ["late-capability"],
+          observationsTruncated: true,
+          status,
+        })
+        await expect(invocations.list({ capabilityId: "late-capability" })).resolves.toMatchObject({
+          invocations: [{ id: expect.any(String), status }],
+        })
+      }
+      finally {
+        releaseCapabilityWrite?.()
+        releaseTerminalObservationWrite?.()
+        vi.useRealTimers()
+      }
+    },
+  )
+
   it("lists distinct Agent names without paging through invocation summaries", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-names-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
@@ -1609,9 +1771,14 @@ describe("Agent Invocations", () => {
         "vitehub.activity.phase": "setup",
       },
     })
-    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toHaveProperty("instructions")
-    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+    const configurationValue = configured?.attributes?.["vitehub.agent.configuration"]
+    const configuration = isRuntimeRecord(configurationValue) ? configurationValue : undefined
+    expect(configuration).not.toHaveProperty("instructions")
+    expect(configured?.attributes?.["vitehub.agent.configuration.fingerprint"])
+      .toBe(configuration?.fingerprint)
+    expect(configuration).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
+      fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
     })
   })
 

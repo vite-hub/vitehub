@@ -550,6 +550,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))")
         args.push(agentName, agentName)
       }
+      const capabilityId = listOptions.capabilityId?.trim()
+      if (capabilityId) {
+        filters.push(`(EXISTS (SELECT 1
+          FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
+          WHERE capability.value = ?)
+          OR EXISTS (SELECT 1
+          FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
+          WHERE json_extract(observation.value, '$."attributes"."capability.id"') = ?))`)
+        args.push(capabilityId, capabilityId)
+      }
       const search = searchValue(listOptions.search)
       if (search) {
         await ensureSearchBackfill()
@@ -583,6 +593,32 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return result.rows.flatMap((row) => {
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- LibSQL rows are external storage values, so validate the indexed Agent name before exposing it.
         return typeof row.name === "string" ? [row.name] : []
+      })
+    },
+    async listCapabilityIds(agentName) {
+      await initialize()
+      const selectedAgent = agentName?.trim()
+      const args: string[] = []
+      if (selectedAgent) {
+        args.push(selectedAgent, selectedAgent)
+      }
+      const result = await client.execute({
+        args,
+        sql: `SELECT DISTINCT capability_id FROM (
+          SELECT trim(capability.value) AS capability_id, agent_name, record
+            FROM ${table}, json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
+            WHERE typeof(capability.value) = 'text' AND trim(capability.value) <> ''
+          UNION ALL
+          SELECT trim(json_extract(observation.value, '$."attributes"."capability.id"')) AS capability_id, agent_name, record
+            FROM ${table}, json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
+            WHERE json_type(observation.value, '$."attributes"."capability.id"') = 'text'
+              AND trim(json_extract(observation.value, '$."attributes"."capability.id"')) <> ''
+        ) WHERE ${selectedAgent
+          ? "(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))"
+          : "1 = 1"} ORDER BY capability_id`,
+      })
+      return result.rows.flatMap((row) => {
+        return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
       })
     },
     async release(id, claimId) {
