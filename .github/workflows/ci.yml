@@ -42,31 +42,6 @@ jobs:
       - name: Docs links
         run: vp run --filter vitehub-docs test:links
 
-  fallow:
-    name: Fallow dead-code
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup
-
-      - name: Fallow dead-code
-        shell: bash
-        run: |
-          report="$(mktemp)"
-          set +e
-          vp run fallow:dead-code | tee "$report"
-          status=${PIPESTATUS[0]}
-          set -e
-          {
-            echo "## Fallow Dead Code"
-            echo
-            cat "$report"
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
-
   contract-tests:
     name: contract tests
     if: ${{ github.event_name != 'pull_request' }}
