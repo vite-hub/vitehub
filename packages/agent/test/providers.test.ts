@@ -12995,7 +12995,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  }, 10_000)
+  })
 
   it("preserves shared history and distinct id-less messages while deduplicating a replayed durable steer delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
@@ -13091,7 +13091,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  }, 10_000)
+  })
 
   it("restores queued portable Capability overrides from persistent State", async () => {
     const blobList = vi.fn(async () => ({ blobs: [] }))
