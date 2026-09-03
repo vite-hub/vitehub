@@ -15,7 +15,8 @@ async function resolveReference(
   context: Record<string, unknown> = {},
 ): Promise<CapabilityReference> {
   const tools =
-    typeof capability.tools === "function"
+    capability.tools instanceof Function
+      // SAFETY: Documentation fixtures supply the exact Capability fields read by each resolver.
       ? await capability.tools(context as never)
       : await capability.tools;
   return { tools: inspectAgentTools(tools) || [] };

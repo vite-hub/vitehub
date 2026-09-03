@@ -13,10 +13,12 @@ export const AgentToolList = defineComponent({
   name: "AgentToolList",
   props: {
     callCounts: {
-      type: Object as PropType<ReadonlyMap<string, number>>,
+      // SAFETY: Vue validates this optional prop as a Map before exposing it to the component.
+      type: Map as PropType<ReadonlyMap<string, number>>,
     },
     tools: {
       required: true,
+      // SAFETY: Vue uses Array at runtime while PropType carries the readonly element contract.
       type: Array as PropType<readonly AgentToolInspection[]>,
     },
   },

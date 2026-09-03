@@ -1025,38 +1025,6 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
   ]);
 }
 
-function inspectorTools(
-  tools: NonNullable<AgentInvocationConfiguration["tools"]>,
-  counts: ReadonlyMap<string, number>,
-) {
-  const rows = [...tools].sort((left, right) =>
-    (counts.get(right.name) ?? 0) - (counts.get(left.name) ?? 0)
-    || left.name.localeCompare(right.name),
-  );
-  const used = rows.filter(tool => (counts.get(tool.name) ?? 0) > 0).length;
-  return h("div", { class: "vh-invocation-inspector__group" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [
-      h("strong", "Tools"),
-      h("small", `${used} of ${rows.length} used`),
-    ]),
-    h("ol", { class: "vh-invocation-tool-list" }, rows.map((tool) => {
-      const count = counts.get(tool.name) ?? 0;
-      return h("li", { "data-used": count ? "true" : "false", key: tool.name }, [
-        h("div", { class: "vh-invocation-tool-list__heading" }, [
-          h("code", tool.name),
-          h("span", {
-            "aria-label": count ? `${count} call${count === 1 ? "" : "s"}` : "Not used",
-            class: "vh-invocation-tool-list__count",
-          }, count || "—"),
-        ]),
-        tool.description
-          ? h("p", { title: tool.description }, tool.description)
-          : null,
-      ]);
-    })),
-  ]);
-}
-
 function inspectorDisclosure(
   title: string,
   summary: string,
