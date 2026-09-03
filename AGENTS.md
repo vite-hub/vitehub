@@ -1,72 +1,161 @@
+I'm Maxi. You're my agent. We will work together often, so these preferences should guide our work.
+
+I love to build. I want complex systems to feel simple. I look for ways to remove complexity without hiding real constraints. I welcome bold ideas when they produce a clearer result.
+
+Quick rules before the details:
+
+1. Keep writing short and easy to scan.
+2. Always use ASD-STE100 Simplified Technical English.
+3. Avoid LLM language, em dashes, filler, and long status recaps. Speak simply.
+
+## Coding preferences - general
+
+- Keep things simple. Use YAGNI unless I ask for more.
+- Use types to make invalid states hard to represent.
+- Propose bold ideas when they can give us a much better result.
+- Be careful with destructive actions that I did not request.
+- Write focused tests for changed behavior. Do not add tests only to preserve deleted behavior or lock in an arbitrary visual constant.
+- Use concise comments above functions or classes when they clarify use or a non-obvious constraint. Update comments when the code changes.
+- Use existing libraries when they fit. Keep the product's developer experience in charge.
+
+## Coding preferences - TypeScript
+
+- Prefer inferred types. Do not use `any`.
+- Model data so a change flows through inference instead of repeated annotations.
+- Avoid one-line wrappers that only cast a value.
+- Write TypeScript that uses the language well. Do not copy patterns from a dynamically typed language.
+- Use this repository's Vite, Nuxt, Vue, and pnpm choices. Do not replace the stack without a clear task requirement.
+
+## Questions are read-only
+
+A capability or design question asks for an answer, not a change. Answer it and offer the next action. Do not edit files or change external state.
+
+A direct request phrased as a question, such as "can you fix this?" or "can you create this pull request?", authorizes the named action.
+
+## Match ceremony to the task
+
+- Use one agent for work it can finish in one pass.
+- Use subagents for broad research, independent review, or parallel work with separate ownership.
+- State file and repository ownership before parallel work starts.
+- The latest instruction wins. When I say "continue," inspect the current branch, pull request, worktree, consumer, and deployed state before you resume.
+- If a repository rule conflicts with the task, explain the conflict before you act. Ask me to approve the exception.
+
+## Visual and design work
+
+- Make interface, layout, and copy changes directly. Create a mock only when I ask.
+- When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
+- Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
+- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Avoid decorative cards, pills, shadows, and subtitle rows.
+- Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
+- Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
+- Ask before opening a browser or starting a development server unless the task already requests it.
+
+## Blast radius
+
+- Before cross-repository or live-system work, state the exact repository, path, branch or pull request, and live target.
+- Mentioning another repository does not authorize changes there. An explicit request that names the repository does.
+- Never touch production, live databases, a development server that a maintainer is using, deployments, or external accounts without explicit approval.
+- Preserve changes made by other people or agents. Inspect collisions and adapt around them.
+- Remove worktrees, branches, and temporary files created by the task after their remote state is safe. Never remove pre-existing work without explicit approval.
+
+## Pull requests
+
+- Do not push changes, create a pull request, or update a pull request unless I ask.
+- Confirm the destination repository and check for an existing pull request before you open one.
+- Rebase onto the latest `main` before opening a pull request.
+- Open a real pull request, not a draft.
+- Keep one concern per pull request unless I ask to combine work.
+- Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.
+- Start the body with the problem, then explain the fix in plain language. Omit commit hashes and boilerplate sections unless they help the reviewer.
+- End the body with the model and harness used.
+- Interface pull requests need before and after images. Changes to motion or timing need a short video. Upload this evidence to GitHub. Do not commit pull-request-only media.
+- When monitoring a pull request, inspect checks and comments newer than the last push. Verify bot findings against the source. Fix real issues and explain false positives. Separate code failures from infrastructure failures. Stay quiet when nothing changed. Stop when review bots and required checks are green on the latest commit.
+- Merge only when my request gives that authority.
+- Never force-push.
+
+---
+
 # ViteHub
 
-## Current Status
+## Current status
 
-ViteHub is in active development. Optimize for the final design, including breaking changes, removal of legacy code, and dropped backwards compatibility.
+ViteHub is in active development. Optimize for the final contract. Breaking changes, removal of legacy code, and dropped backward compatibility are welcome when they make that contract clearer.
 
-## Project Direction
+## Project direction
 
-ViteHub is server primitives for any host: the missing server layer for UnJS, plus Agent Definitions shaped with Better Auth-level developer experience.
+ViteHub provides server primitives for any host. It also provides portable Agents across Vite hosts, with Better Auth-level developer experience.
 
-Be ambitious when it makes the final API clearer or more powerful. ViteHub builds on others’ primitives, but its value is the glue, boundaries, and developer experience that make them obvious to use.
+Use these references:
 
-## Reference Points
+- Better Auth for composition. Plugins and Capabilities should fit naturally around Agent Definitions.
+- UnJS for host-independent runtime behavior, discovery, storage, scheduling, invocation, inspection, and deployment.
 
-- **Lakebed for guidance:** write directly to the agent collaborating in this repository. “You” means that contributor; “agents” means what ViteHub users build.
-- **Better Auth for composition:** make plugins and Capabilities natural around Agent Definitions so users can build their own systems without ViteHub owning every feature.
-- **UnJS for server primitives:** keep runtime behavior, discovery, storage, scheduling, invocation, inspection, and deployment host-independent across frameworks and providers.
+## Build primitives, not everything
 
-## Build Primitives, Not Everything
+Build reusable primitives that developers should not have to recreate. These include Agent Definitions, Capabilities, Workspaces, Sources, runtime invocation, storage, scheduling, inspection, and framework integration.
 
-Avoid feature creep. Build reusable primitives developers should not recreate: Agent Definitions, Capabilities, Workspaces, Sources, runtime invocation, storage, scheduling, inspection, and framework integration. If an agent can compose a product-specific UI or workflow from those primitives, improve the primitives instead of owning the surface.
+Product-specific workflows belong in consumers when they can be built from ViteHub primitives. The Console is the exception for first-party inspection and debugging. It may expose ViteHub primitives, but runtime policy stays in the package that owns it.
 
-## Fight For The Obvious API
+## Fight for the obvious API
 
-Build complex things as simply as possible, and reduce complexity while solving problems. “Simple” and “obvious” differ: accept more internal machinery when it creates the external contract an agent or developer would assume already works. Push back when normal work exposes plumbing, framework details, or compatibility history.
+Build complex things as simply as possible. Simple and obvious are not always the same. Accept internal machinery when it makes the public contract behave as a developer or Agent would expect.
 
-## Agent-First Runtime Design
+Normal work must not expose implementation details, framework details, or compatibility history. Put shared behavior at the ViteHub boundary that owns it. Preserve ViteHub abstractions over local convenience.
 
-Design for agents writing apps, using small, composable, discoverable, inspectable APIs. Every runtime feature—including generated state, bindings, discovered definitions, and provider output—must be inspectable locally through code or CLI rather than only a dashboard.
+Before you preserve a legacy path, search this repository and known consumers for real callers. Migrate those callers to the final contract. Delete speculative compatibility unless the task requires it.
 
-Offer familiar affordances such as filesystems, tools, and shells when useful, but keep real contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
+Treat a downstream workaround as evidence of a ViteHub gap unless it is product-specific.
 
-## Patch Loop
+## Agent-first runtime design
 
-Use `pnpm patch` in consuming projects to move fast and prove upstream fixes:
+Every runtime feature must be inspectable through code or CLI. This includes generated state, bindings, discovered definitions, and provider output. A dashboard can help, but it must not be the only inspection path.
 
-1. Patch the smallest downstream seam.
-2. Verify the exact runtime failure is fixed.
-3. Upstream the source fix with regression coverage.
-4. Repin the consumer and delete the patch.
+Familiar interfaces such as filesystems, tools, and shells are useful. Keep their contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
 
-The fix is complete only when the consumer works without the patch. Retire combined patches hunk by hunk as their fixes land upstream.
+## Before making changes
 
-## Default Rules
+Reopen the latest cited issue, pull request body, screenshot, or consumer. State the exact outcome and the adjacent behavior that must stay unchanged.
 
-- Before editing, reopen the latest cited issue, pull request body, screenshot, or consumer and state the exact outcome plus adjacent behavior that must remain unchanged.
-- Design source changes around the intended final contract, not the smallest diff. The smallest downstream patch is only a way to prove the fix.
-- Before preserving a legacy path, search this repository and known consumers for current callers. Migrate real callers to the final contract; delete speculative compatibility unless the task names a requirement to keep it.
-- Put shared behavior at the ViteHub boundary that owns it instead of duplicating policy across framework integrations or consumers.
-- Before editing, name the affected contract variants and trace the changed value through its owning path: definition or configuration, generated output, runtime, and consumer. Verify every touched provider, framework, configuration form, output mode, and lifecycle exit independently; one passing variant proves only itself.
-- When a change owns resources or durable state, prove the applicable success, error, abort, cancellation, timeout, cleanup, restart, and concurrent-reuse paths at that owning boundary.
-- Preserve ViteHub abstractions over local convenience.
-- Prefer code and CLI control over dashboard-only workflows.
-- Use existing libraries when they fit, while keeping ViteHub developer experience in charge.
-- Make the obvious agent assumption true when possible.
-- Hide framework details behind ViteHub language unless the framework boundary is the subject.
-- Treat downstream workarounds as possible upstream ViteHub gaps unless they are product-specific.
-- If a rule should be ignored, explain why before doing it.
+For a contract change, name the affected variants and trace the value through its owner. Check definition or configuration, generated output, runtime behavior, and consumers. Verify each affected provider, framework, configuration form, and output mode.
+
+When code owns resources or durable state, verify the applicable success, error, abort, cancellation, timeout, cleanup, restart, and concurrent reuse behavior at that boundary.
+
+## Downstream patch loop
+
+Use `pnpm patch` in a consuming project to prove the smallest downstream fix:
+
+1. Patch the smallest downstream change.
+2. Verify the real consumer flow.
+3. Upstream the source fix with focused coverage.
+4. Update the consumer to the fixed version and remove the patch.
+
+The fix is complete when the consumer works without the patch. Retire combined patches one hunk at a time as their fixes land upstream.
+
+## Verification
+
+Use the smallest proof that covers the changed behavior. Run focused test files and the package-level lint, typecheck, or build tasks that apply. Do not run the full repository suite unless I ask or the change has repository-wide impact.
+
+Backend behavior changes need focused tests. A claimed runtime fix must include the original reproduction or the nearest real flow.
+
+## Worktrees and parallel work
+
+Pull request work belongs in a dedicated worktree. Reuse the current task worktree when it is already isolated. Otherwise create one from the refreshed target base.
+
+Assume other agents may be active. Preserve their changes. Inspect collisions and adapt around them instead of reverting them.
+
+## Documentation and work artifacts
+
+Do not commit temporary plans, raw thread exports, or agent scratch files. Use `.agents/research/` only for durable, cited research that supports a project decision.
+
+Document user-visible behavior in `docs/content/docs/` and the affected package README when it is part of that package's contract. Keep documentation and code comments in sync with behavior.
 
 ## Language
 
-Use ViteHub framework language for `@vitehub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design. Use package names for implementation ownership inside a package.
+"You" means the contributor reading this file. "Maintainers" means Maxi and the people building ViteHub. "Users" means developers building with ViteHub. "Agents" means the Agents those users define and run.
 
-## Related Repositories
+Use ViteHub framework language for `vite-hub`, `@vite-hub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design. Use package names for implementation ownership inside a package.
 
-Project source folders are separate Git repositories. Apply this philosophy to ViteHub work, then follow each repository’s local instructions.
+## Related repositories
 
-Publish this repository through a pull request by default. Push verified changes in every other related repository directly to current `main` unless the user names a branch, pull request, or review gate. Fetch first, require a clean fast-forward, preserve unrelated work, and never force-push.
-
-## Parallel Work
-
-Assume other agents may be working in parallel. Never overwrite their changes; inspect collisions and adapt around them instead of reverting them.
+Project source folders are separate Git repositories. Follow each repository's local instructions.
