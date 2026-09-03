@@ -229,6 +229,7 @@ describe("framework package contract", () => {
       "./database/drizzle",
       "./nuxt",
       "./source",
+      "./source/server",
       "./source/vite",
     ]);
 
@@ -726,18 +727,12 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(11);
-      expect(handlers).toContainEqual(
-        expect.objectContaining({
-          route: "/api/_vitehub/console/invocation-capabilities",
-        }),
-      );
-      expect(handlers).toContainEqual(
-        expect.objectContaining({ route: "/api/_vitehub/console/usage" }),
-      );
-      expect(handlers).toContainEqual(
-        expect.objectContaining({ route: "/api/_vitehub/console/kv" }),
-      );
+      expect(handlers).toHaveLength(3);
+      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
+        "/_vitehub",
+        "/_vitehub/**",
+        "/_vitehub/rpc/**",
+      ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.");

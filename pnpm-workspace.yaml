@@ -80,6 +80,7 @@ catalogs:
     yjs: ^13.6.27
   runtime:
     "@standard-schema/spec": ^1.1.0
+    devframe: 0.9.9
     valibot: ^1.4.2
   sandbox:
     "@cloudflare/computer": ^0.2.1

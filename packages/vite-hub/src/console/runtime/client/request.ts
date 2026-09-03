@@ -1,11 +1,67 @@
+import { connectDevframe } from "devframe/client";
+
+import type { DevframeRpcClient } from "devframe/client";
+
+interface ConsoleRpcRequest {
+  body?: unknown;
+  method: "GET" | "POST";
+  path: string;
+  query: Record<string, string | string[]>;
+}
+
+type ConsoleRpcResult =
+  | { ok: true; value: unknown }
+  | { message: string; ok: false; status: number };
+
+const consoleApiMarker = "/api/_vitehub/console/";
+const consoleDevframePath = "/_vitehub/rpc/";
+const clients = new Map<string, Promise<DevframeRpcClient>>();
+
 export class ConsoleRequestError extends Error {
   readonly status: number
 
-  constructor(status: number) {
-    super(`Console request failed with status ${status}.`)
+  constructor(status: number, message = `Console request failed with status ${status}.`) {
+    super(message)
     this.name = "ConsoleRequestError"
     this.status = status
   }
+}
+
+function consoleDevframeBase(path: string): string {
+  const url = new URL(path, "http://vitehub.local");
+  const marker = url.pathname.indexOf(consoleApiMarker);
+  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker);
+  return `${appBase}${consoleDevframePath}`;
+}
+
+function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
+  let client = clients.get(baseURL);
+  if (!client) {
+    client = connectDevframe({
+      baseURL,
+      otpParam: false,
+      simpleAuth: false,
+      transport: "sse",
+    }).catch((error) => {
+      clients.delete(baseURL);
+      throw error;
+    });
+    clients.set(baseURL, client);
+  }
+  return client;
+}
+
+function abortable<T>(value: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return value;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    value
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort))
+      .catch(() => undefined);
+  });
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
@@ -20,22 +76,27 @@ export async function requestConsole(
   options: { body?: unknown, method?: "GET" | "POST", query?: Record<string, unknown>, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const url = new URL(path, "http://vitehub.local")
+  const query: Record<string, string | string[]> = {}
   for (const [key, value] of Object.entries(options.query ?? {})) {
     if (value === undefined) continue
-    if (Array.isArray(value)) value.forEach(entry => url.searchParams.append(key, String(entry)))
-    else url.searchParams.set(key, String(value))
+    query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
-  const request: RequestInit = {
+  const request: ConsoleRpcRequest = {
     method: options.method ?? "GET",
-    signal: options.signal,
+    path: url.pathname,
+    query,
   }
-  if (options.body !== undefined) {
-    request.body = JSON.stringify(options.body)
-    request.headers = { "content-type": "application/json" }
-  }
-  const response = await fetch(`${url.pathname}${url.search}`, request)
-  if (!response.ok) throw new ConsoleRequestError(response.status)
-  return response.json()
+  if (options.body !== undefined) request.body = options.body
+  const client = await abortable(consoleDevframeClient(consoleDevframeBase(path)), options.signal)
+  const response = await abortable(
+    (client.call as unknown as (
+      method: string,
+      input: ConsoleRpcRequest,
+    ) => Promise<ConsoleRpcResult>)("vitehub:console:request", request),
+    options.signal,
+  )
+  if (!response.ok) throw new ConsoleRequestError(response.status, response.message)
+  return response.value
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
