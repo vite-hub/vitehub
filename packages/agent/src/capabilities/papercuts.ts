@@ -56,7 +56,7 @@ interface PapercutResult {
 }
 
 const papercutMaxMessageLength = 1_000
-const papercutReportDescription = "Proactively report small friction as soon as it happens, even when non-blocking: a missed or retried tool call, confusing or undocumented setup, flaky command, stale cache, misleading error, or non-obvious gotcha. In one or two sentences, say what you were doing and what got in the way; a likely cause or fix is a bonus. Never include secrets or customer data."
+const papercutReportDescription = "Never include secrets or customer data. Proactively report small friction as soon as it happens, even when non-blocking: a missed or retried tool call, confusing or undocumented setup, flaky command, stale cache, misleading error, or non-obvious gotcha. In one or two sentences, say what you were doing and what got in the way; a likely cause or fix is a bonus."
 const papercutInputSchema: AgentToolSchema<PapercutInput> = {
   additionalProperties: false,
   properties: {
