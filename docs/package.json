@@ -12,7 +12,7 @@
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "node scripts/build.mjs",
-    "deploy:cloudflare": "test -n \"$CLOUDFLARE_D1_DATABASE_ID\" && vp run test && vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
+    "deploy:cloudflare": "vp run test && vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
     "test": "vp test",
     "test:links": "nuxi prepare && node scripts/check-doc-links.mjs",
     "test:links:external": "node scripts/check-example-links.mjs",
