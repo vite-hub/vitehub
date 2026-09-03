@@ -22,6 +22,7 @@ The default trigger is `/`.
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { inputCommands } from 'vite-hub/agent/capabilities'
+import { desc } from 'drizzle-orm'
 
 export default defineAgent({
   driver: { model },
@@ -58,8 +59,15 @@ const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const { invocations } = await context.console.invocations.list({ limit: 1 })
-        const latest = invocations[0]
+        const { db, schema } = context.console.invocations
+        const [latest] = await db
+          .select({
+            agentName: schema.invocations.agentName,
+            id: schema.invocations.id,
+          })
+          .from(schema.invocations)
+          .orderBy(desc(schema.invocations.sequence))
+          .limit(1)
         if (!latest?.agentName) return 'No previous invocation.'
         return await context.reply(context.console.invocationUrl({
           agentName: latest.agentName,
