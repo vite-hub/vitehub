@@ -26,6 +26,24 @@ function runtime(runId: string, annotations?: Record<string, boolean | number | 
   }
 }
 
+function inspectableToolCapability() {
+  return defineCapability({
+    id: "search",
+    tools: {
+      search: {
+        description: "Search indexed records.",
+        inputSchema: {
+          additionalProperties: false,
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          type: "object",
+        },
+        name: "search",
+      },
+    },
+  })
+}
+
 describe("Agent Invocations", () => {
   it("does not mark a full journal truncated when retrying an identified observation", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
@@ -1742,16 +1760,7 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "lookup",
-        tools: {
-          lookup: {
-            description: "Find matching records for a private account.",
-            execute: () => "unused",
-            name: "lookup",
-          },
-        },
-      })],
+      capabilities: [inspectableToolCapability()],
       channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
@@ -1788,12 +1797,10 @@ describe("Agent Invocations", () => {
       .toBe(configuration?.fingerprint)
     expect(configuration).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
-      tools: [{ name: "lookup" }],
       fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
+      tools: [{ name: "search" }],
     })
-    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toMatchObject({
-      tools: [{ description: expect.any(String) }],
-    })
+    expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).not.toContain("Search indexed records")
   })
 
   it("persists resolved instructions when invocation content is enabled", async () => {
@@ -1803,6 +1810,7 @@ describe("Agent Invocations", () => {
       store: createMemoryAgentInvocationStore(),
     })
     const agent = defineAgent({
+      capabilities: [inspectableToolCapability()],
       driver: {
         instructions: "Inspectable resolved instructions",
         model: new MockLanguageModelV3({
@@ -1826,6 +1834,16 @@ describe("Agent Invocations", () => {
       .findLast(entry => entry.name === "vitehub.agent.configured")
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
       instructions: ["Inspectable resolved instructions"],
+      tools: [{
+        description: "Search indexed records.",
+        inputSchema: {
+          additionalProperties: false,
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          type: "object",
+        },
+        name: "search",
+      }],
     })
   })
 
@@ -1868,10 +1886,10 @@ describe("Agent Invocations", () => {
       .findLast(entry => entry.name === "vitehub.agent.configured")
     // SAFETY: The invocation configuration event owns the asserted, JSON-compatible tools projection.
     const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { tools?: { description?: string, name: string }[] } | undefined
-    expect(configuration?.tools).toEqual([{
+    expect(configuration?.tools).toEqual([expect.objectContaining({
       description: expect.stringMatching(/^Find matching records\. Detailed guidance\./),
       name: "lookup",
-    }])
+    })])
     expect(configuration?.tools?.[0]?.description).toHaveLength(240)
     expect(configuration?.tools?.[0]?.description).not.toContain("\n")
   })

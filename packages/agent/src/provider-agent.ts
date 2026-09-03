@@ -20,6 +20,7 @@ import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skill
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
@@ -1973,15 +1974,14 @@ async function* runProvider<
         materializeInstructions = Boolean(instructions)
       }
     }
+    const inspectedTools = inspectAgentTools(context.tools)
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
         ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
         provider: options.provider,
       },
       ...(instructions ? { instructions: [instructions] } : {}),
-      ...(Object.keys(context.tools || {}).length || context.providerTools?.length
-        ? { tools: [...Object.keys(context.tools || {}), ...(context.providerTools || []).map(tool => tool.name)].sort().map(name => ({ name })) }
-        : {}),
+      ...(inspectedTools ? { tools: inspectedTools } : {}),
     })
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"

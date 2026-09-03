@@ -19,6 +19,7 @@ import {
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
+import { AgentToolList } from "./agent-tool-list.ts";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   return {
@@ -1038,21 +1039,7 @@ function inspectorTools(
       h("strong", "Tools"),
       h("small", `${used} of ${rows.length} used`),
     ]),
-    h("ol", { class: "vh-invocation-tool-list" }, rows.map((tool) => {
-      const count = counts.get(tool.name) ?? 0;
-      return h("li", { "data-used": count ? "true" : "false", key: tool.name }, [
-        h("div", { class: "vh-invocation-tool-list__heading" }, [
-          h("code", tool.name),
-          h("span", {
-            "aria-label": count ? `${count} call${count === 1 ? "" : "s"}` : "Not used",
-            class: "vh-invocation-tool-list__count",
-          }, count || "—"),
-        ]),
-        tool.description
-          ? h("p", { title: tool.description }, tool.description)
-          : null,
-      ]);
-    })),
+    h(AgentToolList, { calls: Object.fromEntries(counts), tools: rows }),
   ]);
 }
 

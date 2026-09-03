@@ -2651,7 +2651,11 @@ describe("Agent Invocation UI", () => {
         instructions: ["Follow repository instructions."],
         runtime: { name: "node" },
         tools: [
-          { description: "Run a command in the workspace.", name: "exec" },
+          {
+            description: "Run a shell command.",
+            inputSchema: { properties: { command: { type: "string" } }, required: ["command"], type: "object" },
+            name: "exec",
+          },
           { description: "Search the workspace.", name: "search" },
         ],
         workspace: { mode: "write", name: "babysitter", sources: ["github:vite-hub/vitehub"] },
@@ -2687,11 +2691,12 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
+    expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
+    expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
     expect(wrapper.get(".vh-invocation-execution").text()).toContain("GPT 5.6 Sol");
     expect(wrapper.get(".vh-invocation-execution").text()).toContain("OpenAI");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("1 of 2 used");
-    expect(wrapper.get(".vh-invocation-tool-list").text()).toContain("Run a command in the workspace.");
-    expect(wrapper.findAll(".vh-invocation-tool-list > li").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
+    expect(wrapper.findAll(".vh-agent-tool-list > *").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
 
     const compact = mount(AgentInvocationInspector, {
       props: { invocation, showStatus: false, showTimeline: false },

@@ -1,5 +1,6 @@
 import { parse } from "yaml";
 import { object, optional, safeParse, string } from "valibot";
+import type { CapabilityReferences } from "../capability-references";
 
 const frontmatterBoundary = "---";
 const siteOrigin = "https://vitehub.dev";
@@ -945,11 +946,38 @@ function stripPresentationDirectives(source: string) {
   return rewriteLinks(output.join("\n"));
 }
 
-export function toRawMarkdown(source: string) {
+function directiveAttribute(attributes: string, name: string) {
+  return attributes.match(new RegExp(`\\b${name}=(?:"([^"]+)"|'([^']+)')`))?.slice(1).find(Boolean);
+}
+
+function capabilityReferenceMarkdown(attributes: string, references: CapabilityReferences | undefined) {
+  const name = directiveAttribute(attributes, "name");
+  const variant = directiveAttribute(attributes, "variant") || "default";
+  const reference = name ? references?.[`${name}.${variant}`] : undefined;
+  if (!reference) return "_Agent-visible tool contract is available on the rendered documentation page._";
+  return reference.tools.map(tool => [
+    `#### \`${tool.name}\``,
+    tool.description || "",
+    ...(tool.inputSchema === undefined
+      ? []
+      : [`**Input schema**\n\n\`\`\`json\n${JSON.stringify(tool.inputSchema, null, 2)}\n\`\`\``]),
+    ...(tool.outputSchema === undefined
+      ? []
+      : [`**Output schema**\n\n\`\`\`json\n${JSON.stringify(tool.outputSchema, null, 2)}\n\`\`\``]),
+  ].filter(Boolean).join("\n\n")).join("\n\n");
+}
+
+function expandCapabilityReferences(source: string, references: CapabilityReferences | undefined) {
+  return source.replace(/^::agent-capability-tools\{([^}]*)\}\s*\n::\s*$/gm, (_match, attributes: string) =>
+    capabilityReferenceMarkdown(attributes, references));
+}
+
+export function toRawMarkdown(source: string, options: { capabilityReferences?: CapabilityReferences } = {}) {
   const { body, frontmatter } = splitFrontmatter(source);
   const titleResult = safeParse(string(), frontmatter.title);
   const title = titleResult.success ? titleResult.output.trim() : undefined;
-  const content = stripPresentationDirectives(cardListsOutsideFences(body)).replace(/^\n+|\n+$/g, "");
+  const expanded = expandCapabilityReferences(body, options.capabilityReferences);
+  const content = stripPresentationDirectives(cardListsOutsideFences(expanded)).replace(/^\n+|\n+$/g, "");
   const startsWithH1 = /^[ \t]{0,3}#(?:[ \t]+|$)/.test(content)
     || /^[^\n]+\n[ \t]{0,3}=+[ \t]*(?:\n|$)/.test(content);
   const document = title && !startsWithH1 ? `# ${title}\n\n${content}` : content;

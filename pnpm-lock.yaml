@@ -578,6 +578,9 @@ importers:
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.11.0(5f6fb3570c9b9339e06a4e09542b668a)
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../packages/agent
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../packages/ui

@@ -222,6 +222,12 @@ KV inspection calls the configured store's paginated `list`, `get`, and `has` op
 
 Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors only when you choose **Load more**, and supports a pathname prefix. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
 
+## Inspect the Agent context
+
+Open an Agent Invocation and expand **Captured setup** to inspect the context resolved for that run. The Console shows the final instruction blocks and the model-visible tools, including each tool's description, input JSON Schema, and output JSON Schema when one is available. This is the post-composition contract after the Agent Definition, Capabilities, and runtime tool resolution have been applied, so it also covers dynamic tools whose contract cannot be generated into static documentation.
+
+Invocation journals are metadata-only by default. In that mode, Captured setup includes tool names but omits instructions, descriptions, and schemas. Configure the Agent's invocation journal with `content: 'content'` to retain and inspect the resolved context. Large journal observations remain subject to ViteHub's trace bounds and are marked when truncated. That context can contain secrets or customer data contributed by application code, so use the same access, retention, and encryption controls as prompts and model output. See [Agent Invocations](/docs/agents/invocations#observe-the-outcome) for configuration details.
+
 ## Inspect usage
 
 Open **Usage** in the Console sidebar to inspect provider-reported tokens and cost across the past 24 hours, 7 days, 30 days, or 90 days. The dashboard groups completed Agent Invocations by time and model. A warning appears when the bounded journal scan reaches 10,000 records or a recorded finish event is truncated, so partial totals are never presented as complete.

@@ -19,6 +19,7 @@ import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { inspectAgentTools } from "./tool-inspection.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -1272,6 +1273,7 @@ async function createAgent(
     type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
+  const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
   await updateAgentTelemetryConfiguration(context.context, {
@@ -1282,21 +1284,7 @@ async function createAgent(
       },
     },
     ...(instructions ? { instructions: [instructions] } : {}),
-    ...(Object.keys(toolSet).length
-      ? {
-          tools: Object.entries(toolSet)
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([name, tool]) => {
-              const value = hasRuntimeType(tool, "object") && tool !== null && "description" in tool
-                ? tool.description
-                : undefined
-              const description = hasRuntimeType(value, "string")
-                ? value.trim().replace(/\s+/g, " ").slice(0, 240)
-                : ""
-              return { name, ...(description ? { description } : {}) }
-            }),
-        }
-      : {}),
+    ...(inspectedTools ? { tools: inspectedTools } : {}),
   })
   const {
     instructions: _instructions,

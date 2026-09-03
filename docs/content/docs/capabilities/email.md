@@ -73,11 +73,10 @@ export default defineAgent({
 })
 ```
 
-This configuration exposes one tool:
+This configuration exposes the following Agent-visible tool contract. The docs build resolves it from the real Capability, including the configured recipient allowlist.
 
-| Tool | Side effect | Result |
-| --- | --- | --- |
-| `email_send` | Sends one plain-text message from the configured sender. | The Email primitive's `{ id, driver }` acceptance result. |
+::agent-capability-tools{name="email"}
+::
 
 A successful result means the active provider accepted the message and returned an ID.
 It does not prove inbox delivery, display, or reading.
