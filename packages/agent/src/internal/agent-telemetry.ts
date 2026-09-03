@@ -10,6 +10,10 @@ interface AgentTelemetryConfigurationState {
   value: AgentTelemetryConfiguration
 }
 
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
 
 function secretMetadataKey(key: string): boolean {
@@ -42,7 +46,7 @@ function safeMetadataValue(
     const prototype = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null) return
     return Object.fromEntries(Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCodeUnits(left, right))
       .flatMap(([childKey, item]) => {
         const child = safeMetadataValue(item, childKey, depth + 1, seen)
         return child === undefined ? [] : [[childKey, child]]
@@ -63,11 +67,38 @@ export function safeAgentTelemetryMetadata(value: unknown): Record<string, Agent
     : undefined
 }
 
-export function setAgentTelemetryConfiguration(
+function canonicalConfigurationValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalConfigurationValue)
+  if (!value || !hasRuntimeType(value, "object")) return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([key, child]) => [key, canonicalConfigurationValue(child)]))
+}
+
+export async function agentTelemetryConfigurationFingerprint(
+  configuration: AgentTelemetryConfiguration,
+): Promise<string> {
+  const { fingerprint: _fingerprint, ...value } = configuration
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalConfigurationValue(value)))
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
+  return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
+async function withConfigurationFingerprint(
+  configuration: AgentTelemetryConfiguration,
+): Promise<AgentTelemetryConfiguration> {
+  return {
+    ...configuration,
+    fingerprint: await agentTelemetryConfigurationFingerprint(configuration),
+  }
+}
+
+export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
-): void {
-  configurationByContext.set(context, { value })
+): Promise<void> {
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(value) })
 }
 
 export async function updateAgentTelemetryConfiguration(
@@ -79,25 +110,23 @@ export async function updateAgentTelemetryConfiguration(
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
-  configurationByContext.set(context, {
-    ...current,
-    value: {
-      ...current.value,
-      ...valuePatch,
-      ...(driver
-        ? {
-            driver: {
-              ...current.value.driver,
-              ...driver,
-              kind: driver.kind ?? current.value.driver.kind,
-              ...(driver.model
-                ? { model: { ...current.value.driver.model, ...driver.model } }
-                : {}),
-            },
-          }
-        : {}),
-    },
-  })
+  const next = {
+    ...current.value,
+    ...valuePatch,
+    ...(driver
+      ? {
+          driver: {
+            ...current.value.driver,
+            ...driver,
+            kind: driver.kind ?? current.value.driver.kind,
+            ...(driver.model
+              ? { model: { ...current.value.driver.model, ...driver.model } }
+              : {}),
+          },
+        }
+      : {}),
+  }
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(next) })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 

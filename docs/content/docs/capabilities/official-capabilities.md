@@ -32,6 +32,7 @@ import {
   memory,
   openapi,
   otlp,
+  papercuts,
   progressSummary,
   rateLimit,
   sandbox,
@@ -77,6 +78,7 @@ import {
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
 | OTLP telemetry | [`otlp()`](/docs/capabilities/otlp) | Live Agent Invocation events and completed traces should be exported to an OpenTelemetry receiver. |
+| Papercut reporting | [`papercuts()`](/docs/capabilities/papercuts) | Let an Agent report small failures and wasted work to an application-owned sink. |
 | Operational diagnostics | [`diagnostics()`](/docs/capabilities/diagnostics) | Invocation outcomes and scoped runtime resource observations should go to an application-owned reporter. |
 
 ### External context

@@ -2329,6 +2329,12 @@ describe("Agent Invocation UI", () => {
     await wrapper.get('button[aria-label="Open Workspace"]').trigger("click");
     expect(wrapper.emitted("inspect")).toEqual([["workspace"]]);
 
+    const withoutWorkspace = mount(AgentInvocation, {
+      props: { invocation, workspaceInspectable: false },
+    });
+    await withoutWorkspace.get(".vh-invocation-preparation__summary").trigger("click");
+    expect(withoutWorkspace.find('button[aria-label="Open Workspace"]').exists()).toBe(false);
+
     const prompt = wrapper.findAll('.vh-invocation-message[data-role="user"]').at(-1)!;
     expect(prompt.get(".vh-invocation-message__content").attributes("data-collapsed")).toBe("true");
     await prompt.get(".vh-invocation-message__more").trigger("click");

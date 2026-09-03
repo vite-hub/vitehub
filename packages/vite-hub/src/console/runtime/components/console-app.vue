@@ -35,7 +35,10 @@ import ConsoleSessionNavbar from "./console-session-navbar.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import { useConsoleSessionBootstrap } from "./console-session-bootstrap";
+import {
+  refreshCapabilityFilteredInvocations,
+  useConsoleSessionBootstrap,
+} from "./console-session-bootstrap";
 import "./console-session.css";
 
 const route = useRoute();
@@ -43,6 +46,7 @@ const router = useRouter();
 const props = defineProps<{
   agentsBase: string;
   apiBase: string;
+  capabilitiesBase: string;
   definitionsBase: string;
   kvBase: string;
   hostBase: string;
@@ -53,6 +57,11 @@ const props = defineProps<{
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
+const selectedCapabilityId = ref<string>();
+const filterOpen = ref(false);
+const capabilityIds = ref<string[]>([]);
+const capabilitiesLoading = ref(false);
+const capabilitiesError = ref<unknown>();
 const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
@@ -79,6 +88,7 @@ let agentsRetry: ReturnType<typeof setTimeout> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
 let capabilitiesRequest: AbortController | undefined;
+let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
 const sessionPollingEnabled = computed(
@@ -101,6 +111,7 @@ const list = useAgentInvocations({
   watch: false,
   query: computed(() => ({
     ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
+    ...(selectedCapabilityId.value ? { capability: selectedCapabilityId.value } : {}),
     limit: 10,
   })),
 });
@@ -180,6 +191,9 @@ const agentMenuItems = computed<DropdownMenuItem[]>(() =>
     onSelect: () => selectAgent(name),
     trailingIcon: selectedAgentName.value === name ? "i-ph-check-light" : undefined,
   })),
+);
+const capabilityFilterLabel = computed(() =>
+  selectedCapabilityId.value ? `Used ${selectedCapabilityId.value}` : "All capabilities",
 );
 const routeInvocation = computed(() => {
   const value = route.params.invocation;
@@ -295,6 +309,38 @@ async function detectHostCapabilities(): Promise<void> {
   }
 }
 
+async function loadCapabilityIds(): Promise<void> {
+  capabilityIdsRequest?.abort();
+  const controller = new AbortController();
+  capabilityIdsRequest = controller;
+  capabilitiesLoading.value = true;
+  try {
+    const value = record(await requestConsole(props.capabilitiesBase, {
+      query: selectedAgentName.value ? { agent: selectedAgentName.value } : undefined,
+      signal: controller.signal,
+    }));
+    const ids = Array.isArray(value?.capabilities)
+      ? value.capabilities.map(stringValue).filter((id): id is string => Boolean(id?.trim()))
+      : [];
+    if (capabilityIdsRequest === controller) {
+      capabilityIds.value = [...new Set(ids.map(id => id.trim()))].sort();
+      capabilitiesError.value = undefined;
+      if (selectedCapabilityId.value && !capabilityIds.value.includes(selectedCapabilityId.value)) {
+        selectedCapabilityId.value = undefined;
+        scheduleInvocationListRefresh();
+      }
+    }
+  } catch (error) {
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
+    if (capabilityIdsRequest === controller) capabilitiesError.value = error;
+  } finally {
+    if (capabilityIdsRequest === controller) {
+      capabilityIdsRequest = undefined;
+      capabilitiesLoading.value = false;
+    }
+  }
+}
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -356,9 +402,28 @@ async function selectAgent(name: string): Promise<void> {
   showSessions();
   updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
+  selectedCapabilityId.value = undefined;
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
+  });
+}
+
+async function selectCapability(capabilityId?: string): Promise<void> {
+  if (selectedCapabilityId.value === capabilityId) return;
+  selectedCapabilityId.value = capabilityId;
+  filterOpen.value = false;
+  selectedInvocationId.value = undefined;
+  closeDetails();
+  await refreshCapabilityFilteredInvocations({
+    navigate: () =>
+      selectedAgentName.value
+        ? router.replace({
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+          })
+        : Promise.resolve(),
+    refresh: () => list.refresh(),
   });
 }
 
@@ -455,7 +520,8 @@ async function refresh(): Promise<void> {
 }
 
 function inspectSession(target: "agent" | "workspace"): void {
-  const view = target === "agent" ? "details" : "workspace";
+  if (target !== "agent") return;
+  const view = "details";
   inspectorTab.value = view;
   if (!inspectorOpenViews.value.includes(view)) {
     inspectorOpenViews.value = [...inspectorOpenViews.value, view];
@@ -640,6 +706,14 @@ watch(
   { immediate: true },
 );
 
+watch(selectedAgentName, () => {
+  void loadCapabilityIds();
+}, { immediate: true });
+
+watch(filterOpen, (open) => {
+  if (open) void loadCapabilityIds();
+});
+
 if (pageVisible.value) void loadAgents();
 
 onMounted(() => {
@@ -655,6 +729,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   agentsRequest?.abort();
   capabilitiesRequest?.abort();
+  capabilityIdsRequest?.abort();
   clearAgentsRetry();
   if (clock) clearInterval(clock);
   media?.removeEventListener("change", updateDesktop);
@@ -733,6 +808,75 @@ onBeforeUnmount(() => {
             class="min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
             label="Search console"
           />
+          <UPopover
+            v-if="!collapsed"
+            v-model:open="filterOpen"
+            :content="{ align: 'start', collisionPadding: 12 }"
+            :ui="{ content: 'w-64 p-2' }"
+          >
+            <UButton
+              aria-label="Filter sessions"
+              :color="selectedCapabilityId ? 'primary' : 'neutral'"
+              icon="i-ph-funnel-light"
+              square
+              :variant="selectedCapabilityId ? 'soft' : 'ghost'"
+            />
+            <template #content>
+              <div class="grid gap-1">
+                <div class="flex items-center justify-between gap-3 px-2 py-1">
+                  <div>
+                    <p class="text-sm font-medium">Filter sessions</p>
+                    <p class="text-xs text-muted">Capability actually used</p>
+                  </div>
+                  <UBadge v-if="selectedCapabilityId" color="primary" size="sm" variant="subtle">1</UBadge>
+                </div>
+                <UButton
+                  block
+                  class="justify-start"
+                  color="neutral"
+                  label="All capabilities"
+                  :trailing-icon="!selectedCapabilityId ? 'i-ph-check-light' : undefined"
+                  variant="ghost"
+                  @click="selectCapability()"
+                />
+                <USeparator />
+                <div
+                  v-if="capabilitiesLoading"
+                  class="grid gap-2 px-2 py-2"
+                  aria-label="Loading capabilities"
+                  role="status"
+                >
+                  <USkeleton v-for="index in 3" :key="index" class="h-7 rounded" />
+                </div>
+                <p v-else-if="errorMessage(capabilitiesError)" class="px-2 py-2 text-xs text-error">
+                  {{ errorMessage(capabilitiesError) }}
+                </p>
+                <p v-else-if="!capabilityIds.length" class="px-2 py-2 text-xs text-muted">
+                  No capability use recorded yet.
+                </p>
+                <template v-else>
+                  <UButton
+                    v-for="capabilityId in capabilityIds"
+                    :key="capabilityId"
+                    block
+                    class="justify-start font-mono"
+                    color="neutral"
+                    :label="capabilityId"
+                    :trailing-icon="selectedCapabilityId === capabilityId ? 'i-ph-check-light' : undefined"
+                    variant="ghost"
+                    @click="selectCapability(capabilityId)"
+                  />
+                </template>
+                <p
+                  v-if="selectedCapabilityId"
+                  class="truncate px-2 pt-1 text-xs text-muted"
+                  :title="capabilityFilterLabel"
+                >
+                  {{ capabilityFilterLabel }}
+                </p>
+              </div>
+            </template>
+          </UPopover>
         </div>
         <div
           v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
@@ -926,7 +1070,6 @@ onBeforeUnmount(() => {
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
-              :workspace-base="`${hostBase}/api/invocations`"
               v-model:tab="inspectorTab"
               v-model:active-surface="inspectorActiveSurface"
               v-model:open-views="inspectorOpenViews"
@@ -1008,6 +1151,7 @@ onBeforeUnmount(() => {
                   :header="false"
                   :invocation="invocationView"
                   :selected-activity-id="selectedActivityId"
+                  :workspace-inspectable="false"
                   class="min-h-0 flex-1"
                   @inspect="inspectSession"
                 />
@@ -1017,7 +1161,6 @@ onBeforeUnmount(() => {
               <ConsoleSessionInspector
                 v-if="invocationView"
                 :invocation="invocationView"
-                :workspace-base="`${hostBase}/api/invocations`"
                 v-model:tab="inspectorTab"
                 v-model:active-surface="inspectorActiveSurface"
                 v-model:open-views="inspectorOpenViews"
@@ -1106,6 +1249,7 @@ onBeforeUnmount(() => {
                 :header="false"
                 :invocation="invocationView"
                 :selected-activity-id="selectedActivityId"
+                :workspace-inspectable="false"
                 class="min-h-0 flex-1"
                 @inspect="inspectSession"
               />
@@ -1121,7 +1265,6 @@ onBeforeUnmount(() => {
                 <ConsoleSessionInspector
                   :invocation="invocationView"
                   :maximizable="false"
-                  :workspace-base="`${hostBase}/api/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"

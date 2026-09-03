@@ -857,6 +857,44 @@ it("preserves installed package dependency resolution", async () => {
   await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
+it("bounds installed package dependencies to the package's containing node_modules", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-boundary-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageNodeModules = join(rootDir, "node_modules", ".pnpm", "fixture-package@1.0.0", "node_modules")
+  const packageDir = join(packageNodeModules, "fixture-package")
+  const dependencyDir = join(packageNodeModules, "fixture-dependency")
+  const unrelatedDependencyDir = join(rootDir, "node_modules", "fixture-unrelated")
+  const installedPackageDir = join(rootDir, "node_modules", "fixture-package")
+  const entry = join(installedPackageDir, "dist", "index.js")
+  await Promise.all([
+    mkdir(join(packageDir, "dist"), { recursive: true }),
+    mkdir(dependencyDir, { recursive: true }),
+    mkdir(unrelatedDependencyDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), "{}\n"),
+    writeFile(join(packageDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(join(packageDir, "dist", "index.js"), 'export { value } from "fixture-dependency"\n'),
+    writeFile(join(dependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
+    writeFile(join(dependencyDir, "index.js"), 'export const value = "retained"\n'),
+    writeFile(join(unrelatedDependencyDir, "package.json"), '{"exports":"./index.js","type":"module"}\n'),
+    writeFile(join(unrelatedDependencyDir, "index.js"), 'export const unrelated = true\n'),
+  ])
+  await symlink(packageDir, installedPackageDir, process.platform === "win32" ? "junction" : "dir")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [entry],
+    roots: [rootDir],
+  })
+  const retainedPackageDir = dirname(dirname(retained.resolve(entry)))
+
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
+  await expect(readFile(join(retainedPackageDir, "node_modules", "fixture-unrelated", "index.js"), "utf8"))
+    .rejects.toMatchObject({ code: "ENOENT" })
+})
+
 it("snapshots requested symlinked directories inside the retained generation", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-source-"))
   const skillSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlink-target-"))
