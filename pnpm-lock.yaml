@@ -91,8 +91,8 @@ catalogs:
       specifier: ^11.0.5
       version: 11.0.5
     vite-doctor:
-      specifier: https://pkg.pr.new/vite-doctor@db34a0d
-      version: 0.0.6
+      specifier: 0.0.9
+      version: 0.0.9
   effect:
     effect:
       specifier: 4.0.0-beta.99
@@ -279,9 +279,6 @@ catalogs:
     esbuild:
       specifier: ^0.28.1
       version: 0.28.1
-    fallow:
-      specifier: 3.17.0
-      version: 3.17.0
     knip:
       specifier: 6.27.0
       version: 6.27.0
@@ -524,9 +521,6 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)
-      fallow:
-        specifier: catalog:tooling
-        version: 3.17.0
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
@@ -553,7 +547,7 @@ importers:
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
       vite-doctor:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-doctor@db34a0d(@voidzero-dev/vite-plus-core@0.1.24)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(jiti@2.7.0)(magicast@0.5.4)(nuxt@4.5.2(e9f11a000474d14a67921c628734d6d6))
+        version: 0.0.9(@voidzero-dev/vite-plus-core@0.1.24)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(jiti@2.7.0)(magicast@0.5.4)(nuxt@4.5.2(e9f11a000474d14a67921c628734d6d6))
       vite-hub:
         specifier: workspace:*
         version: link:packages/vite-hub
@@ -4038,46 +4032,6 @@ packages:
   '@eslint/plugin-kit@0.7.2':
     resolution: {integrity: sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
-
-  '@fallow-cli/darwin-arm64@3.17.0':
-    resolution: {integrity: sha512-u9O4aQaTSdaZaa4MAVEZEiwOx6QQzChymyQPrxV6KvDcVbcl0oYSekJKdvN4gEqUY8ClMze9gWS1tbn/W3N4dQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@fallow-cli/darwin-x64@3.17.0':
-    resolution: {integrity: sha512-l3tZJovnCa8j+im4qTl4GVSfrx4gisJYeHDwb5TbcdTGaWYz42gHriAaz5MhOR8S24q3xRegX8QrI8PA4XXU4g==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@fallow-cli/linux-arm64-gnu@3.17.0':
-    resolution: {integrity: sha512-IAjS6qR4tHcRo1y5lzYT6mktN/ATPyPNrJ6yjwTORwwQV1YfMO58A5zGBfJlPBY+lUmaMZ9w37ftvH9a2AS4dQ==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@fallow-cli/linux-arm64-musl@3.17.0':
-    resolution: {integrity: sha512-Oe1dvk5Wt5Bmnxfc6HufJTaFY9SEwDVrZpnSdVQlv+nvz7DzrTK1r91cR3Ip477ANSLa9XD/MHPMpfqqo0dlZg==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@fallow-cli/linux-x64-gnu@3.17.0':
-    resolution: {integrity: sha512-XgLU2a51zuky7gifjVDHuiJGToAReDsVCDcyDF84TQz/h3bqO0iRkpDL8dh7+HODku84+EffpK5ZHY19n6Ij0w==}
-    cpu: [x64]
-    os: [linux]
-
-  '@fallow-cli/linux-x64-musl@3.17.0':
-    resolution: {integrity: sha512-GnDZx2kbLKKdYAp05NSKv6CZHgzEKvhRd0btCKFMMpUEhdzmr4uh2Qb4UzKDBg/q2r1EhkzN4b/qC+tbFCmtwA==}
-    cpu: [x64]
-    os: [linux]
-
-  '@fallow-cli/win32-arm64-msvc@3.17.0':
-    resolution: {integrity: sha512-u9n5WzPuKuC1PKegKQknWtngAUJ2szQaRXsbY54s7UMqeFNyC+W04LV5D+sEZywU7L0kzL+Kck9LxFLXBQcgvA==}
-    cpu: [arm64]
-    os: [win32]
-
-  '@fallow-cli/win32-x64-msvc@3.17.0':
-    resolution: {integrity: sha512-/OcyxHuCKabzQ9hKIjM/CFJ9fr30n0Mw5MK6nzi5rn26mbYUgh073UZq4FONOpPJ/FqHtC726rxpgBtR4qS+gg==}
-    cpu: [x64]
-    os: [win32]
 
   '@fastify/accept-negotiator@2.0.1':
     resolution: {integrity: sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==}
@@ -10052,6 +10006,10 @@ packages:
   detab@3.0.2:
     resolution: {integrity: sha512-7Bp16Bk8sk0Y6gdXiCtnpGbghn8atnTJdd/82aWvS5ESnlcNvgUc10U2NYS0PAiDSGjWiI8qs/Cv1b2uSGdQ8w==}
 
+  detect-agent@1.2.0:
+    resolution: {integrity: sha512-fW/515FHIogLopGDTSMc4XXkJV6mkVC10gVPoenb7cgY7PZAF/jakLDdDUBQ9QpJEA9AYgEg3/B9WqLTUtz3Ag==}
+    engines: {node: '>=20'}
+
   detect-libc@2.0.2:
     resolution: {integrity: sha512-UX6sGumvvqSaXgdKGUsgZWqcUyIXZ/vZTrlRT/iobiKhGL0zL4d3osHj3uqllWJK+i+sixDS/3COVEOFbupFyw==}
     engines: {node: '>=8'}
@@ -10690,11 +10648,6 @@ packages:
 
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==}
-
-  fallow@3.17.0:
-    resolution: {integrity: sha512-tbLuvsPq3I2CzpoF/9MgSQ7hWzOqlj3avFUAmCr1J9OERE6z714SlDmA38NVvNy/zuK/70utXB3/b33xC9z29g==}
-    engines: {node: '>=22'}
-    hasBin: true
 
   fast-check@3.23.2:
     resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
@@ -14948,9 +14901,8 @@ packages:
     peerDependencies:
       vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0-0 || ^5.0.0-0 || ^6.0.1 || ^7.0.0-0 || ^8.0.0
 
-  vite-doctor@https://pkg.pr.new/vite-doctor@db34a0d:
-    resolution: {tarball: https://pkg.pr.new/vite-doctor@db34a0d}
-    version: 0.0.6
+  vite-doctor@0.0.9:
+    resolution: {integrity: sha512-R1uiRYfIo44hoAXwxpvwjYSZPRV9jFPVNAlZJ2YAyUEEvLD8bXYW0JRQ99z9uSFPsuU8IYqJSNzuGO7/+az1UA==}
     engines: {node: '>=22.20.0'}
     hasBin: true
     peerDependencies:
@@ -15445,9 +15397,6 @@ packages:
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
-
-ignoredOptionalDependencies:
-  - fallow-type-aware
 
 snapshots:
 
@@ -17175,30 +17124,6 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
-
-  '@fallow-cli/darwin-arm64@3.17.0':
-    optional: true
-
-  '@fallow-cli/darwin-x64@3.17.0':
-    optional: true
-
-  '@fallow-cli/linux-arm64-gnu@3.17.0':
-    optional: true
-
-  '@fallow-cli/linux-arm64-musl@3.17.0':
-    optional: true
-
-  '@fallow-cli/linux-x64-gnu@3.17.0':
-    optional: true
-
-  '@fallow-cli/linux-x64-musl@3.17.0':
-    optional: true
-
-  '@fallow-cli/win32-arm64-msvc@3.17.0':
-    optional: true
-
-  '@fallow-cli/win32-x64-msvc@3.17.0':
-    optional: true
 
   '@fastify/accept-negotiator@2.0.1': {}
 
@@ -26028,6 +25953,8 @@ snapshots:
 
   detab@3.0.2: {}
 
+  detect-agent@1.2.0: {}
+
   detect-libc@2.0.2: {}
 
   detect-libc@2.1.2: {}
@@ -27057,19 +26984,6 @@ snapshots:
       sort-keys-length: 1.0.1
 
   extend@3.0.2: {}
-
-  fallow@3.17.0:
-    dependencies:
-      detect-libc: 2.1.2
-    optionalDependencies:
-      '@fallow-cli/darwin-arm64': 3.17.0
-      '@fallow-cli/darwin-x64': 3.17.0
-      '@fallow-cli/linux-arm64-gnu': 3.17.0
-      '@fallow-cli/linux-arm64-musl': 3.17.0
-      '@fallow-cli/linux-x64-gnu': 3.17.0
-      '@fallow-cli/linux-x64-musl': 3.17.0
-      '@fallow-cli/win32-arm64-msvc': 3.17.0
-      '@fallow-cli/win32-x64-msvc': 3.17.0
 
   fast-check@3.23.2:
     dependencies:
@@ -34218,7 +34132,7 @@ snapshots:
       vite: 8.2.2(1c5586c0c1d553c50e3ce7a428d63930)
       vite-hot-client: 2.2.0(vite@8.2.2(1c5586c0c1d553c50e3ce7a428d63930))
 
-  vite-doctor@https://pkg.pr.new/vite-doctor@db34a0d(@voidzero-dev/vite-plus-core@0.1.24)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(jiti@2.7.0)(magicast@0.5.4)(nuxt@4.5.2(e9f11a000474d14a67921c628734d6d6)):
+  vite-doctor@0.0.9(@voidzero-dev/vite-plus-core@0.1.24)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(jiti@2.7.0)(magicast@0.5.4)(nuxt@4.5.2(e9f11a000474d14a67921c628734d6d6)):
     dependencies:
       '@typescript-eslint/parser': 8.67.0(eslint@10.9.0(jiti@2.7.0))(typescript@6.0.3)
       '@vue/compiler-sfc': 3.5.41
@@ -34226,6 +34140,7 @@ snapshots:
       cac: 7.0.0
       consola: 3.4.2
       defu: 6.1.7
+      detect-agent: 1.2.0
       eslint: 10.9.0(jiti@2.7.0)
       eslint-plugin-vue: 10.10.0(@typescript-eslint/parser@8.67.0(eslint@10.9.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.0(jiti@2.7.0))(vue-eslint-parser@10.4.1(eslint@10.9.0(jiti@2.7.0)))
       magic-string: 1.2.2
@@ -34234,6 +34149,7 @@ snapshots:
       pathe: 2.0.3
       picocolors: 1.1.1
       semver: 7.8.5
+      std-env: 4.2.0
       typescript: 6.0.3
       vue-eslint-parser: 10.4.1(eslint@10.9.0(jiti@2.7.0))
     optionalDependencies:

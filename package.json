@@ -38,7 +38,6 @@
     "chat": "catalog:chat",
     "chat-state-cloudflare-do": "catalog:chat",
     "drizzle-orm": "catalog:database",
-    "fallow": "catalog:tooling",
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",

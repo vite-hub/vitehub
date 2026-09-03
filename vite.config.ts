@@ -26,7 +26,7 @@ export default defineConfig({
       "doctor:typescript": {
         cache: false,
         command:
-          'node node_modules/vite-doctor/dist/cli.mjs scan . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --baseline .vite-doctor-baseline.json --new-only --no-cache --max-warnings 0',
+          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --baseline .vite-doctor-baseline.json --new-only --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,
@@ -59,11 +59,6 @@ export default defineConfig({
         cache: false,
         command: "node test/local/deno-real-project.mjs --live",
         dependsOn: ["build"],
-      },
-      "fallow:dead-code": {
-        cache: false,
-        command:
-          "vp exec fallow dead-code --baseline .fallow-baseline.json --summary --format markdown --fail-on-issues",
       },
       "knip:catalog": {
         cache: false,
@@ -135,7 +130,7 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run preflight && vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,
