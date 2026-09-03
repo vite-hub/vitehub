@@ -251,7 +251,7 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
   options: AgentChatOptions<TRuntimeConfig>,
   args: AgentChatAgentHookArgs<TRuntimeConfig>,
 ): Promise<string | null | undefined> {
-  const fallback = options.fallbackStreamingPlaceholderText
+  const fallback = options.loading?.text ?? options.fallbackStreamingPlaceholderText
   if (fallback === null) return null
   if (hasRuntimeType(fallback, "function")) {
     const resolved = await fallback(args)
@@ -415,13 +415,23 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
 }
 
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
-  if (options.delivery === "manual" && (options.stream === true || options.commentary !== undefined)) {
+  const manualDelivery = options.loading !== undefined || options.delivery === "manual"
+  if (manualDelivery && (options.stream === true || options.commentary !== undefined)) {
     throw new TypeError("[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary.")
+  }
+  if (options.loading?.updates !== undefined && options.loading.updates !== "commentary") {
+    throw new TypeError('[vitehub] messages.loading.updates must be "commentary".')
+  }
+  if (options.loading?.intervalMs !== undefined && (!Number.isFinite(options.loading.intervalMs) || options.loading.intervalMs <= 0)) {
+    throw new TypeError("[vitehub] messages.loading.intervalMs must be a positive finite number.")
+  }
+  if (options.final?.delivery !== undefined && options.final.delivery !== "new-message") {
+    throw new TypeError('[vitehub] messages.final.delivery must be "new-message".')
   }
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw new TypeError("[vitehub] messages.timeout must be a positive finite number.")
   }
-  if (options.durable && options.delivery !== "manual") {
+  if (options.durable && !manualDelivery) {
     throw new TypeError("[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply.")
   }
   if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
