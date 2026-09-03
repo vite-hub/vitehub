@@ -12,7 +12,12 @@ import ConsoleDatabase from "../components/console-database.vue";
 import ConsoleDefinitions from "../components/console-definitions.vue";
 import ConsoleHome from "../components/console-home.vue";
 import ConsoleKv from "../components/console-kv.vue";
-import { consoleDatabaseSchemaPath, consoleDatabaseTablePath } from "../console-route";
+import {
+  consoleDatabaseSchemaPath,
+  consoleDatabaseTablePath,
+  consoleDatabasesSchemaPath,
+  consoleDatabasesTablePath,
+} from "../console-route";
 import { isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { createConsoleSectionLoader } from "./sections";
@@ -158,12 +163,29 @@ const router = createRouter({
       },
     },
     {
-      component: ConsoleDefinitions,
+      component: ConsoleDatabase,
+      name: "vitehub-console-databases-schema",
+      path: consoleDatabasesSchemaPath,
+      meta: { consoleSection: "databases", title: "Schema · ViteHub Console" },
+      props: {
+        agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
+        definitionsBase: "/api/_vitehub/console/definitions",
+        kvBase: "/api/_vitehub/console/kv",
+        searchBase: "/api/_vitehub/console/search",
+        section: "databases",
+        sectionsBase,
+        view: "schema",
+      },
+    },
+    {
+      component: ConsoleDatabase,
       name: "vitehub-console-databases",
-      path: "/databases",
+      path: consoleDatabasesTablePath,
       meta: { consoleSection: "databases", title: "Databases · ViteHub Console" },
       props: {
         agentsBase: "/api/_vitehub/console/agents",
+        databaseBase: "/api/_vitehub/console/database",
         definitionsBase: "/api/_vitehub/console/definitions",
         kvBase: "/api/_vitehub/console/kv",
         searchBase: "/api/_vitehub/console/search",

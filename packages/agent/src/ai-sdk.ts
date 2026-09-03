@@ -1282,7 +1282,21 @@ async function createAgent(
       },
     },
     ...(instructions ? { instructions: [instructions] } : {}),
-    ...(Object.keys(toolSet).length ? { tools: Object.keys(toolSet).sort().map(name => ({ name })) } : {}),
+    ...(Object.keys(toolSet).length
+      ? {
+          tools: Object.entries(toolSet)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([name, tool]) => {
+              const value = hasRuntimeType(tool, "object") && tool !== null && "description" in tool
+                ? tool.description
+                : undefined
+              const description = hasRuntimeType(value, "string")
+                ? value.trim().replace(/\s+/g, " ").slice(0, 240)
+                : ""
+              return { name, ...(description ? { description } : {}) }
+            }),
+        }
+      : {}),
   })
   const {
     instructions: _instructions,

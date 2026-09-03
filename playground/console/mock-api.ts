@@ -113,6 +113,65 @@ function formattedKVValue(key: string, name: keyof typeof kvStores, value: unkno
   }
 }
 
+function databaseCell(value: unknown): { kind: string, value: string } {
+  if (value === null || value === undefined) return { kind: "null", value: "NULL" }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
+  if (typeof value === "boolean") return { kind: "boolean", value: value ? "true" : "false" }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
+  if (typeof value === "number") return { kind: "number", value: String(value) }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
+  if (typeof value === "string") return { kind: "text", value }
+  return { kind: "json", value: JSON.stringify(value) }
+}
+
+function databaseInspection(url: URL): Record<string, unknown> {
+  const requestedTable = url.searchParams.get("table") || undefined
+  const table = requestedTable
+    ? databaseFixture.tables.find(entry => entry.name === requestedTable)
+    : undefined
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 100)
+  const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0)
+  const search = (url.searchParams.get("search") || "").trim().toLowerCase()
+  const sort = table?.columns.some(column => column.name === url.searchParams.get("sort"))
+    ? url.searchParams.get("sort") || undefined
+    : undefined
+  const direction = url.searchParams.get("direction") === "desc" ? "desc" : "asc"
+  const rows = (table?.rows ?? [])
+    .filter(row => !search || Object.values(row).some(value => JSON.stringify(value)?.toLowerCase().includes(search)))
+    .toSorted((left, right) => {
+      if (!sort) return 0
+      const compared = String(left[sort] ?? "").localeCompare(String(right[sort] ?? ""), undefined, { numeric: true })
+      return direction === "desc" ? -compared : compared
+    })
+  return {
+    database: databaseFixture.schema,
+    databases: [databaseFixture.schema],
+    direction,
+    limit,
+    offset,
+    relationships: databaseFixture.relationships,
+    rows: rows.slice(offset, offset + limit).map(row => Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key, databaseCell(value)]),
+    )),
+    search,
+    ...(sort ? { sort } : {}),
+    ...(table ? { table: table.name } : {}),
+    tables: databaseFixture.tables.map(entry => ({
+      columns: entry.columns.map(column => ({
+        ...(column.foreignKey ? { foreignKey: column.foreignKey } : {}),
+        key: column.name,
+        name: column.name,
+        nullable: column.nullable === true,
+        primary: column.primary === true,
+        type: column.type,
+        unique: column.unique === true,
+      })),
+      name: entry.name,
+    })),
+    total: rows.length,
+  }
+}
+
 async function handleAPI(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   const path = url.pathname
   if (!path.startsWith("/api/_vitehub/console/")) return false
@@ -177,7 +236,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
 
   if (path === "/api/_vitehub/console/database") {
-    json(response, databaseFixture)
+    json(response, databaseInspection(url))
     return true
   }
 

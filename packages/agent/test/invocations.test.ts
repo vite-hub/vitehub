@@ -1742,6 +1742,16 @@ describe("Agent Invocations", () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "lookup",
+        tools: {
+          lookup: {
+            description: "Find matching records for a private account.",
+            execute: () => "unused",
+            name: "lookup",
+          },
+        },
+      })],
       channels: { reviews: { kind: "github" } },
       driver: {
         instructions: "Sensitive resolved instructions",
@@ -1778,7 +1788,11 @@ describe("Agent Invocations", () => {
       .toBe(configuration?.fingerprint)
     expect(configuration).toMatchObject({
       channels: [{ id: "reviews", kind: "github" }],
+      tools: [{ name: "lookup" }],
       fingerprint: expect.stringMatching(/^sha256_[a-f0-9]{64}$/),
+    })
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).not.toMatchObject({
+      tools: [{ description: expect.any(String) }],
     })
   })
 
@@ -1813,6 +1827,53 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
       instructions: ["Inspectable resolved instructions"],
     })
+  })
+
+  it("persists compact tool descriptions for content-enabled Console inspection", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const invocations = defineAgentInvocations({
+      content: "content",
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "lookup",
+        tools: {
+          lookup: {
+            description: `  Find matching records.\n${"Detailed guidance. ".repeat(20)}  `,
+            execute: () => "unused",
+            name: "lookup",
+          },
+        },
+      })],
+      driver: {
+        model: new MockLanguageModelV3({
+          doGenerate: {
+            content: [{ text: "done", type: "text" }],
+            finishReason: { raw: "stop", unified: "stop" },
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+              outputTokens: { reasoning: 0, text: 1, total: 1 },
+            },
+            warnings: [],
+          },
+        }),
+      },
+      invocations,
+    })
+
+    await runAgent(agent, runtime("tool-descriptions"), { prompt: "hello" })
+
+    const configured = (await invocations.getByRunId("tool-descriptions"))?.observations
+      .findLast(entry => entry.name === "vitehub.agent.configured")
+    // SAFETY: The invocation configuration event owns the asserted, JSON-compatible tools projection.
+    const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { tools?: { description?: string, name: string }[] } | undefined
+    expect(configuration?.tools).toEqual([{
+      description: expect.stringMatching(/^Find matching records\. Detailed guidance\./),
+      name: "lookup",
+    }])
+    expect(configuration?.tools?.[0]?.description).toHaveLength(240)
+    expect(configuration?.tools?.[0]?.description).not.toContain("\n")
   })
 
   it("does not reacquire journal ownership for observations appended after finish", async () => {

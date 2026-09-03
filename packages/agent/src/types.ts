@@ -331,7 +331,7 @@ export interface AgentTelemetryConfiguration {
   runtime: {
     name: string
   }
-  tools?: Array<{ name: string }>
+  tools?: Array<{ description?: string, name: string }>
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
