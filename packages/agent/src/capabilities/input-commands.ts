@@ -366,12 +366,14 @@ async function inputCommandRuntimeContext(context: AgentCapabilityRuntimeContext
     if (name in context) return [] as const
     const value = getCapability(context, name).value
     if (value === false || value === undefined) return [] as const
+    // SAFETY: The generated Capability registry pairs each runtime value with this normalized runtime context.
     return [name, await resolveRuntimeValue(value as never, context as never)] as const
   }))
   const message = inputPhaseMessage(context)
   const id = context.run?.runId && context.agentIdentity?.name
     ? await agentInvocationId(context.run.runId, context.agentIdentity.name)
     : undefined
+  // SAFETY: Capability resolution above fills the open ViteHubInputCommandContext with every configured runtime value.
   return {
     ...context,
     ...Object.fromEntries(capabilities.filter(entry => entry.length === 2)),

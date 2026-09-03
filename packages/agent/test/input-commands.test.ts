@@ -23,6 +23,7 @@ describe("inputCommands", () => {
         commands: {
           debug: {
             async call({ context }) {
+              // SAFETY: This test registers diagnostics in the runtime Capability map below.
               expect((context as typeof context & { diagnostics: typeof diagnosticsRuntime }).diagnostics).toBe(diagnosticsRuntime)
               expect(context.invocation.id).toBe(await agentInvocationId(runId, "support"))
               return context.reply("https://chat.example/_vitehub/invocations/previous")

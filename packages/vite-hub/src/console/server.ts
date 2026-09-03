@@ -32,11 +32,12 @@ export interface ConsoleRuntime {
 
 export const console = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
-    const request = context.request
-    if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
     return {
       invocations: getConsoleInvocationsDatabase(),
       invocationUrl(invocation) {
+        const request = context.request
+        if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation links accept records from external database adapters, so validate both required identities at this boundary.
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
           throw new TypeError("[vitehub] Console invocation URLs require an invocation with agentName and id.")
         }

@@ -1699,14 +1699,13 @@ function createManualDeliveryProgressUpdater(
   }
 
   const drain = async () => {
-    while (active && latest && manualDelivery.placeholder) {
-      const summary = latest
-      latest = undefined
-      await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
-        markdown: summary,
-      }).catch(() => false)
-      lastUpdateAt = Date.now()
-    }
+    if (!active || !latest || !manualDelivery.placeholder) return
+    const summary = latest
+    latest = undefined
+    await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
+      markdown: summary,
+    }).catch(() => false)
+    lastUpdateAt = Date.now()
   }
   const startDrain = () => {
     if (draining) return
@@ -4518,6 +4517,9 @@ async function flushChatFinishExtensionMessages(
   const messages = chat[chatFinishMessagesKey].splice(0)
   for (const [index, queued] of messages.entries()) {
     const callbacks = queued.directCallback ? [queued.directCallback, ...queued.callbacks] : queued.callbacks
+    const runCallbacks = async (capture: ChatFinishDeliveryCapture) => {
+      await Promise.allSettled(callbacks.map(callback => Promise.resolve().then(() => callback(capture))))
+    }
     let { message } = queued
     const capture: ChatFinishDeliveryCapture = { content: "", truncated: false }
     if (isAsyncIterable(message) && callbacks.length) {
@@ -4538,26 +4540,26 @@ async function flushChatFinishExtensionMessages(
         }
         const placeholder = manualDelivery.placeholder
         if (finalDelivery === "new-message") {
+          let posted = false
           try {
             await postChatMessage(thread, message, abortSignal)
+            posted = true
+          }
+          catch (postError) {
+            abortSignal?.throwIfAborted()
+            if (!await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) throw postError
+          }
+          if (posted) {
             if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
             const placeholderCleanup = deleteManualDeliveryPlaceholder(placeholder).catch(() => undefined)
             manualDelivery.placeholderCleanup = placeholderCleanup
             waitUntil(placeholderCleanup.finally(() => {
               if (manualDelivery.placeholderCleanup === placeholderCleanup) manualDelivery.placeholderCleanup = undefined
             }))
-            for (const callback of callbacks) await callback(capture)
-            continue
           }
-          catch (postError) {
-            abortSignal?.throwIfAborted()
-            if (await replaceManualDeliveryPlaceholder(placeholder, message).catch(() => false)) {
-              manualDelivery.placeholder = undefined
-              for (const callback of callbacks) await callback(capture)
-              continue
-            }
-            throw postError
-          }
+          else if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+          await runCallbacks(capture)
+          continue
         }
         let deliveredToPlaceholder = false
         const placeholderCleanup = (async () => {
@@ -4580,7 +4582,7 @@ async function flushChatFinishExtensionMessages(
           }
         }
         if (deliveredToPlaceholder) {
-          for (const callback of callbacks) await callback(capture)
+          await runCallbacks(capture)
           continue
         }
       }
@@ -4588,7 +4590,7 @@ async function flushChatFinishExtensionMessages(
     }
     catch (error) {
       capture.error = error instanceof Error ? error.message : String(error)
-      for (const callback of callbacks) await callback(capture)
+      await runCallbacks(capture)
       const skippedCapture: ChatFinishDeliveryCapture = {
         content: "",
         skipped: `Skipped after an earlier queued reply failed: ${capture.error}`,
@@ -4600,7 +4602,7 @@ async function flushChatFinishExtensionMessages(
       }
       throw error
     }
-    for (const callback of callbacks) await callback(capture)
+    await runCallbacks(capture)
   }
 }
 

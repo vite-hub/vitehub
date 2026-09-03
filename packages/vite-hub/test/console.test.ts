@@ -3687,14 +3687,19 @@ describe("Agent invocation console", () => {
 
       const { db, schema } = getConsoleInvocationsDatabase()
       const [invocation] = await db.select().from(schema.invocations).orderBy(desc(schema.invocations.sequence)).limit(1)
+      if (!invocation) throw new Error("Expected the Console invocation journal to contain the completed invocation.")
       expect(invocation).toMatchObject({ agentName: "agent", status: "completed" })
+
+      const requestless = consoleRuntime.resolve(runtime("console-requestless"))
+      expect(requestless.invocations).toEqual({ db, schema })
+      expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require a request context")
 
       const resolved = consoleRuntime.resolve({
         ...runtime("console-link"),
         request: new Request("https://chat.example/api/agents/support"),
       })
-      expect(resolved.invocationUrl(invocation!)).toBe(
-        `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation!.id as string)}`,
+      expect(resolved.invocationUrl(invocation)).toBe(
+        `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
     }
     finally {
