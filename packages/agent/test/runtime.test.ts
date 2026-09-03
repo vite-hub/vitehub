@@ -2694,7 +2694,17 @@ describe("agent message protocol", () => {
         }),
         createMessage({
           id: "current-attachment",
-          parts: [{ fetchData, mediaType: "image/png", size: 3, type: "image", url: "https://cdn.example.com/photo.png" }],
+          parts: [
+            { text: "inspect this", type: "text" },
+            { fetchData, mediaType: "image/png", size: 3, type: "image", url: "https://cdn.example.com/photo.png" },
+            {
+              fetchMetadata: { downloadUrl: "https://cdn.example.com/reference.txt?token=secret" },
+              mediaType: "text/plain",
+              name: "reference.txt",
+              type: "file",
+              url: "https://cdn.example.com/reference.txt?token=secret",
+            },
+          ],
           role: "user",
         }),
       ],
@@ -2705,7 +2715,10 @@ describe("agent message protocol", () => {
     expect(ignoredAssistantFetchData).not.toHaveBeenCalled()
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       messages: [{
-        content: [{ image: new Uint8Array([1, 2, 3]), mediaType: "image/png", type: "image" }],
+        content: [
+          { text: "inspect this", type: "text" },
+          { image: new Uint8Array([1, 2, 3]), mediaType: "image/png", type: "image" },
+        ],
         role: "user",
       }],
     }))
@@ -15026,7 +15039,7 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("serializes binary message attachments before Workflows", async () => {
+    it("serializes binary and sanitizes reference-only message attachments before Workflows", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
@@ -15046,10 +15059,29 @@ describe("agent message protocol", () => {
         message: {
           id: "message-1",
           parts: [
-            { fetchData: () => new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" },
-            { data: new Blob([new Uint8Array([4, 5, 6])]), mediaType: "audio/mpeg", type: "audio" },
+            {
+              fetchData: () => new Uint8Array([1, 2, 3]),
+              fetchMetadata: { fileId: "private-photo" },
+              mediaType: "image/jpeg",
+              type: "image",
+              url: "https://signed.example/photo.jpg?token=secret",
+            },
+            {
+              data: new Blob([new Uint8Array([4, 5, 6])]),
+              fetchMetadata: { downloadUrl: "https://signed.example/audio.mp3?token=secret" },
+              mediaType: "audio/mpeg",
+              type: "audio",
+              url: "https://signed.example/audio.mp3?token=secret",
+            },
             { data: new Uint8Array([7, 8, 9]).buffer, mediaType: "application/pdf", type: "file" },
             { data: new Uint8Array([10, 11, 12]), mediaType: "text/plain", type: "file" },
+            {
+              fetchMetadata: { downloadUrl: "https://signed.example/reference.txt?token=secret" },
+              mediaType: "text/plain",
+              name: "reference.txt",
+              type: "file",
+              url: "https://signed.example/reference.txt?token=secret",
+            },
           ],
           role: "user",
         },
@@ -15062,9 +15094,31 @@ describe("agent message protocol", () => {
           { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
           { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
           { data: "data:text/plain;base64,CgsM", mediaType: "text/plain", type: "file" },
+          { mediaType: "text/plain", name: "reference.txt", type: "file" },
         ],
         status: "completed",
       })
+      expect(JSON.stringify(await getWorkflowRun("portable-attachments", run.id))).not.toContain("signed.example")
+    })
+
+    it("rejects unavailable message attachments before Workflow handoff", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({ driver: { run: () => "unused" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "unavailable-attachment" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {
+        message: {
+          id: "message-1",
+          parts: [{ fetchData: () => "", mediaType: "image/jpeg", type: "image" }],
+          role: "user",
+        },
+      })).rejects.toThrow("[vitehub] image attachment fetchData() did not return supported attachment data.")
     })
 
     it("rejects non-JSON data in non-attachment message parts", async () => {
