@@ -15,7 +15,7 @@ describe("Console Devframe", () => {
     const handler = createConsoleDevframeHandler()
     const fetchThroughNitroHandler: typeof fetch = async (input, init) => {
       const request = new Request(input, init)
-      // SAFETY: This fixture supplies the request fields read by the patched Devframe H3 adapter.
+      // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
       return (await handler({
         method: request.method,
         req: request,
@@ -50,7 +50,7 @@ describe("Console Devframe", () => {
     const channel = createSseRpcChannel({
       fetch: async (input, init) => {
         const request = new Request(input, init)
-        // SAFETY: This fixture supplies the request fields read by the patched Devframe H3 adapter.
+        // SAFETY: This fixture supplies the request fields read by the ViteHub H3 adapter.
         return (await handler({
           method: request.method,
           req: request,

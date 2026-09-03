@@ -1,5 +1,6 @@
 import { defineDevframe, defineRpcFunction } from "devframe"
-import { createDevframeH3Handler } from "devframe/adapters/h3"
+import { initDevframe } from "devframe/initiate"
+import { fromWebHandler } from "h3"
 
 import { consoleRpcMethods } from "../rpc.ts"
 import consoleAgentsHandler from "./agents.get.ts"
@@ -15,9 +16,47 @@ import consoleSectionsHandler from "./sections.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
 
 import type { DevframeDefinition } from "devframe"
-import type { DevframeH3Handler } from "devframe/adapters/h3"
+import type { DevframeInstance, InitDevframeOptions } from "devframe/initiate"
+import type { EventHandler } from "h3"
 import type { ConsoleRpcFunctions, ConsoleRpcInput, ConsoleRpcResult } from "../rpc.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+
+interface DevframeH3HandlerOptions extends InitDevframeOptions {
+  responseHeaders?: ConstructorParameters<typeof Headers>[0]
+}
+
+interface DevframeH3Handler extends EventHandler {
+  close: () => Promise<void>
+}
+
+function createDevframeH3Handler(definition: DevframeDefinition, options: DevframeH3HandlerOptions): DevframeH3Handler {
+  const { responseHeaders, ...initOptions } = options
+  let instance: DevframeInstance | undefined
+  // SAFETY: H3 returns an EventHandler; this adapter adds the close method assigned below.
+  const handler = fromWebHandler(async (request) => {
+    instance ??= initDevframe(definition, initOptions)
+    const url = new URL(request.url)
+    const marker = url.pathname.indexOf(instance.base)
+    if (marker > 0) {
+      url.pathname = url.pathname.slice(marker)
+      request = new Request(url, request)
+    }
+    const response = await instance.handler(request)
+    if (!responseHeaders) return response
+    const headers = new Headers(response.headers)
+    for (const [name, value] of new Headers(responseHeaders)) headers.set(name, value)
+    return new Response(response.body, {
+      headers,
+      status: response.status,
+      statusText: response.statusText,
+    })
+  }) as DevframeH3Handler
+  handler.close = async () => {
+    await instance?.close()
+    instance = undefined
+  }
+  return handler
+}
 
 export const consoleDevframeBase = "/_vitehub/rpc/"
 
