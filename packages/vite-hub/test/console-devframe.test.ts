@@ -6,7 +6,7 @@ import { createConsoleDevframeHandler } from "../src/console/runtime/server/devf
 import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-type ConsoleRpcResult = { ok: true; value: unknown } | { message: string; ok: false; status: number }
+import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts"
 
 describe("Console Devframe", () => {
   it("carries Console reads over an SSE-only RPC instance and closes cleanly", async () => {
@@ -15,6 +15,7 @@ describe("Console Devframe", () => {
     const handler = createConsoleDevframeHandler()
     const fetchThroughNitroHandler: typeof fetch = async (input, init) => {
       const request = new Request(input, init)
+      // SAFETY: This fixture supplies the request fields read by the patched Devframe H3 adapter.
       return (await handler({
         method: request.method,
         req: request,
@@ -24,7 +25,7 @@ describe("Console Devframe", () => {
       fetch: fetchThroughNitroHandler,
       url: "http://vitehub.local/_vitehub/rpc/__sse",
     })
-    const client = createRpcClient<Record<string, never>, Record<string, never>>({}, { channel })
+    const client = createRpcClient<ConsoleRpcFunctions>({}, { channel })
 
     try {
       const connection = await fetchThroughNitroHandler("http://vitehub.local/_vitehub/rpc/__connection.json")
@@ -32,11 +33,7 @@ describe("Console Devframe", () => {
         backend: "sse",
         sse: { path: "__sse" },
       })
-      const result = await (
-        client as unknown as {
-          $call(name: string, input: unknown): Promise<ConsoleRpcResult>
-        }
-      ).$call(consoleRpcMethods.sections, {})
+      const result = await client.$call(consoleRpcMethods.sections, {})
 
       expect(result).toEqual({
         ok: true,
@@ -53,6 +50,7 @@ describe("Console Devframe", () => {
     const channel = createSseRpcChannel({
       fetch: async (input, init) => {
         const request = new Request(input, init)
+        // SAFETY: This fixture supplies the request fields read by the patched Devframe H3 adapter.
         return (await handler({
           method: request.method,
           req: request,
@@ -60,14 +58,10 @@ describe("Console Devframe", () => {
       },
       url: "http://vitehub.local/_vitehub/rpc/__sse",
     })
-    const client = createRpcClient<Record<string, never>, Record<string, never>>({}, { channel })
+    const client = createRpcClient<ConsoleRpcFunctions>({}, { channel })
 
     try {
-      const result = await (
-        client as unknown as {
-          $call(name: string, input: unknown): Promise<ConsoleRpcResult>
-        }
-      ).$call(consoleRpcMethods.definitions, {})
+      const result = await client.$call(consoleRpcMethods.definitions, {})
 
       expect(result).toEqual({
         message: "A valid definition section is required.",

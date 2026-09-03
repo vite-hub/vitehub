@@ -12,6 +12,8 @@ export const consoleRpcMethods = {
   usage: "vitehub:console:usage",
 } as const
 
+export type ConsoleRpcMethod = (typeof consoleRpcMethods)[keyof typeof consoleRpcMethods]
+
 export interface ConsoleRpcInput {
   body?: unknown
   id?: string
@@ -20,3 +22,11 @@ export interface ConsoleRpcInput {
 }
 
 export type ConsoleRpcResult = { ok: true; value: unknown } | { message: string; ok: false; status: number }
+
+export type ConsoleRpcFunctions = {
+  [Method in ConsoleRpcMethod]: (input: ConsoleRpcInput) => Promise<ConsoleRpcResult>
+}
+
+declare module "devframe" {
+  interface DevframeRpcServerFunctions extends ConsoleRpcFunctions {}
+}

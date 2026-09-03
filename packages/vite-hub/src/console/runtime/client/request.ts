@@ -3,7 +3,7 @@ import { connectDevframe } from "devframe/client"
 import { consoleRpcMethods } from "../rpc"
 
 import type { DevframeRpcClient } from "devframe/client"
-import type { ConsoleRpcInput, ConsoleRpcResult } from "../rpc"
+import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleDevframePath = "/_vitehub/rpc/"
@@ -26,7 +26,7 @@ function consoleDevframeBase(path: string): string {
   return `${appBase}${consoleDevframePath}`
 }
 
-function consoleRpcCall(path: string): { id?: string; method: string } {
+function consoleRpcCall(path: string): { id?: string; method: ConsoleRpcMethod } {
   const url = new URL(path, "http://vitehub.local")
   const marker = url.pathname.indexOf(consoleApiMarker)
   const operation = marker === -1 ? "" : url.pathname.slice(marker + consoleApiMarker.length)
@@ -37,7 +37,7 @@ function consoleRpcCall(path: string): { id?: string; method: string } {
     }
   }
   const key = operation === "invocation-capabilities" ? "invocationCapabilities" : operation
-  const method = consoleRpcMethods[key as keyof typeof consoleRpcMethods]
+  const method = Object.entries(consoleRpcMethods).find(([name]) => name === key)?.[1]
   if (!method) throw new ConsoleRequestError(404, "Console operation not found.")
   return { method }
 }
@@ -95,7 +95,7 @@ export async function requestConsole(
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   const client = await abortable(consoleDevframeClient(consoleDevframeBase(path)), options.signal)
-  const response = await abortable((client.call as unknown as (method: string, input: ConsoleRpcInput) => Promise<ConsoleRpcResult>)(call.method, input), options.signal)
+  const response = await abortable(client.call(call.method, input), options.signal)
   if (!response.ok) throw new ConsoleRequestError(response.status, response.message)
   return response.value
 }
