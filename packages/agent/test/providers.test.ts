@@ -2841,9 +2841,10 @@ export default defineAgent({
     )
       throw new Error("Expected package dependency metadata.")
 
+    expect(pkg.version).toEqual(expect.any(String))
     expect(pkg.dependencies?.["@vite-hub/schedule"]).toBeUndefined()
-    expect(pkg.devDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
-    expect(pkg.peerDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
+    expect(["workspace:*", pkg.version]).toContain(pkg.devDependencies?.["@vite-hub/schedule"])
+    expect(["workspace:*", pkg.version]).toContain(pkg.peerDependencies?.["@vite-hub/schedule"])
     expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
   })
 

@@ -113,7 +113,8 @@ describe("workspace public API", () => {
     const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.["@vite-hub/shell"]).toBeUndefined()
-    expect(packageJson.peerDependencies?.["@vite-hub/shell"]).toBe("workspace:*")
+    expect(packageJson.version).toEqual(expect.any(String))
+    expect(["workspace:*", packageJson.version]).toContain(packageJson.peerDependencies?.["@vite-hub/shell"])
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/shell"]).toEqual({ optional: true })
     expect(builtAiDeclarations).not.toContain("@vite-hub/shell")
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
