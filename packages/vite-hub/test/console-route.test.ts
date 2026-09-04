@@ -20,16 +20,29 @@ describe("Console routes", () => {
     expect(consoleDatabasesSchemaPath).toBe("/databases/:database/schema/diagram")
   })
 
-  it.each([".", "..", "~", "support/team"])(
-    "round-trips the Agent identity %j through a normalized URL",
+  it.each(["chat", "support-bot", "bot2"])(
+    "uses the Agent identity %j directly in the URL",
     (agentName) => {
       const encoded = encodeAgentRouteParam(agentName)
       const url = new URL(`/agents/${encodeURIComponent(encoded)}`, "https://console.vitehub.dev")
 
-      expect(url.pathname).toBe(`/agents/${encodeURIComponent(encoded)}`)
+      expect(encoded).toBe(agentName)
+      expect(url.pathname).toBe(`/agents/${agentName}`)
       expect(decodeAgentRouteParam(decodeURIComponent(url.pathname.slice("/agents/".length)))).toBe(agentName)
     },
   )
+
+  it.each(["", ".", "..", "~", "~chat", "support/team", "Chat", "chat_bot", "-chat", "chat-", "chat--bot"])(
+    "rejects the invalid Agent identity %j",
+    (agentName) => {
+      expect(() => encodeAgentRouteParam(agentName)).toThrow(TypeError)
+      expect(decodeAgentRouteParam(agentName)).toBeUndefined()
+    },
+  )
+
+  it("decodes the first route segment", () => {
+    expect(decodeAgentRouteParam(["chat", "ignored"])).toBe("chat")
+  })
 
   it("preserves host-decorated route names across console navigation", () => {
     expect(resolveConsoleRouteName("vitehub-console-agent___en", "vitehub-console-invocation"))

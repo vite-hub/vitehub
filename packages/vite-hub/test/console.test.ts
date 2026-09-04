@@ -1934,7 +1934,7 @@ describe("Agent invocation console", () => {
       expect(invocation).toMatchObject({
         agent: "support",
         id: expect.any(String),
-        url: expect.stringContaining("/_vitehub/agents/~support/invocations/"),
+        url: expect.stringContaining("/_vitehub/agents/support/invocations/"),
       })
       expect(Reflect.get(response, "status")).toBe(202)
       await vi.waitFor(async () => {
@@ -3878,12 +3878,12 @@ describe("Agent invocation console", () => {
         request: new Request("https://chat.example/api/agents/support"),
       })
       expect(resolved.invocationUrl(invocation)).toBe(
-        `https://chat.example/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
+        `https://chat.example/_vitehub/agents/agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
 
       vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
       expect(resolved.invocationUrl(invocation)).toBe(
-        `https://chat.example/portal/_vitehub/agents/~agent/invocations/${encodeURIComponent(invocation.id)}`,
+        `https://chat.example/portal/_vitehub/agents/agent/invocations/${encodeURIComponent(invocation.id)}`,
       )
       vi.unstubAllGlobals()
     }

@@ -3,13 +3,18 @@ export const consoleDatabaseTablePath = "/database/:table?"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
 export const consoleDatabasesTablePath = "/databases/:database?/:table?"
 
+const agentRouteParamPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 export function encodeAgentRouteParam(name: string): string {
-  return `~${name}`
+  if (!agentRouteParamPattern.test(name)) {
+    throw new TypeError(`[vitehub] Agent name ${JSON.stringify(name)} must use lowercase letters, numbers, and single hyphens.`)
+  }
+  return name
 }
 
 export function decodeAgentRouteParam(value: string | string[] | undefined): string | undefined {
   const segment = Array.isArray(value) ? value[0] : value
-  return segment?.startsWith("~") && segment.length > 1 ? segment.slice(1) : undefined
+  return segment && agentRouteParamPattern.test(segment) ? segment : undefined
 }
 
 export function resolveConsoleRouteName(currentRouteName: string | symbol | null | undefined, targetRouteName: string): string {
