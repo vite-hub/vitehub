@@ -2,6 +2,7 @@ import { defineCapability, workspaceMaterializationPathsSymbol } from "../capabi
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
 import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
@@ -78,12 +79,14 @@ function attachBrowserScreenshots(
     (match, alt: string, reference: string) => {
       const screenshot = screenshotReferencePath(reference)
       if (!screenshot || !changedPaths.has(screenshot.path)) return match
-      screenshots.set(screenshot.path, {
-        ...(alt.trim() ? { alt: alt.trim() } : {}),
+      const artifact: AgentDeliveryArtifact = {
         mediaType: screenshot.mediaType,
         path: screenshot.path,
         placement: "attachment",
-      })
+      }
+      const trimmedAlt = alt.trim()
+      if (trimmedAlt) artifact.alt = trimmedAlt
+      screenshots.set(screenshot.path, artifact)
       return ""
     },
   )
@@ -91,7 +94,7 @@ function attachBrowserScreenshots(
   const artifacts = new Map<string, AgentDeliveryArtifact>(screenshots)
   for (const artifact of runResult.artifacts || []) artifacts.set(artifact.path, artifact)
   const nextText = text.replace(/\n{3,}/g, "\n\n").trim()
-  if (typeof result === "object" && result !== null) {
+  if (isRuntimeRecord(result)) {
     return cloneWithPropertyDescriptors(result, {
       artifacts: {
         configurable: true,
