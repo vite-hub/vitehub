@@ -35,11 +35,14 @@ class ProcessWakeRuntimeService extends Context.Service<ProcessWakeRuntimeServic
 function createProcessClock(): Clock.Clock {
   const currentTimeMillisUnsafe = () => Date.now()
   const currentTimeNanosUnsafe = () => BigInt(currentTimeMillisUnsafe()) * 1_000_000n
+  const monotonicTimeNanosUnsafe = () => process.hrtime.bigint()
   return {
     currentTimeMillis: Effect.sync(currentTimeMillisUnsafe),
     currentTimeMillisUnsafe,
     currentTimeNanos: Effect.sync(currentTimeNanosUnsafe),
     currentTimeNanosUnsafe,
+    monotonicTimeNanos: Effect.sync(monotonicTimeNanosUnsafe),
+    monotonicTimeNanosUnsafe,
     sleep(duration) {
       return Effect.callback((resume) => {
         const timer = setTimeout(() => resume(Effect.void), Duration.toMillis(duration))

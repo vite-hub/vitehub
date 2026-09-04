@@ -1,4 +1,3 @@
-import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { github } from "../../src/github.ts"
@@ -20,7 +19,6 @@ beforeEach(() => {
 
 afterEach(() => {
   clearSources()
-  setStorage(createMemoryStorage())
   vi.unstubAllGlobals()
 })
 

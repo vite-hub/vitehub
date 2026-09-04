@@ -57,7 +57,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "    webhook,",
       "  })",
       "}",
-      "export const createAgentWebhookRequest = input => new Request(input.url, input)",
+      "export const createAgentWebhookRequest = input => new Request(input.url, { ...input, ...(input.body ? { duplex: 'half' } : {}) })",
       "export const hasChannelChatRoute = () => true",
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
       "export const createChannelWebhookRouteHandler = agent => async (_request, webhook, options) => handle('webhook', agent, webhook, options)",
@@ -272,9 +272,16 @@ async function createDeploymentRuntimeFixture(
           },
         )
       }
+      const url = new URL(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
+      const req = new Request(url, {
+        ...(body ? { body } : {}),
+        headers: { "content-type": "application/json" },
+        method,
+      })
       return await route.default({
         body,
         context: {
+          params: { agent, ...(webhook ? { webhook } : {}) },
           waitUntil(task: Promise<unknown>) {
             waitUntilTasks.push(task)
           },
@@ -282,7 +289,8 @@ async function createDeploymentRuntimeFixture(
         headers: { "content-type": "application/json" },
         method,
         params: { agent, ...(webhook ? { webhook } : {}) },
-        url: `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`,
+        req,
+        url,
       })
     },
     async workspace(name) {

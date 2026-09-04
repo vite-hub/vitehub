@@ -4686,7 +4686,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", {
@@ -5123,8 +5123,9 @@ describe("server helpers", () => {
             const input = messages[0]?.parts.find(part => part.id === "reply-input-attachment-1")
             if (input?.type !== "image" || !input.fetchData) throw new Error("missing replied photo input")
             const data = await input.fetchData()
-            if (!(data instanceof Uint8Array)) throw new TypeError("replied photo input must resolve to bytes")
-            resolvedBytes.push([...data])
+            const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data
+            if (!(bytes instanceof Uint8Array)) throw new TypeError("replied photo input must resolve to bytes")
+            resolvedBytes.push([...bytes])
             return "ok"
           },
         },
@@ -10965,7 +10966,7 @@ describe("server helpers", () => {
     await contextStartedPromise
     expect(adapter.startTyping).not.toHaveBeenCalled()
     releaseContext()
-    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined))
+    await vi.waitFor(() => expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" }))
     await expect(responsePromise).resolves.toMatchObject({ status: 200 })
   })
 
@@ -11014,7 +11015,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
   })
@@ -12581,7 +12582,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", {
       markdown: '{"internal":"structured output"}',
     })
-    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
     const typingOrder = adapter.startTyping.mock.invocationCallOrder[0]
     const fallbackOrder = adapter.postMessage.mock.invocationCallOrder[0]
     expect(typingOrder).toBeDefined()
@@ -12617,7 +12618,7 @@ describe("server helpers", () => {
     ])
 
     expect(response.status).toBe(200)
-    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", {
       markdown: "Explicit reply",
     })
@@ -12676,7 +12677,7 @@ describe("server helpers", () => {
       if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
       expect(response.status).toBe(200)
       expect(adapter.postMessage).not.toHaveBeenCalled()
-      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
       release()
       await Promise.all(waitUntilTasks)
       await vi.waitFor(() => {
@@ -15099,7 +15100,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       expect(createBatch).toHaveBeenCalledOnce()
       expect(workflowPayloads[0]?.input?.timeout).toBeUndefined()
-      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
       expect(run).not.toHaveBeenCalled()
       await Promise.all(waitUntilTasks)
       await expect(
@@ -15754,7 +15755,7 @@ describe("server helpers", () => {
         }),
       ).rejects.toThrow("Workflow provider operation failed")
 
-      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+      expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123" })
       await expect(
         Promise.race([Promise.all(waitUntilTasks).then(() => "settled"), new Promise((resolve) => setTimeout(() => resolve("blocked"), 100))]),
       ).resolves.toBe("settled")

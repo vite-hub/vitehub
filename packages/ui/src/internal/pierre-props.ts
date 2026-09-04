@@ -17,7 +17,7 @@ export const pierrePropTypes = {
   // SAFETY: Vue validates the array container; Pierre validates each item while rendering.
   codeViewItems: Array as PropType<readonly CodeViewItem<unknown>[]>,
   // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  codeViewOptions: Object as PropType<CodeViewOptions<unknown>>,
+  codeViewOptions: Object as PropType<CodeViewOptions<unknown, unknown>>,
   // SAFETY: Vue validates the object container; Pierre owns the selection schema.
   codeViewSelection: Object as PropType<CodeViewLineSelection | null | undefined>,
   // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
@@ -27,9 +27,9 @@ export const pierrePropTypes = {
   // SAFETY: Vue validates the object container; Pierre owns the parsed diff schema.
   fileDiff: Object as PropType<FileDiffMetadata>,
   // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  fileDiffOptions: Object as PropType<FileDiffOptions<unknown>>,
+  fileDiffOptions: Object as PropType<FileDiffOptions<unknown, unknown>>,
   // SAFETY: Vue validates the object container; Pierre owns the options schema.
-  fileOptions: Object as PropType<FileOptions<unknown>>,
+  fileOptions: Object as PropType<FileOptions<unknown, unknown>>,
   // SAFETY: Vue validates the array container; Pierre owns the annotation schema.
   lineAnnotations: Array as PropType<LineAnnotation<unknown>[]>,
   // SAFETY: Vue accepts an object or null; Pierre owns the file schema.

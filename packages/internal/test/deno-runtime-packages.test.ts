@@ -1718,19 +1718,20 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
     const output = await mkdtemp(join(tmpdir(), "vitehub-deno-sharp-runtime-"))
     const workspaceRoot = resolve(import.meta.dirname, "../../..")
     const require = createRequire(import.meta.url)
-    const sharpPackageJson = await realpath(require.resolve("sharp/package.json"))
-    const sharpMarker = relative(workspaceRoot, dirname(sharpPackageJson)).replaceAll("\\", "/")
+    const sharpEntry = await realpath(require.resolve("sharp"))
+    const sharpRoot = dirname(dirname(sharpEntry))
+    const sharpMarker = relative(workspaceRoot, sharpRoot).replaceAll("\\", "/")
     try {
       await mkdir(join(output, "server"), { recursive: true })
       const nativeProbe = process.platform === "linux" && process.arch === "x64"
         ? `const require = createRequire(import.meta.url)
 const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
-if (!nativePath.endsWith("/sharp-linux-x64.node")) throw new Error("Sharp's x64 native package did not resolve from the output root")
+if (!nativePath.endsWith("/@img/sharp-linux-x64/index.cjs")) throw new Error("Sharp's x64 native package did not resolve from the output root")
 `
         : ""
-      await writeFile(join(output, "server/index.mjs"), `//#region ${sharpMarker}/lib/index.js
+      await writeFile(join(output, "server/index.mjs"), `//#region ${sharpMarker}/dist/index.mjs
 import { createRequire } from "node:module"
-import sharp from "../node_modules/sharp/lib/index.js"
+import sharp from "../node_modules/sharp/dist/index.mjs"
 
 ${nativeProbe}
 const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#123456" } }).png().toBuffer()
@@ -1742,8 +1743,8 @@ process.exit(0)
       expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/node_modules/@img/sharp-libvips-linux-x64"))).toBe(false)
 
       if (process.platform === "linux" && process.arch === "x64") {
-        expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)
-        expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"))).toBe(true)
+        expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
+        expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
       }
       await execFile("deno", ["check", "server/index.mjs"], { cwd: output })
       await execFile("deno", ["check", "server/index.ts"], { cwd: output })

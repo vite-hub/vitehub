@@ -34,6 +34,6 @@ export function createAgentWebhookRequest(input: AgentWebhookRequestInput): Requ
     method: input.method,
     signal: input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal,
   }
-  if (input.body instanceof ReadableStream) init.duplex = "half"
+  if (input.body != null) init.duplex = "half"
   return new Request(input.url, init)
 }

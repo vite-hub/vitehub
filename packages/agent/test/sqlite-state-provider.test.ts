@@ -209,7 +209,11 @@ describe("SQLite Agent State Provider", () => {
     let busyRelease = true
     let busySteering = true
     let busyLock = true
-    const execute = vi.fn(async (statement: string, args?: unknown[]) => {
+    const execute = vi.fn(async (
+      statement: string,
+      args?: unknown[],
+      executor: Pick<typeof client, "execute"> = client,
+    ) => {
       if (busyLock && statement.includes("INSERT INTO test_agent_state_locks")) {
         busyLock = false
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
@@ -239,12 +243,27 @@ describe("SQLite Agent State Provider", () => {
         throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" })
       }
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      return await client.execute({ args: (args || []) as never, sql: statement })
+      return await executor.execute({ args: (args || []) as never, sql: statement })
     })
     const contended = createSqliteAgentState({
       driver: {
         connect: async () => undefined,
         execute,
+        async transaction(run) {
+          const transaction = await client.transaction("write")
+          try {
+            const result = await run({
+              execute: async (statement, args) => await execute(statement, args, transaction),
+            })
+            await transaction.commit()
+            return result
+          } catch (error) {
+            await transaction.rollback().catch(() => undefined)
+            throw error
+          } finally {
+            transaction.close()
+          }
+        },
       },
       tablePrefix: "test_agent_state_",
     })

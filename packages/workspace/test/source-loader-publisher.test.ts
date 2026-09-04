@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { createJiti } from "jiti"
-import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceStoreAssetBundle, createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
@@ -51,7 +50,6 @@ afterEach(async () => {
     throw new Error("missing gh")
   })
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
-  setStorage(createMemoryStorage())
   resetWorkspaceAssetsRegistry()
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))

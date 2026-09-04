@@ -63,7 +63,7 @@
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "linkedom": "^0.18.12",
+    "linkedom": "^0.18.13",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

@@ -34,10 +34,10 @@ ${conflictEnd} incoming
   name: "src/status.ts",
 };
 const fileDiff = getSingularPatch(patch);
-const codeViewItems: CodeViewItem[] = [
+const codeViewItems = [
   { file: newFile, id: "file", type: "file" },
   { fileDiff, id: "diff", type: "diff" },
-];
+] satisfies CodeViewItem<undefined>[];
 const views = ["CodeView", "MultiFileDiff", "PatchDiff", "FileDiff", "File", "UnresolvedFile"] as const;
 const activeView = ref<(typeof views)[number]>("PatchDiff");
 </script>

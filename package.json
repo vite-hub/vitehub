@@ -43,6 +43,7 @@
     "nitro": "catalog:unjs",
     "nitropack": "catalog:unjs",
     "oxlint": "catalog:tooling",
+    "oxlint-tsgolint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",

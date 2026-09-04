@@ -84,8 +84,8 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       dependencies: {
         "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
-        nuxt: "4.4.8",
-        vite: "8.2.0",
+        nuxt: "4.5.2",
+        vite: "8.2.2",
       },
       packageManager: "pnpm@10.33.0",
       private: true,

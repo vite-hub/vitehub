@@ -23,7 +23,7 @@ const fileDiff = getSingularPatch(`--- a/ready.ts
 @@ -1 +1 @@
 -false
 +true`);
-const codeViewItems: CodeViewItem[] = [
+const codeViewItems: CodeViewItem<unknown>[] = [
   { file, id: "file", type: "file" },
   { fileDiff, id: "diff", type: "diff" },
 ];

@@ -9,13 +9,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@chat-adapter/telegram": "4.38.0",
-    "vite": "8.0.8",
+    "@chat-adapter/telegram": "4.39.0",
+    "vite": "8.2.2",
     "vite-hub": "*"
   },
   "devDependencies": {
-    "@types/node": "24.13.2",
-    "typescript": "6.0.2"
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3"
   },
   "optionalDependencies": {
     "@libsql/linux-x64-gnu": "0.5.29"

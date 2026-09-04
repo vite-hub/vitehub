@@ -2359,6 +2359,7 @@ function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
       ...(longPolling ? { longPolling } : {}),
       ...(options.mode ? { mode: options.mode } : {}),
       ...(userName ? { userName } : {}),
+      allowUnverifiedWebhooks: webhookSecret === false ? true : undefined,
       ...(webhookSecret ? { secretToken: cleanSecret(webhookSecret) } : {}),
     })
   }
