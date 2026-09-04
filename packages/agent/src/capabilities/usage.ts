@@ -1,7 +1,23 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 
-import type { AgentCapabilityDefinition, AgentUsageRecord } from "../types.ts"
+import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
+import type { AgentUsagePricing } from "../internal/usage-pricing.ts"
+
+export {
+  modelsDevPricing,
+} from "../internal/usage-pricing.ts"
+export type {
+  AgentUsagePrice,
+  AgentUsagePricing,
+  AgentUsagePricingContext,
+  ModelsDevPricingOptions,
+} from "../internal/usage-pricing.ts"
+
+export interface UsageOptions {
+  pricing?: AgentUsagePricing | false
+}
 
 declare global {
   interface ViteHubAgentFinishExtensions {
@@ -9,8 +25,12 @@ declare global {
   }
 }
 
-export function usage(): AgentCapabilityDefinition {
-  return Object.assign(defineCapability({
+export function usage<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: UsageOptions = {},
+): AgentCapabilityDefinition<TRuntimeConfig> {
+  const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
+
+  return Object.assign(defineCapability<TRuntimeConfig>({
     id: "usage",
     instructionCoverage: false,
     metadata: {
@@ -40,8 +60,18 @@ export function usage(): AgentCapabilityDefinition {
         },
       })
     },
-    finish(event) {
-      return event.invocation.usage
+    async finish(event) {
+      const record = event.invocation.usage
+      if (!record || !pricing) return record
+
+      try {
+        Object.assign(record, await enrichAgentUsageCost(record, pricing, event.invocation.run))
+      }
+      catch {
+        return record
+      }
+
+      return record
     },
   }), {
     [eagerFinishExtensionSymbol]: true,

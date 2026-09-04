@@ -172,7 +172,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   if (!isRecord(value)) return false
-  return ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"].some(key => key in value)
+  return ["calls", "cost", "credentialSource", "latency", "model", "provider", "raw", "response", "run", "transport", "usage"].some(key => key in value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -295,7 +295,7 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
-function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "transport"> | undefined {
+function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "provider" | "transport"> | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
@@ -307,9 +307,17 @@ function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model
     : rawModel
   return {
     ...(model !== undefined ? { model } : {}),
+    ...(provider && provider !== "gateway" ? { provider: executionProviderScope(provider) } : {}),
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ...(provider === "gateway" ? { transport: "gateway" as const } : {}),
   }
+}
+
+function executionProviderScope(provider: string): string {
+  return provider
+    .split(".", 1)[0]!
+    .replace(/([a-z\d])([A-Z])/g, "$1-$2")
+    .toLowerCase()
 }
 
 function modelVendorScope(provider: string): string {
@@ -430,13 +438,15 @@ function withFallbackUsageMetadata(
   const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
   const credentialSource = record.credentialSource ?? (compound ? undefined : credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource)))
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
-  return model || transport || cost || response || latency || credentialSource || runMetadata
+  const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
+  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,
         ...(cost ? { cost } : {}),
         ...(credentialSource ? { credentialSource } : {}),
         ...(latency ? { latency } : {}),
         ...(model ? { model } : {}),
+        ...(provider ? { provider } : {}),
         ...(response ? { response } : {}),
         ...(runMetadata ? { run: runMetadata } : {}),
         ...(transport ? { transport } : {}),

@@ -95,6 +95,7 @@ The current event stream includes text deltas, data parts, tool input and result
 
 Agent Usage Records normalize usage across model-backed, provider-backed, and custom-run-backed Agent Drivers when usage exists.
 Token fields appear only when the provider reports them or ViteHub can derive them safely.
+The record keeps canonical model identity, execution provider, and transport separate. It preserves provider-reported cost or carries a best-effort estimate when the Usage Capability can match catalog pricing.
 
 Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.
 At finish time, read the normalized Agent Usage Record from `event.invocation.usage` in an Agent Finish Hook or `context.invocation.usage` in a Channel Delivery finish effect.
