@@ -157,8 +157,8 @@ function pullRequestSource(value: unknown): { ref?: string, repo?: string } | un
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
   if (auth === false) return false
-  return () => {
-    return resolveExplicitGitHubAuth(auth)
+  return async () => {
+    return await resolveExplicitGitHubAuth(auth)
       || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
       || processEnv(process.env, ...githubTokenEnvNames)
   }
@@ -166,15 +166,15 @@ function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
 
 async function resolveGitHubAuth(auth: GitHubAuth | undefined, rootDir: string): Promise<GitHubAuth | undefined> {
   if (auth === false) return false
-  return resolveExplicitGitHubAuth(auth)
+  return await resolveExplicitGitHubAuth(auth)
     || resolveGitHubTokenOption({})
     || await resolveGitHubEnvFileToken(rootDir)
     || await resolveGitHubCliToken()
 }
 
-function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
+async function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): Promise<string | undefined> {
   if (auth === false) return undefined
-  if (typeof auth === "function") return auth()
+  if (typeof auth === "function") return await auth()
   return typeof auth === "string" ? auth : undefined
 }
 
