@@ -325,6 +325,15 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('aria-label="Filter sessions"');
     expect(consolePage).toContain("selectedCapabilityId");
     expect(consolePage).not.toContain(':workspace-base="`${hostBase}/api/invocations`"');
+    expect(
+      consolePage.match(
+        /:workspace-base="`\$\{hostBase\}\/api\/_vitehub\/console\/invocations`"/g,
+      ),
+    ).toHaveLength(3);
+    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
+    expect(consolePage).toContain(
+      'const view = target === "agent" ? "details" : "workspace";',
+    );
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
     expect(consolePage).toContain("ConsoleHealth");

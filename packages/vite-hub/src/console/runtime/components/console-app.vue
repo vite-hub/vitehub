@@ -614,8 +614,7 @@ async function refresh(): Promise<void> {
 }
 
 function inspectSession(target: "agent" | "workspace"): void {
-  if (target !== "agent") return;
-  const view = "details";
+  const view = target === "agent" ? "details" : "workspace";
   inspectorTab.value = view;
   if (!inspectorOpenViews.value.includes(view)) {
     inspectorOpenViews.value = [...inspectorOpenViews.value, view];
@@ -1192,6 +1191,7 @@ onBeforeUnmount(() => {
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
+              :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
               v-model:tab="inspectorTab"
               v-model:active-surface="inspectorActiveSurface"
               v-model:open-views="inspectorOpenViews"
@@ -1275,7 +1275,7 @@ onBeforeUnmount(() => {
                   :header="false"
                   :invocation="invocationView"
                   :selected-activity-id="selectedActivityId"
-                  :workspace-inspectable="false"
+                  :workspace-inspectable="true"
                   class="min-h-0 flex-1"
                   @inspect="inspectSession"
                 />
@@ -1285,6 +1285,7 @@ onBeforeUnmount(() => {
               <ConsoleSessionInspector
                 v-if="invocationView"
                 :invocation="invocationView"
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                 v-model:tab="inspectorTab"
                 v-model:active-surface="inspectorActiveSurface"
                 v-model:open-views="inspectorOpenViews"
@@ -1373,7 +1374,7 @@ onBeforeUnmount(() => {
                 :header="false"
                 :invocation="invocationView"
                 :selected-activity-id="selectedActivityId"
-                :workspace-inspectable="false"
+                :workspace-inspectable="true"
                 class="min-h-0 flex-1"
                 @inspect="inspectSession"
               />
@@ -1396,6 +1397,7 @@ onBeforeUnmount(() => {
                 <ConsoleSessionInspector
                   :invocation="invocationView"
                   :maximizable="false"
+                  :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"
