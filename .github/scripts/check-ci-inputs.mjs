@@ -1028,7 +1028,7 @@ export async function findGitHubCIPolicyFiles(repoRoot) {
   const githubRoot = resolve(repoRoot, ".github")
   const [workflows, actions] = await Promise.all([
     findYamlFiles(resolve(githubRoot, "workflows"), name => /\.ya?ml$/.test(name), new Set(), false),
-    findYamlFiles(repoRoot, name => /^action\.ya?ml$/.test(name), new Set([".git", "node_modules"])),
+    findYamlFiles(repoRoot, name => /^action\.ya?ml$/.test(name), new Set([".git", ".vitehub", "node_modules"])),
   ])
   return [...new Set([...workflows, ...actions])].sort()
 }

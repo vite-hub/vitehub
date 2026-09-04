@@ -48,6 +48,19 @@ describe("GitHub CI input policy", () => {
     await expect(checkGitHubCIInputs(repoRoot)).resolves.toEqual([])
   })
 
+  it("ignores composite action copies in generated ViteHub output", async () => {
+    const root = await createFixture({
+      ".github/actions/setup/action.yml": "runs:\n  using: composite\n  steps: []\n",
+      ".vitehub/workflow/sources/0/.github/actions/setup/action.yml": "generated copy\n",
+    })
+
+    const files = await findGitHubCIPolicyFiles(root)
+
+    expect(files.map(path => relative(root, path).replaceAll("\\", "/"))).toEqual([
+      ".github/actions/setup/action.yml",
+    ])
+  })
+
   it("allows full commit pins with version comments and local actions", async () => {
     const root = await createFixture({
       ".github/actions/setup/action.yaml": `runs:\n  using: composite\n  steps:\n    - uses: ${pinnedCheckout}\n`,
