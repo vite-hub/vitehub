@@ -1,5 +1,4 @@
 diff --git a/package.json b/package.json
-index 70c839508ff888bbee0f292aacb32dec34575568..3d04d5dfeeea540ccd023d1cd12e4fb2b6fd18d5 100644
 --- a/package.json
 +++ b/package.json
 @@ -38,7 +38,10 @@
@@ -16,7 +15,6 @@ index 70c839508ff888bbee0f292aacb32dec34575568..3d04d5dfeeea540ccd023d1cd12e4fb2
      "./runtime-config": "./dist/runtime/runtime-config.mjs",
 diff --git a/h3.d.ts b/h3.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3092049d901e20894fe19df326f9a8f2904d9313
 --- /dev/null
 +++ b/h3.d.ts
 @@ -0,0 +1 @@

@@ -53,7 +53,7 @@
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs",
-    "ws": "^8.21.0"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

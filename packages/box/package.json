@@ -39,7 +39,7 @@
     "@vite-hub/runtime": "workspace:*"
   },
   "devDependencies": {
-    "@asciidev/box-sdk": "^0.0.24",
+    "@asciidev/box-sdk": "^0.0.34",
     "@cloudflare/computer": "catalog:sandbox",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
@@ -51,7 +51,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@asciidev/box-sdk": "^0.0.24",
+    "@asciidev/box-sdk": "^0.0.34",
     "@cloudflare/computer": "catalog:sandbox",
     "@cloudflare/sandbox": "catalog:sandbox",
     "ssh2": "^1.17.0",

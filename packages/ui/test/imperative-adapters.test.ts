@@ -149,7 +149,7 @@ beforeEach(() => {
 
 describe("Pierre lifecycle adapters", () => {
   it("disables Pierre's pointer-only diff interactions", async () => {
-    const unsafeOptions: FileDiffOptions<unknown> = { enableLineSelection: true, expandUnchanged: false };
+    const unsafeOptions: FileDiffOptions<unknown, unknown> = { enableLineSelection: true, expandUnchanged: false };
     mount(PierreDiff, { props: { options: unsafeOptions, patch: "first.patch" } });
     await flushRender();
 
@@ -379,7 +379,7 @@ describe("Pierre lifecycle adapters", () => {
   });
 
   it("forwards in-place option and versioned CodeView item updates", async () => {
-    const options = reactive<FileDiffOptions<unknown>>({ diffStyle: "split" });
+    const options = reactive<FileDiffOptions<unknown, unknown>>({ diffStyle: "split" });
     const codeViewFile = reactive({ contents: "before", name: "status.ts" });
     const items = reactive<CodeViewItem<unknown>[]>([
       { file: codeViewFile, id: "status", type: "file", version: 1 },

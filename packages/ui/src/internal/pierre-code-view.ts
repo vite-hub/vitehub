@@ -44,9 +44,9 @@ function accessibleOptions<
 }
 
 function accessibleDiffOptions(
-  options: FileDiffOptions<unknown> | undefined,
+  options: FileDiffOptions<unknown, unknown> | undefined,
   selectedLines: unknown,
-): FileDiffOptions<unknown> {
+): FileDiffOptions<unknown, unknown> {
   return {
     ...accessibleOptions(options, selectedLines),
     expandUnchanged: true,
@@ -70,7 +70,7 @@ function copyFile(file: FileContents | null): FileContents | null {
   return file === null ? null : { ...file };
 }
 
-function copyParseDiffOptions(options: FileDiffOptions<unknown>["parseDiffOptions"]) {
+function copyParseDiffOptions(options: FileDiffOptions<unknown, unknown>["parseDiffOptions"]) {
   if (!options) return;
   return {
     ...options,

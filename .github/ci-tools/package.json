@@ -4,6 +4,6 @@
   "type": "module",
   "devDependencies": {
     "pkg-pr-new": "0.0.88",
-    "wrangler": "4.112.0"
+    "wrangler": "4.129.0"
   }
 }

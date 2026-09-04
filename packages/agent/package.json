@@ -149,7 +149,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@vercel/connect": "0.6.1",
+    "@vercel/connect": "2.0.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -166,7 +166,7 @@
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.5.0",
+    "@github-tools/eve-extension": "0.7.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",

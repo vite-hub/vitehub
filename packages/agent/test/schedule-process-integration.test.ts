@@ -152,11 +152,12 @@ describe("Agent Process Schedule integration", () => {
         },
         async fetch(request: Request) {
           return await route.default({
-            body: await request.text(),
+            context: { params: { agent: "mini" } },
             headers: Object.fromEntries(request.headers),
             method: request.method,
             params: { agent: "mini" },
-            url: request.url,
+            req: request,
+            url: new URL(request.url),
           })
         },
         hooks: {

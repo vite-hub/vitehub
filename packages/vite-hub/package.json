@@ -172,7 +172,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^4.20260509.1",
+    "@cloudflare/workers-types": "^5.20260904.1",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@libsql/client": "catalog:database",
@@ -217,7 +217,7 @@
     "nitro": "catalog:unjs",
     "ocache": "catalog:runtime",
     "semver": "^7.8.5",
-    "shiki": "^4.3.0",
+    "shiki": "^4.4.3",
     "uploadthing": "catalog:storage",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow"
@@ -230,21 +230,21 @@
     "@vitejs/plugin-vue": "^6.0.8",
     "h3-v1": "npm:h3@^1.15.11",
     "publint": "catalog:tooling",
-    "reka-ui": "^2.10.3",
-    "tailwindcss": "^4.3.2",
+    "reka-ui": "^2.10.4",
+    "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "vue-router": "^4.6.4"
+    "vue-router": "^5.3.1"
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
     "evalite": "catalog:ai",
     "playwright-core": "catalog:browser",
-    "reka-ui": "^2.10.3",
+    "reka-ui": "^2.10.4",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
