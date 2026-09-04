@@ -128,8 +128,6 @@ const mobileLinks = [
 }
 
 .vh-brand-alpha {
-  position: relative;
-  top: -0.2em;
   border-bottom: 1px dotted currentcolor;
   color: var(--ui-text-muted);
   font-family: var(--font-mono);
