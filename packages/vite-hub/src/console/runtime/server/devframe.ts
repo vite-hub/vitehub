@@ -4,6 +4,7 @@ import { fromWebHandler } from "h3"
 
 import { consoleRpcMethods } from "../rpc.ts"
 import consoleAgentsHandler from "./agents.get.ts"
+import consoleAgentInvocationsHandler from "./agent-invocations.post.ts"
 import consoleBlobHandler from "./blob.get.ts"
 import consoleDatabaseHandler from "./database.get.ts"
 import consoleDefinitionsHandler from "./definitions.get.ts"
@@ -68,7 +69,7 @@ function requestEvent(operation: string, input: ConsoleRpcInput): ConsoleRequest
     else url.searchParams.set(key, value)
   }
   return {
-    context: input.id ? { params: { id: input.id } } : undefined,
+    context: input.agent || input.id ? { params: { ...(input.agent ? { agent: input.agent } : {}), ...(input.id ? { id: input.id } : {}) } } : undefined,
     method: input.method ?? "GET",
     req: {
       json: async () => input.body,
@@ -98,6 +99,7 @@ async function result(resolve: () => unknown | Promise<unknown>): Promise<Consol
 
 const operations = {
   [consoleRpcMethods.agents]: (input: ConsoleRpcInput) => consoleAgentsHandler(requestEvent("agents", input)),
+  [consoleRpcMethods.agentInvocations]: (input: ConsoleRpcInput) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input)),
   [consoleRpcMethods.blob]: (input: ConsoleRpcInput) => consoleBlobHandler(requestEvent("blob", input)),
   [consoleRpcMethods.database]: (input: ConsoleRpcInput) => consoleDatabaseHandler(requestEvent("database", input)),
   [consoleRpcMethods.definitions]: (input: ConsoleRpcInput) => consoleDefinitionsHandler(requestEvent("definitions", input)),

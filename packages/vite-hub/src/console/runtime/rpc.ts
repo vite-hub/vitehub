@@ -1,5 +1,6 @@
 export const consoleRpcMethods = {
   agents: "vitehub:console:agents",
+  agentInvocations: "vitehub:console:agent-invocations",
   blob: "vitehub:console:blob",
   database: "vitehub:console:database",
   definitions: "vitehub:console:definitions",
@@ -15,6 +16,7 @@ export const consoleRpcMethods = {
 export type ConsoleRpcMethod = (typeof consoleRpcMethods)[keyof typeof consoleRpcMethods]
 
 export interface ConsoleRpcInput {
+  agent?: string
   body?: unknown
   id?: string
   method?: "GET" | "POST"

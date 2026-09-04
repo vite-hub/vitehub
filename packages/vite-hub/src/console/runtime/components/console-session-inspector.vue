@@ -52,7 +52,7 @@ const viewMeta: Record<
     shortcut: "T",
   },
   workspace: {
-    description: "Browse the immutable materialized workspace.",
+    description: "Browse the mounted Agent workspace.",
     icon: "i-lucide-folder-tree",
     label: "Workspace",
     shortcut: "W",
@@ -78,7 +78,7 @@ onBeforeUnmount(() => {
 const workspaceLabel = computed(() =>
   workspace.value
     ? `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
-    : "Materialized Workspace",
+    : "Agent Workspace",
 );
 const invocationUsage = computed(() => record(props.invocation)?.usage);
 const breadcrumbs = computed(() => selectedPath.value?.split("/") ?? []);
@@ -179,9 +179,15 @@ watch(
 
 watch(activeSurface, async () => {
   await nextTick();
-  tabstrip.value
-    ?.querySelector<HTMLElement>('[data-state="active"]')
-    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  const scroller = tabstrip.value?.querySelector<HTMLElement>(".session-inspector__tabs");
+  const activeTab = scroller?.querySelector<HTMLElement>('[data-state="active"]');
+  if (!scroller || !activeTab) return;
+  const scrollerBounds = scroller.getBoundingClientRect();
+  const tabBounds = activeTab.getBoundingClientRect();
+  if (tabBounds.left < scrollerBounds.left)
+    scroller.scrollLeft -= scrollerBounds.left - tabBounds.left;
+  else if (tabBounds.right > scrollerBounds.right)
+    scroller.scrollLeft += tabBounds.right - scrollerBounds.right;
 });
 
 watch([workspace, treeOpen], async ([value, open]) => {

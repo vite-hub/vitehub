@@ -84,6 +84,21 @@ describe("Console requests", () => {
     })
   })
 
+  it("routes Agent invocation writes with the encoded Agent identity", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { agent: "support/team", id: "invocation" } })
+
+    await expect(requestConsole("/api/_vitehub/console/agents/support%2Fteam/invocations", {
+      body: { invokerProfileId: "person", prompt: "Test this Agent" },
+      method: "POST",
+    })).resolves.toEqual({ agent: "support/team", id: "invocation" })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.agentInvocations, {
+      agent: "support%2Fteam",
+      body: { invokerProfileId: "person", prompt: "Test this Agent" },
+      method: "POST",
+      query: {},
+    })
+  })
+
   it("loads every KV page using the configured base and stops repeated cursors", async () => {
     mocks.call
       .mockResolvedValueOnce({ ok: true, value: { cursor: "next", keys: ["first"] } })

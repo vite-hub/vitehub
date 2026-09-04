@@ -34,6 +34,12 @@ export interface ConsoleRequestEvent {
       set(name: string, value: string): void
     }
   }
+  waitUntil?: (task: Promise<unknown>) => void
+}
+
+export function setConsoleResponseStatus(event: ConsoleRequestEvent, status: number): void {
+  if (event.res) Object.assign(event.res, { status })
+  if (event.node?.res) Object.assign(event.node.res, { statusCode: status })
 }
 
 const maximumConsoleRequestBodyBytes = 64 * 1_024

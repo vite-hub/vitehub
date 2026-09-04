@@ -26,10 +26,17 @@ function consoleDevframeBase(path: string): string {
   return `${appBase}${consoleDevframePath}`
 }
 
-function consoleRpcCall(path: string): { id?: string; method: ConsoleRpcMethod } {
+function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {
   const url = new URL(path, "http://vitehub.local")
   const marker = url.pathname.indexOf(consoleApiMarker)
   const operation = marker === -1 ? "" : url.pathname.slice(marker + consoleApiMarker.length)
+  const agentInvocationMatch = /^agents\/([^/]+)\/invocations$/.exec(operation)
+  if (agentInvocationMatch) {
+    return {
+      agent: agentInvocationMatch[1]!,
+      method: consoleRpcMethods.agentInvocations,
+    }
+  }
   if (operation.startsWith("invocations/")) {
     return {
       id: decodeURIComponent(operation.slice("invocations/".length)),
@@ -92,6 +99,7 @@ export async function requestConsole(
   }
   const call = consoleRpcCall(path)
   const input: ConsoleRpcInput = { method: options.method ?? "GET", query }
+  if (call.agent !== undefined) input.agent = call.agent
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   const client = await abortable(consoleDevframeClient(consoleDevframeBase(path)), options.signal)

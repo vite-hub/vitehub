@@ -4,6 +4,8 @@ import { installConsoleInvocations } from "./invocations.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
 
 export const consoleAgentsKey: unique symbol = Symbol.for("vitehub.console.agents")
+export const consoleAgentDefinitionsKey: unique symbol = Symbol.for("vitehub.console.agent-definitions")
+export const consoleInvokeEnabledKey: unique symbol = Symbol.for("vitehub.console.invoke-enabled")
 
 export type ConsoleAgentDefinitionEntry = {
   definition: unknown
@@ -12,10 +14,12 @@ export type ConsoleAgentDefinitionEntry = {
 
 export type ConsoleAgentDefinitionInstallation =
   | { invocations: AgentInvocations, projectRoot?: never }
-  | { invocations?: never, projectRoot: string }
+  | { invocations?: never, invoke?: boolean, projectRoot: string }
 
 type ConsoleAgentInvocations = AgentInvocations & {
+  [consoleAgentDefinitionsKey]?: ReadonlyMap<string, Record<string, unknown>>
   [consoleAgentsKey]?: readonly string[]
+  [consoleInvokeEnabledKey]?: boolean
 }
 
 const consoleAssignedInvocations = new WeakMap<object, AgentInvocations>()
@@ -79,7 +83,7 @@ export function installConsoleAgentDefinitions(
 ): readonly string[] {
   const definitions = entries.map(resolveConsoleAgentDefinition)
   const invocations = resolveConsoleAgentInvocations(definitions, installation)
-  return installConsoleAgents(definitions.map(({ agent, fallbackName }) => {
+  const names = definitions.map(({ agent, fallbackName }) => {
     if (agent && Reflect.get(agent, consoleInvocationsFallbackKey) !== true) {
       const assigned = consoleAssignedInvocations.get(agent)
       if (agent.invocations === undefined || agent.invocations === assigned) {
@@ -92,10 +96,46 @@ export function installConsoleAgentDefinitions(
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent Definitions may come from untyped JavaScript, so verify the identity before installing it.
     return typeof agent?.name === "string" && agent.name.trim() ? agent.name : fallbackName
-  }), invocations)
+  })
+  const installed = installConsoleAgents(names, invocations)
+  const consoleInvocations = invocations as ConsoleAgentInvocations
+  consoleInvocations[consoleAgentDefinitionsKey] = new Map(definitions.flatMap((definition, index) => {
+    const name = names[index]
+    return name && definition.agent ? [[name, definition.agent]] : []
+  }))
+  consoleInvocations[consoleInvokeEnabledKey] = "invoke" in installation && installation.invoke === true
+  return installed
 }
 
 export function getConsoleAgents(): readonly string[] {
   // SAFETY: The global journal registry may be absent; when present, installConsoleAgents owns this metadata field.
   return (resolveConsoleInvocations() as ConsoleAgentInvocations | undefined)?.[consoleAgentsKey] ?? []
+}
+
+export function getConsoleAgentDefinition(name: string): Record<string, unknown> | undefined {
+  const invocations = resolveConsoleInvocations() as ConsoleAgentInvocations | undefined
+  if (invocations?.[consoleInvokeEnabledKey] !== true) return undefined
+  return invocations[consoleAgentDefinitionsKey]?.get(name)
+}
+
+export interface ConsoleAgentInvokerProfile {
+  id: string
+  label?: string
+}
+
+export function consoleAgentInvokerProfiles(agent: Record<string, unknown>): ConsoleAgentInvokerProfile[] {
+  const invoker = agent.invoker
+  if (!invoker || typeof invoker !== "object" || Array.isArray(invoker)) return []
+  const profiles = Reflect.get(invoker, "profiles")
+  if (!Array.isArray(profiles)) return []
+  return profiles.flatMap((profile) => {
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) return []
+    const id = Reflect.get(profile, "id")
+    if (typeof id !== "string" || !id.trim()) return []
+    const label = Reflect.get(profile, "label")
+    return [{
+      id: id.trim(),
+      ...(typeof label === "string" && label.trim() ? { label: label.trim() } : {}),
+    }]
+  })
 }

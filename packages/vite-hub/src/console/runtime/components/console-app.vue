@@ -29,6 +29,7 @@ import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleHealth from "./console-health.vue";
+import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
 import ConsoleSessionNavbar from "./console-session-navbar.vue";
@@ -60,6 +61,7 @@ const props = defineProps<{
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
+const newChatAgentName = ref<string>();
 const selectedCapabilityId = ref<string>();
 const filterOpen = ref(false);
 const capabilityIds = ref<string[]>([]);
@@ -69,6 +71,11 @@ const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
+interface ConsoleAgentProfile {
+  id: string;
+  label?: string;
+}
+const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
 const sessionsCollapsed = ref(false);
@@ -188,6 +195,9 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
   })),
 );
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
+const selectedAgentInvocation = computed(() =>
+  selectedAgentName.value ? agentInvocationOptions.value[selectedAgentName.value] : undefined,
+);
 const selectedAgentLabel = computed(
   () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
 );
@@ -420,6 +430,7 @@ async function selectInvocation(
   if (!agentName) return;
   showSessions();
   sessionsOpen.value = false;
+  newChatAgentName.value = undefined;
   updateSelectedAgentName(agentName);
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
@@ -427,9 +438,31 @@ async function selectInvocation(
   });
 }
 
+async function selectStartedInvocation(invocation: { agent: string; id: string }): Promise<void> {
+  await selectInvocation(invocation);
+  scheduleInvocationListRefresh();
+}
+
+async function startNewChat(): Promise<void> {
+  const agentName = selectedAgentName.value;
+  if (!agentName || !selectedAgentInvocation.value) return;
+  showSessions();
+  sessionsOpen.value = false;
+  newChatAgentName.value = agentName;
+  selectedInvocationId.value = undefined;
+  closeDetails();
+  await router.push({
+    name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+    params: { agent: encodeAgentRouteParam(agentName) },
+  });
+  await nextTick();
+  document.querySelector<HTMLElement>('[aria-label="Test this Agent"]')?.focus();
+}
+
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
   showSessions();
+  newChatAgentName.value = undefined;
   updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
   selectedCapabilityId.value = undefined;
@@ -441,6 +474,7 @@ async function selectAgent(name: string): Promise<void> {
 
 async function selectCapability(capabilityId?: string): Promise<void> {
   if (selectedCapabilityId.value === capabilityId) return;
+  newChatAgentName.value = undefined;
   selectedCapabilityId.value = capabilityId;
   filterOpen.value = false;
   selectedInvocationId.value = undefined;
@@ -514,6 +548,23 @@ async function loadAgents(): Promise<void> {
       : [];
     if (agentsRequest === controller) {
       agentNames.value = [...new Set(names)];
+      const invocation = record(value?.invocation);
+      agentInvocationOptions.value = Object.fromEntries(
+        agentNames.value.flatMap((name) => {
+          const options = record(invocation?.[name]);
+          if (!options) return [];
+          const profiles = Array.isArray(options.profiles)
+            ? options.profiles.flatMap((value) => {
+                const profile = record(value);
+                const id = stringValue(profile?.id)?.trim();
+                if (!id) return [];
+                const label = stringValue(profile?.label)?.trim();
+                return [{ id, ...(label ? { label } : {}) }];
+              })
+            : [];
+          return [[name, { profiles }] as const];
+        }),
+      );
       agentsError.value = undefined;
     }
   } catch (error) {
@@ -614,10 +665,12 @@ watch(
     previous,
   ) => {
     if (usageRoute) {
+      newChatAgentName.value = undefined;
       initialBootstrapPending.value = false;
       selectedInvocationId.value = undefined;
       return;
     }
+    if (requestedInvocation) newChatAgentName.value = undefined;
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
     const preserveCapabilityFilter = routeChanged && isCapabilityFilterRouteTransition(
@@ -654,6 +707,10 @@ watch(
       } finally {
         initialBootstrapPending.value = false;
       }
+      return;
+    }
+    if (!requestedInvocation && requestedAgent && requestedAgent === newChatAgentName.value) {
+      selectedInvocationId.value = undefined;
       return;
     }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
@@ -861,6 +918,16 @@ onBeforeUnmount(() => {
             label="Search console"
             :ui="{ trailing: 'vitehub-console__search-shortcut' }"
           />
+          <UTooltip v-if="!collapsed && selectedAgentInvocation" text="New chat">
+            <UButton
+              aria-label="New chat"
+              color="neutral"
+              icon="i-lucide-square-pen"
+              square
+              variant="ghost"
+              @click="startNewChat"
+            />
+          </UTooltip>
           <UPopover
             v-if="!collapsed"
             v-model:open="filterOpen"
@@ -1271,10 +1338,8 @@ onBeforeUnmount(() => {
             />
             <div
               v-else-if="!selectedInvocationId"
-              class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted"
-            >
-              Select an Agent Invocation to inspect its work.
-            </div>
+              class="min-h-0 flex-1"
+            />
             <UEmpty
               v-else-if="errorMessage(detail.error.value) && !invocationView"
               class="min-h-0 flex-1"
@@ -1311,6 +1376,13 @@ onBeforeUnmount(() => {
                 @inspect="inspectSession"
               />
             </div>
+            <ConsoleInvocationComposer
+              v-if="selectedAgentName && selectedAgentInvocation && !selectedInvocationId"
+              :agent="selectedAgentName"
+              :base="agentsBase"
+              :profiles="selectedAgentInvocation.profiles"
+              @started="selectStartedInvocation"
+            />
             <USlideover
               v-if="!isDesktop && invocationView"
               v-model:open="detailsOpen"

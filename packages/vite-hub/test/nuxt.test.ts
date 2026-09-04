@@ -506,7 +506,7 @@ describe("ViteHub Nuxt integration", () => {
     }])
   })
 
-  it("installs the read-only console in Nuxt development and production", async () => {
+  it("enables Agent invocation in Nuxt development and keeps production read-only by default", async () => {
     const development = createNuxt(true)
     const existingConsoleHandler = vi.fn()
     development.nuxt.options.devServerHandlers = [{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }]
@@ -552,7 +552,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/console-cli" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt" })`,
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", invoke: true })`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,
@@ -597,6 +597,9 @@ describe("ViteHub Nuxt integration", () => {
     })
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
     expect(production.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt" })`,
+    )
   })
 
   it("installs only KV navigation and metadata for a KV-only Console", async () => {
