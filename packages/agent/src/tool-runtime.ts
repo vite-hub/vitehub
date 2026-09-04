@@ -47,6 +47,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const policy = tool.policy
   const approvedInputs = new Set<unknown>()
 
+  // SAFETY: The wrapper preserves the tool fields and execute signature, and adds an internal approval symbol.
   return {
     ...tool,
     [agentToolPolicyApproveSymbol](input: unknown) {
@@ -187,6 +188,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
     return tools
   }
 
+  // SAFETY: Every tool key and field is preserved; execute forwards its arguments and returns the original output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]

@@ -837,7 +837,7 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
   if (!tools) return tools
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     const execute = tool?.execute
-    if (typeof execute !== "function") return [name, tool]
+    if (!hasRuntimeType(execute, "function")) return [name, tool]
     return [name, {
       ...tool,
       async execute(...args: Parameters<typeof execute>) {
@@ -848,8 +848,8 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
           const name = readAgentErrorProperty(error, "name")
           const code = readAgentErrorProperty(error, "code")
           const why = readAgentErrorProperty(error, "why")
-          if (typeof name === "string"
-            && (typeof why === "string" || typeof code === "string" && name === code)) {
+          if (hasRuntimeType(name, "string")
+            && (hasRuntimeType(why, "string") || hasRuntimeType(code, "string") && name === code)) {
             throw new Error(formatRuntimeDiagnosticError(error), { cause: error })
           }
           throw error
