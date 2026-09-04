@@ -423,6 +423,19 @@ describe("@vite-hub/source GitHub source", () => {
     expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
   })
 
+  it("awaits async GitHub auth before requests", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+
+    registerSources({ docs: github({ auth: async () => "github-token", repo: "acme/app", root: "docs" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["README.md"])
+
+    const archiveCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
+  })
+
   it("omits GitHub auth when auth is explicitly false", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",

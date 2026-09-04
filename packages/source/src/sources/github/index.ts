@@ -49,21 +49,21 @@ export function github(options: GitHubSourceOptions): Source<string> {
   const authByContext = new WeakMap<SourceContext, string | undefined>()
   const providerCache = normalizeGitHubCache(options)
 
-  function resolveAuth(): string | undefined {
-    const token = typeof options.auth === "function" ? options.auth() : options.auth
+  async function resolveAuth(): Promise<string | undefined> {
+    const token = typeof options.auth === "function" ? await options.auth() : options.auth
     return typeof token === "string" && token.length > 0 ? token : undefined
   }
 
-  function refreshAuth(): string | undefined {
-    const nextAuth = resolveAuth()
+  async function refreshAuth(): Promise<string | undefined> {
+    const nextAuth = await resolveAuth()
     if (nextAuth !== auth) {
       auth = nextAuth
     }
     return auth
   }
 
-  function contextAuth(ctx: SourceContext) {
-    return authByContext.has(ctx) ? authByContext.get(ctx) : refreshAuth()
+  async function contextAuth(ctx: SourceContext) {
+    return authByContext.has(ctx) ? authByContext.get(ctx) : await refreshAuth()
   }
 
   function keyForRepoPath(path: string) {
@@ -155,7 +155,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
         () => resolveRef(token),
       )
 
-  async function getRef(token = refreshAuth(), signal?: AbortSignal) {
+  async function getRef(token: string | undefined, signal?: AbortSignal) {
     return await waitForCachedGitHubResult(() => cachedResolveRef(token), signal)
   }
 
@@ -225,7 +225,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
         () => loadFiles(token, undefined, resolvedRef),
       )
 
-  function getFiles(token = refreshAuth(), signal?: AbortSignal, resolvedRef?: string) {
+  function getFiles(token: string | undefined, signal?: AbortSignal, resolvedRef?: string) {
     return waitForCachedGitHubResult(() => cachedLoadFiles(resolvedRef, token), signal)
   }
 
@@ -314,7 +314,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
     }
   }
 
-  async function getFile(key: string, ctx?: SourceContext, token = refreshAuth()) {
+  async function getFile(key: string, ctx: SourceContext | undefined, token: string | undefined) {
     if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal, ctx.revision?.id)
     const file = (await getFiles(token, undefined, ctx?.revision?.id)).find(file => file.key === key)
     if (!file) {
@@ -352,15 +352,15 @@ export function github(options: GitHubSourceOptions): Source<string> {
     },
     name: "github",
     async resolveRevision(ctx) {
-      const token = refreshAuth()
+      const token = await refreshAuth()
       authByContext.set(ctx, token)
       return await resolveSourceRevision(token, ctx.abortSignal)
     },
     async getKeys(ctx) {
-      return (await getFiles(contextAuth(ctx), ctx.abortSignal, ctx.revision?.id)).map(file => file.key)
+      return (await getFiles(await contextAuth(ctx), ctx.abortSignal, ctx.revision?.id)).map(file => file.key)
     },
     async getItems(ctx) {
-      const token = contextAuth(ctx)
+      const token = await contextAuth(ctx)
       return await Promise.all((await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(async file => ({
         key: file.key,
         path: file.path,
@@ -372,7 +372,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       })))
     },
     async getMeta(key, ctx) {
-      const token = contextAuth(ctx)
+      const token = await contextAuth(ctx)
       const file = await waitForCachedGitHubResult(() => cachedLoadFileMetadata(key, ctx.revision?.id, token), ctx?.abortSignal)
       if (!file) return
       return {
@@ -381,7 +381,7 @@ export function github(options: GitHubSourceOptions): Source<string> {
       }
     },
     async getItem(key, ctx) {
-      const token = contextAuth(ctx)
+      const token = await contextAuth(ctx)
       const file = await getFile(key, ctx, token)
       return {
         key: file.key,

@@ -304,6 +304,7 @@ function renderConsoleNitroPlugin(
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
+  invoke = false,
 ): string {
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
@@ -352,7 +353,7 @@ function renderConsoleNitroPlugin(
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
             `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { invocations: vitehubConsoleInvocations })`,
           ]
-        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)} })`]
+        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -372,6 +373,7 @@ async function writeConsoleNitroPlugin(
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
+  invoke = false,
   active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
@@ -382,7 +384,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -406,6 +408,7 @@ async function installConsole(
   serverDirs?: string[],
   installInvocations = true,
   writeGeneratedPlugin = true,
+  invoke = false,
   invocationRootState?: ConsoleInvocationRootState,
   canDiscoverDefinitions: () => boolean = () => true,
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
@@ -564,6 +567,7 @@ async function installConsole(
       kvStores,
       fixture,
       invocationRootState?.binding,
+      invoke,
       () => !invocationRootState?.closed,
     )
     if (invocationRootState) {
@@ -934,6 +938,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ? Object.keys(resolvedConsoleKV.stores || { default: resolvedConsoleKV.store })
     : []
   const consoleInvocationRootState = createConsoleInvocationRootState()
+  const consoleInvokeEnabled = options.console === true
+    || (options.console !== false && options.console?.invoke === true)
   let resolvedConsoleFixture: string | undefined
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
@@ -1249,6 +1255,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleKVStores,
         resolvedConsoleFixture,
         consoleInvocationRootState.binding,
+        consoleInvokeEnabled && !resolvedConsoleFixture,
         () => !consoleInvocationRootState.closed,
       )
     }
@@ -1312,6 +1319,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
       !nuxt.options.vitehubCliDiscovery,
       !nuxt.options.vitehubCliDiscovery,
+      consoleInvokeEnabled && !resolvedConsoleFixture,
       consoleInvocationRootState,
       () => consoleWorkflowConfigResolved,
       {

@@ -41,6 +41,7 @@ import {
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
 import agentsHandler from "../src/console/runtime/server/agents.get.ts"
+import agentInvocationsHandler from "../src/console/runtime/server/agent-invocations.post.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
@@ -1272,6 +1273,22 @@ describe("Agent invocation console", () => {
     }])).rejects.toThrow("console: true is development-only")
   })
 
+  it("rejects invocation through host-managed Console exposure", async () => {
+    const plugin = consoleVitePlugin({
+      // SAFETY: This deliberately bypasses the public type to cover the runtime configuration boundary.
+      console: { exposure: "host-managed", invoke: true } as never,
+      preset: "node",
+    })
+    const configHook = plugin.config
+    if (!configHook) throw new TypeError("Expected a console config hook.")
+    const configHandler = "handler" in configHook ? configHook.handler : configHook
+
+    await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
+      command: "build",
+      mode: "production",
+    }])).rejects.toThrow('console.invoke requires console: { access: "auth" }')
+  })
+
   it("requires a ViteHub Auth authorize policy for the production Console route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-host-"))
     const auth = (routes: ResolvedAuthViteConfig["access"]["routes"]): ResolvedAuthViteConfig => ({
@@ -1309,9 +1326,10 @@ describe("Agent invocation console", () => {
         .rejects.toThrow("/_vitehub/**")
 
       const protectedConsole = consoleVitePlugin({
-        console: { access: "auth" },
+        console: { access: "auth", invoke: true },
         preset: "node",
         resolveAuthConfig: () => auth([{ authorize: true, route: "/_vitehub/**" }]),
+        sections: ["agents"],
       })
       const protectedHook = protectedConsole.config
       if (!protectedHook) throw new TypeError("Expected a console config hook.")
@@ -1320,6 +1338,9 @@ describe("Agent invocation console", () => {
       await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(
         expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/**" }), expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+      )
+      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
+        `installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`,
       )
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1844,6 +1865,123 @@ describe("Agent invocation console", () => {
 
     expect(definition.invocations).toBe(invocations)
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+  })
+
+  it("advertises invokable Agents and their profiles only when invocation is enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-invoke-agents-"))
+    try {
+      const definition = defineAgent({
+        driver: { run: () => "ok" },
+        invoker: {
+          profiles: [
+            { id: " support ", kind: "person", label: " Support agent " },
+            { id: "automation", kind: "service" },
+          ],
+        },
+        name: "support",
+      })
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { invoke: true, projectRoot: root })
+
+      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+        agents: ["support"],
+        invocation: {
+          support: {
+            profiles: [
+              { id: "support", label: "Support agent" },
+              { id: "automation" },
+            ],
+          },
+        },
+      })
+
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { projectRoot: root })
+      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("starts an enabled Agent invocation with a selected profile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-invoke-agent-"))
+    try {
+      const definition = defineAgent({
+        driver: { run: () => "done" },
+        invoker: {
+          profiles: [{ id: "support", kind: "person", label: "Support agent" }],
+        },
+        name: "support",
+      })
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { invoke: true, projectRoot: root })
+      const response = { headers: new Headers() }
+      const invocation = await agentInvocationsHandler({
+        context: { params: { agent: "support" } },
+        method: "POST",
+        req: {
+          json: async () => ({ invokerProfileId: "support", prompt: " Test this Agent " }),
+          method: "POST",
+          url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+        },
+        res: response,
+      })
+
+      expect(invocation).toMatchObject({
+        agent: "support",
+        id: expect.any(String),
+        url: expect.stringContaining("/_vitehub/agents/~support/invocations/"),
+      })
+      expect(Reflect.get(response, "status")).toBe(202)
+      await vi.waitFor(async () => {
+        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
+          agentName: "support",
+          status: "completed",
+        })
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects disabled Agents, unknown profiles, and unsupported fields", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-invoke-validation-"))
+    const definition = defineAgent({
+      driver: { run: () => "done" },
+      invoker: { profiles: [{ id: "support", kind: "person" }] },
+      name: "support",
+    })
+    const request = (body: unknown) => ({
+      context: { params: { agent: "support" } },
+      method: "POST",
+      req: {
+        json: async () => body,
+        method: "POST",
+        url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+      },
+    }) satisfies ConsoleRequestEvent
+    try {
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { projectRoot: root })
+      await expect(agentInvocationsHandler(request({ prompt: "hello" }))).rejects.toMatchObject({ statusCode: 404 })
+
+      installConsoleAgentDefinitions([
+        { definition: { default: definition }, fallbackName: "help" },
+      ], { invoke: true, projectRoot: root })
+      await expect(agentInvocationsHandler(request({ invokerProfileId: "unknown", prompt: "hello" })))
+        .rejects.toMatchObject({ statusCode: 400, statusMessage: "Unknown Agent invocation profile." })
+      await expect(agentInvocationsHandler(request({ extra: true, prompt: "hello" })))
+        .rejects.toMatchObject({ statusCode: 400, statusMessage: "Unsupported Agent invocation field: extra." })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("keeps fallback Agent Definition journals bound to refreshed fixtures", () => {
@@ -4012,6 +4150,7 @@ describe("Agent invocation console", () => {
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__")
     expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'self' 'wasm-unsafe-eval'")
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("content-security-policy")).toContain("base-uri 'none'")
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")

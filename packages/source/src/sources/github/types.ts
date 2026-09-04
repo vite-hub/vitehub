@@ -4,7 +4,7 @@ export interface GitHubSourceOptions {
   repo: string
   ref?: string
   root?: string
-  auth?: false | string | (() => string | undefined)
+  auth?: false | string | (() => Promise<string | undefined> | string | undefined)
   include?: string | string[]
   ignore?: string | readonly string[]
   cache?: false | SourceCacheOptions

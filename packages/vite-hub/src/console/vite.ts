@@ -54,8 +54,8 @@ type ConsoleNitroConfig = {
 }
 
 export type ConsoleOptions =
-  | { access: "auth", exposure?: never }
-  | { access?: never, exposure: "host-managed" }
+  | { access: "auth", exposure?: never, invoke?: boolean }
+  | { access?: never, exposure: "host-managed", invoke?: never }
 
 interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
@@ -139,6 +139,9 @@ export function assertConsoleProductionAccess(
     auth?: ResolvedAuthViteConfig
   },
 ): void {
+  if (configured !== true && configured.exposure === "host-managed" && Reflect.get(configured, "invoke") === true) {
+    throw new Error('[vitehub] console.invoke requires console: { access: "auth" }.')
+  }
   if (options.development) return
   if (configured === true) {
     throw new Error('[vitehub] console: true is development-only. Production Console builds require console: { access: "auth" } or console: { exposure: "host-managed" }.')
@@ -166,6 +169,7 @@ function renderConsoleNitroPlugin(
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
+  invoke = false,
 ): string {
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
@@ -214,7 +218,7 @@ function renderConsoleNitroPlugin(
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
             `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { invocations: vitehubConsoleInvocations })`,
           ]
-        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)} })`]
+        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -234,6 +238,7 @@ async function writeConsoleNitroPlugin(
   kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
+  invoke = false,
   active: () => boolean = () => true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
@@ -244,7 +249,7 @@ async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
@@ -283,11 +288,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let workspaceDiscoveryRoot: string | undefined
   let fixture: string | undefined
   let cliDiscovery = false
+  let invoke = false
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, () => !options.invocationRootState?.closed)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -387,6 +393,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fixture = resolve(projectRoot, configuredFixture)
         readConsoleFixture(fixture)
       }
+      invoke = !fixture && (configured === true || configured.invoke === true)
       generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
@@ -405,6 +412,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           kvStores,
           fixture,
           options.invocationRootState?.binding,
+          invoke,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.

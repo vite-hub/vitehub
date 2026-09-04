@@ -414,6 +414,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
       "utf8",
     );
+    const sessionCodePreview = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-session-code-preview.vue`,
+      "utf8",
+    );
     expect(sessionInspector).toContain("Workspace unavailable");
     expect(sessionInspector).toContain(':show-status="false"');
     expect(sessionInspector).toContain(':show-timeline="false"');
@@ -434,6 +438,8 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
     expect(sessionInspector).toContain("list: 'w-max min-w-0 gap-1 bg-transparent p-0'");
+    expect(sessionInspector).not.toContain("scrollIntoView");
+    expect(sessionInspector).toContain("scroller.scrollLeft");
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__tabstrip \{[\s\S]*?display: flex;[\s\S]*?overflow: hidden;/,
     );
@@ -476,15 +482,16 @@ describe("framework package contract", () => {
     expect(sessionTrace).toContain("const traceWindowMs = computed");
     expect(sessionTrace).not.toContain("const traceDurationMs = computed");
     expect(sessionTrace).toContain("isTerminalToolObservation");
-    expect(
-      readFileSync(
-        `${packageRoot}/dist/console/runtime/components/console-session-code-preview.vue`,
-        "utf8",
-      ),
-    ).toContain("highlightingFailed");
+    expect(sessionCodePreview).toContain("highlightingFailed");
+    expect(sessionCodePreview).toContain('class="line"');
+    expect(sessionCodePreview).toContain("plainLines");
     expect(consoleSessionCss).toMatch(
       /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.6875rem;/,
     );
+    expect(consoleSessionCss).toMatch(
+      /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
+    );
+    expect(consoleSessionCss).toContain("padding: 1rem 1.5rem 2rem 0;");
     expect(
       readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
     ).toContain("<h1>Health</h1>");
@@ -684,6 +691,9 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("vitehub-console");
     expect(consoleCss).toContain("--ui-bg:#fdfdfd");
     expect(consoleCss).toContain("--ui-text:#27272a");
+    expect(
+      globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
+    ).toBeGreaterThan(0);
     const consolePageSource = readFileSync(
       `${packageRoot}/dist/console/runtime/server/page.get.js`,
       "utf8",
