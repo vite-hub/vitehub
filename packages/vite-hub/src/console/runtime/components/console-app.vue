@@ -11,6 +11,7 @@ import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { isConsoleHealth } from "./console-health-model";
+import { resolveConsoleNewChatAgent } from "./console-new-chat";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
 import type {
@@ -197,6 +198,9 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
   selectedAgentName.value ? agentInvocationOptions.value[selectedAgentName.value] : undefined,
+);
+const newChatTargetName = computed(() =>
+  resolveConsoleNewChatAgent(selectedAgentName.value, agentInvocationOptions.value),
 );
 const selectedAgentLabel = computed(
   () => selectedAgentName.value || (agentsLoading.value ? "Loading agents" : "Agents"),
@@ -444,11 +448,12 @@ async function selectStartedInvocation(invocation: { agent: string; id: string }
 }
 
 async function startNewChat(): Promise<void> {
-  const agentName = selectedAgentName.value;
-  if (!agentName || !selectedAgentInvocation.value) return;
+  const agentName = newChatTargetName.value;
+  if (!agentName) return;
   showSessions();
   sessionsOpen.value = false;
   newChatAgentName.value = agentName;
+  updateSelectedAgentName(agentName);
   selectedInvocationId.value = undefined;
   closeDetails();
   await router.push({
@@ -919,7 +924,7 @@ onBeforeUnmount(() => {
             label="Search console"
             :ui="{ trailing: 'vitehub-console__search-shortcut' }"
           />
-          <UTooltip v-if="!collapsed && selectedAgentInvocation" text="New chat">
+          <UTooltip v-if="!collapsed && newChatTargetName" text="New chat">
             <UButton
               aria-label="New chat"
               color="neutral"
