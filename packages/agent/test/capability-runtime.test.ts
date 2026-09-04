@@ -779,10 +779,11 @@ describe("agent capability runtime", () => {
     expect(resolved.registries.workspaceContributions).toEqual([
       {
         capabilityId: "browser",
-        rules: [],
+        rules: ["screenshots/**"],
         sources: ["skill.browser"],
       },
     ])
+    expect(resolved.workspaceDefinition?.rules?.["screenshots/**"]).toEqual({ commit: true, write: true })
   })
 
   it("does not mention Blob tools in the default browser skill", async () => {
@@ -805,8 +806,105 @@ describe("agent capability runtime", () => {
     if (!source || typeof source !== "object") throw new Error("Expected browser skill source object.")
     const content = (source as { content?: unknown }).content
     expect(content).toContain("save screenshots inside that workspace directory")
+    expect(content).toContain("![Description](screenshots/name.png)")
     expect(content).not.toContain("blob_edit")
     expect(content).not.toContain("Blob")
+  })
+
+  it("attaches changed browser screenshots referenced by Provider final replies", async () => {
+    const { applyOutputRenderers, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const { setAgentWorkspaceDiff } = await import("../src/agent-workspace-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invocationContext = createAgentInvocationContextStore()
+    setAgentWorkspaceDiff(invocationContext, {
+      entries: [
+        { after: { type: "file" }, path: "screenshots/login.png", type: "added" },
+        { after: { type: "file" }, path: "screenshots/detail.webp", type: "modified" },
+        { after: { type: "file" }, path: "screenshots/notes.txt", type: "added" },
+      ],
+      to: "next",
+    })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser()],
+    }, {
+      ...runtime(),
+      driver: { kind: "provider" },
+    } as never, {}, emptyWorkspace() as never, "write", {
+      context: invocationContext,
+      driverKind: "provider",
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(applyOutputRenderers({
+      artifacts: [{ path: "report.md", placement: "link" }],
+      text: [
+        "Done.",
+        "",
+        "![Login](screenshots/login.png)",
+        "![Detail](/workspace/session-1/screenshots/detail.webp)",
+        "![Unchanged](screenshots/old.png)",
+        "![Unsupported](screenshots/notes.txt)",
+        "![Unsafe](screenshots/../secret.png)",
+      ].join("\n"),
+    }, resolved.registries.finalOutputRenderers)).resolves.toEqual({
+      artifacts: [
+        {
+          alt: "Login",
+          mediaType: "image/png",
+          path: "screenshots/login.png",
+          placement: "attachment",
+        },
+        {
+          alt: "Detail",
+          mediaType: "image/webp",
+          path: "screenshots/detail.webp",
+          placement: "attachment",
+        },
+        { path: "report.md", placement: "link" },
+      ],
+      text: [
+        "Done.",
+        "",
+        "![Unchanged](screenshots/old.png)",
+        "![Unsupported](screenshots/notes.txt)",
+        "![Unsafe](screenshots/../secret.png)",
+      ].join("\n"),
+    })
+
+    await expect(applyOutputRenderers(
+      "![Login](screenshots/login.png)",
+      resolved.registries.finalOutputRenderers,
+    )).resolves.toEqual({
+      artifacts: [{
+        alt: "Login",
+        mediaType: "image/png",
+        path: "screenshots/login.png",
+        placement: "attachment",
+      }],
+      raw: "![Login](screenshots/login.png)",
+      text: "",
+    })
+  })
+
+  it("leaves browser screenshot references unchanged outside Provider runs", async () => {
+    const { applyOutputRenderers, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser()],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+    const result = { text: "![Login](screenshots/login.png)" }
+
+    await expect(applyOutputRenderers(result, resolved.registries.finalOutputRenderers)).resolves.toBe(result)
   })
 
   it("applies Access Source grants to capability workspace contribution sources", async () => {
