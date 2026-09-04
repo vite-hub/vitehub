@@ -128,7 +128,10 @@ function configResolved(plugin: Plugin) {
 }
 
 function sourcePlugin() {
-  return hubSource({ importBase: "vite-hub/source" })
+  return hubSource({
+    contentImportBase: "vite-hub/content",
+    importBase: "vite-hub/source",
+  })
 }
 
 function config(plugin: Plugin) {
@@ -428,7 +431,10 @@ describe("framework generated types", () => {
   it("binds the framework Source plugin to framework imports", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server/collections"), { recursive: true })
-    await writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals"))
+    await Promise.all([
+      writeFile(join(root, "server/content.ts"), contentModule()),
+      writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
+    ])
 
     const [source, types] = frameworkHubSource()
     await configResolved(source!)({ root })
@@ -436,6 +442,9 @@ describe("framework generated types", () => {
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       'from "vite-hub/source/server"',
+    )
+    await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toContain(
+      'from "vite-hub/content"',
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(
       `./types/source/collections.d.ts`,
@@ -451,6 +460,18 @@ describe("framework generated types", () => {
 
     await expect(readFile(join(root, ".vitehub/source/routes/meals.mjs"), "utf8")).resolves.toContain(
       'from "vite-hub/source/server"',
+    )
+  })
+
+  it("binds the owner Source plugin to the owner Content import", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), contentModule())
+
+    await hubSource().api.prepareSources({ projectRoot: root })
+
+    await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toContain(
+      'from "@vite-hub/content"',
     )
   })
 
@@ -569,7 +590,7 @@ describe("framework generated types", () => {
     }])
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
       [
-        `import { defineContentHandler } from "vite-hub/source/content"`,
+        `import { defineContentHandler } from "vite-hub/content"`,
         `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
         ``,
         `export default defineContentHandler(content)`,

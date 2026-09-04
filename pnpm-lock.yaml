@@ -1116,6 +1116,34 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(@netlify/blobs@10.7.5)(@nuxt/kit@4.5.2)(@pnpm/logger@1001.0.1)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(db0@0.4.1)(esbuild@0.28.2)(ioredis@5.11.1)(rolldown@1.2.7)(rollup@4.63.1)(typescript@6.0.3)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)))(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.2)(happy-dom@20.14.0)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
 
+  packages/content:
+    dependencies:
+      '@vite-hub/source':
+        specifier: workspace:*
+        version: link:../source
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
+      comark-content:
+        specifier: catalog:markdown
+        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.24
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(17303eedf1ddfca7eb911708755b832e)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
+        version: '@voidzero-dev/vite-plus-test@0.1.24(17303eedf1ddfca7eb911708755b832e)'
+
   packages/database:
     dependencies:
       '@libsql/client':
@@ -1849,9 +1877,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      comark-content:
-        specifier: catalog:markdown
-        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
@@ -2021,6 +2046,9 @@ importers:
       '@vite-hub/cli':
         specifier: workspace:*
         version: link:../cli
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../content
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database

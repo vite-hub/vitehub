@@ -1,8 +1,7 @@
 import { comarkContent } from "comark-content"
 import { defineEventHandler } from "h3"
 
-import { normalizeSafeSourcePath } from "./core/path.ts"
-import { useSource } from "./core/registry.ts"
+import { useSource } from "@vite-hub/source"
 
 import type {
   ComarkContent,
@@ -12,7 +11,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import type { SourceItem, SourceName, SourceReader } from "./core/types.ts"
+import type { SourceItem, SourceName, SourceReader } from "@vite-hub/source"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>
@@ -41,6 +40,23 @@ type NodeContentRequest = {
 }
 export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
 
+function normalizeContentSourcePath(path = ""): string {
+  const raw = path.replace(/\\/g, "/")
+  const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
+  const parts = normalized.split("/").filter(Boolean)
+  if (
+    !normalized
+    || raw.startsWith("/")
+    || /^[a-z]:\//i.test(raw)
+    || parts.some(part => part === "." || part === "..")
+    || parts[0] === ".git"
+    || parts[0] === ".vitehub"
+  ) {
+    throw new TypeError(`[vitehub] Content Source path escapes the source root: ${path}.`)
+  }
+  return normalized
+}
+
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
 type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
   ? TIntersection
@@ -57,7 +73,7 @@ export type DefineContentOptions<
 }
 
 function contentPath(item: ContentSourceItem): string {
-  return normalizeSafeSourcePath(item.path || item.key)
+  return normalizeContentSourcePath(item.path || item.key)
 }
 
 function textContent(item: ContentSourceItem): string {
@@ -144,7 +160,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   }
 
   async function findItem(key: string) {
-    const path = normalizeSafeSourcePath(key)
+    const path = normalizeContentSourcePath(key)
     const loadIndex = pendingLoads.findIndex(items => items.has(path))
     if (loadIndex !== -1) {
       const items = pendingLoads[loadIndex]!
@@ -174,7 +190,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
       return textContent(item)
     },
     async getItemRaw(key) {
-      const path = normalizeSafeSourcePath(key)
+      const path = normalizeContentSourcePath(key)
       const item = (latestItems ?? await loadItems()).get(path)
       if (!item) return
       return item.data ?? item.content

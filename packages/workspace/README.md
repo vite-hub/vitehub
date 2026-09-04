@@ -150,7 +150,7 @@ Workspace resolves a Source revision once before preparation and materialization
 `materializeSources()` reports that generic revision in each Source status, and
 every key and item read in the lifecycle observes the same identity. Workspace
 search remains literal or regular-expression filesystem search over the visible
-tree; use Comark Content through `@vite-hub/source/content` for parsed-document
+tree; use Comark Content through `@vite-hub/content` for parsed-document
 navigation, query, cache, and ranked full-text search.
 
 ## Box sessions
