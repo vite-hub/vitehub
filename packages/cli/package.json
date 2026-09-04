@@ -38,6 +38,7 @@
     "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {

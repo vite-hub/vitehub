@@ -81,6 +81,7 @@ catalogs:
   runtime:
     "@standard-schema/spec": ^1.1.0
     devframe: 0.9.12
+    nostics: 1.2.0
     ocache: ^0.3.0
     valibot: ^1.4.2
   sandbox:

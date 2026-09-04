@@ -2,6 +2,7 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
 
 export {
+  formatRuntimeDiagnosticError,
   normalizeRuntimeDiagnosticError,
   type RuntimeDiagnosticError,
   type RuntimeDiagnosticErrorOptions,

@@ -1,3 +1,5 @@
+import { Diagnostic, formatDiagnostic } from "nostics"
+
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
@@ -11,10 +13,13 @@ export interface RuntimeDiagnosticError {
   cause?: RuntimeDiagnosticError
   code?: number | string
   details?: Readonly<Record<string, unknown>>
+  docs?: string
   errors?: readonly RuntimeDiagnosticError[]
+  fix?: string
   message: string
   name?: string
   requestId?: string
+  sources?: readonly string[]
   stack?: string
   status?: number | string
   statusCode?: number | string
@@ -176,7 +181,9 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
   state.ancestors.add(value)
   try {
     const publicError = getViteHubErrorShape(value)
+    const why = readProperty(value, "why")
     const message = boundedString(readProperty(value, "message"), state)
+      || boundedString(why, state)
       || boundedString(safeString(value), state)
       || "Error"
     const name = boundedString(readProperty(value, "name"), state)
@@ -186,12 +193,18 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
       message,
       ...(name ? { name } : {}),
     }
-    const code = publicError?.code ? boundedString(publicError.code, state) : scalarProperty(value, "code", state)
+    const code = publicError?.code
+      ? boundedString(publicError.code, state)
+      : scalarProperty(value, "code", state) ?? (hasRuntimeType(why, "string") ? boundedString(name, state) : undefined)
+    const fix = boundedString(readProperty(value, "fix"), state)
+    const docs = boundedString(readProperty(value, "docs"), state)
     const requestId = publicError?.requestId ? boundedString(publicError.requestId, state) : boundedString(readProperty(value, "requestId"), state)
     const status = scalarProperty(value, "status", state)
     const statusCode = scalarProperty(value, "statusCode", state)
     const stack = state.includeStack ? boundedString(readProperty(value, "stack"), state) : undefined
     if (code !== undefined) result.code = code
+    if (fix) result.fix = fix
+    if (docs) result.docs = docs
     if (requestId) result.requestId = requestId
     if (stack) result.stack = stack
     if (status !== undefined) result.status = status
@@ -208,11 +221,32 @@ function normalizeError(value: unknown, state: ErrorNormalizationState, depth: n
     if (normalizedErrors?.length) result.errors = normalizedErrors
     const details = publicError?.details ? normalizeDetails(publicError.details, state, depth + 1) : undefined
     if (details) result.details = details
+    const sources = errorChildren(readProperty(value, "sources"), state.remainingNodes)?.flatMap((source) => {
+      state.remainingNodes -= 1
+      const normalized = boundedString(source, state)
+      return normalized ? [normalized] : []
+    })
+    if (sources?.length) result.sources = sources
     return result
   }
   finally {
     state.ancestors.delete(value)
   }
+}
+
+/** Formats bounded developer diagnostics without exposing causes or stacks. */
+export function formatRuntimeDiagnosticError(error: unknown): string {
+  const normalized = normalizeRuntimeDiagnosticError(error)
+  if (normalized.code === undefined && !normalized.fix && !normalized.docs && !normalized.sources?.length) {
+    return normalized.message
+  }
+  return formatDiagnostic(new Diagnostic({
+    code: normalized.code === undefined ? normalized.name || "Error" : String(normalized.code),
+    docs: normalized.docs,
+    fix: normalized.fix,
+    sources: normalized.sources ? [...normalized.sources] : undefined,
+    why: normalized.message,
+  }))
 }
 
 export function normalizeRuntimeDiagnosticError(

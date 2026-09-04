@@ -50,6 +50,45 @@ function stream() {
 }
 
 describe("ViteHub CLI", () => {
+  it.each([
+    {
+      error: new Error("Config load failed"),
+      expected: ["Config load failed\n"],
+    },
+    {
+      error: {
+        cause: new Error("Private provider failure"),
+        docs: "https://vitehub.dev/docs/agent",
+        fix: "Set a model in the Agent Definition.",
+        name: "AGENT_MODEL_NOT_FOUND",
+        sources: ["agents/support.ts:4:2"],
+        stack: "Private stack",
+        why: "The Agent has no model.",
+      },
+      expected: [
+        "[AGENT_MODEL_NOT_FOUND] The Agent has no model.",
+        "Set a model in the Agent Definition.",
+        "agents/support.ts:4:2",
+        "https://vitehub.dev/docs/agent",
+      ],
+    },
+  ])("prints caught failures to stderr and exits with 1 ($error.name)", async ({ error, expected }) => {
+    const stderr = stream()
+    const stdout = stream()
+    // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    runViteHubCliEntrypoint({
+      args: ["agent", "info"],
+      loadConfig: async () => { throw error },
+      stderr,
+      stdout,
+    })
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    for (const text of expected) expect(stderr.output()).toContain(text)
+    expect(stderr.output()).not.toContain("Private")
+    expect(stdout.output()).toBe("")
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()

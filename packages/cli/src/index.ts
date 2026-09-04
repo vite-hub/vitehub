@@ -5,6 +5,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
 import { runProvision } from "./provision.ts"
@@ -307,7 +308,7 @@ export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions 
     }
     catch (error: unknown) {
       try {
-        stderr.stream.write(`${error instanceof Error ? error.message : error}\n`)
+        stderr.stream.write(`${formatRuntimeDiagnosticError(error)}\n`)
       }
       catch {}
       exitCode = 1

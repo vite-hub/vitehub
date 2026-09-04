@@ -7,7 +7,7 @@ import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore } from "@t3tools/provider-runtime"
 
@@ -1160,6 +1160,7 @@ async function startToolServer(
         return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
       }
       catch (error) {
+        let toolError = error
         const shape = getViteHubErrorShape(error)
         const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && hasRuntimeType(error.cause, "object")
           // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
@@ -1204,11 +1205,17 @@ async function startToolServer(
             const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
             if (approve) {
               approve(approvalRequest.input)
-              return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
+              try {
+                return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
+              }
+              catch (approvedError) {
+                if (executionSignal.aborted) throw approvedError
+                toolError = approvedError
+              }
             }
           }
         }
-        return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
+        return { content: [{ text: formatRuntimeDiagnosticError(toolError), type: "text" }], isError: true }
       }
     })()
     activeExecutions.add(execution)

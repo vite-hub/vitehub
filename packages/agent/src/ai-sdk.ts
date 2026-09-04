@@ -1,4 +1,6 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -601,7 +603,7 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
           return output
         }
         catch (error) {
-          capture.collect({ error: error instanceof Error ? error.message : String(error), toolName: name, type: "tool-error" })
+          capture.collect({ error: formatRuntimeDiagnosticError(error), toolName: name, type: "tool-error" })
           throw error
         }
       },
@@ -829,6 +831,33 @@ const defaultToolInputSchemaJson = {
   properties: {},
   type: "object",
 } as const
+
+// AI SDK reads only Error.message for failed tools. Preserve the original diagnostic as cause.
+function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolSet | undefined {
+  if (!tools) return tools
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    const execute = tool?.execute
+    if (!hasRuntimeType(execute, "function")) return [name, tool]
+    return [name, {
+      ...tool,
+      async execute(...args: Parameters<typeof execute>) {
+        try {
+          return await execute.apply(tool, args)
+        }
+        catch (error) {
+          const name = readAgentErrorProperty(error, "name")
+          const code = readAgentErrorProperty(error, "code")
+          const why = readAgentErrorProperty(error, "why")
+          if (hasRuntimeType(name, "string")
+            && (hasRuntimeType(why, "string") || hasRuntimeType(code, "string") && name === code)) {
+            throw new Error(formatRuntimeDiagnosticError(error), { cause: error })
+          }
+          throw error
+        }
+      },
+    }]
+  }))
+}
 
 function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools, createJsonSchema: (schema: JSONSchema7) => unknown): TTools {
   if (!tools) return tools
@@ -1262,10 +1291,10 @@ async function createAgent(
     context.workspaceInstructionBindings,
   )
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
-  const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
+  const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []), fallbackCapture), jsonSchema)
+  }, []), fallbackCapture)), jsonSchema)
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,

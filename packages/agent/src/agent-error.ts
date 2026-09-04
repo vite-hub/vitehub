@@ -1,4 +1,5 @@
 import {
+  formatRuntimeDiagnosticError,
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
 
@@ -49,6 +50,10 @@ function stringifyErrorValue(value: unknown): string | undefined {
 }
 
 export function formatAgentError(error: unknown, fallback = "Unknown error."): string {
+  if (hasRuntimeType(readAgentErrorProperty(error, "code"), "string")
+    || hasRuntimeType(readAgentErrorProperty(error, "why"), "string")) {
+    return formatRuntimeDiagnosticError(error)
+  }
   if (error instanceof Error) return error.stack || error.message || error.name || fallback
   if (hasRuntimeType(error, "string")) return error || fallback
   const text = stringifyErrorValue(error)

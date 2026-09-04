@@ -74,6 +74,11 @@ process.exitCode = exitCode;
 
 `runViteHubCli()` returns `0` for successful commands and help, or a non-zero code when a command reports failure. It rejects if config loading or a contributor throws. Pass custom `stdout`, `stderr`, `env`, or `spawn` implementations only when the host needs to capture output or control subprocesses.
 
+The binary catches these failures, writes them to stderr, and exits with code
+`1`. Nostics errors include the diagnostic code, message, fix, source locations,
+and documentation link when present. Causes and stacks are omitted. Plain errors
+print their message. Error output is bounded by Runtime's diagnostic limits.
+
 ## Limits and safety
 
 - Root and namespace help is human-readable text, not a structured output contract.

@@ -143,6 +143,22 @@ details. Never put secrets in those fields; keep raw provider failures in `cause
 A `cause` is excluded from `toJSON()`, but remains available to code and loggers
 that inspect the Error instance.
 
+### Developer diagnostics
+
+`normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
+preserves Nostics codes, fixes, documentation links, and source locations from
+Error instances and JSON records. Causes, aggregate errors, details, and source
+locations share a node budget. All strings share a size budget. Stacks require
+`{ includeStack: true }`.
+
+Use `formatRuntimeDiagnosticError(error)` for terminal output or Agent tool error
+text. It prints the code, message, fix, source locations, and documentation link
+with Nostics formatting. It omits causes and stacks. Plain errors return their
+message. Both helpers accept `unknown` and handle failed property reads.
+
+These helpers produce developer diagnostics. They do not make arbitrary errors
+safe for public responses. Use the `ViteHubError` public contract at that boundary.
+
 ## Public entry points
 
 | Import                   | Provides                                                                                             |
