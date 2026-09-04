@@ -68,8 +68,11 @@ function requestEvent(operation: string, input: ConsoleRpcInput): ConsoleRequest
     if (Array.isArray(value)) value.forEach((entry) => url.searchParams.append(key, entry))
     else url.searchParams.set(key, value)
   }
+  const params: Record<string, string> = {}
+  if (input.agent) params.agent = input.agent
+  if (input.id) params.id = input.id
   return {
-    context: input.agent || input.id ? { params: { ...(input.agent ? { agent: input.agent } : {}), ...(input.id ? { id: input.id } : {}) } } : undefined,
+    context: Object.keys(params).length ? { params } : undefined,
     method: input.method ?? "GET",
     req: {
       json: async () => input.body,

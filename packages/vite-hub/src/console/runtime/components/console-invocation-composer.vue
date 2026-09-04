@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { AgentChatPrompt } from "@vite-hub/ui";
+import * as v from "valibot";
 import { computed, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
@@ -8,6 +9,8 @@ interface ConsoleAgentProfile {
   id: string;
   label?: string;
 }
+
+const invocationResultSchema = v.object({ id: v.string() });
 
 const props = defineProps<{
   agent: string;
@@ -50,24 +53,23 @@ async function submit(message: { text: string }): Promise<void> {
   loading.value = true;
   error.value = undefined;
   try {
+    const body: { invokerProfileId?: string; prompt: string } = {
+      prompt: message.text,
+    };
+    if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;
     const response = await requestConsole(
       `${props.base}/${encodeURIComponent(props.agent)}/invocations`,
       {
-        body: {
-          prompt: message.text,
-          ...(selectedProfileId.value ? { invokerProfileId: selectedProfileId.value } : {}),
-        },
+        body,
         method: "POST",
       },
     );
-    const result =
-      response instanceof Object && !Array.isArray(response)
-        ? Object.fromEntries(Object.entries(response))
-        : undefined;
-    const id = typeof result?.id === "string" ? result.id : undefined;
-    if (!id) throw new Error("The Agent invocation response did not include an id.");
+    const result = v.safeParse(invocationResultSchema, response);
+    if (!result.success || !result.output.id) {
+      throw new Error("The Agent invocation response did not include an id.");
+    }
     draft.value = "";
-    emit("started", { agent: props.agent, id });
+    emit("started", { agent: props.agent, id: result.output.id });
   } catch (value) {
     error.value = value;
   } finally {

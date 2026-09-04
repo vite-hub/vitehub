@@ -559,7 +559,9 @@ async function loadAgents(): Promise<void> {
                 const id = stringValue(profile?.id)?.trim();
                 if (!id) return [];
                 const label = stringValue(profile?.label)?.trim();
-                return [{ id, ...(label ? { label } : {}) }];
+                const resolved: ConsoleAgentProfile = { id };
+                if (label) resolved.label = label;
+                return [resolved];
               })
             : [];
           return [[name, { profiles }] as const];

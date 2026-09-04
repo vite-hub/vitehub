@@ -18,10 +18,9 @@ const agentsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentsResult
     const agent = getConsoleAgentDefinition(name)
     return agent ? [[name, { profiles: consoleAgentInvokerProfiles(agent) }]] : []
   }))
-  return {
-    agents: names,
-    ...(Object.keys(invocation).length ? { invocation } : {}),
-  }
+  const result: ConsoleAgentsResult = { agents: names }
+  if (Object.keys(invocation).length) result.invocation = invocation
+  return result
 }
 
 export default agentsHandler
