@@ -31,6 +31,47 @@ Errors and diagnostics belong to the package that owns the failing boundary. Vit
 | `LLM_GATE_REJECTED` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
 | `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
 
+## Agent diagnostics
+
+Agent lookup, basic Capability registration, mode validation, and retryable tool-policy failures use [Nostics](https://github.com/vercel-labs/nostics). These errors have a stable `code`, a `message`, a `fix`, and a documentation link. They extend `Error`; catch them by code rather than `TypeError`.
+
+| Code | Action |
+| --- | --- |
+| `AGENT_NOT_FOUND` | Use a discovered Agent name. The message includes nearby names when available. |
+| `AGENT_EXPORT_INVALID`, `AGENT_DEFINITION_INVALID` | Export or pass an Agent Definition created with `defineAgent()`. |
+| `AGENT_CAPABILITY_DEFINITION_INVALID`, `AGENT_CAPABILITY_ID_REQUIRED`, `AGENT_CAPABILITY_ID_INVALID` | Supply a Capability object with a valid id. |
+| `AGENT_TRIGGER_NAME_REQUIRED`, `AGENT_TRIGGER_NAME_INVALID` | Supply a trigger name that starts with a letter and uses letters, numbers, hyphens, or underscores. |
+| `AGENT_CAPABILITY_MODE_INVALID` | Set mode to `read` or `write`. |
+| `AGENT_CAPABILITIES_INVALID`, `AGENT_CAPABILITY_DUPLICATE` | Supply an ordered array with unique Capability ids. |
+| `AGENT_EXTENSION_NOT_COMPILED` | Load Eve extensions through the ViteHub Agent Vite plugin. |
+| `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | Move definition-time contributions to a static Capabilities array. |
+| `AGENT_TOOL_POLICY_RETRYABLE` | Retry when the policy permits execution. |
+
+Application tools can use their own Nostics catalog:
+
+```ts
+import { defineDiagnostics } from 'nostics'
+
+const errors = defineDiagnostics({
+  codes: {
+    SEARCH_INDEX_MISSING: {
+      why: 'Search index is missing.',
+      fix: 'Create the search index before searching.',
+    },
+  },
+})
+
+throw errors.SEARCH_INDEX_MISSING()
+```
+
+Install `nostics` as a direct dependency when using it in application code. Omit reporters for throw-only catalogs. ViteHub formats the error where it is reported.
+
+AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports, and CLI error output retain the code and repair guidance. Formatting omits causes and stacks. Only put information suitable for the model in the diagnostic message, fix, sources, and docs. The AI SDK adapter wraps a Nostics tool failure in an `Error` with the formatted message because the SDK reads only `error.message`; the original diagnostic remains its `cause`.
+
+`normalizeRuntimeDiagnosticError(error)` preserves Nostics metadata in bounded diagnostic records, including serialized Nostics errors. `formatRuntimeDiagnosticError(error)` from `@vite-hub/runtime` formats those records for text output. Sources share the node limit, and all strings share the size limit. Large error records can omit metadata when these limits are reached.
+
+Public HTTP error mapping, approval decisions, and cancellation keep their existing contracts. A Nostics diagnostic does not become a public `ViteHubError`. Unknown public failures still map to `INTERNAL`.
+
 ## Agent public errors
 
 Agent routes and hooks expose a sanitized `AgentPublicError` beside the original

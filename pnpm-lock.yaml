@@ -188,6 +188,9 @@ catalogs:
     devframe:
       specifier: 0.9.12
       version: 0.9.12
+    nostics:
+      specifier: 1.2.0
+      version: 1.2.0
     ocache:
       specifier: ^0.3.0
       version: 0.3.0
@@ -730,6 +733,9 @@ importers:
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       valibot:
         specifier: catalog:runtime
         version: 1.4.2(typescript@6.0.3)
@@ -1090,6 +1096,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       nuxt:
         specifier: catalog:nuxt-compat
         version: 4.5.2(29226aa5a191f88b4ee58c023848d627)
@@ -1648,6 +1657,10 @@ importers:
         version: 3.5.40(typescript@6.0.3)
 
   packages/runtime:
+    dependencies:
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling

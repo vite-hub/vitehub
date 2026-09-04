@@ -41,6 +41,9 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/runtime#build && vp test"
   },
+  "dependencies": {
+    "nostics": "catalog:runtime"
+  },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
+import { defineDiagnostics } from "nostics"
+import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
-import { defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgentInline, streamAgentInline } from "../src/index.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isAsyncIterable } from "../src/internal/stream-result.ts"
 
 const outputSchema = {
   "~standard": {
@@ -46,8 +49,25 @@ function model(responses: ModelResponse[]) {
         warnings: [],
       }
     },
-    async doStream() {
-      throw new Error("Unexpected streaming model call")
+    async doStream(options: ModelOptions) {
+      const result = await this.doGenerate(options)
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] })
+            for (const part of result.content) {
+              if (part.type === "text") {
+                controller.enqueue({ type: "text-start", id: "text-1" })
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: part.text })
+                controller.enqueue({ type: "text-end", id: "text-1" })
+              }
+              else controller.enqueue(part)
+            }
+            controller.enqueue({ type: "finish", finishReason: result.finishReason, usage: result.usage })
+            controller.close()
+          },
+        }),
+      }
     },
     modelId: "vitehub-recovery-test",
     provider: "test",
@@ -115,6 +135,51 @@ function toolCallingAgent(fakeModel: ReturnType<typeof model>, execute: (input: 
 }
 
 describe("AI SDK recovery", () => {
+  it.each(["instance", "serialized", "normalized"].flatMap(form => ["generate", "stream"].map(mode => ({ form, mode }))))("includes $form diagnostic guidance in the next $mode model call", async ({ form, mode }) => {
+    const diagnostics = defineDiagnostics({
+      codes: {
+        SEARCH_INDEX_MISSING: {
+          why: "Search index is missing.",
+          fix: "Create the search index before searching.",
+          docs: "https://example.com/search",
+        },
+      },
+    })
+    const fakeModel = model([
+      [{ input: '{"query":"vitehub"}', toolCallId: "call-1", toolName: "search", type: "tool-call" }],
+      async (options) => {
+        const prompt = JSON.stringify(options.prompt)
+        expect(prompt).toContain("SEARCH_INDEX_MISSING")
+        expect(prompt).toContain("Create the search index before searching.")
+        expect(prompt).toContain("https://example.com/search")
+        expect(prompt).not.toContain("private provider response")
+        expect(prompt).not.toContain("private stack")
+        return "Create the search index first."
+      },
+    ])
+    const failure = diagnostics.SEARCH_INDEX_MISSING({ cause: { token: "private provider response" } })
+    failure.stack = "private stack"
+    const thrown: unknown = form === "serialized"
+      ? JSON.parse(JSON.stringify(failure))
+      : form === "normalized"
+        ? normalizeRuntimeDiagnosticError(failure, { includeStack: true })
+        : failure
+    const agent = toolCallingAgent(fakeModel, () => { throw thrown })
+    if (mode === "stream") {
+      const result = await streamAgentInline(agent, runtime, { prompt: "Search" })
+      if (!isAsyncIterable(result)) throw new TypeError("Expected an Agent event stream")
+      const events: unknown[] = []
+      for await (const event of result) events.push(event)
+      expect(JSON.stringify(events)).toContain("Create the search index first.")
+    }
+    else {
+      const result = textResult(await runAgentInline(agent, runtime, { prompt: "Search" }))
+      expect(result.text).toBe("Create the search index first.")
+    }
+    expect(fakeModel.calls).toHaveLength(2)
+    expect(failure.message).toBe("Search index is missing.")
+  })
+
   it("repairs structured output with three total attempts by default", async () => {
     const fakeModel = model(["{\"text\":1}", "{\"text\":2}", "{\"text\":\"repaired\"}"])
     const agent = defineAgent({

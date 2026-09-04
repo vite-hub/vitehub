@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
+import { Diagnostic } from "nostics"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
@@ -2825,6 +2826,47 @@ cli_auth_credentials_store = "keyring"
     expect(execute).toHaveBeenCalledWith({ query: "vitehub" }, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }))
   })
 
+  it.each(["codex", "claude-code"] as const)("returns diagnostic guidance through %s Capability tools", async (provider) => {
+    const failure = new Diagnostic({
+      cause: new Error("private provider response"),
+      code: "SEARCH_INDEX_MISSING",
+      fix: "Create the search index before searching.",
+      why: "Search index is missing.",
+    })
+    runtime("thread-diagnostic", [event("turn.completed", "thread-diagnostic", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        try {
+          const result = await client.callTool({ arguments: {}, name: "search" })
+          expect(result).toMatchObject({
+            content: [{ text: expect.stringContaining("SEARCH_INDEX_MISSING"), type: "text" }],
+            isError: true,
+          })
+          expect(JSON.stringify(result)).toContain("Create the search index before searching.")
+          expect(JSON.stringify(result)).not.toContain("private provider response")
+        }
+        finally {
+          await client.close()
+        }
+      },
+    })
+    const adapter = createProviderAgentAdapter({ provider })
+    // SAFETY: This fixture supplies the runtime context exercised by the provider adapter.
+    await adapter.generate(context("thread-diagnostic", {
+      tools: {
+        search: {
+          execute() { throw failure },
+          inputSchema: { type: "object", properties: {} },
+          name: "search",
+        },
+      },
+    }) as never)
+  })
+
   it("publishes Capability approval requests raised through MCP", async () => {
     let toolCall!: Promise<unknown>
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2874,6 +2916,55 @@ cli_auth_credentials_store = "keyring"
     ])).resolves.toEqual(["accepted", "unsupported"])
     await expect(toolCall).resolves.toMatchObject({ content: [{ text: "null", type: "text" }] })
     expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: null })] }))
+    await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
+  })
+
+  it.each(["codex", "claude-code"] as const)("returns diagnostic guidance when an approved %s Capability tool fails", async (provider) => {
+    let toolCall!: Promise<unknown>
+    const failure = new Diagnostic({
+      code: "EMAIL_PROVIDER_UNAVAILABLE",
+      docs: "https://example.com/email",
+      fix: "Retry when the email provider is available.",
+      why: "The email provider is unavailable.",
+      cause: { message: "private provider response" },
+    })
+    const execute = vi.fn(async () => { throw failure })
+    const policy = vi.fn(() => "require-approval" as const)
+    runtime("thread-approved-diagnostic", [event("turn.completed", "thread-approved-diagnostic", { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn(mcp) {
+        const client = new McpClient({ name: "provider-test", version: "1" })
+        const transport = new StreamableHTTPClientTransport(new URL(mcp!.endpoint), {
+          requestInit: { headers: { Authorization: mcp!.authorizationHeader } },
+        })
+        await client.connect(transport)
+        toolCall = client.callTool({ arguments: {}, name: "email_send" }).finally(() => client.close())
+        await vi.waitFor(() => expect(policy).toHaveBeenCalledOnce())
+      },
+    })
+    const tools = applyAgentToolPolicies({ email_send: { execute, name: "email_send", policy } })!
+    const invocationId = "run-thread-approved-diagnostic"
+    const approvalContext = context("thread-approved-diagnostic", { tools })
+    approvalContext.runtime = withAgentInvocationResponseOwner(approvalContext.runtime, invocationId)
+    // SAFETY: This fixture supplies the runtime context exercised by the provider adapter.
+    const output = createProviderAgentAdapter({ provider }).stream!(approvalContext as never) as AsyncIterable<unknown>
+    const stream = output[Symbol.asyncIterator]()
+    const approval = await stream.next()
+    expect(approval.value).toMatchObject({ name: "email_send", type: "approval-request" })
+    expect(execute).not.toHaveBeenCalled()
+    // SAFETY: The preceding assertion checks the emitted approval request.
+    const approvalId = (approval.value as { id: string }).id
+    await expect(sendAgentInvocationInput(invocationId, {
+      messages: [{ id: "approval", parts: [{ approved: true, id: approvalId, type: "approval-decision" }], role: "user" }],
+    }, { mode: "respond" })).resolves.toBe("accepted")
+    const result = await toolCall
+    expect(result).toMatchObject({
+      content: [{ text: expect.stringContaining("EMAIL_PROVIDER_UNAVAILABLE"), type: "text" }],
+      isError: true,
+    })
+    expect(JSON.stringify(result)).toContain("Retry when the email provider is available.")
+    expect(JSON.stringify(result)).toContain("https://example.com/email")
+    expect(JSON.stringify(result)).not.toContain("private provider response")
+    expect(execute).toHaveBeenCalledOnce()
     await expect(stream.next()).resolves.toMatchObject({ value: { type: "finish" } })
   })
 

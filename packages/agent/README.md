@@ -225,6 +225,26 @@ openapi({
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
 
+## Error diagnostics
+
+Agent lookup and basic Capability setup errors use Nostics codes and repair
+instructions. Application tools can also throw diagnostics created with
+`defineDiagnostics()` from `nostics`. Add `nostics` as a direct dependency when
+using it in your application.
+
+AI SDK model tool results, Codex and Claude Code MCP tool responses, tool-step
+reports, and CLI error output include diagnostic codes and fixes. They omit
+causes and stacks. Keep diagnostic messages and metadata suitable for the model.
+The AI SDK adapter preserves the original diagnostic as the cause of an Error
+whose message includes the repair guidance.
+
+Public HTTP errors keep the `ViteHubError` mapping. An unrecognized diagnostic
+maps to the generic `INTERNAL` response. Approval and cancellation behavior does
+not change.
+
+See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics)
+for the codes and an application catalog example.
+
 ## Chat state
 
 Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or explicit provider options because ViteHub cannot infer a durable filesystem there.

@@ -1,5 +1,7 @@
 import {
   createExecutionContext,
+  formatRuntimeDiagnosticError,
+  normalizeRuntimeDiagnosticError,
   ViteHubError,
   type ExecutionContext,
   type RuntimeCapabilities,
@@ -7,6 +9,11 @@ import {
 } from "@vite-hub/runtime"
 
 type RuntimeExports = typeof import("@vite-hub/runtime")
+const diagnostic = normalizeRuntimeDiagnosticError({ name: "SEARCH_FAILED", why: "Search failed.", fix: "Retry the search." })
+diagnostic.fix satisfies string | undefined
+diagnostic.docs satisfies string | undefined
+diagnostic.sources satisfies readonly string[] | undefined
+formatRuntimeDiagnosticError(diagnostic) satisfies string
 const hasNoResolveExecutionContext: "resolveExecutionContext" extends keyof RuntimeExports ? false : true = true
 const hasNoResolveRuntimeContext: "resolveRuntimeContext" extends keyof RuntimeExports ? false : true = true
 

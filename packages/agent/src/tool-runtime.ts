@@ -1,4 +1,6 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import {
+  formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
@@ -81,7 +83,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         })
       }
       if (decision === "retryable-failure") {
-        throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
+        throw agentDiagnostics.AGENT_TOOL_POLICY_RETRYABLE({ name: tool.name })
       }
 
       context?.abortSignal?.throwIfAborted()
@@ -133,10 +135,6 @@ function toolCallIdFromExecutionOptions(value: unknown): string | undefined {
   return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined
 }
 
-function getErrorOutput(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 function materializeSummary(output: unknown): unknown {
   if (!output || typeof output !== "object") return output
   const result = output as {
@@ -180,7 +178,7 @@ export async function reportWorkspaceMaterialization(
     await reportToolStep?.({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
   }
   catch (error) {
-    await reportToolStep?.({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+    await reportToolStep?.({ toolErrors: [{ ...toolCall, output: formatRuntimeDiagnosticError(error) }] })
   }
 }
 
@@ -216,7 +214,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
           return output
         }
         catch (error) {
-          await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+          await reportToolStep({ toolErrors: [{ ...toolCall, output: formatRuntimeDiagnosticError(error) }] })
           throw error
         }
       },

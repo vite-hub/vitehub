@@ -161,6 +161,7 @@
     "comark": "catalog:markdown",
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
+    "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {

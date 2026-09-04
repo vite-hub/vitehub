@@ -94,7 +94,7 @@ import {
   withResponseCleanup,
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
-import { formatUnknownAgentMessage } from "./registry-error.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
@@ -2228,7 +2228,7 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
     return await agent.resolve(context as never)
   }
 
-  throw new TypeError("[vitehub] Invalid agent definition.")
+  throw agentDiagnostics.AGENT_DEFINITION_INVALID()
 }
 
 async function resolveAgentForRun<
@@ -2254,12 +2254,12 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]
   if (!loader) {
-    throw new Error(formatUnknownAgentMessage(name, Object.keys(registry).sort(), { prefix: true }))
+    throw agentDiagnostics.AGENT_NOT_FOUND({ name, available: Object.keys(registry).sort() })
   }
 
   const agent = resolveRegistryModule(await loader())
   if (!agent) {
-    throw new Error(`[vitehub] Agent "${name}" did not export a valid default agent.`)
+    throw agentDiagnostics.AGENT_EXPORT_INVALID({ name })
   }
 
   return agent

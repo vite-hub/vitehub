@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
@@ -157,19 +158,19 @@ export interface ResolvedAgentCapabilities {
 
 function assertCapabilityId(id: unknown): asserts id is string {
   if (!hasRuntimeType(id, "string") || !id.trim()) {
-    throw new TypeError("[vitehub] Capability definitions require a non-empty string id.")
+    throw agentDiagnostics.AGENT_CAPABILITY_ID_REQUIRED()
   }
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
-    throw new TypeError(`[vitehub] Capability id "${id}" must be a stable identifier.`)
+    throw agentDiagnostics.AGENT_CAPABILITY_ID_INVALID({ id })
   }
 }
 
 function assertTriggerName(name: unknown, capabilityId: string): asserts name is string {
   if (!hasRuntimeType(name, "string") || !name.trim()) {
-    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger names must be non-empty strings.`)
+    throw agentDiagnostics.AGENT_TRIGGER_NAME_REQUIRED({ capability: capabilityId })
   }
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
-    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger "${name}" must be a stable local identifier.`)
+    throw agentDiagnostics.AGENT_TRIGGER_NAME_INVALID({ capability: capabilityId, name })
   }
 }
 
@@ -182,7 +183,7 @@ export function defineCapability<
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
 ): TCapability {
   if (!capability || !hasRuntimeType(capability, "object")) {
-    throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
+    throw agentDiagnostics.AGENT_CAPABILITY_DEFINITION_INVALID()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   assertCapabilityId((capability as { id?: unknown }).id)
@@ -196,7 +197,7 @@ export function defineCapability<
 export function normalizeMode(value: unknown, label: string): AgentCapabilityMode {
   if (value === undefined) return "read"
   if (value === "read" || value === "write") return value
-  throw new TypeError(`[vitehub] ${label} mode must be "read" or "write".`)
+  throw agentDiagnostics.AGENT_CAPABILITY_MODE_INVALID({ label })
 }
 
 export function normalizeCapabilities(
@@ -204,18 +205,18 @@ export function normalizeCapabilities(
 ): AgentCapabilityDefinition[] {
   if (capabilities === undefined) return []
   if (!Array.isArray(capabilities)) {
-    throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
+    throw agentDiagnostics.AGENT_CAPABILITIES_INVALID()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   if (capabilities.some(capability => (capability as Record<symbol, unknown>)?.[Symbol.for("eve.mounted-extension")] === true)) {
-    throw new TypeError("[vitehub] Eve extensions must be compiled by the ViteHub Vite plugin.")
+    throw agentDiagnostics.AGENT_EXTENSION_NOT_COMPILED()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const explicit = capabilities.map(capability => defineCapability(capability as AgentCapabilityDefinition))
   const explicitById = new Map<string, AgentCapabilityDefinition>()
   for (const capability of explicit) {
     if (explicitById.has(capability.id)) {
-      throw new Error(`[vitehub] Duplicate capability id "${capability.id}" in one agent.`)
+      throw agentDiagnostics.AGENT_CAPABILITY_DUPLICATE({ id: capability.id })
     }
     explicitById.set(capability.id, capability)
   }
@@ -264,7 +265,7 @@ export async function resolveAgentCapabilityDefinitions<
       accessMetadata?.chat === true ? "chat access" : undefined,
     ].filter((value): value is string => Boolean(value))
     if (unsupported.length) {
-      throw new Error(`[vitehub] Invocation-resolved Capability "${capability.id}" cannot contribute ${unsupported.join(", ")}. Attach definition-time behavior in a static capabilities array.`)
+      throw agentDiagnostics.AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED({ id: capability.id, unsupported })
     }
   }
 
