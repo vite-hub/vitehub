@@ -83,6 +83,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/box": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
@@ -916,7 +917,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
-  const sourcePlugin = hubSource({ importBase: "vite-hub/source" })
+  const sourcePlugin = hubSource({
+    contentImportBase: "vite-hub/content",
+    importBase: "vite-hub/source",
+  })
   plugins.push(sourcePlugin)
   plugins.push(viteHubTypesPlugin({ prepareSources: sourcePlugin.api.prepareSources }))
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.

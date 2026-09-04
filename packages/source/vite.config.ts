@@ -52,8 +52,6 @@ try {
     },
     entry: [
       "src/client.ts",
-      "src/content.ts",
-      "src/content/client.ts",
       "src/index.ts",
       "src/file.ts",
       "src/github.ts",

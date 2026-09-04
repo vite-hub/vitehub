@@ -67,6 +67,7 @@ Server code calls runtime helpers directly. Agents receive only the abilities ad
 | Persistent file-tree state, snapshots, diffs, rules, or sessions | [Workspace](/docs/server-primitives/workspace) |
 | Collaborative Markdown editing, presence, and Workspace checkpoints | [Realtime](/docs/reference/realtime) |
 | Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/server-primitives/source) |
+| Parse, query, search, and serve content from Sources | [Content](/docs/server-primitives/content) |
 | Background delivery that returns before work finishes | [Queue](/docs/server-primitives/queue) |
 | Durable long-running work with provider-tracked run state | [Workflows](/docs/server-primitives/workflows) |
 | Static cron output or recurring runtime schedules | [Schedule](/docs/server-primitives/schedule) |

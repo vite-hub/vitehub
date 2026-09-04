@@ -36,6 +36,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
+| `vite-hub/content` and `vite-hub/content/client` | Comark Content definition, Source adaptation, generated runtime handler, and typed client. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
@@ -68,7 +69,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, and registry APIs. |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
-| `vite-hub/source/content` and `vite-hub/source/content/client` | Comark Content definition, Source adaptation, generated runtime handler, and typed client. |
 | `vite-hub/source/file`, `vite-hub/source/glob`, and `vite-hub/source/markdown` | Local file implementations, loaded only when selected. |
 | `vite-hub/source/github` | GitHub Source implementation, loaded only when selected. |
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
@@ -113,6 +113,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and built-in runtime selection. |
 | `@vite-hub/channels` | Channels Package | Channel Definitions, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
+| `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, ViteHub Source adaptation, server handler, and typed client. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |

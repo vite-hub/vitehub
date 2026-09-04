@@ -3,8 +3,9 @@ import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { contentSource, defineContent } from "../src/content.ts"
-import { clearSources, registerSources, useSource } from "../src/index.ts"
+import { clearSources, registerSources, useSource } from "@vite-hub/source"
+
+import { contentSource, defineContent } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -236,6 +237,6 @@ describe("contentSource", () => {
       },
     })
 
-    await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Source path escapes the source root")
+    await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
   })
 })

@@ -9,7 +9,7 @@ import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
 describe("public package export contracts", () => {
   it("keeps Source handler declarations independent from H3", () => {
     const server = readFileSync(join(packageDir("source"), "src/server.ts"), "utf8")
-    const content = readFileSync(join(packageDir("source"), "src/content.ts"), "utf8")
+    const content = readFileSync(join(packageDir("content"), "src/index.ts"), "utf8")
 
     expect(server).toContain("): CollectionHandler")
     expect(content).toContain("): ContentHandler")

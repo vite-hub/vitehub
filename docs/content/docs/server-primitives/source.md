@@ -55,8 +55,6 @@ export default defineEventHandler(() => {
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources` from the matching `vite-hub/source/*` subpath | Select one built-in loader and its private implementation closure. |
-| `defineContent`, `contentSource` from `vite-hub/source/content` | Define the Comark Content runtime from registered ViteHub Sources or adapt one reader explicitly. |
-| `createContentClient` from `vite-hub/source/content/client` | Use Comark Content's typed runtime client. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Loader option types live beside their implementation subpath. Libraries that install the package directly can use the matching `@vite-hub/source` paths.
@@ -181,63 +179,9 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Parse, search, and serve content at runtime
+## Parse and serve content
 
-Install `comark-content` when Source output is documentation or application
-content that should become a parsed runtime API:
-
-```bash [Terminal]
-pnpm add vite-hub comark-content
-```
-
-```ts [server/content.ts]
-import sqlite from 'comark-content/database/sqlite-node'
-import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
-import { defineContent } from 'vite-hub/source/content'
-
-export const content = defineContent({
-  plugins: [sqliteFullTextSearch({ database: sqlite() })],
-  sources: {
-    docs: 'docs',
-  },
-})
-
-await content.get('/guide')
-await content.navigation(['docs'])
-await content.search(['docs'], 'runtime')
-
-```
-
-ViteHub discovers `server/content.ts` and serves its exported `content` instance
-at `/api/content/**` in Vite and Nuxt. `defineContent()` delegates the runtime
-contract to Comark and preserves methods contributed by its server plugins. No
-manual framework route or `fetch()` wrapper is required.
-
-Registered Source names, explicit Source Readers, and native Comark Content
-Sources can coexist in one definition. The ViteHub adapter gives each Comark
-cache refresh a new Source Reader, so a runtime can discover a newer origin
-revision without mixing revisions within one load.
-
-Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed
-document cache entries and exposes `refresh(source)`, `invalidate(key)`, and
-`expire(key)`. ViteHub therefore does not duplicate content parsing or ranked
-search inside Source.
-
-```ts [app/utils/content.ts]
-import { createContentClient } from 'vite-hub/source/content/client'
-import searchClient from 'comark-content/plugins/sqlite-full-text-search/client'
-
-export const content = createContentClient({
-  plugins: [searchClient()],
-})
-
-await content.search(['docs'], 'runtime')
-```
-
-Workspace keeps its filesystem search because it searches every visible file,
-including generated and non-content files. Collections also remain distinct:
-they are typed, paginated application read models over records, while Comark
-Content exposes parsed document manifests and content APIs.
+Use [Content](/docs/server-primitives/content) when Source output should become parsed documents, navigation, queries, or full-text search.
 
 ## Combine keyed Source readers
 

@@ -127,8 +127,6 @@ describe("@vite-hub/source package contract", () => {
   it("loads documented exports from built package targets", async () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/source", [
       ".",
-      "./content",
-      "./content/client",
       "./file",
       "./github",
       "./glob",

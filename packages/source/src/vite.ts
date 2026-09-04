@@ -29,12 +29,14 @@ export interface GeneratedSourceHandler {
 }
 
 export interface SourceGenerationOptions {
+  contentImportBase?: string
   importBase?: string
   projectRoot: string
   serverDirs?: string[]
 }
 
 export interface SourceVitePluginOptions {
+  contentImportBase?: string
   importBase?: string
 }
 
@@ -359,7 +361,7 @@ async function writeContentArtifact(
     return []
   }
   await writeFileIfChanged(output, [
-    `import { defineContentHandler } from ${JSON.stringify(`${options.importBase ?? "@vite-hub/source"}/content`)}`,
+    `import { defineContentHandler } from ${JSON.stringify(options.contentImportBase ?? "@vite-hub/content")}`,
     `import { content } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
     "",
     "export default defineContentHandler(content)",
@@ -425,7 +427,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
 } {
   let latestProjectRoot: string | undefined
@@ -447,13 +449,21 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     listener: GeneratedSourceHandlersListener
     projectRoot?: string
   }>()
-  const prepareSources = (input: Omit<SourceGenerationOptions, "importBase">) => {
+  const prepareSources = (input: Omit<SourceGenerationOptions, "contentImportBase" | "importBase">) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
     const preparation = previousPreparation.then(() =>
-      prepareSourceGeneration({ ...input, importBase: options.importBase }),
+      prepareSourceGeneration({
+        ...input,
+        importBase: options.importBase,
+        contentImportBase: options.contentImportBase,
+      }),
     () =>
-      prepareSourceGeneration({ ...input, importBase: options.importBase }),
+      prepareSourceGeneration({
+        ...input,
+        importBase: options.importBase,
+        contentImportBase: options.contentImportBase,
+      }),
     )
     sourcePreparationByRoot.set(root, preparation)
     void preparation.finally(() => {
