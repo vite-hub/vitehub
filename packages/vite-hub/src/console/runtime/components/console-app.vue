@@ -453,7 +453,6 @@ async function startNewChat(): Promise<void> {
   showSessions();
   sessionsOpen.value = false;
   newChatAgentName.value = agentName;
-  updateSelectedAgentName(agentName);
   selectedInvocationId.value = undefined;
   closeDetails();
   await router.push({
