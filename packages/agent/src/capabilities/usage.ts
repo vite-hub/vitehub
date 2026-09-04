@@ -2,7 +2,7 @@ import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runt
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 
-import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
+import type { AgentCapabilityDefinition, AgentUsageRecord } from "../types.ts"
 import type { AgentUsagePricing } from "../internal/usage-pricing.ts"
 
 export {
@@ -25,12 +25,10 @@ declare global {
   }
 }
 
-export function usage<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: UsageOptions = {},
-): AgentCapabilityDefinition<TRuntimeConfig> {
+export function usage(options: UsageOptions = {}): AgentCapabilityDefinition {
   const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
 
-  return Object.assign(defineCapability<TRuntimeConfig>({
+  return Object.assign(defineCapability({
     id: "usage",
     instructionCoverage: false,
     metadata: {

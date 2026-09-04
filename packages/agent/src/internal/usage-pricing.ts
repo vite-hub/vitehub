@@ -5,6 +5,7 @@ import type {
   AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 export interface AgentUsagePricingContext {
   model?: AgentUsageRecord["model"]
@@ -143,7 +144,7 @@ function decimalStringFromNumber(value: number): string {
 }
 
 function normalizeModelsDevPrice(value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return
+  if (!hasRuntimeType(value, "number") || !Number.isFinite(value) || value < 0) return
   const parts = decimalToParts(decimalStringFromNumber(value))
   return addDecimalParts([{
     scale: parts.scale * 1_000_000n,
@@ -152,14 +153,14 @@ function normalizeModelsDevPrice(value: unknown): string | undefined {
 }
 
 function normalizeModelsDevTier(value: unknown): NonNullable<StaticModelPrice["tiers"]>[number] | undefined {
-  if (!value || typeof value !== "object") return
-  const tier = value as Record<string, unknown>
+  if (!isRuntimeRecord(value)) return
+  const tier = value
   const condition = tier.tier
-  if (!condition || typeof condition !== "object") return
-  const conditionRecord = condition as Record<string, unknown>
+  if (!isRuntimeRecord(condition)) return
+  const conditionRecord = condition
   if (conditionRecord.type !== "context") return
   const size = conditionRecord.size
-  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return
+  if (!hasRuntimeType(size, "number") || !Number.isFinite(size) || size < 0) return
   return {
     input: normalizeModelsDevPrice(tier.input),
     inputCacheRead: normalizeModelsDevPrice(tier.cache_read),
@@ -170,10 +171,10 @@ function normalizeModelsDevTier(value: unknown): NonNullable<StaticModelPrice["t
 }
 
 function normalizeModelsDevModel(value: unknown): StaticModelPrice | undefined {
-  if (!value || typeof value !== "object") return
-  const cost = (value as Record<string, unknown>).cost
-  if (!cost || typeof cost !== "object") return
-  const record = cost as Record<string, unknown>
+  if (!isRuntimeRecord(value)) return
+  const cost = value.cost
+  if (!isRuntimeRecord(cost)) return
+  const record = cost
   return {
     input: normalizeModelsDevPrice(record.input),
     inputCacheRead: normalizeModelsDevPrice(record.cache_read),
@@ -221,11 +222,13 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
       catalog = (async () => {
         const response = await fetcher(catalogUrl, { signal: AbortSignal.timeout(timeout) })
         if (!response.ok) throw new Error(`[vitehub] Models.dev pricing request failed with ${response.status}.`)
-        const body = await response.json() as Record<string, { models?: Record<string, unknown> }>
+        const body: unknown = await response.json()
+        if (!isRuntimeRecord(body)) throw new TypeError("[vitehub] Models.dev pricing response must be an object.")
         const result: Record<string, Record<string, StaticModelPrice>> = {}
         for (const [providerId, provider] of Object.entries(body)) {
+          if (!isRuntimeRecord(provider) || !isRuntimeRecord(provider.models)) continue
           const models: Record<string, StaticModelPrice> = {}
-          for (const [modelId, model] of Object.entries(provider.models || {})) {
+          for (const [modelId, model] of Object.entries(provider.models)) {
             const price = normalizeModelsDevModel(model)
             if (price) models[modelId] = price
           }
@@ -244,9 +247,9 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
 
   return async ({ model, provider, transport, usage }) => {
     if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
-    const modelId = typeof model === "string" ? model.trim() : ""
+    const modelId = hasRuntimeType(model, "string") ? model.trim() : ""
     if (!modelId) return
-    const providerId = typeof provider === "string" && provider.trim()
+    const providerId = hasRuntimeType(provider, "string") && provider.trim()
       ? provider.trim()
       : transport === "gateway"
         ? "vercel"
