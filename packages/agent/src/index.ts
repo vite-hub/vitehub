@@ -2860,7 +2860,7 @@ function agentTelemetryConfigurationForContent(
         }
       : capability),
     ...(policy.instructions === true && instructions ? { instructions } : {}),
-    ...(tools ? { tools: policy.instructions === true ? tools : tools.map(({ name }) => ({ name })) } : {}),
+    ...(tools ? { tools: policy.instructions === true ? tools : tools.map(({ name, capabilityId }) => ({ name, ...(capabilityId ? { capabilityId } : {}) })) } : {}),
   }
 }
 
@@ -3436,6 +3436,19 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
+    const readinessController = new AbortController()
+    const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
+    const readinessTimer = driverKind === "provider" ? setTimeout(() => readinessController.abort(), 3_000) : undefined
+    const readiness = driverKind === "provider" && definition?.status
+      ? Promise.race([
+          Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal })).catch(() => undefined),
+          new Promise<undefined>(resolve => {
+            if (readinessSignal.aborted) resolve(undefined)
+            else readinessSignal.addEventListener("abort", () => resolve(undefined), { once: true })
+          }),
+        ]).finally(() => { clearTimeout(readinessTimer); readinessController.abort() })
+      : Promise.resolve(undefined)
+
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
@@ -3538,7 +3551,9 @@ async function createAgentInvocationContext<
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
+    const preparationController = new AbortController()
+    input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
       invocationKind,
@@ -3548,6 +3563,19 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
+    const knownUnavailable = readiness.then(status => {
+      if (status?.readiness === "unavailable" && !status.stale) {
+        const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
+        preparationController.abort(error)
+        // Setup may already own resources. Its scope closes on failure; a late successful
+        // setup must also close even though the invocation has already reported the error.
+        const cleanup = preparingCapabilities.then(capabilities => capabilities.close(), () => undefined)
+        context.waitUntil?.(cleanup)
+        void cleanup.catch(() => undefined)
+        throw error
+      }
+    })
+    const [capabilities] = await Promise.all([preparingCapabilities, knownUnavailable])
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
@@ -3626,7 +3654,13 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const settings = (definition as AgentDefinition & { __vitehubAgentSettings?: AgentSettings } | undefined)?.__vitehubAgentSettings
     const configuredDriver = settings ? normalizeAgentDriver(settings) : undefined
-    const inspectedTools = inspectAgentTools(tools)
+    const toolOwners = new Map(capabilities.driverContributions
+      .filter(contribution => contribution.kind === "Capability tools")
+      .flatMap(contribution => (contribution.names || []).map(name => [name, contribution.capabilityId] as const)))
+    const inspectedTools = inspectAgentTools(tools)?.map(tool => ({
+      ...tool,
+      ...(toolOwners.has(tool.name) ? { capabilityId: toolOwners.get(tool.name) } : {}),
+    }))
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),

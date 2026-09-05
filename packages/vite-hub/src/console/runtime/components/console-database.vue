@@ -38,7 +38,6 @@ const props = withDefaults(
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
-const sidebarCollapsed = ref(false);
 const filter = ref("");
 const appliedSearch = ref("");
 const sort = ref("");
@@ -326,16 +325,14 @@ onBeforeUnmount(() => {
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      id="database-tables"
+      id="console-navigation"
       v-model:open="sidebarOpen"
-      v-model:collapsed="sidebarCollapsed"
-      :default-size="19"
+      :default-size="16"
       :collapsed-size="4"
-      :min-size="16"
-      :max-size="24"
+      :min-size="13"
+      :max-size="26"
       :menu="{ title: 'Database', description: 'Inspect tables and relationships.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-2 py-1.5' }"
-      collapsible
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5' }"
       resizable
     >
       <template #header="{ collapsed }">
@@ -404,21 +401,11 @@ onBeforeUnmount(() => {
         </nav>
       </template>
 
-      <template #footer="{ collapsed, collapse }">
+      <template #footer="{ collapsed }">
         <ConsolePrimitiveSwitcher
           :active="section"
           :collapsed="collapsed"
           :sections-base="sectionsBase"
-        />
-        <UButton
-          class="max-lg:hidden"
-          :class="collapsed ? '' : 'ml-auto'"
-          icon="i-ph-sidebar-simple-light"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="collapsed ? 'Show sidebar' : 'Hide sidebar'"
-          @click="collapse(!collapsed)"
         />
       </template>
     </UDashboardSidebar>

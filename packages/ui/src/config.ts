@@ -27,6 +27,7 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
 };
 
 const runtimeComponents = {
+  UAlert: defineAsyncComponent(() => import("@nuxt/ui/components/Alert.vue")),
   UBadge: defineAsyncComponent(() => import("@nuxt/ui/components/Badge.vue")),
   UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
   UChatMessage: defineAsyncComponent(() => import("@nuxt/ui/components/ChatMessage.vue")),

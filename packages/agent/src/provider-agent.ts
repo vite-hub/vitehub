@@ -559,6 +559,7 @@ async function providerLaunchFailure(
 }
 
 interface CodexCredentialHome {
+  scope?: string
   homePath: string
   release(reason?: unknown): Promise<void>
 }
@@ -937,7 +938,10 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     context.abortSignal?.throwIfAborted()
     return normalizeCodexCredentials(resolved)
   }
-  if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
+  if (!profile || context.purpose === "inspection") {
+    const credentials = await resolveCredentials()
+    return { ...await createTemporaryCodexCredentialHome(credentials), scope: codexCredentialSeedHash(credentials) }
+  }
 
   const key = `${process.cwd()}:${profile}`
   const unavailableReason = unavailableCodexCredentialProfiles.get(key)
@@ -957,6 +961,7 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     codexCredentialProfilesByInvocation.set(context.context, invocationProfiles)
     return {
       homePath,
+      scope: codexCredentialSeedHash(credentials),
       async release(reason) {
         if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
         invocationProfiles.delete(key)
@@ -971,6 +976,9 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+const providerStatusCache = new WeakMap<object, Map<string, AgentProviderStatus>>()
+const recentProviderQuotaFailures = new Map<string, { message: string, expiresAt: number }>()
+
 /** Uses the invocation credential and launcher paths, without opening a provider session. */
 export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   options: ProviderAgentAdapterOptions<TRuntimeConfig>,
@@ -983,6 +991,17 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     signal?.throwIfAborted()
     home = await prepareCodexCredentials(options, context)
     signal?.throwIfAborted()
+    if (home?.scope) {
+      const recent = recentProviderQuotaFailures.get(home.scope)
+      if (recent && recent.expiresAt > Date.now()) return {
+        agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+        account: { id: home.scope, kind: "credential" }, checkedAt: new Date().toISOString(), stale: false,
+        readiness: "unavailable", reason: recent.message,
+      }
+      if (recent) recentProviderQuotaFailures.delete(home.scope)
+      const cached = providerStatusCache.get(options)?.get(home.scope)
+      if (cached && Date.now() - Date.parse(cached.checkedAt) < 30_000) return { ...cached, agent: context.agentIdentity?.name ?? "agent" }
+    }
     const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
     signal?.throwIfAborted()
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
@@ -1011,16 +1030,24 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
     const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted
     const readiness = unavailable ? "unavailable" : authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
-    return {
+    const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+      ...(home?.scope ? { account: { id: home.scope, kind: "credential" as const } } : {}),
       checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
-      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : undefined,
+      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.",
       ...(snapshot.usageLimits ? { usageLimits: {
         checkedAt: snapshot.usageLimits.checkedAt,
         windows: snapshot.usageLimits.windows,
         ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
       } } : {}),
     }
+    if (home?.scope) {
+      const cache = providerStatusCache.get(options) ?? new Map<string, AgentProviderStatus>()
+      if (cache.size >= 128) cache.clear()
+      cache.set(home.scope, result)
+      providerStatusCache.set(options, cache)
+    }
+    return result
   }
   finally {
     try { await home?.release() }
@@ -2319,7 +2346,13 @@ async function* runProvider<
       const normalized = providerEvent(current.value, context.tools, messagePhases)
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
-      if (failure?.type === "error") caught = agentDiagnostics.AGENT_R0720({ message: failure.error })
+      if (failure?.type === "error") {
+        caught = agentDiagnostics.AGENT_R0726({ message: failure.error })
+        if (codexCredentialHome?.scope && /spend.?cap|spend(ing)? limit|budget.*exceed|quota.*exhaust/i.test(failure.error)) {
+          if (recentProviderQuotaFailures.size >= 128) recentProviderQuotaFailures.clear()
+          recentProviderQuotaFailures.set(codexCredentialHome.scope, { message: failure.error, expiresAt: Date.now() + 30_000 })
+        }
+      }
       if (current.value.type === "session.exited") {
         caught = agentDiagnostics.AGENT_R0721({ message: `[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
       }

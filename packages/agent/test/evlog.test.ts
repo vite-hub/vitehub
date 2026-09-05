@@ -136,3 +136,16 @@ it("uses the existing evlog drain when no separate exporter is configured", asyn
   await telemetry.flush()
   expect(drain).toHaveBeenCalledWith(expect.objectContaining({ event: expect.objectContaining({ invocation_id: "one", service: "configured-host" }) }))
 })
+
+it("builds Console links and owns its host lifecycle from the shared configuration", async () => {
+  const { telemetry, exporter } = setup({}, { console: { origin: "https://console.example", base: "/inspect" } })
+  const hooks = new Map<string, Function>()
+  telemetry.plugin({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const agent = defineAgent({ driver: { run: () => "answer" }, capabilities: [telemetry.capability] })
+  await runAgent(agent, { runtime: "unknown", memo: vi.fn(), waitUntil, agentIdentity: { name: "bot" }, run: { runId: "links" } }, { prompt: "hello" })
+  await Promise.allSettled(background.splice(0))
+  const terminal = exporter.capture.mock.calls.find(([name]) => name === "$ai_trace")
+  expect(terminal?.[1].session_url).toMatch(/^https:\/\/console.example\/inspect\/agents\/bot\/invocations\//)
+  await hooks.get("close")!()
+  expect(telemetry.status().closed).toBe(true)
+})

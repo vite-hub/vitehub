@@ -2,6 +2,7 @@
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { useConsoleWordWrap } from "./console-wrap";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
 import { requestConsole } from "../client/request";
@@ -31,6 +32,7 @@ const activeSurface = defineModel<string>("activeSurface", { default: "view:deta
 const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["details"] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
+const wordWrap = useConsoleWordWrap();
 const workspace = ref<WorkspaceDescriptor>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
@@ -649,9 +651,8 @@ function message(error: unknown) {
             >{{ segment }}</span
           ></template
         >
-        <small v-if="workspace?.revision === 'current'" title="Current mounted files, not a snapshot of this run">Current files</small>
-        <small v-if="file">{{ file.size }} bytes</small>
         <div class="session-inspector__workspace-actions">
+          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
           <UTooltip text="Reload Workspace"
             ><UButton
               icon="i-lucide-rotate-cw"
@@ -688,7 +689,7 @@ function message(error: unknown) {
           <div class="session-inspector__file">
             <div v-if="!selectedPath" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
-              <span class="session-inspector__eyebrow">{{ workspace.revision === "current" ? "Current mounted files · not a run snapshot" : "Immutable snapshot" }}</span>
+              <span>Select a file to preview</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
                 {{ workspace.paths.length }} files<span v-if="workspace.pullRequest !== undefined">
@@ -706,6 +707,7 @@ function message(error: unknown) {
               v-else-if="selectedPath && file"
               :content="file.content"
               :path="file.path"
+              :wrap="wordWrap"
             />
             <div v-else-if="selectedPath" class="session-inspector__state">
               <UIcon name="i-lucide-mouse-pointer-2" />Select a file to preview it.
@@ -720,6 +722,10 @@ function message(error: unknown) {
           </aside>
         </div>
       </template>
+      <footer v-if="workspace" class="session-inspector__file-status">
+        <span :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
+        <span>{{ workspace.paths.length }} files<span v-if="file"> · {{ file.size.toLocaleString() }} bytes</span></span>
+      </footer>
     </div>
   </aside>
 </template>

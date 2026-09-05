@@ -23,6 +23,19 @@ const ready = () => ({
 afterEach(() => vi.resetAllMocks())
 
 describe("provider inspection", () => {
+  it("groups identical credentials without disclosing them and caches only that scope", async () => {
+    inspectProvider.mockResolvedValue(ready())
+    const options = { provider: "codex" as const, credentials: '{"OPENAI_API_KEY":"fake-same-account"}' }
+    const first = await inspectAgentProvider(options, context())
+    const second = await inspectAgentProvider(options, { ...context(), agentIdentity: { name: "other" } })
+    expect(second.account).toEqual(first.account)
+    expect(second.agent).toBe("other")
+    expect(JSON.stringify(second)).not.toContain("fake-same-account")
+    expect(inspectProvider).toHaveBeenCalledTimes(1)
+    const different = await inspectAgentProvider({ ...options, credentials: '{"OPENAI_API_KEY":"another"}' }, context())
+    expect(different.account?.id).not.toBe(first.account?.id)
+  })
+
   it("resolves invocation credentials and environment, without starting a session, then removes temporary credentials", async () => {
     let home = ""
     inspectProvider.mockImplementation(async options => {
@@ -83,5 +96,39 @@ describe("provider inspection", () => {
     })
     await expect(inspectAgentProvider({ provider: "codex", credentials: '{"OPENAI_API_KEY":"fake"}' }, { ...context(), abortSignal: controller.signal })).rejects.toThrow("cancelled")
     await expect(access(home)).rejects.toThrow()
+  })
+})
+
+describe("invocation preflight", () => {
+  it("rejects known unavailable capacity while preparation is still pending, then closes late resources", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    let release!: () => void
+    let prepared!: () => void
+    const started = new Promise<void>(resolve => { prepared = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const close = vi.fn()
+    const background: Promise<unknown>[] = []
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
+      id: "slow-preparation", async prepare() { prepared(); await gate }, close,
+      input() { return new Response("handled") },
+    })] })
+    vi.spyOn(agent, "status").mockImplementation(async () => {
+      await started
+      return { agent: "test", checkedAt: new Date().toISOString(), readiness: "unavailable", stale: false, reason: "Workspace spend cap reached" }
+    })
+    const run = runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => { background.push(task) } }, { prompt: "hello" })
+    try { await expect(run).rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("spending limit") }) }
+    finally { release() }
+    await Promise.allSettled(background)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows unknown readiness and never starts a model probe", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "handled", input: () => new Response("handled") })] })
+    const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unknown", checkedAt: new Date().toISOString(), stale: false })
+    const result = await runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" })
+    expect(await (result as Response).text()).toBe("handled")
+    expect(status).toHaveBeenCalledTimes(1)
   })
 })

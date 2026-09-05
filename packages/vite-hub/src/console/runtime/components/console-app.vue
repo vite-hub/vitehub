@@ -77,7 +77,6 @@ interface ConsoleAgentProfile {
 const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
-const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
 const detailsMaximized = ref(false);
 const inspectorTab = ref<"details" | "trace" | "workspace">("details");
@@ -802,10 +801,9 @@ onBeforeUnmount(() => {
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      id="agent-sessions"
+      id="console-navigation"
       class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
-      v-model:collapsed="sessionsCollapsed"
       :default-size="16"
       :collapsed-size="3"
       :min-size="13"
@@ -814,11 +812,10 @@ onBeforeUnmount(() => {
       :ui="{
         root: 'md:flex',
         body: 'gap-0 overflow-hidden p-0',
-        footer: 'px-2 py-1',
+        footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5',
         content: 'md:hidden',
         overlay: 'md:hidden',
       }"
-      collapsible
       resizable
     >
       <template #header="{ collapsed }">
@@ -1056,7 +1053,7 @@ onBeforeUnmount(() => {
         </AgentInvocationList>
       </template>
 
-      <template #footer="{ collapsed, collapse }">
+      <template #footer="{ collapsed }">
         <div class="flex min-w-0 items-center gap-1" :class="collapsed ? 'justify-center' : ''">
           <ConsolePrimitiveSwitcher
             :active="isUsageRoute ? 'usage' : 'agents'"
@@ -1069,7 +1066,7 @@ onBeforeUnmount(() => {
               :block="!collapsed"
               :class="collapsed ? '' : 'min-w-0 flex-1 justify-start'"
               :icon="isUsageRoute ? 'i-lucide-arrow-left' : 'i-lucide-chart-no-axes-column'"
-              :label="collapsed ? undefined : isUsageRoute ? 'Sessions' : 'Usage'"
+              :label="collapsed ? undefined : isUsageRoute ? 'Back' : 'Usage'"
               color="neutral"
               :variant="isUsageRoute ? 'soft' : 'ghost'"
               size="xs"
@@ -1077,17 +1074,7 @@ onBeforeUnmount(() => {
               @click="toggleUsage"
             />
           </UTooltip>
-          <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
-            <UButton
-              class="ml-auto max-md:hidden"
-              icon="i-ph-sidebar-simple-light"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
-              @click="collapse(!collapsed)"
-            />
-          </UTooltip>
+
         </div>
       </template>
     </UDashboardSidebar>

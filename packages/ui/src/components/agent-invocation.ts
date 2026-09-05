@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   agentInvocationContext,
@@ -214,18 +214,29 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
-function errorRecovery(error: NonNullable<AgentInvocationView["error"]>) {
-  const reason = error.message.toLowerCase();
-  const fix = error.fix || (
-    /spend.?cap|spend(ing)? limit|budget.*exceed/.test(reason)
-      ? "The provider rejected this run because the workspace spending limit was reached. Raise the limit or wait for the billing reset, then start a new run. Retrying before capacity is restored will fail again."
-      : /rate.?limit|too many requests/.test(reason)
-        ? "Wait for the provider’s rate limit to reset, then retry. Reduce concurrent runs if this keeps happening."
-        : undefined
-  );
-  return fix ? h("div", { class: "vh-invocation-error__recovery" }, [
-    h("strong", "How to fix"), h("p", fix),
-  ]) : null;
+function invocationError(error: NonNullable<AgentInvocationView["error"]>) {
+  const description = () => [
+    h("p", { class: "vh-invocation-error__message", title: error.message }, error.message),
+    error.fix ? h("p", { class: "vh-invocation-error__recovery" }, error.fix) : null,
+    diagnosticDetails(error),
+  ];
+  const title = error.name && error.name !== "Error" ? error.name : "Run failed";
+  const Alert = getCurrentInstance()?.appContext.components.UAlert;
+  return Alert ? h(Alert, {
+    class: "vh-invocation-error", color: "error", variant: "subtle", icon: "i-lucide-circle-alert", title,
+    ui: { title: "text-xs", description: "text-xs", root: "p-3" },
+  }, { description }) : h("div", { class: "vh-invocation-error", role: "alert" }, [h("strong", title), ...description()]);
+}
+
+function invocationTimestamp(invocation: AgentInvocationView) {
+  const value = [invocation.startedAt, invocation.createdAt].find(value => value && Number.isFinite(Date.parse(value)));
+  if (!value) return null;
+  const date = new Date(value);
+  return h("time", {
+    class: "vh-invocation-session__timestamp",
+    datetime: date.toISOString(),
+    title: date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }),
+  }, date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
 }
 
 function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
@@ -1151,29 +1162,27 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
           h(
             "div",
             { class: "vh-invocation-inspector__stack" },
-            configuration.capabilities.map((capability) =>
-              capability.metadata
-                ? h(
-                    "details",
-                    { class: "vh-invocation-inspector__item-disclosure", key: capability.id },
-                    [
-                      h("summary", [
-                        h("code", capability.id),
-                        h("small", "Metadata"),
-                        renderChevronDown("vh-invocation-inspector__chevron"),
-                      ]),
-                      h("pre", JSON.stringify(capability.metadata, null, 2)),
-                    ],
-                  )
-                : h("div", { class: "vh-invocation-inspector__item", key: capability.id }, [
-                    h("code", capability.id),
-                  ]),
-            ),
+            configuration.capabilities.map((capability) => {
+              const tools = configuration.tools?.filter(tool => tool.capabilityId === capability.id) || [];
+              return h("details", { class: "vh-invocation-inspector__item-disclosure", key: capability.id }, [
+                h("summary", [
+                  h("code", capability.id),
+                  h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
+                  renderChevronDown("vh-invocation-inspector__chevron"),
+                ]),
+                tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)) }) : null,
+                capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
+                  h("summary", "Configuration"),
+                  h("pre", JSON.stringify(capability.metadata, null, 2)),
+                ]) : null,
+                !tools.length && !capability.metadata ? h("p", "No tools or configuration recorded.") : null,
+              ]);
+            }),
           ),
         ])
       : null,
-    configuration.tools?.length
-      ? inspectorTools(configuration.tools, invocationToolUsage(invocation))
+    configuration.tools?.some(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
+      ? inspectorTools(configuration.tools.filter(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation))
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
@@ -1446,14 +1455,8 @@ export const AgentInvocation = defineComponent({
         ]) : null,
         h("div", { class: "vh-invocation-thread" }, [
           h("div", { class: "vh-invocation-thread__content" }, [
-            props.invocation.error
-              ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
-                  h("strong", props.invocation.error.name ?? "Invocation failed"),
-                  h("span", props.invocation.error.message),
-                  errorRecovery(props.invocation.error),
-                  diagnosticDetails(props.invocation.error),
-                ])
-              : null,
+            props.invocation.error ? invocationError(props.invocation.error) : null,
+            invocationTimestamp(props.invocation),
             h("div", {
               "aria-label": "Session thread",
               "aria-relevant": "additions text",
@@ -1615,14 +1618,7 @@ export const AgentInvocationInspector = defineComponent({
                       : null,
                   ])
                 : null,
-              props.showError && props.invocation.error
-                ? h("div", { class: "vh-invocation-inspector__error" }, [
-                    h("strong", props.invocation.error.name ?? "Invocation failed"),
-                    h("p", props.invocation.error.message),
-                    errorRecovery(props.invocation.error),
-                  diagnosticDetails(props.invocation.error),
-                  ])
-                : null,
+              props.showError && props.invocation.error ? invocationError(props.invocation.error) : null,
             ]),
             inspectorSection(
               "Run summary",

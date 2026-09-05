@@ -308,6 +308,8 @@ export interface AgentTelemetryCapabilityMetadata {
 }
 
 export interface AgentToolInspection {
+  /** Capability that registered this tool, when known. */
+  capabilityId?: string;
   description?: string
   inputSchema?: AgentInspectionValue
   name: string
@@ -1254,6 +1256,8 @@ export interface AgentProviderUsageLimits {
 }
 
 export interface AgentProviderStatus {
+  /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
+  account?: { id: string, kind: "credential" | "account" }
   agent: string
   provider?: "codex" | "claude-code"
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"

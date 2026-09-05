@@ -60,7 +60,7 @@ export function inspectAgentTools(tools: Record<string, unknown> | undefined): A
       const tool = isRuntimeRecord(value) ? value : {}
       const providerDefined = tool.type === "provider" || tool.type === "provider-defined"
       const description = hasRuntimeType(tool.description, "string")
-        ? tool.description.trim().replace(/\s+/g, " ").slice(0, 240)
+        ? tool.description
         : ""
       const inputSchema = toolJsonSchema(tool.inputSchema, "input")
         ?? (!providerDefined ? emptyToolInputSchema : undefined)

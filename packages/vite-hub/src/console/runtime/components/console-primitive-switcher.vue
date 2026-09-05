@@ -44,7 +44,7 @@ onMounted(loadSections);
 </script>
 
 <template>
-  <nav v-if="!collapsed" class="flex min-w-0 items-center gap-0.5" aria-label="Console primitives">
+  <nav v-if="!collapsed" class="flex min-h-7 min-w-0 items-center gap-0.5" aria-label="Console primitives">
     <UTooltip v-for="item in items" :key="item.id" :text="item.label">
       <UButton
         :aria-label="`Open ${item.label}`"

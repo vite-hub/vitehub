@@ -3,6 +3,9 @@ import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
 import { defineCapability, eagerFinishExtensionSymbol } from "./capability-runtime.ts"
+import { createPapercutReporter, type PapercutReporterOptions } from "./papercut-reporter.ts"
+import { papercuts } from "./capabilities/papercuts.ts"
+import { diagnostics } from "./capabilities/diagnostics.ts"
 import { agentInvocationId } from "./invocations.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
@@ -26,10 +29,17 @@ export interface AgentEvlogOptions {
   deliveryTimeoutMs?: number
   trustedErrorCodes?: readonly string[]
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
+  /** Build Console links for all events and reports from one origin. */
+  console?: { origin: string | ((agent: string) => string), base?: string }
+  /** Enable resource diagnostics on the same drain. */
+  resources?: NonNullable<Parameters<typeof diagnostics>[0]>["resources"]
+  /** Durable papercut delivery shares the exporter and its shutdown lifecycle. */
+  papercuts?: Omit<PapercutReporterOptions, "send" | "sessionUrl">
 }
 
 export interface AgentEvlog {
   capability: AgentCapabilityDefinition
+  plugin: (host: AgentEvlogHost) => void
   capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }): Promise<void>
   diagnostics: RuntimeDiagnosticReporter
   event(name: string, properties?: Record<string, unknown>): void
@@ -46,6 +56,11 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
+  const sessionUrl = options.sessionUrl ?? (options.console ? ({ agentName, id }: { agentName: string, id: string }) => {
+    const origin = typeof options.console!.origin === "function" ? options.console!.origin(agentName) : options.console!.origin
+    const base = (options.console!.base ?? "/_vitehub").replace(/\/$/, "")
+    return new URL(`${base}/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, origin).href
+  } : undefined)
   const exporter = options.exporter
   const metadata = { ...options.metadata, service: options.service, environment: options.environment }
   const pending = new Set<Promise<unknown>>()
@@ -127,7 +142,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       agent_name: agentName, run_id: run?.runId, invocation_id: id, thread_id: run?.threadId,
       trace_id: runtime.trace?.id, parent_trace_id: runtime.trace?.parentId,
       $ai_trace_id: runtime.trace?.id || id,
-      session_url: agentName && id ? options.sessionUrl?.({ agentName, id }) : undefined,
+      session_url: agentName && id ? sessionUrl?.({ agentName, id }) : undefined,
     }
   }
 
@@ -168,7 +183,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   // Collect usage even without a user finish hook. Only the terminal trace exports it.
   Object.defineProperty(capability, eagerFinishExtensionSymbol, { value: true })
 
-  const diagnostics: RuntimeDiagnosticReporter = (diagnostic) => {
+  const reportDiagnostics: RuntimeDiagnosticReporter = (diagnostic) => {
     if (!["agent.resource.snapshot", "agent.resource.peak", "agent.resource.inspect.failed"].includes(diagnostic.name)) return
     event(diagnostic.name, {
       component: diagnostic.component, level: diagnostic.level, observed_at: diagnostic.timestamp,
@@ -178,8 +193,19 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     })
   }
 
-  return {
-    capability, capture, diagnostics, event, exception,
+  const reporter = options.papercuts ? createPapercutReporter({
+    ...options.papercuts,
+    sessionUrl,
+    send: delivery => capture("papercut_reported", delivery.properties, { timestamp: new Date(delivery.timestamp), uuid: delivery.uuid }),
+    onError: options.papercuts.onError ?? (() => event("papercut.replay.failed", { level: "error" })),
+  }) : undefined
+  capability.capabilities = [
+    ...(options.resources ? [diagnostics({ resources: options.resources, reporter: reportDiagnostics })] : []),
+    ...(reporter ? [papercuts({ report: reporter.report })] : []),
+  ]
+  const telemetry: AgentEvlog = {
+    capability, capture, diagnostics: reportDiagnostics, event, exception,
+    plugin: host => agentEvlogPlugin(telemetry, reporter ? [reporter] : [])(host),
     drain(context: DrainContext) {
       if (closing || !exporter) return
       const safe = sanitizeAgentLog({ ...context.event, ...metadata })
@@ -197,6 +223,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       return flush
     },
   }
+  return telemetry
 }
 
 /** Install shared telemetry on a Nitro host. Reporters stop before the exporter drains. */
