@@ -120,7 +120,7 @@ export function updateConsoleInvocationRootState(
   bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
-const consoleAccessRoutes = ["/_vitehub/**"] as const
+const consoleAccessRoutes = ["/_vitehub/**", "/api/_vitehub/console/**"] as const
 
 function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
   if (!route.authorize || route.method) return false

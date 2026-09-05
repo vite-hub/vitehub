@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { access, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -51,14 +52,19 @@ describe("provider inspection", () => {
     expect(JSON.stringify(result)).not.toContain("secret diagnostic")
   })
 
-  it("uses and cleans the configured launcher for Claude too", async () => {
+  it("uses the configured launcher from its resolved working directory, then cleans it", async () => {
     let launcher = ""
+    let cwd = ""
     inspectProvider.mockImplementation(async options => {
       launcher = options.settings.binaryPath
-      expect(await readFile(join(dirname(launcher), "provider-launcher.mjs"), "utf8")).toContain("capsule")
+      expect(await readFile(join(dirname(launcher), "provider-launcher.mjs"), "utf8")).toContain(process.execPath)
+      expect(execFileSync(launcher, { encoding: "utf8" })).toBe(cwd)
       return ready()
     })
-    const launch = vi.fn((_context: unknown) => ({ command: "capsule", args: ["--", "claude"] }))
+    const launch = vi.fn((launchContext: { cwd: string }) => {
+      cwd = launchContext.cwd
+      return { command: process.execPath, args: ["-e", "process.stdout.write(process.cwd())"] }
+    })
     await inspectAgentProvider({ provider: "claude-code", launch }, context())
     expect(launch.mock.calls[0]?.[0]).toMatchObject({ purpose: "inspection", requiredEnvironment: [] })
     await expect(access(launcher)).rejects.toThrow()

@@ -430,7 +430,10 @@ describe("vitehub", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
         access: {
-          routes: [{ authorize: true, route: "/_vitehub/**" }],
+          routes: [
+            { authorize: true, route: "/_vitehub/**" },
+            { authorize: true, route: "/api/_vitehub/console/**" },
+          ],
         },
       })
       const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }), "vite-hub/console")
@@ -451,6 +454,19 @@ describe("vitehub", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("rejects production Auth policy that does not protect Console status", async () => {
+    integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
+      access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
+    })
+    const plugin = dependencyPluginByName(
+      vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }),
+      "vite-hub/console",
+    )
+
+    await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
+      .rejects.toThrow("/api/_vitehub/console/**")
   })
 
   it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {

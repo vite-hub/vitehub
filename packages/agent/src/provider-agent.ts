@@ -348,13 +348,14 @@ function providerLauncherSource(
   launch: AgentProviderLaunchCommand,
   diagnosticPath: string,
   secretEnvironmentKeys: readonly string[],
+  cwd: string,
 ): string {
   return `import { spawn } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
-  cwd: process.cwd(),
+  cwd: ${JSON.stringify(cwd)},
   detached: true,
   env: process.env,
   stdio: ["inherit", "inherit", "pipe"],
@@ -491,6 +492,7 @@ async function materializeProviderLauncher(
   root: string,
   launch: AgentProviderLaunchCommand,
   secretEnvironmentKeys: readonly string[],
+  cwd: string,
 ): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
@@ -499,7 +501,7 @@ async function materializeProviderLauncher(
   const path = join(root, "provider-launcher")
   const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, cwd), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return { diagnosticPath, path }
 }
@@ -996,7 +998,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
         ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
       }))
       signal?.throwIfAborted()
-      binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []))).path
+      binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
     }
     const launchArgs = [options.providerSettings?.launchArgs, ...(home ? ['-c "cli_auth_credentials_store=\\"file\\""'] : [])].filter(Boolean).join(" ")
     signal?.throwIfAborted()
@@ -2161,7 +2163,7 @@ async function* runProvider<
       ))
       if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
       const materializedLauncher = await waitForProviderOperation(
-        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys),
+        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
         effectiveSignal,
       )
       providerLauncher = materializedLauncher.path

@@ -25,6 +25,7 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
       agentIdentity: { name },
       memo(key, create) {
         if (!memoValues.has(key)) memoValues.set(key, create())
+        // SAFETY: Each memo key returns the value created for that same generic call site.
         return memoValues.get(key) as never
       },
       runtime: "unknown" as const,
