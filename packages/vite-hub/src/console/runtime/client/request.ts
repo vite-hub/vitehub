@@ -109,7 +109,16 @@ export async function requestConsole(
   if (call.agent !== undefined) input.agent = call.agent
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
-  const client = await abortable(consoleDevframeClient(consoleDevframeBase(path)), options.signal)
+  const baseURL = consoleDevframeBase(path)
+  const connection = consoleDevframeClient(baseURL)
+  let client = await abortable(connection, options.signal)
+  if (client.status === "disconnected" || client.status === "error") {
+    if (clients.get(baseURL) === connection) {
+      clients.delete(baseURL)
+      client.close?.()
+    }
+    client = await abortable(consoleDevframeClient(baseURL), options.signal)
+  }
   const response = await abortable(client.call(call.method, input), options.signal)
   if (!response.ok) throw new ConsoleRequestError(response.status, response.message)
   return response.value

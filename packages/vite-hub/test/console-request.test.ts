@@ -32,6 +32,31 @@ describe("Console requests", () => {
       .toEqual(["first", "repeated", "last"])
   })
 
+  it("replaces a disconnected client and shares the replacement across concurrent retries", async () => {
+    const old = { call: vi.fn().mockResolvedValue({ ok: true, value: "first" }), close: vi.fn(), status: "connected" }
+    const replacement = { call: vi.fn().mockResolvedValue({ ok: true, value: "recovered" }), status: "connected" }
+    mocks.connectDevframe.mockResolvedValueOnce(old).mockResolvedValueOnce(replacement)
+    await expect(requestConsole("/reconnect/api/_vitehub/console/sections")).resolves.toBe("first")
+    old.status = "disconnected"
+    await expect(Promise.all([
+      requestConsole("/reconnect/api/_vitehub/console/sections"),
+      requestConsole("/reconnect/api/_vitehub/console/sections"),
+    ])).resolves.toEqual(["recovered", "recovered"])
+    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
+    expect(old.close).toHaveBeenCalledOnce()
+    expect(old.call).toHaveBeenCalledOnce()
+  })
+
+  it("does not replay a submitted invocation when its connection drops", async () => {
+    const client = { call: vi.fn().mockRejectedValue(new Error("connection dropped")), status: "connected" }
+    mocks.connectDevframe.mockResolvedValueOnce(client)
+    await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
+      method: "POST", body: { prompt: "Run once" },
+    })).rejects.toThrow("connection dropped")
+    expect(client.call).toHaveBeenCalledOnce()
+    expect(mocks.connectDevframe).toHaveBeenCalledOnce()
+  })
+
   it("supports requests without query or signal options", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
 
