@@ -1,4 +1,4 @@
-import { applyAgentInvocationStoreUpdate, byteBoundedObservations, observationLimits } from "../invocations.ts"
+import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationSummary } from "../invocations.ts"
@@ -104,10 +104,11 @@ function columns(input: AgentInvocationStoreCreateInput) {
   return [input.status, input.agentName || "", searchableAgentInvocationText(input), serialize(metadata), input.updatedAt, serialize(input)]
 }
 
-function fitRecord(input: AgentInvocationStoreCreateInput) {
+function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
   const limits = observationLimits(input.observationLimits)
   limits.maxBytes = Math.min(limits.maxBytes, maximumObservationBytes)
   const retained = byteBoundedObservations(input.observations, limits)
+  if (append && retained.truncated) throw new Error("[vitehub] D1 Agent Invocation byte capacity reached; evidence was not appended.")
   let stored = {
     ...input,
     observationLimits: limits,
@@ -118,11 +119,12 @@ function fitRecord(input: AgentInvocationStoreCreateInput) {
   // Include all repeated SQL text columns and leave the remaining provider budget for claims and row encoding.
   const rowBytes = () => [stored.id, ...values].reduce((bytes, value) => bytes + encoder.encode(value).byteLength, 0)
   if (rowBytes() > maximumRowBytes) {
-    stored = { ...stored, observations: [], observationsTruncated: true }
+    if (append) throw new Error("[vitehub] D1 Agent Invocation row byte capacity reached; evidence was not appended.")
+    stored = { ...stored, observations: stored.observations.filter(isAppendedObservation), observationsTruncated: true }
     values = columns(stored)
   }
   if (rowBytes() > maximumRowBytes) {
-    throw new TypeError("[vitehub] D1 Agent Invocation metadata exceeds the row byte limit. Reduce metadata before storing this record.")
+    throw new TypeError("[vitehub] D1 Agent Invocation metadata exceeds the row byte limit while preserving appended evidence. Reduce metadata before storing this record.")
   }
   return { stored, values }
 }
@@ -205,7 +207,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         sequence = row.sequence
         const updated = applyAgentInvocationStoreUpdate(record(row), input)
         const { cursor: _cursor, ...inputRecord } = updated
-        const { values } = fitRecord(inputRecord)
+        const { values } = fitRecord(inputRecord, input.appendObservation !== undefined)
         const result = await db.batch<RecordRow>([
           db.prepare(`UPDATE ${table} SET status = ?, agent_name = ?, search = ?, summary = ?, updated_at = ?, record = ?, revision = revision + 1
             WHERE id = ?${claimFilter} AND sequence = ? AND revision = ? RETURNING sequence, record, revision`).bind(...values, ...identity, row.sequence, row.revision),

@@ -311,6 +311,44 @@ describe("D1 Agent Invocation store", () => {
     expect(await journal.get("oversize")).toBeUndefined()
   }, 15_000)
 
+  it("appends concurrent evidence without taking the live Agent claim", async () => {
+    const journal = store()
+    await journal.create(invocation("appends"))
+    await journal.claim("appends", "live-owner", 30_000)
+    const claim = await journal.getClaimToken("appends")
+    await Promise.all(Array.from({ length: 4 }, (_, index) => defineAgentInvocations({ store: store() }).appendObservation(
+      "appends", { name: "report.delivered", type: "run", timestamp }, { id: `report:${index}` },
+    )))
+    const access = defineAgentInvocations({ store: journal })
+    const saved = await access.appendObservation("appends", { name: "retry", type: "run", timestamp }, { id: "report:0" })
+    expect(saved?.observations).toHaveLength(4)
+    expect(new Set(saved?.observations.map(event => event.sequence)).size).toBe(4)
+    expect(await journal.getClaimToken("appends")).toBe(claim)
+  }, 15_000)
+
+  it("rejects full-row append overflow without mutation and keeps accepted appends during later pruning", async () => {
+    const journal = store()
+    await journal.create(invocation("row-appends", {
+      annotations: { label: "m".repeat(600_000) },
+      observationLimits: { maxBytes: 1_000_000, maxStringLength: 1024 * 1024, maxCount: 256, flushTimeoutMs: 1000 },
+      observations: [{ ...observation(1), attributes: { "tool.output": "x".repeat(100_000) } }],
+    }))
+    const before = await journal.get("row-appends")
+    const access = defineAgentInvocations({ content: "content", store: journal })
+    await expect(access.appendObservation("row-appends", {
+      name: "report.delivered", type: "run", timestamp, attributes: { "message.content": "y".repeat(700_000) },
+    }, { id: "too-large" })).rejects.toThrow("row byte capacity reached")
+    expect(await journal.get("row-appends")).toEqual(before)
+    const appended = await access.appendObservation("row-appends", { name: "report.pending", type: "run", timestamp }, { id: "accepted" })
+    const accepted = appended?.observations.find(event => event.attributes?.["vitehub.observation.id"] === "accepted")
+    const saved = await journal.update("row-appends", {
+      timestamp, status: "completed",
+      observation: { ...observation(3), name: "agent.invocation.finish", attributes: { "result.text": "z".repeat(800_000) } },
+    })
+    expect(saved).toMatchObject({ status: "completed", observationsTruncated: true })
+    expect(saved?.observations).toEqual([accepted])
+  }, 20_000)
+
   it("validates table identifiers, retention, paging and leases", async () => {
     expect(() => d1AgentInvocationSchema({ tablePrefix: "unsafe;" })).toThrow(/identifier/)
     expect(() => store({ maxRecords: 0 })).toThrow(/retention/)

@@ -302,6 +302,6 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Pending and running records are retained. `maxAgeMs: false` and `maxRecords: false` disable each limit. An update rejects after 32 concurrent write conflicts. Keep application redaction outside the store.
 
-D1 caps retained observations at 1,000,000 UTF-8 bytes to fit its 2 MB row limit. The adapter checks the complete row, preserves lifecycle fields when it removes excess observations, and rejects metadata that cannot fit alone. The resolved observation budget is stored with each record.
+D1 caps retained observations at 1,000,000 UTF-8 bytes to fit its 2 MB row limit. The adapter checks the complete row, preserves lifecycle fields and appended evidence when it removes excess ordinary observations, and rejects a row that still cannot fit. The resolved observation budget is stored with each record.
 
 See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for binding setup, schema generation, and migration limits.

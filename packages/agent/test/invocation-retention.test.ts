@@ -102,23 +102,29 @@ describe("Invocation observation retention", () => {
   })
 
   it("drains slow queued writes within the configured finish budget", async () => {
-    const memory = createMemoryAgentInvocationStore()
-    const store: AgentInvocationStore = {
-      ...memory,
-      async update(id, input, claimId) {
-        if (input.observation) await new Promise(resolve => setTimeout(resolve, 5))
-        return await memory.update(id, input, claimId)
-      },
+    vi.useFakeTimers()
+    try {
+      const memory = createMemoryAgentInvocationStore()
+      const store: AgentInvocationStore = {
+        ...memory,
+        async update(id, input, claimId) {
+          if (input.observation) await new Promise(resolve => setTimeout(resolve, 5))
+          return await memory.update(id, input, claimId)
+        },
+      }
+      const invocations = defineAgentInvocations({ observations: { maxCount: 512, flushTimeoutMs: 5000 }, store })
+      const journal = await bindAgentInvocations(invocations, runtime("slow-drain"))
+      if (!journal) throw new Error("Expected configured journal")
+      await journal.running()
+      for (let index = 0; index < 300; index++) await journal.context.traceLog!.append({ name: "evidence", type: "capability", attributes: { index } })
+      const finishing = journal.finish("completed")
+      await vi.advanceTimersByTimeAsync(2000)
+      await finishing
+      const saved = await invocations.getByRunId("slow-drain")
+      expect(saved?.observations).toHaveLength(300)
+      expect(saved?.observationsTruncated).not.toBe(true)
     }
-    const invocations = defineAgentInvocations({ observations: { maxCount: 512, flushTimeoutMs: 5000 }, store })
-    const journal = await bindAgentInvocations(invocations, runtime("slow-drain"))
-    if (!journal) throw new Error("Expected configured journal")
-    await journal.running()
-    for (let index = 0; index < 300; index++) await journal.context.traceLog!.append({ name: "evidence", type: "capability", attributes: { index } })
-    await journal.finish("completed")
-    const saved = await invocations.getByRunId("slow-drain")
-    expect(saved?.observations).toHaveLength(300)
-    expect(saved?.observationsTruncated).not.toBe(true)
+    finally { vi.useRealTimers() }
   }, 10_000)
 
   it("settles after the flush budget when an ordinary observation store write hangs", async () => {

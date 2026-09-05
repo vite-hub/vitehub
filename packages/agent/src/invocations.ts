@@ -845,11 +845,15 @@ function observationTitle(observation: TraceEventLogEntry | undefined): string |
   return value.trim().slice(0, MAX_METADATA_STRING_LENGTH) || undefined
 }
 
+export function isAppendedObservation(observation: TraceEventLogEntry): boolean {
+  return observation.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true
+}
+
 function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
+  if (isAppendedObservation(observation)) return -1
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
   if (deliveryOutcomeObservation(observation)) return 2
-  if (observation.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true) return 2
   if (observationTitle(observation)) return 3
 }
 
@@ -884,7 +888,7 @@ function retainedPriorityOutcomes(
   })
   const hasLifecycleTerminal = candidates.some(observation => outcomeObservationPriority(observation) === 1)
   const retained: TraceEventLogEntry[] = []
-  for (const priority of [0, 1, 2, 3]) {
+  for (const priority of [-1, 0, 1, 2, 3]) {
     const remaining = limit - retained.length
     if (remaining === 0) break
     const available = priority === 0 && hasLifecycleTerminal ? Math.max(0, remaining - 1) : remaining
@@ -944,6 +948,9 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
   for (const observation of candidates) {
     let candidate = observation
     let size = sizes.get(observation)!
+    if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isAppendedObservation(observation)) {
+      throw new Error("[vitehub] Agent Invocation observation byte capacity reached; appended evidence was not changed.")
+    }
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
       candidate = {
         ...observation,
@@ -968,6 +975,7 @@ export function applyAgentInvocationStoreUpdate(
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
   const isAppend = input.appendObservation !== undefined
+  const limits = observationLimits(record.observationLimits)
   if (!isAppend && input.observation?.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true) {
     const attributes = { ...input.observation.attributes }
     delete attributes[APPENDED_OBSERVATION_ATTRIBUTE]
@@ -978,21 +986,20 @@ export function applyAgentInvocationStoreUpdate(
     const identity = observationIdentity({ ...input.appendObservation, sequence: 0 })
     if (!identity) throw new TypeError("[vitehub] Appended observations require a stable identity.")
     if (record.observations.some(observation => observationIdentity(observation) === identity)) return record
-    if (record.observations.length >= MAX_OBSERVATIONS) {
+    if (record.observations.length >= limits.maxCount) {
       throw new Error("[vitehub] Agent Invocation observation capacity reached; evidence was not appended.")
     }
     input = {
       observation: {
         ...input.appendObservation,
         attributes: { ...input.appendObservation.attributes, [APPENDED_OBSERVATION_ATTRIBUTE]: true },
-        sequence: record.observations.reduce((maximum, observation) => Math.max(maximum, observation.sequence), 0) + 1,
+        sequence: record.observations.reduce((maximum, observation) => Math.max(maximum, observation.sequence), record.titleSequence ?? 0) + 1,
       },
       timestamp: input.timestamp,
     }
   }
   if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
-  const limits = observationLimits(record.observationLimits)
   const incomingObservation = input.observation
   const duplicateObservation = incomingObservation !== undefined
     && record.observations.some(observation => sameObservation(observation, incomingObservation))
@@ -1016,21 +1023,23 @@ export function applyAgentInvocationStoreUpdate(
       capabilityIds.push(incomingCapabilityId)
     }
   }
-  const observations = input.observation && !duplicateObservation
+  const incoming = input.observation && !duplicateObservation
+    ? cloneObservation(boundedObservation(input.observation, undefined, limits))
+    : undefined
+  if (incoming && record.observations.some(candidate => candidate.sequence === incoming.sequence)) {
+    incoming.sequence = record.observations.reduce((maximum, candidate) => Math.max(maximum, candidate.sequence), record.titleSequence ?? 0) + 1
+  }
+  const observations = incoming
     ? record.observations.length < limits.maxCount
       ? (() => {
-          const observation = cloneObservation(boundedObservation(input.observation, undefined, limits))
-          if (record.observations.some(candidate => candidate.sequence === observation.sequence)) {
-            observation.sequence = record.observations.reduce((maximum, candidate) => Math.max(maximum, candidate.sequence), 0) + 1
-          }
-          const insertAt = record.observations.findIndex(candidate => candidate.sequence > observation.sequence)
+          const insertAt = record.observations.findIndex(candidate => candidate.sequence > incoming.sequence)
           return insertAt < 0
-            ? [...record.observations, observation]
-            : [...record.observations.slice(0, insertAt), observation, ...record.observations.slice(insertAt)]
+            ? [...record.observations, incoming]
+            : [...record.observations.slice(0, insertAt), incoming, ...record.observations.slice(insertAt)]
         })()
       : (() => {
           const outcomes = retainedPriorityOutcomes(
-            [...record.observations, input.observation],
+            [...record.observations, incoming],
             limits.maxCount,
           )
           if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
@@ -1041,11 +1050,16 @@ export function applyAgentInvocationStoreUpdate(
           })
           return [
             ...retained.slice(0, limits.maxCount - outcomes.length),
-            ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation), undefined, limits))),
+            ...outcomes.map(observation => isAppendedObservation(observation)
+              ? cloneObservation(observation)
+              : cloneObservation(boundedObservation(truncatedObservation(observation), undefined, limits))),
           ].sort((left, right) => left.sequence - right.sequence)
         })()
     : record.observations
   const retained = byteBoundedObservations(observations, limits)
+  if (isAppend && retained.truncated) {
+    throw new Error("[vitehub] Agent Invocation observation byte capacity reached; evidence was not appended.")
+  }
   const updated: AgentInvocationRecord = {
     ...record,
     ...(configuredAnnotations
@@ -1762,13 +1776,16 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
         throw new TypeError("[vitehub] Appended observation IDs must be at most 512 characters.")
       }
+      const existing = await store.get(id)
+      if (!existing) return undefined
+      const limits = observationLimits(existing.observationLimits)
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       const observation = await createTraceEventLog({ content }).append(event)
       if (content === "metadata") restoreMetadataContentValues(observation, metadataContentValues)
       const prepared = await boundedJournalObservation({
         ...observation,
         attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
-      })
+      }, limits)
       const { sequence: _sequence, ...appendObservation } = prepared
       const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
       const persisted = updated || await store.get(id)
