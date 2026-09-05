@@ -110,6 +110,13 @@ export async function updateAgentTelemetryConfiguration(
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
+  if (valuePatch.tools) {
+    const owners = new Map(current.value.tools?.map(tool => [tool.name, tool.capabilityId]))
+    valuePatch.tools = valuePatch.tools.map(tool => {
+      const capabilityId = tool.capabilityId ?? owners.get(tool.name)
+      return capabilityId ? { ...tool, capabilityId } : tool
+    })
+  }
   const next = {
     ...current.value,
     ...valuePatch,

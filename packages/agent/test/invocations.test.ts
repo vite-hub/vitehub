@@ -1328,10 +1328,13 @@ describe("Agent Invocations", () => {
     const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 1024 * 1024 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("large-tool-catalog"))
     if (!journal) throw new Error("Expected the invocation journal.")
+    const nestedSchema = Array.from({ length: 20 }).reduce<Record<string, unknown>>(
+      child => ({ type: "object", properties: { child } }), { type: "string" },
+    )
     const tools = Array.from({ length: 40 }, (_, index) => ({
       name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file. ".repeat(80),
       inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path" } }, required: ["path"] },
-      outputSchema: { type: "object", properties: { content: { type: "string" } } },
+      outputSchema: { type: "object", properties: { content: nestedSchema } },
     }))
     await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
       "vitehub.agent.configuration": { tools },
