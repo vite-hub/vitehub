@@ -23,11 +23,16 @@ it("registers one production Usage GET endpoint when configuration is reapplied"
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-it.each([false, true])("recognizes built-in Usage before the first invocation when invoke is %s", async (invoke) => {
+it.each([
+  { costSupported: true, invoke: false, pricing: true },
+  { costSupported: true, invoke: true, pricing: true },
+  { costSupported: false, invoke: false, pricing: false },
+  { costSupported: false, invoke: true, pricing: false },
+])("reports cost support as $costSupported before the first invocation when pricing is $pricing and invoke is $invoke", async ({ costSupported, invoke, pricing }) => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   installConsoleAgentDefinitions([{
     definition: {
-      capabilities: [usage()],
+      capabilities: [pricing ? usage() : usage({ pricing: false })],
       invocations,
       async resolve() { throw new Error("Usage inspection must not invoke the Agent") },
     },
@@ -38,6 +43,6 @@ it.each([false, true])("recognizes built-in Usage before the first invocation wh
     expect(await usageHandler({
       method: "GET",
       req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
-    })).toMatchObject({ available: false, costSupported: true })
+    })).toMatchObject({ available: false, costSupported })
   }
 })
