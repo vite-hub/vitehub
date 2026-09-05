@@ -30,7 +30,7 @@ export function validateAgentPreparationRoute(route: string, handlers: readonly 
   }
   const target = normalized.split("/")
   const conflict = handlers.find(handler => {
-    const parts = normalizeAgentRoute(handler).replace(/\/$/, "").split("/")
+    const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")
     for (let index = 0; index < parts.length; index++) {
       const part = parts[index]!
       if (part.startsWith("**") || part.startsWith(":...")) return true

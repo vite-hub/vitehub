@@ -2858,7 +2858,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (installPreparation && resolved && resolved.preparation) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
         const routes = existing.filter(isRecord).map(handler => handler.route).filter(route => hasRuntimeType(route, "string"))
-        validateAgentPreparationRoute(resolved.preparation.route || "/api/_vitehub/ready", [
+        const preparationHandler = nitroHandlers.find(handler => handler.handler === join(generatedRoot, generatedAgentPreparationHandler))!
+        preparationHandler.route = validateAgentPreparationRoute(preparationHandler.route, [
           ...routes,
           ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)).map(handler => handler.route),
         ])
