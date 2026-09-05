@@ -1244,6 +1244,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
     links: AgentActivityUpdate["links"]
     runId: string
     status: AgentActivityStatus
+    startedAt?: string
     summary: string
     tasks: AgentActivityTask[]
   } = {
@@ -1258,7 +1259,8 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   let lastSnapshot: string | undefined
   const pendingInputRequests = new Set<string>()
   const publish = async (status: AgentActivityStatus, error?: unknown, summary?: string) => {
-    if (!state.summary && summary) state.summary = summary.slice(-12_000)
+    if (summary) state.summary = summary.slice(-12_000)
+    if (status === "running" && !state.startedAt) state.startedAt = new Date().toISOString()
     state = { ...state, status }
     const snapshot = {
       ...state,
@@ -1273,7 +1275,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       try {
         await channel.activity!.update({
           ...createAgentCallbackContext(context),
-          activity: snapshot,
+          activity: { ...snapshot, updatedAt: new Date().toISOString() },
           channel,
           target: run.activity!.target,
         })
@@ -5939,8 +5941,12 @@ async function executeAgentInvocationWithCapacityLease<
                         else void cancellationTask.catch(() => {})
                         return
                       }
-                      if (outcome.failed) await source.settleCancellation(outcome.error)
-                      await finishPreserved(outcome)
+                      try {
+                        if (outcome.failed) await source.settleCancellation(outcome.error)
+                      }
+                      finally {
+                        await finishPreserved(outcome)
+                      }
                     },
                     {
                       abortSignal: invocation.input.abortSignal,
@@ -7011,7 +7017,7 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
     delete forwardedInput.prompt
   }
 
-  return await runAgent(agent, {
+  const result = await runAgent(agent, {
     ...runtimeContext,
     memo(key, create) {
       if (!memoValues.has(key)) memoValues.set(key, create())
@@ -7042,6 +7048,23 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
     },
     ...(turn ? { prompt: turn.prompt } : {}),
   })
+  // Scheduled invocations have no stream consumer. Drain here so completion,
+  // capacity release and the final result share the same lifecycle boundary.
+  if (result instanceof Response) {
+    return { raw: result, text: await result.text() }
+  }
+  if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) {
+    const stream = isAsyncIterable(result)
+      ? result
+      : !hasTraceableStreamResult(result) && isUIMessageStreamResult(result)
+          ? result.toUIMessageStream()
+          : streamAgentOutputToEvents(result)
+    const collected = withStreamedResult(stream, result)
+    for await (const _event of collected.stream) { /* lifecycle effects run while consuming */ }
+    return await collected.finishResult()
+  }
+  return result
+
 }
 
 export async function streamAgentInline<

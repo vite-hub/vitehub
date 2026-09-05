@@ -105,8 +105,10 @@ describe("agent channels", () => {
       const context = (runId: string, status: "completed" | "running", agentName = "reviewer") => ({
         activity: {
           agentName,
-          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }],
+          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }, { label: "Logs | Raw\n[report]", url: "https://console.test/logs|raw" }, { label: "[".repeat(100), url: "https://console.test/boundary" }],
           runId,
+          startedAt: "2026-09-05T12:00:00.000Z",
+          updatedAt: "2026-09-05T12:02:35.000Z",
           status,
           ...(status === "completed" ? { summary: "Review complete." } : {}),
           tasks: [
@@ -126,18 +128,25 @@ describe("agent channels", () => {
       await update(context("run-1", "running") as never)
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-1", "completed") as never)
-      expect(stored?.body).not.toContain("Review complete.")
+      expect(stored?.body).toContain("[Logs \\| Raw \\[report\\]](<https://console.test/logs%7Craw>)")
+      expect(stored?.body).toContain(`[${"\\[".repeat(80)}](<https://console.test/boundary>)`)
+      expect(stored?.body).not.toContain("Raw\n")
+      expect(stored?.body).toContain("2m 35s")
+      expect(stored?.body).toContain("Review complete.")
+      expect(stored?.body).toContain("| Started | Duration |")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running") as never)
 
       expect(methods.filter(method => method === "POST")).toHaveLength(1)
       expect(methods.filter(method => method === "PATCH")).toHaveLength(2)
-      expect(stored?.body).toContain("agent-running-0969da")
+      expect(stored?.body).toContain("| Running |")
       expect(stored?.body).toContain("- [ ] ⏳ Review changes")
       expect(stored?.body).toContain("- [ ] Untrusted \\# \\[link\\]\\(https://example.com\\) \\*text\\*")
       expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
-      expect(stored?.body).toContain("<summary>Previous sessions</summary>")
+      expect(stored?.body).toContain("<summary>Previous results</summary>")
+      expect(stored?.body).toContain("Review complete.")
+      expect(stored?.body).toContain("<relative-time datetime=")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
 
@@ -146,7 +155,7 @@ describe("agent channels", () => {
       await update(context("run-2", "completed") as never)
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running", "writer") as never)
-      expect(stored?.body).toContain("agent-running-0969da")
+      expect(stored?.body).toContain("| Running |")
 
       // A failed initial projection must not mark the run stale for its retry.
       failNextCommentsGet = true
@@ -268,7 +277,7 @@ describe("agent channels", () => {
       releaseIdentity!()
       await background[0]
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
-      expect(storedBody).toContain("agent-queued")
+      expect(storedBody).toContain("| Starting |")
 
       // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
       await channel.activity?.update({
@@ -287,7 +296,7 @@ describe("agent channels", () => {
       expect(methods.filter(method => method === "POST")).toHaveLength(1)
       expect(methods.filter(method => method === "PATCH")).toHaveLength(1)
       expect(storedBody).toBe(runningBody)
-      expect(storedBody).toContain("agent-running-0969da")
+      expect(storedBody).toContain("| Running |")
     }
     finally {
       vi.unstubAllGlobals()

@@ -1283,3 +1283,6 @@ export async function resolveCapabilityPolicy(
   if (!policy) return "allow"
   return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }
+
+export { createWorkTracker } from "./work.ts"
+export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"

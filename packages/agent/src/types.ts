@@ -1820,6 +1820,10 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
 }
 
 export interface AgentActivityUpdate {
+  /** ISO timestamp when execution began, excluding admission delay. */
+  startedAt?: string
+  /** ISO timestamp of the latest lifecycle transition. */
+  updatedAt?: string
   agentName?: string
   error?: string
   links: readonly AgentActivityLink[]
