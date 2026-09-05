@@ -14,6 +14,7 @@ import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleKVHandler from "./kv.get.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import consoleSectionsHandler from "./sections.get.ts"
+import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
 
 import type { DevframeDefinition } from "devframe"
@@ -117,6 +118,7 @@ const operations = {
     return await response.json()
   },
   [consoleRpcMethods.sections]: (input: ConsoleRpcInput) => consoleSectionsHandler(requestEvent("sections", input)),
+  [consoleRpcMethods.status]: (input: ConsoleRpcInput) => consoleStatusHandler(requestEvent("status", input)),
   [consoleRpcMethods.usage]: (input: ConsoleRpcInput) => consoleUsageHandler(requestEvent("usage", input)),
 } satisfies Record<keyof ConsoleRpcFunctions, (input: ConsoleRpcInput) => unknown | Promise<unknown>>
 

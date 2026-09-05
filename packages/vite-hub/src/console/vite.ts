@@ -330,11 +330,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/sections.get.js"),
                 join(consoleRuntimeRoot, "server/search.get.js"),
                 join(consoleRuntimeRoot, "server/usage.get.js"),
+                join(consoleRuntimeRoot, "server/status.get.js"),
                 join(consoleRuntimeRoot, "server/page.get.js"),
               ].includes(handler?.handler),
           )
         : []
       handlers.push(
+        { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )

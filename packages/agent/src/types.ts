@@ -1240,6 +1240,31 @@ type SingleAttemptAgentOutputDefinition<TOutput> = Omit<AgentOutputDefinition<TO
   maxAttempts?: never
 }
 
+export interface AgentProviderUsageLimits {
+  checkedAt: string
+  windows: readonly {
+    id: string
+    kind: "session" | "weekly" | "monthly" | "other"
+    label: string
+    usedPercent: number
+    resetsAt?: string
+    windowDurationMins?: number
+  }[]
+  unavailable?: { reason: "unsupported" | "probeFailed" }
+}
+
+export interface AgentProviderStatus {
+  agent: string
+  provider?: "codex" | "claude-code"
+  readiness: "ready" | "unavailable" | "unknown" | "unsupported"
+  checkedAt: string
+  stale: boolean
+  installed?: boolean
+  authenticated?: boolean
+  reason?: string
+  usageLimits?: AgentProviderUsageLimits
+}
+
 export interface AgentProviderDriverOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TOutput = unknown,
@@ -1269,7 +1294,13 @@ export type AgentProviderCredentialValue = string | AgentProviderSealedCredentia
 
 export interface AgentProviderCredentialContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-> extends AgentAdapterMetadataContext<TRuntimeConfig> {
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "actor" | "invoker" | "workspace" | "fs"> {
+  /** Inspection has no invocation, actor, or mounted Workspace. */
+  purpose?: "invocation" | "inspection"
+  actor?: AgentAdapterMetadataContext<TRuntimeConfig>["actor"]
+  invoker?: AgentAdapterMetadataContext<TRuntimeConfig>["invoker"]
+  workspace?: AgentAdapterMetadataContext<TRuntimeConfig>["workspace"]
+  fs?: AgentAdapterMetadataContext<TRuntimeConfig>["fs"]
   abortSignal?: AbortSignal
 }
 
@@ -1479,6 +1510,8 @@ export interface AgentDefinition<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
+  /** Inspect provider credentials and quota without creating an invocation or sending a prompt. */
+  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: { abortSignal?: AbortSignal }): Promise<AgentProviderStatus>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>

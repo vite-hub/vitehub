@@ -336,7 +336,7 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
-    expect(consolePage).toContain("ConsoleHealth");
+    expect(consolePage).not.toContain("ConsoleHealth");
     const consoleSessionCss = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session.css`,
       "utf8",
@@ -501,15 +501,8 @@ describe("framework package contract", () => {
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
     );
     expect(consoleSessionCss).toContain("padding: 1rem 1.5rem 2rem 0;");
-    expect(
-      readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
-    ).toContain("<h1>Health</h1>");
-    expect(
-      readFileSync(`${packageRoot}/dist/console/runtime/components/console-health.vue`, "utf8"),
-    ).not.toContain("Babysitter");
-    expect(
-      existsSync(`${packageRoot}/dist/console/runtime/components/console-health-model.ts`),
-    ).toBe(true);
+    expect(consolePage).not.toContain("/api/health");
+    expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
     expect(consoleSessionNavbar).toContain('class="md:hidden"');

@@ -10,6 +10,7 @@ export const consoleRpcMethods = {
   kv: "vitehub:console:kv",
   search: "vitehub:console:search",
   sections: "vitehub:console:sections",
+  status: "vitehub:console:status",
   usage: "vitehub:console:usage",
 } as const
 

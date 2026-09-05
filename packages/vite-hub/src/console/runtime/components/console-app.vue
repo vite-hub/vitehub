@@ -10,7 +10,6 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { isConsoleHealth } from "./console-health-model";
 import { resolveConsoleNewChatAgent } from "./console-new-chat";
 
 import type { DropdownMenuItem, SplitterItem } from "@nuxt/ui";
@@ -29,7 +28,6 @@ import { rememberConsoleSection } from "../sections";
 import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
-import ConsoleHealth from "./console-health.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
@@ -88,8 +86,6 @@ const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["detai
 const inspectorOpenPaths = ref<string[]>([]);
 const inspectorSelectedPath = ref<string>();
 const inspectorWorkspaceIdentity = ref<string>();
-const activePage = ref<"health" | "sessions">("sessions");
-const healthAvailable = ref(false);
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
 const pageVisible = ref(!import.meta.env.SSR && document.visibilityState !== "hidden");
@@ -98,7 +94,6 @@ let clock: ReturnType<typeof setInterval> | undefined;
 let agentsRetry: ReturnType<typeof setTimeout> | undefined;
 let media: MediaQueryList | undefined;
 let agentsRequest: AbortController | undefined;
-let capabilitiesRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
@@ -106,7 +101,6 @@ let pendingCapabilityFilterRouteTransition: CapabilityFilterRouteTransition | un
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
-    activePage.value === "sessions" &&
     route.name !== resolveConsoleRouteName(route.name, "vitehub-console-usage"),
 );
 const listPollInterval = computed(() => (sessionPollingEnabled.value ? 5_000 : false));
@@ -293,45 +287,6 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
-async function showHealth(): Promise<void> {
-  if (isUsageRoute.value) {
-    await router.push(
-      selectedAgentName.value
-        ? {
-            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-          }
-        : { name: resolveConsoleRouteName(route.name, "vitehub-console-agents") },
-    );
-  }
-  activePage.value = "health";
-  closeDetails();
-  sessionsOpen.value = false;
-}
-
-function showSessions(): void {
-  activePage.value = "sessions";
-}
-
-async function detectHostCapabilities(): Promise<void> {
-  capabilitiesRequest?.abort();
-  const controller = new AbortController();
-  capabilitiesRequest = controller;
-  try {
-    const response = await fetch(`${props.hostBase}/api/health`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    const available = response.ok && isConsoleHealth(await response.json());
-    if (capabilitiesRequest === controller) healthAvailable.value = available;
-  } catch (error) {
-    if (error instanceof Object && "name" in error && error.name === "AbortError") return;
-    if (capabilitiesRequest === controller) healthAvailable.value = false;
-  } finally {
-    if (capabilitiesRequest === controller) capabilitiesRequest = undefined;
-  }
-}
-
 async function loadCapabilityIds(): Promise<void> {
   capabilityIdsRequest?.abort();
   const controller = new AbortController();
@@ -432,7 +387,6 @@ async function selectInvocation(
 ): Promise<void> {
   const agentName = invocation.agent?.trim() || selectedAgentName.value;
   if (!agentName) return;
-  showSessions();
   sessionsOpen.value = false;
   newChatAgentName.value = undefined;
   updateSelectedAgentName(agentName);
@@ -450,7 +404,6 @@ async function selectStartedInvocation(invocation: { agent: string; id: string }
 async function startNewChat(): Promise<void> {
   const agentName = newChatTargetName.value;
   if (!agentName) return;
-  showSessions();
   sessionsOpen.value = false;
   newChatAgentName.value = agentName;
   updateSelectedAgentName(agentName);
@@ -466,7 +419,6 @@ async function startNewChat(): Promise<void> {
 
 async function selectAgent(name: string): Promise<void> {
   if (name === selectedAgentName.value) return;
-  showSessions();
   newChatAgentName.value = undefined;
   updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
@@ -508,7 +460,6 @@ async function selectCapability(capabilityId?: string): Promise<void> {
 }
 
 async function toggleUsage(): Promise<void> {
-  showSessions();
   sessionsOpen.value = false;
   if (isUsageRoute.value) {
     await router.push(
@@ -607,7 +558,6 @@ async function refresh(): Promise<void> {
   try {
     const agents = loadAgents();
     await Promise.all([
-      detectHostCapabilities(),
       agents,
       isUsageRoute.value ? Promise.resolve() : list.refresh(),
       selectedInvocationId.value ? detail.refresh() : Promise.resolve(),
@@ -693,7 +643,6 @@ watch(
     const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
-      if (routeChanged) showSessions();
     }
     if (!requestedAgent && !agentName) {
       if (!availableFirstInvocation) return;
@@ -839,12 +788,10 @@ onMounted(() => {
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
-  void detectHostCapabilities();
 });
 
 onBeforeUnmount(() => {
   agentsRequest?.abort();
-  capabilitiesRequest?.abort();
   capabilityIdsRequest?.abort();
   clearAgentsRetry();
   if (clock) clearInterval(clock);
@@ -1118,19 +1065,6 @@ onBeforeUnmount(() => {
             :exclude="['usage']"
             :sections-base="sectionsBase"
           />
-          <UTooltip
-            v-if="healthAvailable || activePage === 'health'"
-            :text="activePage === 'health' ? 'Back to sessions' : 'Health'"
-          >
-            <UButton
-              :icon="activePage === 'health' ? 'i-lucide-arrow-left' : 'i-lucide-heart-pulse'"
-              color="neutral"
-              :variant="activePage === 'health' ? 'soft' : 'ghost'"
-              size="xs"
-              :aria-label="activePage === 'health' ? 'Back to sessions' : 'Health'"
-              @click="activePage === 'health' ? showSessions() : void showHealth()"
-            />
-          </UTooltip>
           <UTooltip :text="isUsageRoute ? 'Back to sessions' : 'Usage'">
             <UButton
               :block="!collapsed"
@@ -1166,19 +1100,9 @@ onBeforeUnmount(() => {
       :kv-base="kvBase"
       :search-base="searchBase"
       :sections-base="sectionsBase"
-      @select-session="showSessions"
-      @select-page="showSessions"
     />
 
     <ConsoleUsage v-if="isUsageRoute" :base="usageBase" @open-sessions="sessionsOpen = true" />
-
-    <UDashboardPanel
-      v-else-if="activePage === 'health'"
-      id="agent-health"
-      :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
-    >
-      <template #body><ConsoleHealth :endpoint="`${hostBase}/api/health`" /></template>
-    </UDashboardPanel>
 
     <UDashboardPanel
       v-else
