@@ -10,7 +10,6 @@ export interface ConsoleAgentInvocationInput {
 
 export const consoleRpcMethods = {
   agents: "vitehub:console:agents",
-  attachments: "vitehub:console:attachments",
   agentInvocations: "vitehub:console:agent-invocations",
   blob: "vitehub:console:blob",
   database: "vitehub:console:database",

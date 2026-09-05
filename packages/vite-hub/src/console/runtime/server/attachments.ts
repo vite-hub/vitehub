@@ -1,9 +1,7 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
-import { assertConsoleRequest, consoleRequestJSON } from "./request.ts"
 import type { ImagePart } from "@vite-hub/agent"
-import type { ConsoleRequestEvent } from "./request.ts"
 
 const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string(), filename: v.optional(v.string(), "image") })), v.minLength(1), v.maxLength(10)) })
 const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
@@ -15,16 +13,6 @@ const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"
 
 function error(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode, statusMessage: message })
-}
-
-/** Validate the entire batch before writing; roll back this request's objects on failure. */
-export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promise<ImagePart[]> {
-  assertConsoleRequest(event, ["POST"])
-  return storeConsoleAttachments(await consoleRequestJSON(event, consoleAttachmentRequestBytes))
-}
-
-export async function storeConsoleAttachments(body: unknown): Promise<ImagePart[]> {
-  return withStoredConsoleAttachments(body, async attachments => attachments)
 }
 
 /** Roll back new objects if input reconstruction fails before the Agent owns them. */

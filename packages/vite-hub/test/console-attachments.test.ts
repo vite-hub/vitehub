@@ -6,7 +6,7 @@ import { blob } from "../../blob/src/runtime/storage.ts"
 import { blobError } from "../../blob/src/errors.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
-import { consoleAttachmentUpload, consoleInputMessage, storeConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
+import { consoleInputMessage, storeConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -15,7 +15,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII="
-const uploadBatch = (files: Array<{ url: string, filename?: string }>) => consoleAttachmentUpload({ method: "POST", req: { json: async () => ({ files }) } })
+const uploadBatch = async (files: Array<{ url: string, filename?: string }>) => (await storeConsoleInputMessage("", { files })).parts.filter(part => part.type === "image")
 const upload = async (url: string) => (await uploadBatch([{ url, filename: "test.png" }]))[0]!
 
 it("retains image bytes and metadata across storage restart without embedding bytes in the message", async () => {
@@ -74,7 +74,7 @@ it("surfaces a rejected upload's cleanup failure", async () => {
 })
 
 it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
-  await expect(consoleAttachmentUpload({ method: "POST", req: { json: async () => body } }))
+  await expect(storeConsoleInputMessage("", body))
     .rejects.toMatchObject({ statusCode: 400, message: "Provide between 1 and 10 image data URLs." })
 })
 
