@@ -17,12 +17,12 @@ function error(statusCode: number, message: string): Error {
 
 /** Roll back new objects if input reconstruction fails before the Agent owns them. */
 export async function storeConsoleInputMessage(prompt: string, body: unknown): Promise<ReturnType<typeof createMessage>> {
-  return withStoredConsoleAttachments(body, attachments => consoleInputMessage(prompt, attachments))
+  return withStoredConsoleAttachments(body, attachments => inputMessage(prompt, attachments, new Set(attachments.map(part => part.id))))
 }
 
 /** Keep rollback available until the Agent signals runtime handoff. */
 export async function withConsoleInputMessage<T>(prompt: string, body: unknown, consume: (message: ReturnType<typeof createMessage>, handoff: () => void) => Promise<T>): Promise<T> {
-  return withStoredConsoleAttachments(body, async (attachments, handoff) => consume(await consoleInputMessage(prompt, attachments), handoff))
+  return withStoredConsoleAttachments(body, async (attachments, handoff) => consume(await inputMessage(prompt, attachments, new Set(attachments.map(part => part.id))), handoff))
 }
 
 async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachments: ImagePart[], handoff: () => void) => Promise<T>): Promise<T> {
@@ -66,13 +66,19 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
 }
 
 export async function consoleInputMessage(prompt: string, attachments: unknown): Promise<ReturnType<typeof createMessage>> {
+  return inputMessage(prompt, attachments)
+}
+
+// Only IDs generated and stored by this request can bypass historical ownership
+// checks. Caller-supplied references always go through consoleInputMessage.
+async function inputMessage(prompt: string, attachments: unknown, fresh = new Set<string | undefined>()): Promise<ReturnType<typeof createMessage>> {
   const parsed = v.safeParse(attachmentIdsSchema, attachments)
   if (!parsed.success) throw error(400, "Invalid attachment ID.")
   let totalBytes = 0
   const parts: ImagePart[] = []
   for (const { id, name } of new Map(parsed.output.map(part => [part.id, part])).values()) {
     const storage = getConsoleBlob().storage
-    if (await isConsoleAttachmentPendingCleanup(storage, id)) throw error(404, "The stored image is pending deletion.")
+    if (!fresh.has(id) && await isConsoleAttachmentPendingCleanup(storage, id)) throw error(404, "The stored image is pending deletion.")
     const [headError, metadata] = await storage.head(`${prefix}${id}`)
     if (headError) throw headError
     if (!metadata || !metadata.contentType || !imageTypes.has(metadata.contentType)) throw error(404, "The stored image is unavailable.")

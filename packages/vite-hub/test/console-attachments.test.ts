@@ -208,3 +208,23 @@ it.each([false, true])("only rolls back startup failures before runtime handoff:
   expect(result?.blobs).toHaveLength(handedOff ? 2 : 1)
   expect(result?.blobs.map(item => item.pathname)).toContain(`vitehub-console-attachments/${retained.id}`)
 })
+
+
+it("accepts fresh images after quarantining corruption across restart but rejects stored reuse", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  const connect = () => {
+    setBlobRuntimeStorage(undefined)
+    setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+    installConsoleBlob(base, blob)
+  }
+  connect()
+  const old = await upload(`data:image/png;base64,${png}`)
+  await blob.put(`vitehub-console-attachment-cleanup/batch/${crypto.randomUUID()}`, "{", { contentType: "application/json" })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    connect()
+    const fresh = await upload(`data:image/png;base64,${png}`)
+    expect(fresh.type).toBe("image")
+    expect(Buffer.from(await (await fresh.fetchData!() as Blob).arrayBuffer()).toString("base64")).toBe(png)
+    await expect(consoleInputMessage("", [{ id: old.id, name: old.name }])).rejects.toThrow("quarantined")
+  }
+})

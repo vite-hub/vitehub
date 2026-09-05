@@ -2,9 +2,16 @@ import * as v from "valibot"
 import type { BlobStorage } from "@vite-hub/blob"
 
 export const consoleAttachmentCleanupPrefix = "vitehub-console-attachment-cleanup/"
+const quarantinePrefix = "vitehub-console-attachment-quarantine/"
 const cleanupPrefix = consoleAttachmentCleanupPrefix
 export const consoleAttachmentPrefix = "vitehub-console-attachments/"
 const idSchema = v.pipe(v.string(), v.uuid())
+
+class CorruptCleanupRecord extends Error {
+  constructor(readonly body: string) {
+    super("Invalid attachment cleanup batch record")
+  }
+}
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
@@ -44,12 +51,23 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
 }
 
 /** Drain a bounded page before accepting another upload, including after restart. */
-export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "del" | "get">): Promise<void> {
+export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "del" | "get" | "put">): Promise<void> {
   const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: 100 })
   if (failure) throw failure
   for (const marker of result.blobs) {
     if (!marker.pathname.startsWith(cleanupPrefix)) continue
-    const ids = await cleanupIds(storage, marker.pathname)
+    let ids: string[] | undefined
+    try { ids = await cleanupIds(storage, marker.pathname) }
+    catch (error) {
+      if (!(error instanceof CorruptCleanupRecord)) throw error
+      // Preserve unknown ownership before removing this record from the bounded
+      // retry queue. A crash between these writes leaves reuse blocked either way.
+      const [writeError] = await storage.put(`${quarantinePrefix}${marker.pathname.slice(cleanupPrefix.length)}`, error.body, { contentType: "application/json" })
+      if (writeError) throw writeError
+      const [deleteError] = await storage.del(marker.pathname)
+      if (deleteError) throw deleteError
+      continue
+    }
     if (!ids) continue
     for (const id of ids) {
       const [deleteError] = await storage.del(`${consoleAttachmentPrefix}${id}`)
@@ -72,9 +90,12 @@ async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string): 
   if (!blob) return undefined
   // An unreadable record may still own pending deletions. Fail closed so its
   // images cannot be reused and then removed when a later retry reads it.
-  const data: unknown = JSON.parse(await blob.text())
+  const body = await blob.text()
+  let data: unknown
+  try { data = JSON.parse(body) }
+  catch { throw new CorruptCleanupRecord(body) }
   const parsed = v.safeParse(v.pipe(v.array(idSchema), v.minLength(1), v.maxLength(10)), data)
-  if (!parsed.success) throw new Error("Invalid attachment cleanup batch record")
+  if (!parsed.success) throw new CorruptCleanupRecord(body)
   return parsed.output
 }
 
@@ -90,9 +111,14 @@ export async function isConsoleAttachmentPendingCleanup(storage: Pick<BlobStorag
     for (const blob of result.blobs) {
       if (blob.pathname.startsWith(`${cleanupPrefix}batch/`) && (await cleanupIds(storage, blob.pathname))?.includes(id)) return true
     }
-    if (!result.hasMore) return false
+    if (!result.hasMore) break
     if (!result.cursor || result.cursor === cursor) throw new Error("Attachment cleanup listing did not advance")
     cursor = result.cursor
   } while (cursor)
+  // Check after the active queue so a concurrent move to quarantine cannot
+  // disappear between the two listings.
+  const [quarantineError, quarantine] = await storage.list({ prefix: quarantinePrefix, limit: 1 })
+  if (quarantineError) throw quarantineError
+  if (quarantine.blobs.length) throw new Error("Attachment cleanup ownership is quarantined")
   return false
 }
