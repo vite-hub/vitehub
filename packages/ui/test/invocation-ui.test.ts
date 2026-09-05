@@ -2702,6 +2702,18 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("1 of 2 used");
     expect(wrapper.findAll(".vh-agent-tool-list > *").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
 
+    const namespacedModel = mount(AgentInvocationInspector, { props: {
+      invocation: {
+        ...invocation,
+        configuration: {
+          ...invocation.configuration,
+          driver: { kind: "provider", model: { id: "openai/gpt-5" } },
+        },
+      },
+    } });
+    expect(namespacedModel.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5");
+    expect(namespacedModel.get(".vh-invocation-inspector__group--execution").text()).toContain("OpenAI");
+
     const compact = mount(AgentInvocationInspector, {
       props: { invocation, showStatus: false, showTimeline: false },
     });

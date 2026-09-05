@@ -966,10 +966,15 @@ function inspectorCollection(title: string, items: readonly string[]) {
 
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
-  const provider = invocationBrand(model?.provider ?? configuration.driver?.provider);
+  const modelId = model?.id;
+  const provider = invocationBrand(
+    model?.provider
+      ?? configuration.driver?.provider
+      ?? (modelId?.includes("/") ? modelId.split("/")[0] : undefined),
+  );
   const runtime = configuration.runtime?.name;
   const rows = [
-    inspectorRow("Model", model?.id ? invocationModelName(model.id) : undefined),
+    inspectorRow("Model", modelId ? invocationModelName(modelId) : undefined),
     inspectorRow("Provider", provider?.label),
     inspectorRow("Runtime", runtime && runtime !== "unknown" ? runtime : undefined),
     inspectorRow("Workspace", workspaceLabel(configuration)),
