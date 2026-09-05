@@ -2338,12 +2338,14 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__stack {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 0.125rem;
   margin-block-start: 0.45rem;
 }
 
 .vh-agent-tool-list {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 0.125rem;
   margin-block-start: 0.45rem;
@@ -2361,7 +2363,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-agent-tool-list__item code,
 .vh-agent-tool-list__disclosure > summary code {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 0.6875rem;
   overflow-wrap: anywhere;
 }
@@ -2429,6 +2432,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-agent-tool-list__body {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 0.65rem;
   padding: 0.35rem 0.45rem 0.75rem;
