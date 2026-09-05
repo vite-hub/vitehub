@@ -53,10 +53,12 @@ it.each(["metadata", "content"] as const)("applies %s policy to external observa
   const timestamp = "2026-01-01T00:00:00.000Z"
   await store.create({ id: "fixture", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
   const invocations = defineAgentInvocations({ content, store })
+  // JavaScript callers can carry extra fields on a private payload.
+  const privatePayload = { visibility: "private" as const, value: "must-not-persist" }
   const saved = await invocations.appendObservation("fixture", {
     name: "report", type: "capability", timestamp,
     attributes: { "message.content": "Public evidence", "report.uuid": "report-id" },
-    payload: { visibility: "private", value: "must-not-persist" },
+    payload: privatePayload,
   }, { id: "report-id" })
   expect(saved?.completedAt).toBeUndefined()
   expect(JSON.stringify(saved)).not.toContain("must-not-persist")
