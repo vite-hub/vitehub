@@ -373,6 +373,16 @@ Agent Definition. `host.health()` reports provider availability and stale record
 `host.wake()` requests discovery after work completes. `host.start()` is idempotent;
 `host.close()` stops admission and waits for tracked work.
 
+The host can also live beside an Agent Definition as a named export. Keep the
+Agent Definition as the module's default export and select the host in Vite:
+
+```ts
+processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' })
+```
+
+`exportName` defaults to `default`. Both startup/shutdown and the drain route use
+the selected export; no separate host entry file is required.
+
 For Nitro, add `processAgentHost({ entry: './server/host.ts' })` from
 `@vite-hub/agent/vite` to the Vite plugins. The entry exports the host as default.
 The plugin starts it and closes it with Nitro, and serves drain status at
