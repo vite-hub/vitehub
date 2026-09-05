@@ -1125,6 +1125,7 @@ function inspectorDisclosure(
 
 function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
   configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
   const driver = driverLabel(configuration);
