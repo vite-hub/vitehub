@@ -93,6 +93,8 @@ Named Source Loader imports are the public authoring shape. Import the helpers y
 
 Import the module that registers Sources before calling `useSource()` in a process. For typed name lookup, declare `ViteHubSourceMap` entries as `typeof` the matching definitions. The Vite integration generates Collection types and routes, but does not generate this named Source map.
 
+`RegisteredSource<'docs'>` resolves a registered name to its definition type.
+
 ## Source loader options
 
 | Loader | Key options | Nuance |
@@ -400,7 +402,7 @@ still owns retrieval. The binding above reuses the same definition as direct
 reads and Content. The key `intro.md` appears at `docs/intro.md` in the Workspace.
 
 Workspace also exports helpers such as `file()` and `github()` that combine
-loader options with Workspace binding options. Existing bindings remain valid.
+loader options with Workspace binding options.
 
 ## Framework output
 
@@ -412,27 +414,6 @@ Direct Source definitions and their optional process-local registry do not need
 Vite. The integration does not discover a `server/sources` directory or generate
 `ViteHubSourceMap`. Workspace owns its own discovered definitions and provider
 output.
-
-## Migrate existing Source code
-
-- Replace `defineSource(reader)` with the reader object itself. Replace
-  `defineSource(context => reader)` and `createSource(factory, context)` with
-  an ordinary factory function and call it directly.
-- Replace `custom(loader)` from `vite-hub/source` with `defineSource(loader)`.
-  Workspace's `custom()` binding helper remains available.
-- Replace the server `defineSource({ ...reader, cache: cacheOptions })` wrapper
-  with `cachedSource(reader, { name, ...cacheOptions })`.
-- Change `SourceReader<'docs'>` and the key, data, and metadata helper types to
-  use `typeof docs`. Use `RegisteredSource<'docs'>` when only the registry name
-  is available.
-- Use `get()` or `items()` for records. File readers expose `read()` and `list()`
-  only when their item type guarantees content. Declare file loaders as
-  `FileSource` if an explicit return type is needed.
-- A combined reader with any get-only input no longer exposes `items()`.
-- Pass loader definitions directly to Content when it should create a new
-  reader for each refresh.
-
-Collections retain their pagination, schema validation, and response shaping API.
 
 ## Production checks
 

@@ -383,7 +383,6 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
     prompt?: string
   }
   reply?: boolean | AgentChannelDeliveryFinishEffect
-  sourceMount?: string
   threadId?: string
   workspace?: boolean | {
     mount?: string
@@ -480,14 +479,14 @@ function githubPullRequestWorkspacePolicy(
   if (options.workspace === false) {
     return {
       enabled: false,
-      mount: options.sourceMount ?? "",
+      mount: "",
     }
   }
   const mount = options.workspace === true
     ? ""
     : hasRuntimeType(options.workspace, "object")
       ? options.workspace.mount ?? ""
-      : options.sourceMount ?? "portal"
+      : "portal"
   return {
     enabled: true,
     mount: normalizeGitHubPullRequestWorkspaceMount(mount),
@@ -913,7 +912,7 @@ function githubPullRequestRunContext(
       number: command.issueNumber,
       source: {
         ...(!workspace.enabled ? { checkout: false } : {}),
-        mount: workspace.enabled ? workspace.mount : options.sourceMount ?? command.repo,
+        mount: workspace.enabled ? workspace.mount : command.repo,
         ref: `refs/pull/${command.issueNumber}/head`,
         repo: command.repository,
       },

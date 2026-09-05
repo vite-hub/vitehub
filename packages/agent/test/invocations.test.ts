@@ -3150,6 +3150,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: () => { throw failure },
       get: () => { throw failure },
+      getSummary: () => { throw failure },
       getClaimToken: () => { throw failure },
       list: () => { throw failure },
       release: () => { throw failure },
@@ -3232,6 +3233,7 @@ describe("Agent Invocations", () => {
       claim: () => true,
       create: input => ({ created: true, record: { ...input, cursor: "created/token" } }),
       get: () => undefined,
+      getSummary: () => undefined,
       getClaimToken: () => undefined,
       list,
       release: () => {},
@@ -3246,11 +3248,20 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ search: "x".repeat(257) })).rejects.toThrow("at most 256 characters")
   })
 
-  it("falls back to full records for custom stores without summary reads", async () => {
+  it("rejects stores with a missing summary method", () => {
+    const store = { ...createMemoryAgentInvocationStore(), getSummary: undefined }
+
+    expect(() => {
+      // @ts-expect-error Custom stores must implement metadata reads.
+      defineAgentInvocations({ store })
+    }).toThrow("getSummary()")
+  })
+
+  it("reads invocation metadata through the store summary method", async () => {
     const memory = createMemoryAgentInvocationStore()
     memory.create({
       createdAt: "2026-01-01T00:00:00.000Z",
-      id: "legacy-custom-store",
+      id: "summary-store",
       observations: [{
         name: "private",
         sequence: 1,
@@ -3258,19 +3269,21 @@ describe("Agent Invocations", () => {
         type: "run",
       }],
       status: "completed",
-      traceId: "legacy-custom-store-trace",
+      traceId: "summary-store-trace",
       updatedAt: "2026-01-01T00:00:00.000Z",
     })
-    const { getSummary: _getSummary, ...legacyStore } = memory
-    const get = vi.spyOn(legacyStore, "get")
-    const invocations = defineAgentInvocations({ store: legacyStore })
+    const get = vi.spyOn(memory, "get")
+    const getSummary = vi.spyOn(memory, "getSummary")
+    const invocations = defineAgentInvocations({ store: memory })
 
-    await expect(invocations.getSummary?.("legacy-custom-store")).resolves.toMatchObject({
-      id: "legacy-custom-store",
+    await expect(invocations.getSummary("summary-store")).resolves.toMatchObject({
+      id: "summary-store",
       status: "completed",
     })
-    await expect(invocations.getSummary?.("legacy-custom-store")).resolves.not.toHaveProperty("observations")
-    expect(get).toHaveBeenCalledWith("legacy-custom-store")
+    await expect(invocations.getSummary("summary-store")).resolves.not.toHaveProperty("observations")
+    expect(getSummary).toHaveBeenCalledWith("summary-store")
+    expect(get).not.toHaveBeenCalled()
+    await expect(invocations.getSummary("missing-invocation")).resolves.toBeUndefined()
   })
 
   it("keeps terminal records immutable when an invocation id is reused", async () => {
@@ -3637,11 +3650,11 @@ describe("Agent Invocations", () => {
         status: "running",
       })
       expect(JSON.parse(String(stored.rows[0]?.summary))).not.toHaveProperty("observations")
-      await expect(store.getSummary?.("compact-summary")).resolves.toMatchObject({
+      await expect(store.getSummary("compact-summary")).resolves.toMatchObject({
         id: "compact-summary",
         status: "running",
       })
-      await expect(store.getSummary?.("compact-summary")).resolves.not.toHaveProperty("observations")
+      await expect(store.getSummary("compact-summary")).resolves.not.toHaveProperty("observations")
 
       await store.update("compact-summary", {
         status: "completed",
@@ -4385,7 +4398,7 @@ describe("Agent Invocations", () => {
       const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
       const ordinaryReads = Promise.all([
         store.get("legacy-summary"),
-        store.getSummary?.("legacy-summary"),
+        store.getSummary("legacy-summary"),
         store.list(),
       ])
 
@@ -4405,7 +4418,7 @@ describe("Agent Invocations", () => {
         expect(summaryBackfillQueries).toBe(2)
       })
       await store.list()
-      await store.getSummary?.("legacy-summary")
+      await store.getSummary("legacy-summary")
       expect(summaryBackfillQueries).toBe(2)
     }
     finally {
@@ -4480,7 +4493,7 @@ describe("Agent Invocations", () => {
       expect(summaryBackfillAttempts).toBe(1)
       failFirstBackfill()
       await vi.waitFor(async () => {
-        await expect(store.getSummary?.("legacy-summary-retry")).resolves.toMatchObject({
+        await expect(store.getSummary("legacy-summary-retry")).resolves.toMatchObject({
           id: "legacy-summary-retry",
         })
         expect(summaryBackfillAttempts).toBe(2)

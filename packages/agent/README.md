@@ -298,6 +298,14 @@ Vite discovers Agent files and generates runtime state for the active server hos
 
 Learn more at [vitehub.dev](https://vitehub.dev).
 
+## Invocation summaries
+
+`defineAgentInvocations()` returns `getSummary(id)` for metadata reads without observations. Every store must implement this method. Use `get(id)` for the full record. Both methods return `undefined` when the Invocation does not exist.
+
+## GitHub pull request Workspaces
+
+GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution.
+
 ## D1 invocation storage
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. Generate the required SQL with `d1AgentInvocationSchema()` and apply it through your D1 migration tool before requests use the store. The adapter does not create or migrate tables at runtime.

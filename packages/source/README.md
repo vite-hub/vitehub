@@ -114,6 +114,7 @@ await useSource("docs").read("intro.md")
 `useSource(name, context?)` opens the same managed reader through a process-local
 registry. Import the registration module before lookup. The Vite integration
 for Collections and Content does not generate `ViteHubSourceMap`.
+`RegisteredSource<"docs">` resolves a registered name to its definition type.
 
 ## Combine keyed readers
 
@@ -201,26 +202,6 @@ transport, response shaping, and the exact item and filter types consumed by
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
-
-## Migration
-
-- `defineSource()` now accepts only loader definitions. Use reader objects and
-  factory functions directly instead of wrapping them with `defineSource()`.
-- `createSource()` now opens a loader definition. Call custom reader factories
-  directly.
-- Replace the Source `custom(loader)` helper with `defineSource(loader)`.
-- Replace the server `defineSource({ ...reader, cache: cacheOptions })` wrapper
-  with `cachedSource(reader, { name, ...cacheOptions })`.
-- Change `SourceReader<"docs">` and related helper types to
-  `SourceReader<typeof docs>`. `RegisteredSource<"docs">` resolves a name to its
-  definition type when needed.
-- File methods require items with guaranteed content. Use `FileSource` for
-  explicit file loader types. Combined readers with a get-only input have no
-  `items()` method.
-
-Collections keep their existing pagination and response API. Workspace bindings
-remain valid. Content can now receive the same loader definition used by
-`createSource()`.
 
 ## Used by
 

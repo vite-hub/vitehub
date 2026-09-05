@@ -20,7 +20,6 @@ type StoredMetadata = {
 type FoldedCursor = {
   directoriesConsumed: boolean
   index: number
-  page?: number
   providerCursor?: string
 }
 
@@ -123,21 +122,14 @@ function readProperty(value: unknown, key: string) {
 }
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
-  if (!cursor) return { directoriesConsumed: false, index: 0, page: 0 }
-  try {
-    const parsed: unknown = JSON.parse(decodeBase64(cursor))
-    const index = readProperty(parsed, "index")
-    const page = readProperty(parsed, "page")
-    const providerCursor = readProperty(parsed, "providerCursor")
-    return {
-      directoriesConsumed: readProperty(parsed, "directoriesConsumed") === true,
-      index: isNumber(index) && index >= 0 ? index : 0,
-      page: isNumber(page) && page >= 0 ? page : undefined,
-      providerCursor: isString(providerCursor) ? providerCursor : undefined,
-    }
-  }
-  catch {
-    return { directoriesConsumed: false, index: Number.parseInt(cursor) || 0, page: 0 }
+  if (!cursor) return { directoriesConsumed: false, index: 0 }
+  const parsed: unknown = JSON.parse(decodeBase64(cursor))
+  const index = readProperty(parsed, "index")
+  const providerCursor = readProperty(parsed, "providerCursor")
+  return {
+    directoriesConsumed: readProperty(parsed, "directoriesConsumed") === true,
+    index: isNumber(index) && index >= 0 ? index : 0,
+    providerCursor: isString(providerCursor) ? providerCursor : undefined,
   }
 }
 
@@ -400,7 +392,6 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
       let hasMore = false
       let nextCursor: FoldedCursor | undefined
       let providerCursor = cursor.providerCursor
-      let legacyPagesToSkip = cursor.page ?? 0
       let startIndex = cursor.index
       let directoriesConsumed = cursor.directoriesConsumed
       while (true) {
@@ -411,12 +402,6 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
           prefix: listOptions.prefix,
         })
         const blobs = page.blobs ?? []
-        if (legacyPagesToSkip > 0) {
-          legacyPagesToSkip--
-          if (!page.next_cursor) break
-          providerCursor = page.next_cursor
-          continue
-        }
         const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit)
         if (consumeDirectories) {
           for (const directory of page.directories ?? []) folders.add(directory)

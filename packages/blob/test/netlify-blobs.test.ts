@@ -157,6 +157,15 @@ describe("Netlify Blobs driver", () => {
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["two.txt"])
   })
 
+  it.each(["!", btoa("invalid JSON")])("rejects malformed cursor %s before listing", async (cursor) => {
+    vi.stubGlobal("fetch", vi.fn())
+
+    await expect(createDriver(options).list({ cursor })).rejects.toThrow()
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
   it("retries transient list failures", async () => {
     const cancel = vi.fn()
     vi.stubGlobal("fetch", vi.fn()

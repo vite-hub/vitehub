@@ -801,13 +801,15 @@ describe("agent channels", () => {
       mount: { path: "portal" },
     })
     expect(contribution.sources).not.toHaveProperty("github")
-    const rootChannel = github({ pullRequest: { workspace: true } })
-    const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (!hasRuntimeType(rootWorkspace, "function")) throw new Error("Missing root pull request Workspace contribution.")
-    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-    await expect(rootWorkspace(context as never)).resolves.toMatchObject({
-      sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
-    })
+    for (const workspace of [true, {}] as const) {
+      const rootChannel = github({ pullRequest: { workspace } })
+      const rootWorkspace = rootChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
+      if (!hasRuntimeType(rootWorkspace, "function")) throw new Error("Missing root pull request Workspace contribution.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+      await expect(rootWorkspace(context as never)).resolves.toMatchObject({
+        sources: { vitehubGitHubPullRequest: { mount: { path: "" } } },
+      })
+    }
 
     const customChannel = github({ pullRequest: { workspace: { mount: "repository" } } })
     const customWorkspace = customChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
@@ -815,14 +817,6 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(customWorkspace(context as never)).resolves.toMatchObject({
       sources: { vitehubGitHubPullRequest: { mount: { path: "repository" } } },
-    })
-
-    const sourceMountChannel = github({ pullRequest: { sourceMount: "legacy-repository" } })
-    const sourceMountWorkspace = sourceMountChannel.capabilities?.find(capability => capability.id === "github-pull-request-workspace")?.workspace
-    if (!hasRuntimeType(sourceMountWorkspace, "function")) throw new Error("Missing source-mount pull request Workspace contribution.")
-    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-    await expect(sourceMountWorkspace(context as never)).resolves.toMatchObject({
-      sources: { vitehubGitHubPullRequest: { mount: { path: "legacy-repository" } } },
     })
 
     const disabledChannel = github({ pullRequest: { workspace: false } })

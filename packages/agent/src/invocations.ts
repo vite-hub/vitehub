@@ -122,8 +122,8 @@ export interface AgentInvocationStore {
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
   get(id: string): MaybePromise<AgentInvocationRecord | undefined>
-  /** Reads invocation metadata without observation payloads when the adapter can do so efficiently. */
-  getSummary?(id: string): MaybePromise<AgentInvocationSummary | undefined>
+  /** Reads invocation metadata without observation payloads. */
+  getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
@@ -179,8 +179,8 @@ export interface AgentInvocations {
   readonly [agentInvocationsBrand]: true
   get(id: string): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
-  /** Reads invocation metadata without observation payloads when the store supports it. */
-  getSummary?(id: string): Promise<AgentInvocationSummary | undefined>
+  /** Reads invocation metadata without observation payloads. */
+  getSummary(id: string): Promise<AgentInvocationSummary | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
   listCapabilityIds(agentName?: string): Promise<readonly string[]>
@@ -805,11 +805,12 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
     || !hasRuntimeType(store.claim, "function")
     || !hasRuntimeType(store.create, "function")
     || !hasRuntimeType(store.get, "function")
+    || !hasRuntimeType(store.getSummary, "function")
     || !hasRuntimeType(store.getClaimToken, "function")
     || !hasRuntimeType(store.list, "function")
     || !hasRuntimeType(store.release, "function")
     || !hasRuntimeType(store.update, "function")) {
-    throw agentDiagnostics.AGENT_R0623({ message: "[vitehub] Agent Invocations require a store with claim(), create(), get(), getClaimToken(), list(), release(), and update()." })
+    throw agentDiagnostics.AGENT_R0623({ message: "[vitehub] Agent Invocations require a store with claim(), create(), get(), getSummary(), getClaimToken(), list(), release(), and update()." })
   }
 }
 
@@ -1805,11 +1806,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async getSummary(id) {
       assertInvocationId(id)
-      if (store.getSummary) return await store.getSummary(id)
-      const record = await store.get(id)
-      if (!record) return
-      const { observations: _observations, ...summary } = record
-      return summary
+      return await store.getSummary(id)
     },
     async list(options = {}) {
       const search = normalizeSearch(options.search)

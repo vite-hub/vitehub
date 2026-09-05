@@ -22,12 +22,8 @@ function encodeFoldedCursor(value: FoldedCursor) {
 }
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
-  const decoded = Buffer.from(cursor || "", "base64url").toString("utf8")
-  const index = Number.parseInt(decoded || "0")
-  if (Number.isFinite(index)) {
-    return { index }
-  }
-
+  if (!cursor) return { index: 0 }
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8")
   const parsed = JSON.parse(decoded) as Partial<FoldedCursor>
   return {
     index: typeof parsed.index === "number" && Number.isFinite(parsed.index) ? parsed.index : 0,

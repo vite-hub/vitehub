@@ -135,12 +135,4 @@ Captured messages are cloned before storage. `clear()` empties the mailbox and r
 
 Set `driver` to `resend` or `cloudflare-email` and declare its options in `hubEmail({ driver, options })`. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`.
 
-## Migrating from Unemail driver paths
-
-Replace `driver: "unemail/driver/resend"` with `driver: "resend"`. Replace `driver: "unemail/driver/cloudflare-email"` with `driver: "cloudflare-email"`. Direct imports move to `@vite-hub/email/drivers/resend` and `@vite-hub/email/drivers/cloudflare-email`.
-
-ViteHub no longer installs or executes the `unemail` package. GitHub's unresolved critical package-name advisory covers every published version even though the current `0.5.0` tarball has npm provenance and no lifecycle install hook. Removing the dependency clears that advisory without claiming the current tarball is proven malicious.
-
-ViteHub owns the portable message and driver contracts, its built-in Resend and Cloudflare Email transports, runtime delivery, normalized errors, Dynamic Markdown composition, and test capture.
-
 Read the complete [Email guide and API reference](https://vitehub.dev/docs/server-primitives/email).

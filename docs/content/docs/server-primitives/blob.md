@@ -372,6 +372,8 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.serve(event, pathname)` | Serves an object stream through an H3 event. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
+Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+
 ## Write options
 
 | Option | Type | Description |

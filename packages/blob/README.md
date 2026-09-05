@@ -90,6 +90,8 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
+Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.

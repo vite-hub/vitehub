@@ -692,6 +692,51 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("resumes folded files-sdk listings within and across provider pages", async () => {
+    const items = (keys: string[]) => keys.map(key => ({
+      etag: "etag",
+      key,
+      lastModified: "2026-01-01T00:00:00.000Z",
+      metadata: {},
+      size: 5,
+      type: "text/plain",
+    }))
+    const first = { cursor: "folders", items: items(["a/first.txt"]) }
+    const folders = { cursor: "last", items: items(["a/nested/file.txt"]) }
+    const last = { items: items(["a/second.txt", "a/third.txt"]) }
+    filesSdkMock.list
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(folders)
+      .mockResolvedValueOnce(last)
+      .mockResolvedValueOnce(last)
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const firstPage = expectBlobSuccess(await blob.list({ folded: true, limit: 1, prefix: "a/" }))
+    const secondPage = expectBlobSuccess(await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" }))
+    const thirdPage = expectBlobSuccess(await blob.list({ cursor: secondPage.cursor, folded: true, limit: 1, prefix: "a/" }))
+
+    expect(firstPage.blobs.map(blob => blob.pathname)).toEqual(["a/first.txt"])
+    expect(secondPage.blobs.map(blob => blob.pathname)).toEqual(["a/second.txt"])
+    expect(secondPage.folders).toEqual(["a/nested/"])
+    expect(thirdPage.blobs.map(blob => blob.pathname)).toEqual(["a/third.txt"])
+    expect(thirdPage).toMatchObject({ cursor: undefined, folders: [], hasMore: false })
+    expect(filesSdkMock.list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: undefined, limit: 1000, prefix: "a/" },
+      { cursor: "folders", limit: 1000, prefix: "a/" },
+      { cursor: "last", limit: 1000, prefix: "a/" },
+      { cursor: "last", limit: 1000, prefix: "a/" },
+    ])
+  })
+
+  it.each(["!", btoa("invalid JSON")])("rejects malformed files-sdk cursor %s before listing", async (cursor) => {
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ cursor, folded: true })).rejects.toThrow()
+
+    expect(filesSdkMock.list).not.toHaveBeenCalled()
+  })
+
   it("loads MinIO through its provider-specific driver import", async () => {
     process.env.MINIO_ROOT_PASSWORD = "password"
     process.env.MINIO_ROOT_USER = "minio"

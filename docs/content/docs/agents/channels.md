@@ -103,6 +103,8 @@ export default defineAgent({
 
 Lifecycle deliveries use one concurrent invocation slot per repository and pull request. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
 
+Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
+
 ## Connect a web chat
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
