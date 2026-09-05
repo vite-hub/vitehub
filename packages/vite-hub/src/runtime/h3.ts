@@ -27,6 +27,7 @@ export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = Cr
 function detectRuntime(cloudflare: boolean): H3RuntimeName {
   if (cloudflare) return "cloudflare-agents"
   if ("Deno" in globalThis) return "deno"
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosts can omit the process global; test its presence before reading Node environment variables.
   if (typeof process !== "undefined") {
     if (process.env.VERCEL) return "vercel"
     if (process.env.NODE_ENV === "development") return "vite"

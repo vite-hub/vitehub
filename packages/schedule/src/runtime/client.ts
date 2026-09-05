@@ -255,7 +255,7 @@ export const schedules: ScheduleClient = {
     update: dynamicSchedules.update,
   },
   async create<TTarget extends RegisteredScheduleTargetName>(input: TypedScheduleCreate<TTarget>): Promise<RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>> {
-    // The selected generated definition owns the input supplied to this new record.
+    // SAFETY: The selected generated definition owns this input, and create returns the same payload stored in the new record.
     return await dynamicSchedules.create(input) as RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>
   },
   async update<TTarget extends RegisteredScheduleTargetName>(id: string, input: TypedScheduleUpdate<TTarget> | ScheduleSettingsUpdate): Promise<RuntimeScheduleRecord> {

@@ -227,9 +227,12 @@ export function defineCapability<
 >(
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & NoInfer<CheckedCapabilityTools<TCapability, TRuntimeConfig, Name>>,
 ): TCapability
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This call fixes the config type; the returned builder checks the supplied Capability and infers its tool schemas.
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The returned builder constrains the supplied Capability to this Workspace name.
   Name extends WorkspaceName = WorkspaceName,
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The returned builder checks the supplied Capability against this type contract.
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 >(): CapabilityDefiner<TRuntimeConfig, Name, TTypeContract>
 export function defineCapability<

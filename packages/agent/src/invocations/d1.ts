@@ -6,11 +6,13 @@ import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreC
 /** The D1 operations used by the journal. A Cloudflare D1Database satisfies this contract. */
 export interface AgentInvocationD1Database {
   prepare(query: string): AgentInvocationD1Statement
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's batch contract; this adapter supplies result types from its own SQL projections.
   batch<T = Record<string, unknown>>(statements: AgentInvocationD1Statement[]): Promise<AgentInvocationD1Result<T>[]>
 }
 
 export interface AgentInvocationD1Statement {
   bind(...values: unknown[]): AgentInvocationD1Statement
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's all contract; this adapter supplies result types from its own SQL projections.
   all<T = Record<string, unknown>>(): Promise<AgentInvocationD1Result<T>>
 }
 
@@ -79,6 +81,7 @@ function retention(value: false | number | undefined, fallback: number, maximum 
 }
 
 function serialize(value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON cannot encode BigInt; this replacer converts that primitive without changing other JSON values.
   return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? String(item) : item)
 }
 
@@ -89,12 +92,14 @@ interface RecordRow {
 }
 
 function record(row: RecordRow): AgentInvocationRecord {
+  // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The migrated table stores this adapter's serialized AgentInvocationStoreCreateInput, not caller-supplied JSON.
   // SAFETY: The adapter reads its own JSON records from its explicitly migrated table.
   const stored = JSON.parse(row.record) as AgentInvocationStoreCreateInput
   return { ...stored, cursor: String(row.sequence) }
 }
 
 function summary(row: { sequence: number, summary: string }): AgentInvocationSummary {
+  // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- columns() serializes the typed record metadata into this column in the same write as the record.
   // SAFETY: The adapter writes summaries together with the full record in the same statement.
   return { ...JSON.parse(row.summary) as Omit<AgentInvocationSummary, "cursor">, cursor: String(row.sequence) }
 }
@@ -134,6 +139,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
   const table = tableName(options.tablePrefix)
   const maxAgeMs = retention(options.maxAgeMs, 30 * 24 * 60 * 60 * 1000, 8_640_000_000_000_000)
   const maxRecords = retention(options.maxRecords, 10_000)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public option accepts a D1 binding or a request-scoped factory; callability selects the factory member.
   const database = async () => typeof options.database === "function" ? await options.database() : options.database
   const prune = (db: AgentInvocationD1Database) => {
     const filters: string[] = []

@@ -153,7 +153,7 @@ const defaultObservationLimits = {
 export function observationLimits(options: AgentInvocationObservationOptions = {}): Required<AgentInvocationObservationOptions> {
   const limits = { ...defaultObservationLimits }
   const maximum = { maxCount: 8192, maxStringLength: 1024 * 1024, maxBytes: 64 * 1024 * 1024, flushTimeoutMs: 60_000 }
-  for (const key of Object.keys(limits) as Array<keyof typeof limits>) {
+  for (const key of ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"] as const) {
     const value = options[key]
     if (value === undefined) continue
     const minimum = key === "maxBytes" ? 2 : 1
@@ -841,6 +841,7 @@ function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
 function observationTitle(observation: TraceEventLogEntry | undefined): string | undefined {
   if (observation?.name !== "agent.title.recorded") return
   const value = observation.attributes?.["vitehub.session.title"]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Trace attributes are unknown; a title is a trimmed, bounded string and all other values are omitted.
   if (typeof value !== "string") return
   return value.trim().slice(0, MAX_METADATA_STRING_LENGTH) || undefined
 }
