@@ -125,7 +125,9 @@ export async function serveSsh(options: SshServerOptions): Promise<{ port: numbe
     const signalGroup = (signal: NodeJS.Signals) => {
       if (!child.pid) return
       try { process.kill(-child.pid, signal) }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error }
+      catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error
+      }
     }
     const done = (async () => {
       signalGroup("SIGTERM")
@@ -190,9 +192,10 @@ export async function serveSsh(options: SshServerOptions): Promise<{ port: numbe
   listener.listen(options.port ?? 2222, options.host ?? "127.0.0.1")
   await listening
   const address = listener.address()
+  if (!address || !(address instanceof Object)) throw new Error("[vitehub] SSH listener has no TCP address.")
   let closing: Promise<void> | undefined
   return {
-    port: typeof address === "object" && address ? address.port : options.port ?? 2222,
+    port: address.port,
     close() {
       return closing ??= (async () => {
         const closed = new Promise<void>((resolve, reject) => listener.close(error => error ? reject(error) : resolve()))
