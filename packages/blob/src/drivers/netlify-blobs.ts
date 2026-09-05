@@ -57,6 +57,10 @@ function isNumber(value: unknown): value is number {
   return Number(value) === value
 }
 
+function isBoolean(value: unknown): value is boolean {
+  return Boolean(value) === value
+}
+
 function isString(value: unknown): value is string {
   return String(value) === value
 }
@@ -128,7 +132,7 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
   const index = readProperty(parsed, "index")
   const providerCursor = readProperty(parsed, "providerCursor")
   if (
-    typeof directoriesConsumed !== "boolean"
+    !isBoolean(directoriesConsumed)
     || !isNumber(index)
     || !Number.isInteger(index)
     || index < 0

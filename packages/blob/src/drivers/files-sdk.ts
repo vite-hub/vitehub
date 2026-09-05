@@ -1,4 +1,5 @@
 import { toArray } from "@vite-hub/internal/arrays"
+import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
@@ -21,20 +22,25 @@ function encodeFoldedCursor(value: FoldedCursor) {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
 }
 
+function isNumber(value: unknown): value is number {
+  return Number(value) === value
+}
+
+function isString(value: unknown): value is string {
+  return String(value) === value
+}
+
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
   const decoded = Buffer.from(cursor, "base64url").toString("utf8")
   const parsed: unknown = JSON.parse(decoded)
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new TypeError("Invalid Blob cursor.")
-  }
-  const index = Reflect.get(parsed, "index")
-  const providerCursor = Reflect.get(parsed, "providerCursor")
+  if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
+  const { index, providerCursor } = parsed
   if (
-    typeof index !== "number"
+    !isNumber(index)
     || !Number.isInteger(index)
     || index < 0
-    || (providerCursor !== undefined && typeof providerCursor !== "string")
+    || (providerCursor !== undefined && !isString(providerCursor))
   ) {
     throw new TypeError("Invalid Blob cursor.")
   }
