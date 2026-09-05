@@ -72,7 +72,7 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
 }
 
 interface InvocationBrand {
-  id: "fallback" | "openrouter" | "z-ai";
+  id: "fallback" | "openrouter" | "z-ai" | "codex" | "openai";
   label: string;
 }
 
@@ -81,7 +81,8 @@ function invocationBrand(value: string | undefined): InvocationBrand | undefined
   if (!id) return;
   if (id.includes("openrouter")) return { id: "openrouter", label: "OpenRouter" };
   if (id === "z-ai" || id.includes("z-ai.")) return { id: "z-ai", label: "Z.AI" };
-  if (id === "openai") return { id: "fallback", label: "OpenAI" };
+  if (id === "codex") return { id: "codex", label: "Codex" };
+  if (id === "openai") return { id: "openai", label: "OpenAI" };
   return {
     id: "fallback",
     label: id
@@ -92,6 +93,49 @@ function invocationBrand(value: string | undefined): InvocationBrand | undefined
   };
 }
 
+
+function invocationBrandMark(brand: InvocationBrand | undefined, className: string) {
+  if (!brand) return null;
+  if (brand.id === "z-ai") return h("svg", {
+    "aria-hidden": "true",
+    class: `vh-invocation-brand__logo ${className}`,
+    viewBox: "0 0 30 30"
+  }, [h("rect", {
+    fill: "#2d2d2d",
+    height: "28",
+    rx: "4",
+    width: "28",
+    x: "1",
+    y: "1"
+  }), h("path", {
+    d: "M15.47 7.1l-1.3 1.85c-.2.29-.54.47-.9.47h-7.1V7.09h9.3Zm8.83 0L13.14 22.91H5.7L16.86 7.1h7.44Zm-9.77 15.81 1.31-1.86c.2-.29.54-.47.9-.47h7.09v2.33h-9.3Z",
+    fill: "#fff"
+  })]);
+  if (brand.id === "openrouter") return h("svg", {
+    "aria-hidden": "true",
+    class: `vh-invocation-brand__logo ${className}`,
+    viewBox: "0 0 401.4 293.7"
+  }, [h("path", { d: "M303.9475 17.1993c42.7973 0 77.4893 34.6933 77.4893 77.4893s-34.692 77.4893-77.4893 77.4893l76.8617 76.8625c9.7637 9.7631 2.849 26.4566-10.957 26.4566H148.9688C77.642 275.497 19.82 217.675 19.82 146.348S77.642 17.199 148.9688 17.199h154.9787ZM148.9688 68.8588c-42.796 0-77.4893 34.6933-77.4893 77.4893s34.6933 77.4894 77.4893 77.4894 77.4894-34.6933 77.4894-77.4894-34.6933-77.4893-77.4894-77.4893Z" })]);
+  if (brand.id === "codex" || brand.id === "openai") return h("svg", {
+    "aria-hidden": "true",
+    class: `vh-invocation-brand__logo vh-invocation-brand__logo--openai ${className}`,
+    viewBox: "0 0 24 24"
+  }, [h("path", { d: "M22.282 9.821a6 6 0 0 0-.516-4.91a6.05 6.05 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a6 6 0 0 0-3.998 2.9a6.05 6.05 0 0 0 .743 7.097a5.98 5.98 0 0 0 .51 4.911a6.05 6.05 0 0 0 6.515 2.9A6 6 0 0 0 13.26 24a6.06 6.06 0 0 0 5.772-4.206a6 6 0 0 0 3.997-2.9a6.06 6.06 0 0 0-.747-7.073M13.26 22.43a4.48 4.48 0 0 1-2.876-1.04l.141-.081l4.779-2.758a.8.8 0 0 0 .392-.681v-6.737l2.02 1.168a.07.07 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494M3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085l4.783 2.759a.77.77 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646M2.34 7.896a4.5 4.5 0 0 1 2.366-1.973V11.6a.77.77 0 0 0 .388.677l5.815 3.354l-2.02 1.168a.08.08 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.08.08 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667m2.01-3.023l-.141-.085l-4.774-2.782a.78.78 0 0 0-.785 0L9.409 9.23V6.897a.07.07 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.8.8 0 0 0-.393.681zm1.097-2.365l2.602-1.5l2.607 1.5v2.999l-2.597 1.5l-2.607-1.5Z" })]);
+  return h("svg", {
+    "aria-hidden": "true",
+    class: `vh-invocation-brand__logo ${className}`,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": 1.5
+  }, [h("rect", {
+    x: 5,
+    y: 5,
+    width: 14,
+    height: 14,
+    rx: 3
+  }), h("path", { d: "M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3M9 9h6v6H9z" })]);
+}
 
 function invocationModelName(value: string): string {
   const slug = value.split("/").at(-1) ?? "";
@@ -964,6 +1008,20 @@ function inspectorCollection(title: string, items: readonly string[]) {
   ]);
 }
 
+function workspaceIcon() {
+  return h("svg", {
+    "aria-hidden": "true",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": 1.5,
+    viewBox: "0 0 24 24"
+  }, [h("path", {
+    d: "M3 7.5A2.5 2.5 0 0 1 5.5 5h3l2 2H18.5A2.5 2.5 0 0 1 21 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round"
+  })]);
+}
+
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -972,18 +1030,33 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
       ?? configuration.driver?.provider
       ?? (modelId?.includes("/") ? modelId.split("/")[0] : undefined),
   );
+  const workspace = configuration.workspace;
   const runtime = configuration.runtime?.name;
-  const rows = [
-    inspectorRow("Model", modelId ? invocationModelName(modelId) : undefined),
-    inspectorRow("Provider", provider?.label),
-    inspectorRow("Runtime", runtime && runtime !== "unknown" ? runtime : undefined),
-    inspectorRow("Workspace", workspaceLabel(configuration)),
-  ].filter(item => item !== null);
-  return rows.length
-    ? h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
-        h("dl", { class: "vh-invocation-inspector__list" }, rows),
-      ])
-    : null;
+  if (!modelId && !provider && !workspace) return null;
+  return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model and workspace")]),
+    h("div", { class: "vh-invocation-execution" }, [
+      modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
+        invocationBrandMark(provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
+        h("div", { class: "vh-invocation-execution__details" }, [
+          h("strong", modelId ? invocationModelName(modelId) : provider?.label),
+          modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
+            invocationBrandMark(provider, "vh-invocation-execution__provider-icon"), provider.label,
+          ]) : null,
+        ]),
+      ]) : null,
+      workspace ? h("div", { class: "vh-invocation-execution__workspace" }, [
+        workspaceIcon(),
+        h("div", { class: "vh-invocation-execution__details" }, [
+          h("strong", workspace.name || "Workspace"),
+          workspace.mode ? h("span", workspace.mode === "write" ? "Read and write" : "Read only") : null,
+        ]),
+      ]) : null,
+      runtime && runtime !== "unknown" ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution__runtime" }, [
+        inspectorRow("Runtime", runtime),
+      ]) : null,
+    ]),
+  ]);
 }
 
 function inspectorTools(
