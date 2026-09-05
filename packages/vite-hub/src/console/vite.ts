@@ -45,7 +45,7 @@ export function resolveGeneratedConsolePlugin(
 }
 
 type ConsoleNitroConfig = {
-  handlers?: Array<{ handler: string, route: string }>
+  handlers?: Array<{ handler: string, method?: string, route: string }>
   plugins?: string[]
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean }>
   [key: string]: unknown

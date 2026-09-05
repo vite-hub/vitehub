@@ -13,6 +13,7 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
     if (state.value && state.expiresAt > now) return Promise.resolve(state.value)
     const entry = state
     const controller = new AbortController()
+    const memoValues = new Map<string, unknown>()
     let timer: ReturnType<typeof setTimeout>
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -21,7 +22,14 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
       }, options.timeoutMs ?? 15_000)
     })
     const probe = agent.status ? Promise.resolve().then(() => agent.status!(createExecutionContext<AgentRuntimeContext>({
-      agentIdentity: { name }, runtime: "unknown" as const, runtimeConfig: {},
+      agentIdentity: { name },
+      memo(key, create) {
+        if (!memoValues.has(key)) memoValues.set(key, create())
+        return memoValues.get(key) as never
+      },
+      runtime: "unknown" as const,
+      runtimeConfig: {},
+      waitUntil: task => void task.catch(() => {}),
     }), { abortSignal: controller.signal })) : Promise.resolve<AgentProviderStatus>({
       agent: name, checkedAt: new Date(now).toISOString(), readiness: "unsupported", stale: false,
     })

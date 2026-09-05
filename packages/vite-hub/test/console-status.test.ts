@@ -8,7 +8,7 @@ afterEach(() => vi.useRealTimers())
 
 describe("Console status", () => {
   it("shares concurrent probes and cached results per definition", async () => {
-    const probe = vi.fn(async () => ready)
+    const probe = vi.fn<NonNullable<AgentInput["status"]>>(async () => ready)
     const definition = agent(probe)
     const read = createConsoleStatusReader()
     await Promise.all([read(definition, "bot"), read(definition, "bot")])
