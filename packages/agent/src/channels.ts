@@ -141,6 +141,10 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
   AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>
 
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** Use a host-managed credential resolver instead of minting another installation token. */
+  token?: GitHubAppValue<string | undefined, TRuntimeConfig>
+  /** Trusted login of the host's authenticated GitHub identity. */
+  identity?: { login: string }
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -1184,6 +1188,10 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   installation?: number,
 ) {
   const options = githubAppOptions(app) || {}
+  if (options.token) {
+    const token = typeof options.token === 'function' ? await options.token(context) : options.token
+    return requiredString(token, 'token')
+  }
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
   // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
@@ -1360,6 +1368,7 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   context: GitHubAppContext<TRuntimeConfig>,
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
+  if (options.identity) return options.identity
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
   const headers = githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent)
@@ -1525,10 +1534,14 @@ function renderGithubActivity(
 ): string {
   const sections = [encodeGithubActivityState(state)]
   const current = state.current
-  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry === current || entry.links.length > 0))
+  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry.links.length > 0 || entry.status !== "queued"))
   const labels: Record<AgentActivityStatus, string> = {
     queued: "Starting", running: "Running", waiting: "Waiting for input",
     completed: "Completed", failed: "Failed", cancelled: "Cancelled",
+  }
+  if (activity.status === "queued" && !current?.links.length) {
+    sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
+    if (!sessions.length) return sections.join("\n\n")
   }
   sections.push([
     "| Session | Status | Started | Duration |",
@@ -1659,7 +1672,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           : {
               current,
               history: [previous.current, ...previous.history]
-                .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId)
+                .filter((entry): entry is GitHubActivityHistoryEntry => entry !== undefined && entry.runId !== current.runId && (entry.links.length > 0 || entry.status !== "queued"))
                 .slice(0, githubActivityHistoryLimit),
               previousRunIds: [previous.current?.runId, ...previous.previousRunIds]
                 .filter((runId): runId is string => runId !== undefined && runId !== current.runId)
@@ -1675,7 +1688,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const written = await response.clone().json().catch(() => undefined)
         const writtenCommentId = commentId || maybeNumber(isRecord(written) ? written.id : undefined)
         if (writtenCommentId) commentIds.set(activityKey, writtenCommentId)
-        if (!terminal && trackActiveRuns) {
+        if (!terminal && trackActiveRuns && (current.links.length > 0 || current.status !== "queued")) {
           activeRuns.add(runId)
           githubActivityActiveRuns.set(activityKey, activeRuns)
         }

@@ -16,5 +16,8 @@ export type {
   GitHubHostSecret,
 } from "./github-host.ts"
 
-export { createGitHubWorkspaceInspector } from "./github-workspace.ts"
+export { createGitHubWorkspaceInspector, createGitHubInvocationWorkspaceHandler } from "./github-workspace.ts"
 export type { GitHubWorkspaceRevision, GitHubWorkspaceInspector } from "./github-workspace.ts"
+
+export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState, parseRequiredChecks } from './github-pull-requests.ts'
+export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'

@@ -223,3 +223,6 @@ export async function createProcessAgentInvocations(
   await failInterruptedAgentInvocations(options.store, options.recovery)
   return defineAgentInvocations(options)
 }
+
+export { createProcessAgentHost } from './process-host.ts'
+export type { ProcessAgentHost, ProcessAgentHostOptions } from './process-host.ts'

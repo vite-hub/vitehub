@@ -59,3 +59,24 @@ export function createGitHubWorkspaceInspector(host: Pick<GitHubHost, "command">
     },
   }
 }
+
+/** Serve an invocation's immutable GitHub checkout through a host-managed route. */
+export function createGitHubInvocationWorkspaceHandler(options: {
+  host: Pick<GitHubHost, 'command'>
+  invocations: Pick<import('../invocations.ts').AgentInvocations, 'get'>
+}): (id: string, path?: string) => Promise<Response> {
+  const inspector = createGitHubWorkspaceInspector(options.host)
+  return async (id, path) => {
+    const invocation = await options.invocations.get(id)
+    const repository = invocation?.annotations?.['github.repository']
+    const revision = invocation?.annotations?.['github.head']
+    if (typeof repository !== 'string' || typeof revision !== 'string') return new Response('Workspace snapshot not found', { status: 404 })
+    const workspace = { repository, revision }
+    try {
+      return Response.json(path === undefined ? { ...workspace, paths: await inspector.list(workspace) } : await inspector.read(workspace, path))
+    }
+    catch {
+      return new Response('Workspace snapshot unavailable', { status: 422 })
+    }
+  }
+}

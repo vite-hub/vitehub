@@ -3031,3 +3031,5 @@ declare module "vite" {
     agent?: false | AgentModuleOptions
   }
 }
+
+export { processAgentHost } from './process-host-vite.ts'

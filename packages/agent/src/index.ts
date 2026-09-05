@@ -136,6 +136,7 @@ import {
 
 import type {
   AgentActivityStatus,
+  AgentActivityTarget,
   AgentActivityTask,
   AgentActivityUpdate,
   AgentAdapter,
@@ -7099,4 +7100,28 @@ export async function getAgent<TContext extends AgentRuntimeContext>(
   context: TContext,
 ): Promise<AgentAdapter> {
   return await resolveAgent(agent, context)
+}
+
+/** Publish a scheduler wait or progress update without creating an invocation. */
+export async function publishAgentActivity(
+  agent: Pick<AgentDefinition, 'name' | 'channels'>,
+  options: { channelId: string, target: AgentActivityTarget, activity: AgentActivityUpdate },
+): Promise<void> {
+  const channel = agent.channels?.[options.channelId]
+  if (!channel?.activity) throw new Error(`Agent channel ${options.channelId} does not support activity.`)
+  const pending: Promise<unknown>[] = []
+  const memoized = new Map<string, unknown>()
+  await channel.activity.update({
+    runtime: 'unknown',
+    capabilities: {},
+    memo<T>(key: string, create: () => T): T {
+      if (!memoized.has(key)) memoized.set(key, create())
+      return memoized.get(key) as T
+    },
+    waitUntil: work => { pending.push(Promise.resolve(work)) },
+    channel,
+    target: options.target,
+    activity: { agentName: agent.name, ...options.activity },
+  })
+  await Promise.all(pending)
 }
