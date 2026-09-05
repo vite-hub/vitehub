@@ -13,6 +13,8 @@ function asError(value: unknown): Error {
 /** Only call for objects whose input has never been handed to a runtime. */
 export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put" | "del">, paths: string[]): Promise<Error[]> {
   const errors: Error[] = []
+  const records: { path: string, marker: string, recordError?: Error }[] = []
+  // Record every image before starting deletions, which may stall or be interrupted.
   for (const path of paths) {
     const id = v.parse(idSchema, path.slice(consoleAttachmentPrefix.length))
     const marker = `${cleanupPrefix}${id}`
@@ -22,6 +24,9 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
       if (failure) recordError = failure
     }
     catch (failure) { recordError = asError(failure) }
+    records.push({ path, marker, recordError })
+  }
+  for (const { path, marker, recordError } of records) {
     try {
       const [failure] = await storage.del(path)
       if (failure) throw failure

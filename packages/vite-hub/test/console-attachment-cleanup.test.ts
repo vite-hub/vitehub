@@ -89,3 +89,24 @@ it("bounds each pass and ignores malformed cleanup identifiers", async () => {
   await retryConsoleAttachmentCleanup(storage)
   expect((await storage.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([malformed])
 })
+
+it("recovers the entire batch when rollback stops during its first deletion", async () => {
+  const { base, storage } = await fixture()
+  const abandoned = [path(), path(), path()]
+  const owned = path()
+  for (const object of [...abandoned, owned]) await storage.put(object, "image")
+  let reachedDeletion!: () => void
+  const deleting = new Promise<void>(resolve => { reachedDeletion = resolve })
+  // Leave the original request suspended, as if its host stopped before deletion returned.
+  void rollbackConsoleAttachments({
+    ...storage,
+    async del() {
+      reachedDeletion()
+      return new Promise<never>(() => {})
+    },
+  }, abandoned)
+  await deleting
+  const restarted = connect(base)
+  await retryConsoleAttachmentCleanup(restarted)
+  expect((await restarted.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([owned])
+})
