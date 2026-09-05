@@ -45,7 +45,7 @@ export function resolveGeneratedConsolePlugin(
 }
 
 type ConsoleNitroConfig = {
-  handlers?: Array<{ handler: string, route: string }>
+  handlers?: Array<{ handler: string, method?: string, route: string }>
   plugins?: string[]
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean }>
   [key: string]: unknown
@@ -120,13 +120,19 @@ export function updateConsoleInvocationRootState(
   bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
-const consoleAccessRoutes = ["/_vitehub/**"] as const
+const consoleAccessRoutes = [
+  { route: "/_vitehub/**" },
+  { method: "GET", route: "/api/_vitehub/console/**" },
+] satisfies Array<{ method?: string; route: string }>
 
-function authRouteProtects(route: ResolvedAuthViteConfig["access"]["routes"][number], target: string): boolean {
-  if (!route.authorize || route.method) return false
+function authRouteProtects(
+  route: ResolvedAuthViteConfig["access"]["routes"][number],
+  target: { method?: string; route: string },
+): boolean {
+  if (!route.authorize || (route.method && route.method.toUpperCase() !== target.method)) return false
   if (!route.route.endsWith("/**")) return false
   const routeBase = route.route.slice(0, -3)
-  const targetBase = target.slice(0, -3)
+  const targetBase = target.route.slice(0, -3)
   return targetBase === routeBase || targetBase.startsWith(`${routeBase}/`)
 }
 
@@ -153,7 +159,7 @@ export function assertConsoleProductionAccess(
   }
   const missing = consoleAccessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
   if (missing.length) {
-    throw new Error(`[vitehub] Console Auth access must configure an authorize callback for ${missing.join(" and ")}.`)
+    throw new Error(`[vitehub] Console Auth access must configure an authorize callback for ${missing.map(target => target.route).join(" and ")}.`)
   }
 }
 
@@ -330,11 +336,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/sections.get.js"),
                 join(consoleRuntimeRoot, "server/search.get.js"),
                 join(consoleRuntimeRoot, "server/usage.get.js"),
+                join(consoleRuntimeRoot, "server/status.get.js"),
                 join(consoleRuntimeRoot, "server/page.get.js"),
               ].includes(handler?.handler),
           )
         : []
       handlers.push(
+        { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )

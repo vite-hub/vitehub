@@ -100,14 +100,6 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
-        from: "src/console/runtime/components/console-health-model.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-health.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
         from: "src/console/runtime/components/console-home.vue",
         to: "dist/console/runtime/components",
       },
@@ -233,6 +225,7 @@ export default defineConfig({
       "src/console/runtime/server/search.get.ts",
       "src/console/runtime/server/sections.get.ts",
       "src/console/runtime/server/usage.get.ts",
+      "src/console/runtime/server/status.get.ts",
     ],
     exports: {
       exclude: ["bin"],
@@ -263,6 +256,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/sections.get"];
         delete exports["./console/runtime/server/sections"];
         delete exports["./console/runtime/server/usage.get"];
+        delete exports["./console/runtime/server/status.get"];
         return {
           ...exports,
           "./console/blob": "./dist/console/runtime/server/blob.js",

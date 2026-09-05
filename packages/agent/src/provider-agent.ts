@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
-import { createProviderRuntime, createSqliteProviderRuntimeSessionStore } from "@t3tools/provider-runtime"
+import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
@@ -47,6 +47,7 @@ import type {
   AgentAdapterResult,
   AgentAdapterRunContext,
   AgentProviderCredentialContext,
+  AgentProviderStatus,
   AgentProviderCredentialResolver,
   AgentProviderEnvironment,
   AgentProviderEnvironmentResolver,
@@ -347,13 +348,14 @@ function providerLauncherSource(
   launch: AgentProviderLaunchCommand,
   diagnosticPath: string,
   secretEnvironmentKeys: readonly string[],
+  cwd: string,
 ): string {
   return `import { spawn } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
-  cwd: process.cwd(),
+  cwd: ${JSON.stringify(cwd)},
   detached: true,
   env: process.env,
   stdio: ["inherit", "inherit", "pipe"],
@@ -490,6 +492,7 @@ async function materializeProviderLauncher(
   root: string,
   launch: AgentProviderLaunchCommand,
   secretEnvironmentKeys: readonly string[],
+  cwd: string,
 ): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
@@ -498,7 +501,7 @@ async function materializeProviderLauncher(
   const path = join(root, "provider-launcher")
   const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, cwd), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return { diagnosticPath, path }
 }
@@ -908,24 +911,29 @@ async function prepareCodexCredentialHome<
   if (process.platform === "win32") {
     throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
   }
+  return prepareCodexCredentials(options, { ...providerMetadataContext(context), abortSignal: context.input.abortSignal, purpose: "invocation" }, isAuxiliaryAgentAdapterContext(context))
+}
+
+async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
+  context: AgentProviderCredentialContext<TRuntimeConfig>,
+  auxiliary = false,
+): Promise<CodexCredentialHome | undefined> {
+  if (options.provider !== "codex" || options.credentials === undefined) return
+  if (process.platform === "win32") throw new Error("[vitehub] Provisioned Codex credentials require owner-only file access.")
   const requestedProfile = options.credentialProfile?.trim()
   const requestedProfileKey = requestedProfile ? `${process.cwd()}:${requestedProfile}` : undefined
   // Auxiliary Drivers run inside their parent invocation. Isolate only a Home
   // that this invocation already owns; unrelated named profiles remain durable.
-  const profile = isAuxiliaryAgentAdapterContext(context)
+  const profile = auxiliary
     && requestedProfileKey
     && codexCredentialProfilesByInvocation.get(context.context)?.has(requestedProfileKey)
     ? undefined
     : requestedProfile
   const resolveCredentials = async () => {
-    context.input.abortSignal?.throwIfAborted()
-    // SAFETY: providerMetadataContext establishes the credential resolver contract; this adds its optional abort signal.
-    const credentialContext = {
-      ...providerMetadataContext(context),
-      abortSignal: context.input.abortSignal,
-    } as AgentProviderCredentialContext<TRuntimeConfig>
-    const resolved = await resolveRuntimeValue(options.credentials, credentialContext)
-    context.input.abortSignal?.throwIfAborted()
+    context.abortSignal?.throwIfAborted()
+    const resolved = await resolveRuntimeValue(options.credentials, context)
+    context.abortSignal?.throwIfAborted()
     return normalizeCodexCredentials(resolved)
   }
   if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
@@ -935,9 +943,9 @@ async function prepareCodexCredentialHome<
   if (unavailableReason !== undefined) {
     throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
   }
-  const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.input.abortSignal)
+  const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.abortSignal)
   try {
-    const credentials = await waitForProviderOperation(resolveCredentials(), context.input.abortSignal)
+    const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
     const unavailableReason = unavailableCodexCredentialProfiles.get(key)
     if (unavailableReason !== undefined) {
       throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
@@ -959,6 +967,63 @@ async function prepareCodexCredentialHome<
   catch (error) {
     release()
     throw error
+  }
+}
+
+/** Uses the invocation credential and launcher paths, without opening a provider session. */
+export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
+  context: AgentProviderCredentialContext<TRuntimeConfig>,
+): Promise<AgentProviderStatus> {
+  const signal = context.abortSignal
+  let home: CodexCredentialHome | undefined
+  let root: string | undefined
+  try {
+    signal?.throwIfAborted()
+    home = await prepareCodexCredentials(options, context)
+    signal?.throwIfAborted()
+    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
+    signal?.throwIfAborted()
+    if (home && overrides?.CODEX_HOME !== undefined) throw new TypeError("[vitehub] driver.credentials owns CODEX_HOME.")
+    const environment = providerEnvironment({
+      ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      ...overrides,
+    })
+    const binary = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
+    let binaryPath = binary
+    if (options.launch !== undefined) {
+      root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
+      const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
+      const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
+        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
+      }))
+      signal?.throwIfAborted()
+      binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
+    }
+    const launchArgs = [options.providerSettings?.launchArgs, ...(home ? ['-c "cli_auth_credentials_store=\\"file\\""'] : [])].filter(Boolean).join(" ")
+    signal?.throwIfAborted()
+    const snapshot = await inspectProvider({
+      provider: options.provider, environment, signal,
+      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}) },
+    })
+    const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
+    const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
+    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted
+    const readiness = unavailable ? "unavailable" : authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
+    return {
+      agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+      checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
+      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : undefined,
+      ...(snapshot.usageLimits ? { usageLimits: {
+        checkedAt: snapshot.usageLimits.checkedAt,
+        windows: snapshot.usageLimits.windows,
+        ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
+      } } : {}),
+    }
+  }
+  finally {
+    try { await home?.release() }
+    finally { if (root) await rm(root, { recursive: true, force: true }) }
   }
 }
 
@@ -2098,7 +2163,7 @@ async function* runProvider<
       ))
       if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
       const materializedLauncher = await waitForProviderOperation(
-        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys),
+        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
         effectiveSignal,
       )
       providerLauncher = materializedLauncher.path

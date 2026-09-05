@@ -1574,6 +1574,7 @@ describe("ViteHub Nuxt integration", () => {
       export default defineAuth({
         access: { routes: [
           { route: "/_vitehub/**", authorize: authorizeConsole },
+          { route: "/api/_vitehub/console/**", authorize: authorizeConsole },
         ] },
       })
     `)
@@ -1610,6 +1611,7 @@ describe("ViteHub Nuxt integration", () => {
       export default defineAuth({
         access: { routes: [
           { route: "/_vitehub/**", authorize: authorizeConsole },
+          { route: "/api/_vitehub/console/**", authorize: authorizeConsole },
         ] },
       })
     `)
