@@ -174,10 +174,40 @@ Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-ba
 
 ## Source Binding options
 
-Workspace Source Bindings can wrap Source Package loaders and add Workspace behavior.
+Bind a standalone Source definition with `{ source, mount, materialize }`. Reuse
+the definition for direct reads or Content:
+
+```ts [server/sources/docs.ts]
+import { glob } from 'vite-hub/source/glob'
+
+export const docs = glob({ cwd: 'docs', include: '**/*.md' })
+```
+
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
+import { docs } from '../sources/docs'
+
+export default defineWorkspace({
+  sources: {
+    docs: { source: docs, mount: 'docs', materialize: 'lazy' },
+  },
+})
+```
+
+The Source key `intro.md` appears at `docs/intro.md`. The binding owns placement,
+materialization, sync, and access rules. Source owns retrieval. Pass the same
+`docs` definition to `createSource(docs)` for direct reads or
+`defineContent({ source: docs })` for parsed Content. Each consumer owns its
+reader lifecycle and revision.
+
+The Workspace `file()`, `glob()`, and other binding helpers remain available
+when a definition is used only in Workspace. Standalone Source loaders use
+`defineSource()` for custom retrieval; Workspace's `custom()` helper adds
+Workspace binding behavior.
 
 | Option | Type | Description |
 | --- | --- | --- |
+| `source` | `Source` | Standalone loader definition to bind. Required in the explicit binding form. |
 | `mount` | `WorkspaceSourceMount` | Where retrieved items appear in the Workspace file tree. Accepts a path string or Mount options. |
 | `materialize` | `WorkspaceMaterializeMode` | Build-time, process-startup, lazy, or disabled materialization. Values: `build`, `startup`, `lazy`, `none`. Startup Sources remain available through lazy reads and can be prepared with `createWorkspacePreparation()`. |
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |

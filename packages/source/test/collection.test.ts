@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { combineSources, createSource, defineSource } from "../src/index.ts"
+import { combineSources } from "../src/index.ts"
 
 function enumerable<const TKey extends string, TData>(key: TKey, data: TData) {
   return {
@@ -29,20 +29,16 @@ describe("combined Sources", () => {
     await expect(collection.get(["second", "same"])).resolves.toEqual({ data: 2, key: "same" })
   })
 
-  it("supports keyed context Sources and validates Collection failures", async () => {
-    const definition = defineSource(context => ({
+  it("supports get-only readers and validates Collection failures", async () => {
+    const keyed = {
       async get(key: string) {
-        return `${context.rootDir}:${key.toUpperCase()}`
+        return key.toUpperCase()
       },
-    }))
-    const keyed = createSource(definition, { rootDir: "/recaps" })
+    }
     const collection = combineSources({ sources: { keyed } })
 
-    await expect(collection.get(["keyed", "july"])).resolves.toBe("/recaps:JULY")
-    await expect(collection.items()).rejects.toMatchObject({
-      code: "SOURCE_FAILED",
-      name: "ViteHubError",
-    })
+    await expect(collection.get(["keyed", "july"])).resolves.toBe("JULY")
+    expect(collection).not.toHaveProperty("items")
     // SAFETY: The test deliberately supplies a missing alias to exercise runtime validation.
     const missingIdentity = ["missing" as "keyed", "july"] as const
     await expect(collection.get(missingIdentity)).rejects.toThrow('Combined Source alias "missing" is not defined')
@@ -50,7 +46,7 @@ describe("combined Sources", () => {
     await expect(collection.get("keyed:july" as never)).rejects.toBeInstanceOf(TypeError)
   })
 
-  it("rejects non-enumerable Collections before reading any Source", async () => {
+  it("omits enumeration when any reader only supports get", async () => {
     const items = vi.fn(async () => [{ key: "one" }])
     const collection = combineSources({
       sources: {
@@ -68,7 +64,9 @@ describe("combined Sources", () => {
       },
     })
 
-    await expect(collection.items()).rejects.toThrow('Combined Source alias "keyed" is not enumerable')
+    expect(collection).not.toHaveProperty("items")
+    await expect(collection.get(["enumerable", "one"])).resolves.toBe("one")
+    await expect(collection.get(["keyed", "two"])).resolves.toBe("two")
     expect(items).not.toHaveBeenCalled()
   })
 })

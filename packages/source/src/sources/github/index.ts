@@ -9,7 +9,7 @@ import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache }
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
-import type { Source, SourceContext, SourceRevision } from "../../core/types.ts"
+import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
@@ -41,7 +41,7 @@ async function waitForCachedGitHubResult<TResult>(load: () => Promise<TResult>, 
   })
 }
 
-export function github(options: GitHubSourceOptions): Source<string> {
+export function github(options: GitHubSourceOptions): FileSource<string> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)

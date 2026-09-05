@@ -3,7 +3,7 @@ import { lookup } from "mrmime"
 import { sourceError, sourcePathError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
-import type { Source, SourceContent, SourceContext } from "../core/types.ts"
+import type { FileSource, SourceContent, SourceContext } from "../core/types.ts"
 
 export interface FileSourcePathOptions<TKey extends string = string> {
   path: string
@@ -61,7 +61,7 @@ async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
   return target
 }
 
-export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
+export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): FileSource<TKey> {
   const options = normalizeFileSourceOptions(input)
   const key = sourceKey(options)
   const mediaType = options.mediaType || lookup(key)

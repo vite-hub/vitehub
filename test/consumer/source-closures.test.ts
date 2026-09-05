@@ -115,7 +115,7 @@ describe("packed Source capability closures", () => {
           private: true,
           type: "module",
           dependencies: { "vite-hub": overrides["vite-hub"] },
-          devDependencies: { typescript: "6.0.3", wrangler: "4.72.0" },
+          devDependencies: { typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
         writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
@@ -123,19 +123,19 @@ describe("packed Source capability closures", () => {
           include: ["src/**/*.ts"],
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
-import { custom } from "vite-hub/source"
+import { createSource, defineSource } from "vite-hub/source"
 import { file } from "vite-hub/source/file"
 import { github } from "vite-hub/source/github"
 import { glob } from "vite-hub/source/glob"
 import { markdown } from "vite-hub/source/markdown"
 
-const local = custom({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
+const local = defineSource({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
 const inline = file({ content: "ok", workspacePath: "inline.txt" })
 const remote = github({ auth: false, repo: "vite-hub/vitehub" })
 const matches = glob({ include: "**/*.md" })
 const document = markdown({ content: "# ok", workspacePath: "readme.md" })
 
-export default { fetch: () => new Response(local.name + inline.name + remote.name + matches.name + document.name) }
+export default { fetch: async () => new Response(await createSource(local).read("ok") + await createSource(inline).read("inline.txt") + remote.name + matches.name + document.name) }
 `),
         writeFile(join(appDir, "src/mcp.ts"), `
 import { mcpResources } from "vite-hub/source/mcp"
@@ -156,6 +156,8 @@ const sourceTransport: McpResourcesTransport = {
 void sourceTransport
 `),
         writeFile(join(appDir, "mcp-run.mjs"), `
+import { createSource, defineSource } from "vite-hub/source"
+import { file } from "vite-hub/source/file"
 import { mcpResources } from "vite-hub/source/mcp"
 
 const transport = {
@@ -172,7 +174,11 @@ const transport = {
   },
 }
 const source = mcpResources({ server: { transport } })
-const item = await source.getItem("packed/readme.txt", { rootDir: process.cwd() })
+const item = await createSource(source).get("packed/readme.txt")
+const inline = createSource(file({ workspacePath: "readme.md", content: "direct reader ok" }))
+if (await inline.read("readme.md") !== "direct reader ok") throw new Error("Direct file reader failed")
+const records = createSource(defineSource({ name: "records", getKeys: async () => ["one"], getItem: async key => ({ key, data: { count: 1 } }) }))
+if ((await records.get("one")).data.count !== 1) throw new Error("Direct record reader failed")
 if (item.content !== "packed MCP runtime ok") throw new Error(String(item.content))
 console.log(item.content)
 `),

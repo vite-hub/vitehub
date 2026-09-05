@@ -144,7 +144,36 @@ export default defineConfig({
 })
 ```
 
-Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
+## Reuse a Source definition
+
+Bind a standalone Source definition when direct reads, Content, and Workspace
+need the same origin:
+
+```ts
+import { createSource } from "@vite-hub/source"
+import { glob } from "@vite-hub/source/glob"
+import { defineWorkspace } from "@vite-hub/workspace"
+
+const docs = glob({ cwd: "docs", include: "**/*.md" })
+const reader = createSource(docs)
+await reader.read("intro.md")
+
+export default defineWorkspace({
+  sources: {
+    docs: { source: docs, mount: "docs", materialize: "lazy" },
+  },
+})
+```
+
+The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
+placement, materialization, sync, and access rules. Source owns retrieval.
+Content also accepts the definition with `defineContent({ source: docs })` and
+opens a new reader for each refresh.
+
+Use Workspace helpers such as `file()` and `github()` when a definition only
+needs Workspace binding options. Existing bindings remain valid. For standalone
+custom loaders, replace the Source `custom()` helper with `defineSource()`.
+Workspace's `custom()` helper remains available.
 
 Workspace resolves a Source revision once before preparation and materialization.
 `materializeSources()` reports that generic revision in each Source status, and

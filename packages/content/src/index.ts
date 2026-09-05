@@ -1,7 +1,7 @@
 import { comarkContent } from "comark-content"
 import { defineEventHandler } from "h3"
 
-import { useSource } from "@vite-hub/source"
+import { createSource, useSource } from "@vite-hub/source"
 
 import type {
   ComarkContent,
@@ -11,7 +11,7 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import type { SourceItem, SourceName, SourceReader } from "@vite-hub/source"
+import type { Source, SourceItem, SourceName } from "@vite-hub/source"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>
@@ -46,7 +46,16 @@ type NodeContentRequest = {
   [Symbol.asyncIterator](): AsyncIterator<Uint8Array>
   once(event: "aborted", listener: () => void): unknown
 }
-export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
+export interface ContentSourceReader {
+  items(): Promise<ContentSourceItem[]>
+}
+
+export type ContentSourceInput =
+  | Source<string, unknown, object>
+  | SourceName
+  | ContentSourceReader
+  | (() => ContentSourceReader)
+  | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 
@@ -122,12 +131,14 @@ function isComarkContentSource(input: ContentSourceInput): input is ComarkConten
   )
 }
 
-function isSourceReaderFactory(input: SourceName | SourceReader | (() => SourceReader)): input is () => SourceReader {
-  return input instanceof Function
-}
-
-function isSourceName(input: SourceName | SourceReader | (() => SourceReader)): input is SourceName {
-  return !(input instanceof Object)
+function isSourceDefinition(input: ContentSourceInput): input is Source<string, unknown, object> {
+  return (
+    isRuntimeObject(input)
+    && "getKeys" in input
+    && isRuntimeFunction(input.getKeys)
+    && "getItem" in input
+    && isRuntimeFunction(input.getItem)
+  )
 }
 
 function configuredContentSource(input: ComarkContentSource, options: ContentSourceOptions): ComarkContentSource {
@@ -158,7 +169,7 @@ function contentSourceOptions(
 }
 
 function createContentSourceFactory(
-  sourceInput: SourceName | SourceReader | (() => SourceReader),
+  sourceInput: Source<string, unknown, object> | SourceName | ContentSourceReader | (() => ContentSourceReader),
   defaults: ContentSourceOptions,
 ): ContentSourceFactory {
   const state: ContentSourceState = { latestSequence: 0, nextSequence: 0 }
@@ -172,11 +183,13 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const currentReader = isSourceName(sourceInput)
+            const currentReader = typeof sourceInput === "string"
               ? useSource(sourceInput)
-              : isSourceReaderFactory(sourceInput)
-                ? sourceInput()
-                : sourceInput
+              : isSourceDefinition(sourceInput)
+                ? createSource(sourceInput)
+                : isRuntimeFunction(sourceInput)
+                  ? sourceInput()
+                  : sourceInput
             for (const item of await currentReader.items()) {
               const path = contentPath(item)
               if (nextItems.has(path)) {
@@ -256,16 +269,14 @@ function configuredContentSources(inputs: Record<string, ContentSourceInput>): R
   return sources
 }
 
-/** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
+/** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
   if (isComarkContentSource(input)) {
     const factory = getContentSourceFactory(input)
     if (factory) return factory.create(options)
     return options.prefix === undefined && options.schema === undefined ? input : configuredContentSource(input, options)
   }
-  // SAFETY: The native Comark Source branch returned above, leaving only ViteHub Source inputs.
-  const sourceInput = input as SourceName | SourceReader | (() => SourceReader)
-  return createContentSourceFactory(sourceInput, options).create()
+  return createContentSourceFactory(input, options).create()
 }
 
 /** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
