@@ -7,31 +7,36 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
-describe("cost Capability", () => {
+function modelsDevCatalog(provider: string, model: string, cost: Record<string, unknown>) {
+  return {
+    [provider]: {
+      models: {
+        [model]: { cost },
+      },
+    },
+  }
+}
+
+describe("usage Capability", () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  it("enriches canonical usage with cache-aware Vercel AI Gateway cost", async () => {
-    const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: RequestInit) => Response.json({
-      data: [{
-        id: "zai/glm-5v-turbo",
-        pricing: {
-          input: "0.0000012",
-          input_cache_read: "0.0000003",
-          input_cache_write: "0.0000015",
-          output: "0.000004",
-        },
-      }],
-    }))
+  it("enriches canonical usage with cache-aware Models.dev cost", async () => {
+    const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: RequestInit) => Response.json(modelsDevCatalog("vercel", "zai/glm-5v-turbo", {
+      cache_read: 0.3,
+      cache_write: 1.5,
+      input: 1.2,
+      output: 4,
+    })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "zai/glm-5v-turbo",
@@ -58,40 +63,111 @@ describe("cost Capability", () => {
     })
 
     const event = finish.mock.calls[0]![0]
-    expect(event.extensions.get("cost")).toBe(event.invocation.usage)
+    expect(event.extensions.get("usage")).toBe(event.invocation.usage)
     expect(event.invocation.usage?.cost).toEqual({
       display: "~$0.00125",
       usd: "0.00125",
       estimated: true,
-      source: "vercel-ai-gateway",
+      source: "models.dev",
     })
     expect(fetch).toHaveBeenCalledOnce()
     expect(fetch.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it.each([
-    {
-      name: "input",
-      pricing: { output: "0.000002" },
-    },
-    {
-      name: "output",
-      pricing: { input: "0.000001" },
-    },
-  ])("does not estimate partial cost when $name pricing is missing", async ({ pricing }) => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "custom/model",
-        pricing,
+  it("uses provider-specific Models.dev context tiers", async () => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("openrouter", "anthropic/claude-custom", {
+      cache_read: 0.5,
+      input: 1,
+      output: 2,
+      tiers: [{
+        input: 2,
+        output: 4,
+        tier: { size: 100, type: "context" },
+      }, {
+        input: 100,
+        output: 100,
+        tier: { size: 50, type: "batch" },
       }],
-    }))
-    vi.stubGlobal("fetch", fetch)
+    })))
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch })
 
-    const { cost } = await import("../src/capabilities.ts")
+    await expect(pricing({
+      model: "anthropic/claude-custom",
+      provider: "openrouter",
+      usage: {
+        inputTokenDetails: { cacheReadTokens: 20 },
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+      },
+    })).resolves.toMatchObject({
+      source: "models.dev",
+      usd: "0.00021",
+    })
+  })
+
+  it("matches vendor-scoped model identities in an execution provider catalog", async () => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("google-vertex", "claude-custom", {
+      input: 1,
+      output: 2,
+    })))
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch })
+
+    await expect(pricing({
+      model: "anthropic/claude-custom",
+      provider: "google-vertex",
+      usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+    })).resolves.toMatchObject({
+      source: "models.dev",
+      usd: "0.000014",
+    })
+  })
+
+  it("can expose token usage without estimating cost", async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability({ pricing: false })],
+      driver: {
+        run: () => ({
+          modelId: "openai/gpt-5",
+          text: "ok",
+          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+
+    expect(finish.mock.calls[0]![0].extensions.get("usage")).toBe(finish.mock.calls[0]![0].invocation.usage)
+    expect(finish.mock.calls[0]![0].invocation.usage).not.toHaveProperty("cost")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: "input",
+      pricing: { output: 2 },
+    },
+    {
+      name: "output",
+      pricing: { input: 1 },
+    },
+  ])("does not estimate partial cost when $name pricing is missing", async ({ pricing }) => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("custom", "model", pricing)))
+    vi.stubGlobal("fetch", fetch)
+
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -130,21 +206,16 @@ describe("cost Capability", () => {
       usage: { outputTokens: 2 },
     },
   ])("does not estimate cost when only $name token usage is reported", async ({ usage }) => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "custom/model",
-        pricing: {
-          input: "0.000001",
-          output: "0.000002",
-        },
-      }],
-    }))
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("custom", "model", {
+      input: 1,
+      output: 2,
+    })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -163,7 +234,7 @@ describe("cost Capability", () => {
   })
 
   it("supports custom pricing without provider dependencies", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
       usd: "0.42",
@@ -172,7 +243,7 @@ describe("cost Capability", () => {
     }))
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -204,11 +275,11 @@ describe("cost Capability", () => {
   })
 
   it("adds display to custom USD pricing", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.00125",
           estimated: true,
@@ -236,11 +307,11 @@ describe("cost Capability", () => {
   })
 
   it("leaves malformed provider cost metadata best-effort", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const legacyCost = { amount: "0.01", currency: "USD" }
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           text: "ok",
@@ -259,24 +330,19 @@ describe("cost Capability", () => {
   })
 
   it.each([
-    { catalogId: "openai/gpt-5", modelId: "gpt-5", provider: "openai.responses" },
-    { catalogId: "google/gemini-2.5-pro", modelId: "gemini-2.5-pro", provider: "google.generative-ai" },
-  ])("matches $provider catalog entries for unscoped model IDs", async ({ catalogId, modelId, provider }) => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: catalogId,
-        pricing: {
-          input: "0.000001",
-          output: "0.000002",
-        },
-      }],
-    }))
+    { modelId: "gpt-5", provider: "openai.responses", providerId: "openai" },
+    { modelId: "gemini-2.5-pro", provider: "google.generative-ai", providerId: "google" },
+  ])("matches $provider catalog entries for unscoped model IDs", async ({ modelId, provider, providerId }) => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog(providerId, modelId, {
+      input: 1,
+      output: 2,
+    })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId,
@@ -297,7 +363,7 @@ describe("cost Capability", () => {
           display: "~$0.000014",
           usd: "0.000014",
           estimated: true,
-          source: "vercel-ai-gateway",
+          source: "models.dev",
         },
       },
     })
@@ -305,21 +371,16 @@ describe("cost Capability", () => {
   })
 
   it("does not map compatible providers to vendor catalog scopes", async () => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "openai/gpt-5",
-        pricing: {
-          input: "0.000001",
-          output: "0.000002",
-        },
-      }],
-    }))
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("openai", "gpt-5", {
+      input: 1,
+      output: 2,
+    })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "gpt-5",
@@ -352,17 +413,12 @@ describe("cost Capability", () => {
   })
 
   it("does not discard an explicit model scope for Anthropic pricing fallback", async () => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "anthropic/claude-custom",
-        pricing: {
-          input: "0.000001",
-          output: "0.000002",
-        },
-      }],
-    }))
-    const { vercelAiGatewayPricing } = await import("../src/capabilities.ts")
-    const pricing = vercelAiGatewayPricing({ fetch })
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("anthropic", "claude-custom", {
+      input: 1,
+      output: 2,
+    })))
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch })
 
     await expect(pricing({
       model: "custom-provider/claude-custom",
@@ -372,7 +428,7 @@ describe("cost Capability", () => {
   })
 
   it("enriches canonical usage without requiring a finish hook", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -380,7 +436,7 @@ describe("cost Capability", () => {
       source: "custom" as const,
     }))
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => ({
           text: "ok",
@@ -408,7 +464,7 @@ describe("cost Capability", () => {
   })
 
   it("prices usage records before yielding them from streamAgent", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -416,7 +472,7 @@ describe("cost Capability", () => {
       source: "custom" as const,
     }))
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => (async function* () {
           yield {
@@ -459,11 +515,11 @@ describe("cost Capability", () => {
 
   it("prices UI message stream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -504,11 +560,11 @@ describe("cost Capability", () => {
 
   it("prices toUIMessageStream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -556,11 +612,11 @@ describe("cost Capability", () => {
 
   it("prices distinct preserved UI stream usage before tracing it", async () => {
     const { createTraceEventLog } = await import("@vite-hub/runtime")
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -611,7 +667,7 @@ describe("cost Capability", () => {
 
   it("prices serialized UI message response usage before returning it", async () => {
     const { readUIMessageStream } = await import("ai")
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
     const pricing = vi.fn(() => ({
@@ -620,7 +676,7 @@ describe("cost Capability", () => {
       source: "custom",
     }))
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing,
       })],
       driver: {
@@ -653,7 +709,7 @@ describe("cost Capability", () => {
     { hybrid: true, kind: "hybrid" },
   ])("prices native response usage after a renderer returns a $kind async iterable", async ({ hybrid }) => {
     const { readUIMessageStream } = await import("ai")
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { uiMessageStreamFromResponse } = await import("../src/stream-output.ts")
     const pricing = vi.fn(() => ({
@@ -664,7 +720,7 @@ describe("cost Capability", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
-        cost({
+        usageCapability({
           pricing,
         }),
         defineCapability({
@@ -734,14 +790,14 @@ describe("cost Capability", () => {
   })
 
   it("returns stream results before their usage promise settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           stream: (async function* () {
@@ -766,14 +822,14 @@ describe("cost Capability", () => {
   })
 
   it("returns runAgent stream results before their usage promise settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           stream: (async function* () {
@@ -798,12 +854,12 @@ describe("cost Capability", () => {
   })
 
   it("does not await unresolved result usage when a runAgent stream is closed early", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usage = new Promise(() => {})
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           stream: (async function* () {
@@ -833,14 +889,14 @@ describe("cost Capability", () => {
   })
 
   it("attaches deferred usage to returned plain stream results", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
     const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -869,14 +925,14 @@ describe("cost Capability", () => {
   })
 
   it("attaches deferred usage to returned UI message stream results", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { inputTokens: number, outputTokens: number, totalTokens: number }) => void
     const usage = new Promise<{ inputTokens: number, outputTokens: number, totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -910,11 +966,11 @@ describe("cost Capability", () => {
   })
 
   it("does not await unresolved UI usage when a streamAgent result is closed early", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           toUIMessageStream() {
@@ -947,11 +1003,11 @@ describe("cost Capability", () => {
   })
 
   it("does not await unresolved event usage when a streamAgent result is closed early", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           stream: (async function* () {
@@ -981,11 +1037,11 @@ describe("cost Capability", () => {
   })
 
   it("normalizes observed usage when a streamAgent result is closed early", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           stream: (async function* () {
@@ -1027,14 +1083,14 @@ describe("cost Capability", () => {
   })
 
   it("returns runAgent UI message results before their usage promise settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           toUIMessageStream() {
@@ -1064,14 +1120,14 @@ describe("cost Capability", () => {
   })
 
   it("returns streamAgent UI message results before their usage promise settles", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let resolveUsage!: (usage: { totalTokens: number }) => void
     const usage = new Promise<{ totalTokens: number }>((resolve) => {
       resolveUsage = resolve
     })
     const agent = defineAgent({
-      capabilities: [cost({ pricing: () => undefined })],
+      capabilities: [usageCapability({ pricing: () => undefined })],
       driver: {
         run: () => ({
           toUIMessageStream() {
@@ -1134,7 +1190,7 @@ describe("cost Capability", () => {
   })
 
   it("prices usage records before yielding runAgent streams", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -1143,7 +1199,7 @@ describe("cost Capability", () => {
     }))
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => (async function* () {
           yield {
@@ -1191,7 +1247,7 @@ describe("cost Capability", () => {
   })
 
   it("prices usage carried by raw finish chunks before yielding", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn(() => ({
       usd: "0.02",
@@ -1200,7 +1256,7 @@ describe("cost Capability", () => {
     }))
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => (async function* () {
           yield {
@@ -1251,7 +1307,7 @@ describe("cost Capability", () => {
   })
 
   it("preserves richer raw usage while attaching the canonical record", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usage = {
       inputTokens: 10,
@@ -1262,7 +1318,7 @@ describe("cost Capability", () => {
       totalTokens: 12,
     }
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1290,10 +1346,10 @@ describe("cost Capability", () => {
   })
 
   it("returns the enriched resolved record when usage metadata is added", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1334,7 +1390,7 @@ describe("cost Capability", () => {
   })
 
   it("enriches immutable driver results without mutating them", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const result = Object.freeze({
       text: "ok",
@@ -1345,7 +1401,7 @@ describe("cost Capability", () => {
       },
     })
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1368,7 +1424,7 @@ describe("cost Capability", () => {
   })
 
   it("enriches immutable usage records through a mutable canonical copy", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usageRecord = Object.freeze({
       usage: {
@@ -1378,7 +1434,7 @@ describe("cost Capability", () => {
       },
     })
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1404,7 +1460,7 @@ describe("cost Capability", () => {
   })
 
   it("wraps class-backed results without cloning their private state", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class DriverResult {
       #value = "preserved"
@@ -1422,7 +1478,7 @@ describe("cost Capability", () => {
     }
     const result = new DriverResult()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1447,7 +1503,7 @@ describe("cost Capability", () => {
   })
 
   it("preserves class-backed stream results while enriching their streams", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class DriverStreamResult {
       #value = "preserved"
@@ -1477,7 +1533,7 @@ describe("cost Capability", () => {
     }
     const result = new DriverStreamResult()
     const agent = defineAgent({
-      capabilities: [cost({
+      capabilities: [usageCapability({
         pricing: () => ({
           usd: "0.02",
           estimated: true,
@@ -1508,11 +1564,11 @@ describe("cost Capability", () => {
   })
 
   it("preserves Agent success when eager usage extraction fails", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => ({
           text: "ok",
@@ -1528,7 +1584,7 @@ describe("cost Capability", () => {
   })
 
   it("does not resolve unrelated lazy finish extensions during eager-only work", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const lazy = vi.fn(() => {
       throw new Error("lazy extension should not run")
@@ -1544,7 +1600,7 @@ describe("cost Capability", () => {
           id: "lazy",
           finish: lazy,
         },
-        cost({ pricing }),
+        usageCapability({ pricing }),
       ],
       driver: {
         run: () => ({
@@ -1566,18 +1622,13 @@ describe("cost Capability", () => {
   })
 
   it("does not estimate cost from total-only token usage", async () => {
-    const fetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "custom/model",
-        pricing: {
-          input: "0.000001",
-          output: "0.000002",
-        },
-      }],
-    }))
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("custom", "model", {
+      input: 1,
+      output: 2,
+    })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const usageRecord = {
       usage: {
@@ -1585,7 +1636,7 @@ describe("cost Capability", () => {
       },
     }
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -1609,10 +1660,10 @@ describe("cost Capability", () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           text: "ok",
@@ -1639,22 +1690,17 @@ describe("cost Capability", () => {
   it("retries catalog loading after a transient failure", async () => {
     const fetch = vi.fn()
       .mockRejectedValueOnce(new Error("temporarily unavailable"))
-      .mockResolvedValue(Response.json({
-        data: [{
-          id: "custom/model",
-          pricing: {
-            input: "0.000001",
-            output: "0.000002",
-          },
-        }],
-      }))
+      .mockResolvedValue(Response.json(modelsDevCatalog("custom", "model", {
+        input: 1,
+        output: 2,
+      })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -1680,7 +1726,7 @@ describe("cost Capability", () => {
       display: "~$0.000014",
       usd: "0.000014",
       estimated: true,
-      source: "vercel-ai-gateway",
+      source: "models.dev",
     })
   })
 
@@ -1688,30 +1734,20 @@ describe("cost Capability", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"))
     const fetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({
-        data: [{
-          id: "custom/model",
-          pricing: {
-            input: "0.000001",
-            output: "0.000002",
-          },
-        }],
-      }))
-      .mockResolvedValueOnce(Response.json({
-        data: [{
-          id: "custom/model",
-          pricing: {
-            input: "0.000002",
-            output: "0.000004",
-          },
-        }],
-      }))
+      .mockResolvedValueOnce(Response.json(modelsDevCatalog("custom", "model", {
+        input: 1,
+        output: 2,
+      })))
+      .mockResolvedValueOnce(Response.json(modelsDevCatalog("custom", "model", {
+        input: 2,
+        output: 4,
+      })))
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -1726,7 +1762,7 @@ describe("cost Capability", () => {
     })
 
     const first = await runAgent(agent, runtime(), { prompt: "first" })
-    vi.advanceTimersByTime(5 * 60_000)
+    vi.advanceTimersByTime(60 * 60_000)
     const second = await runAgent(agent, runtime(), { prompt: "second" })
 
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -1742,22 +1778,17 @@ describe("cost Capability", () => {
       resolveRefresh = resolve
     })
     const fetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({
-        data: [{
-          id: "custom/model",
-          pricing: {
-            input: "0.000001",
-            output: "0.000002",
-          },
-        }],
-      }))
+      .mockResolvedValueOnce(Response.json(modelsDevCatalog("custom", "model", {
+        input: 1,
+        output: 2,
+      })))
       .mockReturnValueOnce(refresh)
     vi.stubGlobal("fetch", fetch)
 
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [cost()],
+      capabilities: [usageCapability()],
       driver: {
         run: () => ({
           modelId: "custom/model",
@@ -1772,19 +1803,14 @@ describe("cost Capability", () => {
     })
 
     await runAgent(agent, runtime(), { prompt: "prime" })
-    vi.advanceTimersByTime(5 * 60_000)
+    vi.advanceTimersByTime(60 * 60_000)
     const first = runAgent(agent, runtime(), { prompt: "first" })
     const second = runAgent(agent, runtime(), { prompt: "second" })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
-    resolveRefresh(Response.json({
-      data: [{
-        id: "custom/model",
-        pricing: {
-          input: "0.000002",
-          output: "0.000004",
-        },
-      }],
-    }))
+    resolveRefresh(Response.json(modelsDevCatalog("custom", "model", {
+      input: 2,
+      output: 4,
+    })))
 
     await expect(Promise.all([first, second])).resolves.toHaveLength(2)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -1802,11 +1828,11 @@ describe("cost Capability", () => {
       pricing: () => undefined,
     },
   ])("preserves usage and Agent success when pricing $name", async ({ pricing }) => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => ({
           text: "ok",
@@ -1827,7 +1853,7 @@ describe("cost Capability", () => {
     })
 
     const event = finish.mock.calls[0]![0]
-    expect(event.extensions.get("cost")).toBe(event.invocation.usage)
+    expect(event.extensions.get("usage")).toBe(event.invocation.usage)
     expect(event.invocation.usage).toEqual(expect.objectContaining({
       usage: {
         inputTokens: 10,
@@ -1839,7 +1865,7 @@ describe("cost Capability", () => {
   })
 
   it("keeps provider-reported cost without resolving another price", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn()
     const finish = vi.fn()
@@ -1849,7 +1875,7 @@ describe("cost Capability", () => {
       source: "provider" as const,
     }
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: {
         run: () => ({
           text: "ok",
@@ -1878,7 +1904,7 @@ describe("cost Capability", () => {
   })
 
   it("prices compound calls independently before aggregating their cost", async () => {
-    const { cost } = await import("../src/capabilities.ts")
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const pricing = vi.fn(async ({ model }: { model?: string }) => ({
       estimated: true,
@@ -1887,7 +1913,7 @@ describe("cost Capability", () => {
     }))
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [cost({ pricing })],
+      capabilities: [usageCapability({ pricing })],
       driver: { run: () => ({
           text: "ok",
           usageRecord: {

@@ -84,10 +84,6 @@ export {
   openRouterTranscriptionModel,
 } from "./transcription-openrouter.ts"
 export {
-  cost,
-  vercelAiGatewayPricing,
-} from "./cost.ts"
-export {
   diagnostics,
 } from "./diagnostics.ts"
 export type {
@@ -98,15 +94,16 @@ export type {
   ExecutorConnectionOptions,
   ExecutorCredential,
 } from "./executor.ts"
+export {
+  modelsDevPricing,
+  usage,
+} from "./usage.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
   AgentUsagePrice,
-  CostOptions,
-  VercelAiGatewayPricingOptions,
-} from "./cost.ts"
-export {
-  usage,
+  ModelsDevPricingOptions,
+  UsageOptions,
 } from "./usage.ts"
 export {
   workspaceShell,
