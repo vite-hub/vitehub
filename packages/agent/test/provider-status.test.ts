@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createExecutionContext } from "@vite-hub/runtime"
 
 const inspectProvider = vi.hoisted(() => vi.fn())
 vi.mock("@t3tools/provider-runtime", () => ({ inspectProvider, createProviderRuntime: vi.fn(), createSqliteProviderRuntimeSessionStore: vi.fn() }))
@@ -11,7 +12,7 @@ import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import type { AgentProviderCredentialContext } from "../src/types.ts"
 
 const context = (): AgentProviderCredentialContext => ({
-  runtime: "unknown", capabilities: {}, agentIdentity: { name: "bot" },
+  ...createExecutionContext({ runtime: "unknown" as const, agentIdentity: { name: "bot" } }),
   context: createAgentInvocationContextStore(), purpose: "inspection",
 })
 const ready = () => ({
