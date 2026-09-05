@@ -67,3 +67,6 @@ export type {
   AgentDiscordGatewayRouteOptions,
   AgentTelegramPollingRouteOptions,
 } from "./server/routes.ts"
+
+export { createAgentConsoleDelivery } from './server/console-delivery.ts'
+export type { AgentConsoleDelivery } from './server/console-delivery.ts'

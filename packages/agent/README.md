@@ -348,6 +348,51 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 GitHub Channels with `activity: true` keep one managed comment per pull request. A single table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. Full transcripts stay in the linked sessions.
 
+### Process-owned agents
+
+For a single Node process that discovers background work, `createProcessAgentHost`
+from `@vite-hub/agent/runtime/process` combines capacity, invocation storage and
+recovery, provider-session storage, and a draining reconciler. Its data directory
+must belong exclusively to this host. It is not a distributed lease.
+
+```ts
+export default await createProcessAgentHost({
+  name: 'reviewer',
+  dataDir: '.vitehub',
+  providerCommand: 'codex',
+  capacity: { concurrency: 4 },
+  async run(reason, { track }, accepting) {
+    const jobs = await discoverWork()
+    if (accepting()) track(runJobs(jobs))
+  },
+})
+```
+
+Use the host's `capacity`, `invocations`, and `providerSessionStorePath` in the
+Agent Definition. `host.health()` reports provider availability and stale records.
+`host.wake()` requests discovery after work completes. `host.start()` is idempotent;
+`host.close()` stops admission and waits for tracked work.
+
+For Nitro, add `processAgentHost({ entry: './server/host.ts' })` from
+`@vite-hub/agent/vite` to the Vite plugins. The entry exports the host as default.
+The plugin starts it and closes it with Nitro, and serves drain status at
+`/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
+Use the runtime drain CLI before replacing the process.
+
+`createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
+snapshots with paginated feedback, required checks, and host budget admission.
+An explicit `activityAuthors` list excludes only those authors' managed activity
+comments from feedback fingerprints. `feedback.hasDiscussion` is conservative;
+consumers must still check failures and conflicts before deciding to wait.
+`publishAgentActivity()` updates a channel without starting an invocation.
+
+`host.channel({ activity: true })` shares a GitHub host's credentials and identity.
+A provider `env` resolver can call `host.environment()` inside
+`withPullRequestCheckout()`. The environment binds to that callback's checkout,
+including concurrent callbacks. Await the entire agent run before returning.
+Use `defineAgent({ extends: agent, name, workspace })` to bind the workspace
+without rebuilding driver configuration.
+
 ## Host lifecycle and transcript retention
 
 For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:

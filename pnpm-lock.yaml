@@ -2276,6 +2276,9 @@ importers:
       h3-v1:
         specifier: npm:h3@^1.15.11
         version: h3@1.15.11
+      miniflare:
+        specifier: 4.20260714.0
+        version: 4.20260714.0
       publint:
         specifier: catalog:tooling
         version: 0.3.24
@@ -2506,6 +2509,12 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.8
         version: 6.0.8(@voidzero-dev/vite-plus-core@0.1.24)(vue@3.5.40(typescript@6.0.3))
+      devframe:
+        specifier: catalog:runtime
+        version: 0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(patch_hash=2a3e7f22b1c403326435bc0142aea49806b195205c97949baa8de261eb157f59)(@types/node@26.4.1)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'

@@ -7,9 +7,12 @@ import {
   publicTotals,
   stringValue,
   usageNode,
+  usageSession,
+  usageCursor,
+  usageQueryWindow,
 } from "./usage.ts";
 
-import type { ConsoleInvocationUsage, ConsoleUsageWindow, UsageTotal } from "./usage.ts";
+import type { ConsoleInvocationUsage, UsageQuery, UsageTotal } from "./usage.ts";
 import type { Client, InStatement, Row } from "@libsql/client";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
@@ -21,19 +24,13 @@ const metrics = [
   "cacheWriteTokens",
   "reasoningTokens",
 ] as const;
-const table = "vitehub_console_usage_v1";
-const dirty = "vitehub_console_usage_v1_dirty";
+const table = "vitehub_console_usage_v2";
+const dirty = "vitehub_console_usage_v2_dirty";
 const source = "vitehub_agent_invocations";
-const durations = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
-const terminalStatusList = [...terminalStatuses].map(status => `'${status}'`).join(",");
+const terminalStatusList = [...terminalStatuses].map((status) => `'${status}'`).join(",");
 
-export interface UsageQuery {
-  agentName?: string;
-  cursor?: string;
-  now?: Date | number | string;
-  window?: ConsoleUsageWindow;
-}
+export type { UsageQuery } from "./usage.ts";
 
 /** A rebuildable projection. Invocation records remain the authoritative evidence. */
 export function createConsoleUsageIndex(client: Client): {
@@ -46,19 +43,21 @@ export function createConsoleUsageIndex(client: Client): {
     (initialization ??= (async () => {
       await client.batch(
         [
+          // Older processes can still use v1 during a rollout. This index owns only v2 resources.
           `CREATE TABLE IF NOT EXISTS ${table} (
         id TEXT NOT NULL, model_key TEXT NOT NULL, sequence INTEGER NOT NULL,
         agent TEXT NOT NULL, at TEXT NOT NULL, status TEXT NOT NULL, model TEXT,
         usage TEXT, incomplete INTEGER NOT NULL, revision TEXT NOT NULL,
+        title TEXT, created_at TEXT NOT NULL, model_names TEXT NOT NULL, search_text TEXT NOT NULL,
         cost_whole TEXT, cost_fraction TEXT, cost_usd TEXT, estimated INTEGER,
-        ${metrics.map(metric => `${metric} INTEGER`).join(",")},
+        ${metrics.map((metric) => `${metric} INTEGER`).join(",")},
         PRIMARY KEY (id, model_key))`,
-          `CREATE INDEX IF NOT EXISTS ${table}_at ON ${table}(model_key, at, sequence)`,
-          `CREATE INDEX IF NOT EXISTS ${table}_agent_at ON ${table}(model_key, agent, at, sequence)`,
+          `CREATE INDEX IF NOT EXISTS ${table}_at ON ${table}(model_key, at DESC, id DESC)`,
+          `CREATE INDEX IF NOT EXISTS ${table}_agent_at ON ${table}(model_key, agent, at DESC, id DESC)`,
           `CREATE INDEX IF NOT EXISTS ${table}_cost ON ${table}(model_key, length(cost_whole) DESC, cost_whole DESC, cost_fraction DESC, sequence DESC)`,
           `CREATE TABLE IF NOT EXISTS ${dirty} (id TEXT PRIMARY KEY, generation INTEGER NOT NULL DEFAULT 1)`,
           ...["INSERT", "UPDATE"].map(
-            event => `DROP TRIGGER IF EXISTS ${table}_${event.toLowerCase()}`,
+            (event) => `DROP TRIGGER IF EXISTS ${table}_${event.toLowerCase()}`,
           ),
           ...["INSERT", "UPDATE"].map(
             (event) => `CREATE TRIGGER IF NOT EXISTS ${table}_${event.toLowerCase()}
@@ -95,6 +94,8 @@ export function createConsoleUsageIndex(client: Client): {
       await client.execute(`SELECT d.id, d.generation, s.sequence, s.agent_name, s.status, s.updated_at,
       COALESCE(json_extract(s.record, '$.completedAt'), s.updated_at) AS at,
       json_extract(s.record, '$.annotations."agent.model.id"') AS model,
+      json_extract(s.record, '$.title') AS title,
+      COALESCE(json_extract(s.record, '$.createdAt'), s.updated_at) AS created_at,
       (SELECT j.value FROM json_each(s.record, '$.observations') j
         WHERE json_extract(j.value, '$.name') = 'agent.invocation.finish'
         ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS finish
@@ -105,13 +106,10 @@ export function createConsoleUsageIndex(client: Client): {
       const finishValue = stringValue(row.finish);
       const finish = finishValue === undefined ? undefined : JSON.parse(finishValue);
       const incomplete = finish?.attributes?.["vitehub.observation.truncated"] === true;
+      const configuredModel = stringValue(row.model)?.trim() || undefined;
       const usage = incomplete
         ? undefined
-        : usageNode(
-            finish?.attributes?.["usage.record"],
-            true,
-            stringValue(row.model),
-          );
+        : usageNode(finish?.attributes?.["usage.record"], true, configuredModel);
       const entries: Array<[string, ConsoleInvocationUsage | undefined]> = terminalStatuses.has(
         String(row.status),
       )
@@ -126,7 +124,7 @@ export function createConsoleUsageIndex(client: Client): {
         const amount = decimal(projected?.cost?.usd);
         const [whole, fraction = ""] = amount ? decimalString(amount).split(".") : [];
         writes.push({
-          sql: `INSERT OR REPLACE INTO ${table}(id,model_key,sequence,agent,at,status,model,usage,incomplete,revision,cost_whole,cost_fraction,cost_usd,estimated,${metrics.join(",")}) SELECT ${Array(20).fill("?").join(",")} WHERE EXISTS(SELECT 1 FROM ${dirty} d JOIN ${source} s ON s.id = d.id WHERE d.id = ? AND d.generation = ?)`,
+          sql: `INSERT OR REPLACE INTO ${table}(id,model_key,sequence,agent,at,status,model,usage,incomplete,revision,cost_whole,cost_fraction,cost_usd,estimated,title,created_at,model_names,search_text,${metrics.join(",")}) SELECT ${Array(24).fill("?").join(",")} WHERE EXISTS(SELECT 1 FROM ${dirty} d JOIN ${source} s ON s.id = d.id WHERE d.id = ? AND d.generation = ?)`,
           args: [
             row.id!,
             key,
@@ -134,7 +132,7 @@ export function createConsoleUsageIndex(client: Client): {
             row.agent_name!,
             row.at!,
             row.status!,
-            projected?.model ?? null,
+            projected?.model ?? configuredModel ?? null,
             projected ? JSON.stringify({ ...projected, calls: undefined }) : null,
             incomplete ? 1 : 0,
             row.updated_at!,
@@ -142,7 +140,20 @@ export function createConsoleUsageIndex(client: Client): {
             amount ? fraction : null,
             projected?.cost?.usd ?? null,
             projected?.cost?.estimated ? 1 : 0,
-            ...metrics.map(metric => projected?.[metric] ?? null),
+            row.title ?? null,
+            row.created_at!,
+            JSON.stringify(
+              projected
+                ? [...modelUsage(projected).keys()]
+                : configuredModel
+                  ? [configuredModel]
+                  : [],
+            ),
+            [row.id, row.agent_name, row.title]
+              .filter((value) => value != null)
+              .join("\n")
+              .toLowerCase(),
+            ...metrics.map((metric) => projected?.[metric] ?? null),
             row.id!,
             row.generation!,
           ],
@@ -163,7 +174,7 @@ export function createConsoleUsageIndex(client: Client): {
       backfill = (async () => {
         while (await projectPage()) {
           // Yield to HTTP requests, cancellation, and the bounded first-response timer.
-          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
       })().finally(() => {
         backfill = undefined;
@@ -174,6 +185,7 @@ export function createConsoleUsageIndex(client: Client): {
   return {
     rebuild,
     async query(options = {}) {
+      const { window, now, to, from, after } = usageQueryWindow(options);
       await initialize();
       // Large historical archives rebuild in the background. Never claim complete totals while queued.
       const rebuilding = rebuild();
@@ -188,17 +200,20 @@ export function createConsoleUsageIndex(client: Client): {
       } finally {
         clearTimeout(timer);
       }
-      const now = new Date(options.now ?? Date.now());
-      const window = options.window ?? "30d";
-      const to = now.toISOString();
-      const from = new Date(now.valueOf() - durations[window] * 86_400_000).toISOString();
-      const resolution = window === "24h" ? "hour" : "day";
+      const resolution = window.bucket;
       const bucket =
         resolution === "hour"
           ? "strftime('%Y-%m-%dT%H:00:00.000Z', at)"
           : "strftime('%Y-%m-%dT00:00:00.000Z', at)";
-      const filter = `status IN (${terminalStatusList}) AND at >= ? AND at <= ?${options.agentName ? " AND agent = ?" : ""}`;
-      const args = [from, to, ...(options.agentName ? [options.agentName] : [])];
+      const filter = `status IN (${terminalStatusList}) AND at >= ? AND at <= ?${options.agentName ? " AND agent = ?" : ""}${options.status ? " AND status = ?" : ""}${options.search ? " AND instr(search_text, ?) > 0" : ""}`;
+      const search = options.search?.toLowerCase();
+      const args = [
+        from,
+        to,
+        ...(options.agentName ? [options.agentName] : []),
+        ...(options.status ? [options.status] : []),
+        ...(search ? [search] : []),
+      ];
       const aggregate = (group: string, modelRows = false): InStatement => ({
         // Group equal decimal costs before multiplication in JS bigint. SQLite REAL must not round money.
         sql: `SELECT ${group} AS grouping, cost_usd AS cost,
@@ -215,8 +230,8 @@ export function createConsoleUsageIndex(client: Client): {
           aggregate("model_key", true),
           aggregate("agent"),
           {
-            sql: `SELECT * FROM ${table} WHERE model_key = '' AND ${filter}${options.cursor ? " AND sequence < ?" : ""} ORDER BY sequence DESC LIMIT 51`,
-            args: [...args, ...(options.cursor ? [Number(options.cursor)] : [])],
+            sql: `SELECT * FROM ${table} WHERE model_key = '' AND ${filter}${after ? " AND (at < ? OR (at = ? AND id < ?))" : ""} ORDER BY at DESC, id DESC LIMIT 51`,
+            args: [...args, ...(after ? [after.at, after.at, after.id] : [])],
           },
           {
             sql: `SELECT * FROM ${table} WHERE model_key = '' AND ${filter} AND cost_usd IS NOT NULL ORDER BY length(cost_whole) DESC, cost_whole DESC, cost_fraction DESC, sequence DESC LIMIT 10`,
@@ -229,7 +244,9 @@ export function createConsoleUsageIndex(client: Client): {
       );
       const [periods, models, agents, runs, expensive, remaining] = results;
       if (!periods || !models || !agents || !runs || !expensive || !remaining)
-        throw viteHubErrorDiagnostics.VITE_HUB_R0119({ message: "Expected six usage query results" });
+        throw viteHubErrorDiagnostics.VITE_HUB_R0119({
+          message: "Expected six usage query results",
+        });
       const incomplete = Number(remaining.rows[0]?.count) > 0;
       const groups = (rows: Row[]) => {
         const result = new Map<string, UsageTotal>();
@@ -288,6 +305,7 @@ export function createConsoleUsageIndex(client: Client): {
         partial:
           incomplete ||
           recorded < totals.invocations ||
+          (totals.invocations > 0 && !totals.totalTokensAvailable) ||
           periods.rows.some((row) => Number(row.incomplete)),
         projection: { complete: !incomplete, pending: Number(remaining.rows[0]?.count) },
         from,
@@ -304,8 +322,24 @@ export function createConsoleUsageIndex(client: Client): {
           agent,
           ...publicTotals(total, !incomplete),
         })),
+        sessionCount: totals.invocations,
+        sessions: runs.rows.slice(0, 50).map((row) => ({
+          ...usageSession(
+            {
+              id: String(row.id),
+              agentName: String(row.agent),
+              title: stringValue(row.title),
+              status: String(row.status),
+              createdAt: String(row.created_at),
+              completedAt: String(row.at),
+              updatedAt: String(row.revision),
+            },
+            row.usage ? JSON.parse(String(row.usage)) : undefined,
+          ),
+          models: JSON.parse(String(row.model_names)),
+        })),
         runs: runs.rows.slice(0, 50).map(run),
-        ...(runs.rows.length > 50 ? { cursor: String(runs.rows[49]!.sequence) } : {}),
+        ...(runs.rows.length > 50 ? { cursor: usageCursor(options, to, run(runs.rows[49]!)) } : {}),
         expensive: expensive.rows.map(run),
       };
     },

@@ -13,7 +13,9 @@ The `Review image attachments` session covers persisted input and output images 
 
 The Agent Invocation records live in `console.fixture.json`. `mock-api.ts` adds
 the read-only Usage, KV, Workflow, Queue, and search responses needed by the
-Console. This playground does not change the Console routes generated for Vite
+Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
+routes. Usage filters and pagination use the real usage aggregation code.
+This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
 To share the running playground temporarily, expose the same local server:

@@ -1,4 +1,8 @@
-import type { AgentInvocationRecord, AgentInvocations } from "@vite-hub/agent";
+import type {
+  AgentInvocationRecord,
+  AgentInvocationSummary,
+  AgentInvocations,
+} from "@vite-hub/agent";
 import * as v from "valibot";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
@@ -80,6 +84,58 @@ export interface PublicUsageTotals {
 
 export type ConsoleUsageWindow = "24h" | "7d" | "30d" | "90d";
 
+export type ConsoleUsageStatus = "completed" | "failed" | "cancelled";
+
+export interface UsageQuery {
+  agentName?: string;
+  cursor?: string;
+  now?: Date | number | string;
+  search?: string;
+  status?: ConsoleUsageStatus;
+  window?: ConsoleUsageWindow;
+}
+
+export interface ConsoleUsageSession {
+  id: string;
+  agent: string;
+  title?: string;
+  status: string;
+  at: string;
+  createdAt: string;
+  models: string[];
+  partial: boolean;
+  totals: PublicUsageTotals;
+}
+
+export function parseConsoleUsageStatus(value: string): ConsoleUsageStatus | undefined {
+  if (value === "completed" || value === "failed" || value === "cancelled") return value;
+}
+
+/** Console sessions use durable invocation IDs. Transport thread IDs do not identify provider sessions. */
+export function usageSession(
+  record: Pick<
+    AgentInvocationSummary,
+    "id" | "agentName" | "annotations" | "title" | "createdAt" | "completedAt" | "updatedAt"
+  > & { status: string },
+  usage?: ConsoleInvocationUsage,
+): ConsoleUsageSession {
+  const totals = emptyTotals();
+  if (usage) addUsage(totals, usage);
+  else addMissingUsage(totals);
+  const configuredModel = stringValue(record.annotations?.["agent.model.id"])?.trim();
+  return {
+    id: record.id,
+    agent: record.agentName ?? "",
+    ...(record.title ? { title: record.title } : {}),
+    status: record.status,
+    at: usageTime(record),
+    createdAt: record.createdAt,
+    models: usage ? [...modelUsage(usage).keys()] : configuredModel ? [configuredModel] : [],
+    partial: usage?.totalTokens === undefined,
+    totals: publicTotals(totals),
+  };
+}
+
 const usageWindows: Record<ConsoleUsageWindow, UsageWindow> = {
   "24h": { bucket: "hour", durationMs: 24 * 60 * 60 * 1_000 },
   "7d": { bucket: "day", durationMs: 7 * 24 * 60 * 60 * 1_000 },
@@ -89,6 +145,107 @@ const usageWindows: Record<ConsoleUsageWindow, UsageWindow> = {
 
 export function parseConsoleUsageWindow(value: string): ConsoleUsageWindow | undefined {
   if (value === "24h" || value === "7d" || value === "30d" || value === "90d") return value;
+}
+
+const historyCursorSchema = v.strictObject({
+  version: v.literal(1),
+  to: v.string(),
+  at: v.string(),
+  id: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
+  scope: v.string(),
+});
+
+function cursorScope(options: UsageQuery): string {
+  return JSON.stringify([
+    options.window ?? "30d",
+    options.agentName ?? null,
+    options.status ?? null,
+    options.search?.toLowerCase() ?? null,
+  ]);
+}
+
+/** Keep every page inside the first request's date window and filter scope. */
+export function usageQueryWindow(options: UsageQuery): {
+  windowName: ConsoleUsageWindow;
+  window: UsageWindow;
+  now: Date;
+  to: string;
+  from: string;
+  after: { at: string; id: string } | undefined;
+} {
+  const windowName = options.window ?? "30d";
+  const window = usageWindows[windowName];
+  if (!window) throw consoleError("Invalid usage window");
+  let after: v.InferOutput<typeof historyCursorSchema> | undefined;
+  if (options.cursor !== undefined) {
+    try {
+      if (options.cursor.length > 32_768) throw new Error("Cursor too long");
+      after = v.parse(
+        historyCursorSchema,
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
+          Uint8Array.from(atob(options.cursor.replace(/-/g, "+").replace(/_/g, "/")),
+            (character) => character.charCodeAt(0)),
+        )),
+      );
+      if (
+        after.scope !== cursorScope(options) ||
+        new Date(after.to).toISOString() !== after.to ||
+        new Date(after.at).toISOString() !== after.at ||
+        after.at > after.to ||
+        Date.parse(after.at) < Date.parse(after.to) - window.durationMs
+      ) {
+        throw new Error("Cursor does not match this query");
+      }
+    } catch {
+      throw Object.assign(
+        viteHubErrorDiagnostics.VITE_HUB_R0115({ message: "Invalid usage cursor" }),
+        { statusCode: 400 },
+      );
+    }
+  }
+  const now = new Date(after?.to ?? options.now ?? Date.now());
+  if (!Number.isFinite(now.valueOf())) throw consoleError("Invalid usage timestamp");
+  return {
+    windowName,
+    window,
+    now,
+    to: now.toISOString(),
+    from: new Date(now.valueOf() - window.durationMs).toISOString(),
+    after,
+  };
+}
+
+export function usageCursor(
+  options: UsageQuery,
+  to: string,
+  last: { at: string; id: string },
+): string {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ version: 1, to, at: last.at, id: last.id, scope: cursorScope(options) }),
+  );
+  return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// SQLite's binary text ordering compares Unicode code points, including IDs outside the BMP.
+function compareText(left: string, right: string): number {
+  let a = 0;
+  let b = 0;
+  while (a < left.length && b < right.length) {
+    const l = left.codePointAt(a)!;
+    const r = right.codePointAt(b)!;
+    if (l !== r) return l - r;
+    a += l > 0xffff ? 2 : 1;
+    b += r > 0xffff ? 2 : 1;
+  }
+  return left.length - a - (right.length - b);
+}
+
+function compareSessions(
+  left: { at: string; id: string },
+  right: { at: string; id: string },
+): number {
+  return compareText(right.at, left.at) || compareText(right.id, left.id);
 }
 
 const finiteNumberSchema = v.pipe(
@@ -148,6 +305,15 @@ export function decimalString(value: Decimal): string {
   const whole = value.units / scale;
   const fraction = (value.units % scale).toString().padStart(value.scale, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function compareUsageCost(left?: ConsoleUsageCost, right?: ConsoleUsageCost): number {
+  const a = decimal(left?.usd) ?? { scale: 0, units: 0n };
+  const b = decimal(right?.usd) ?? { scale: 0, units: 0n };
+  const scale = Math.max(a.scale, b.scale);
+  const difference =
+    a.units * 10n ** BigInt(scale - a.scale) - b.units * 10n ** BigInt(scale - b.scale);
+  return difference > 0n ? 1 : difference < 0n ? -1 : 0;
 }
 
 function allPresent<T>(values: Array<T | undefined>): values is T[] {
@@ -253,14 +419,26 @@ export function modelUsage(usage: ConsoleInvocationUsage): Map<string, ConsoleIn
     const model = call.model || usage.model || "Unknown model";
     groups.set(model, [...(groups.get(model) ?? []), call]);
   }
-  return new Map([...groups].map(([model, calls]) => [model, usageNode({
-    model,
-    calls: calls.map(call => ({ model: call.model, cost: call.cost, usage: {
-      ...call,
-      inputTokenDetails: { cacheReadTokens: call.cachedInputTokens, cacheWriteTokens: call.cacheWriteTokens },
-      outputTokenDetails: { reasoningTokens: call.reasoningTokens },
-    } })),
-  })!]));
+  return new Map(
+    [...groups].map(([model, calls]) => [
+      model,
+      usageNode({
+        model,
+        calls: calls.map((call) => ({
+          model: call.model,
+          cost: call.cost,
+          usage: {
+            ...call,
+            inputTokenDetails: {
+              cacheReadTokens: call.cachedInputTokens,
+              cacheWriteTokens: call.cacheWriteTokens,
+            },
+            outputTokenDetails: { reasoningTokens: call.reasoningTokens },
+          },
+        })),
+      })!,
+    ]),
+  );
 }
 
 function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsageProjection {
@@ -273,7 +451,7 @@ function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsa
     if (observation.attributes?.["vitehub.observation.truncated"] === true) {
       return { incomplete: true };
     }
-    if (usage) return { incomplete: false, usage };
+    return { incomplete: false, usage };
   }
   return { incomplete: false };
 }
@@ -407,21 +585,10 @@ function consoleError(message: string): Error {
 
 export async function createUsageSummary(
   invocations: AgentInvocations,
-  options: {
-    agentName?: string;
-    cursor?: string;
-    now?: Date | number | string;
-    window?: ConsoleUsageWindow;
-  } = {},
+  options: UsageQuery = {},
 ): Promise<Record<string, unknown>> {
-  const windowName = options.window ?? "30d";
-  const window = usageWindows[windowName];
-  if (!window) throw consoleError("Invalid usage window");
-  const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now());
-  if (!Number.isFinite(now.valueOf())) throw consoleError("Invalid usage timestamp");
-  const to = now.toISOString();
-  const fromDate = new Date(now.valueOf() - window.durationMs);
-  const from = fromDate.toISOString();
+  const { window, now, to, from, after } = usageQueryWindow(options);
+  const fromDate = new Date(from);
   const totals = emptyTotals();
   const buckets = new Map<string, UsageTotal>();
   const bucketModels = new Map<string, Map<string, UsageTotal>>();
@@ -434,9 +601,26 @@ export async function createUsageSummary(
     at: string;
     usage?: ConsoleInvocationUsage;
   }> = [];
+  const sessions: ConsoleUsageSession[] = [];
   let cursor: string | undefined;
   let partial = false;
   const scanTruncated = false;
+
+  const search = options.search?.toLowerCase();
+  const matches = (summary: AgentInvocationSummary) => {
+    const timestamp = Date.parse(usageTime(summary));
+    return (
+      ["completed", "failed", "cancelled"].includes(summary.status) &&
+      (!options.status || summary.status === options.status) &&
+      (!options.agentName || summary.agentName === options.agentName) &&
+      (!search ||
+        [summary.id, summary.title ?? "", summary.agentName ?? ""].some((value) =>
+          value.toLowerCase().includes(search),
+        )) &&
+      timestamp >= fromDate.valueOf() &&
+      timestamp <= now.valueOf()
+    );
+  };
 
   do {
     const page = await invocations.list({
@@ -444,14 +628,7 @@ export async function createUsageSummary(
       ...(cursor === undefined ? {} : { cursor }),
       limit: 100,
     });
-    const summaries = page.invocations.filter((summary) => {
-      const timestamp = Date.parse(usageTime(summary));
-      return (
-        ["completed", "failed", "cancelled"].includes(summary.status) &&
-        timestamp >= fromDate.valueOf() &&
-        timestamp <= now.valueOf()
-      );
-    });
+    const summaries = page.invocations.filter(matches);
     const records = await Promise.all(summaries.map((summary) => invocations.get(summary.id)));
     for (const [index, record] of records.entries()) {
       if (!record) {
@@ -462,14 +639,22 @@ export async function createUsageSummary(
           addMissingUsage(bucketTotal);
           buckets.set(bucket, bucketTotal);
         }
+        sessions.push(usageSession(summaries[index]!));
+        const agent = summaries[index]!.agentName ?? "";
+        const agentTotal = agents.get(agent) ?? emptyTotals();
+        addMissingUsage(agentTotal);
+        agents.set(agent, agentTotal);
         partial = true;
         continue;
       }
+      if (!matches(record)) continue;
       const bucket = bucketStart(usageTime(record), window.bucket);
       if (!bucket) continue;
       const bucketTotal = buckets.get(bucket) ?? emptyTotals();
       const projection = invocationUsageProjection(record);
       const usage = projection.usage;
+      partial ||= usage?.totalTokens === undefined;
+      sessions.push(usageSession(record, usage));
       runs.push({
         id: record.id,
         agent: record.agentName ?? "",
@@ -506,21 +691,24 @@ export async function createUsageSummary(
   } while (cursor !== undefined);
 
   const publicTotal = publicTotals(totals, !scanTruncated);
+  sessions.sort(compareSessions);
+  runs.sort(compareSessions);
+  const page = sessions
+    .filter((session) => !after || compareSessions(session, after) > 0)
+    .slice(0, 51);
+  const pageIds = new Set(page.slice(0, 50).map((session) => session.id));
 
   return {
     available: totals.invocations > 0,
+    sessions: page.slice(0, 50),
+    sessionCount: sessions.length,
     costSupported: totals.pricedInvocations > 0,
     agents: [...agents].map(([agent, total]) => ({ agent, ...publicTotals(total) })),
-    runs: runs.slice(
-      options.cursor ? Number(options.cursor) : 0,
-      (options.cursor ? Number(options.cursor) : 0) + 50,
-    ),
-    ...(runs.length > (options.cursor ? Number(options.cursor) : 0) + 50
-      ? { cursor: String((options.cursor ? Number(options.cursor) : 0) + 50) }
-      : {}),
+    runs: runs.filter((run) => pageIds.has(run.id)),
+    ...(page.length > 50 ? { cursor: usageCursor(options, to, page[49]!) } : {}),
     expensive: runs
       .filter((run) => run.usage?.cost)
-      .sort((a, b) => Number(b.usage?.cost?.usd) - Number(a.usage?.cost?.usd))
+      .sort((a, b) => compareUsageCost(b.usage?.cost, a.usage?.cost))
       .slice(0, 10),
     buckets: bucketStarts(from, to, window.bucket).map((start) => ({
       start,
