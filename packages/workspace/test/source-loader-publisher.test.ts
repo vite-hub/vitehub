@@ -1484,6 +1484,55 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.readFile("AGENTS.md")).resolves.toBeUndefined()
   })
 
+  it.each([
+    { name: "unchanged", previousMount: "", currentMount: "" },
+    { name: "removed", previousMount: "", currentMount: undefined },
+    { name: "moved from root to nested", previousMount: "", currentMount: "nested" },
+    { name: "moved from nested to root", previousMount: "nested", currentMount: "" },
+  ])("reconciles each root-mounted build source once when sources are $name", async ({ previousMount, currentMount }) => {
+    const store = createMemoryWorkspaceStore()
+    const sourceKeys = ["docs", "instructions", "notes"]
+    const createSources = (mount: string) => Object.fromEntries(sourceKeys.map(key => [key, custom({
+      mount: mount ? `${mount}/${key}` : "",
+      files: [
+        { path: `${key}.md`, content: `# ${key}\n`, metadata: { label: key } },
+        { path: `${key}-extra.md`, content: `# Extra ${key}\n`, metadata: { label: key } },
+      ],
+    })]))
+    const definition = { name: "root-build-source-reconciliation", sources: createSources(previousMount) }
+    const unrelated = { path: "unrelated.md", content: "Keep me\n", metadata: { label: "unrelated" } }
+    await store.writeFile(unrelated.path, unrelated)
+    await syncWorkspaceDefinition(definition, store)
+    const list = vi.spyOn(store, "list")
+    const readFile = vi.spyOn(store, "readFile")
+    const remove = vi.spyOn(store, "rm")
+    const currentSources = currentMount === undefined ? {} : createSources(currentMount)
+
+    await syncWorkspaceDefinition({ ...definition, sources: currentSources }, store)
+
+    expect(list.mock.calls.filter(([prefix]) => prefix === "")).toEqual(sourceKeys.map(() => ["", { recursive: true }]))
+    expect(readFile).not.toHaveBeenCalled()
+    if (!previousMount) {
+      expect(remove.mock.calls.filter(([, options]) => !options?.recursive).map(([path]) => path)).toEqual(
+        sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
+      )
+    }
+    await expect(store.getMeta?.("workspace:build-sources")).resolves.toHaveLength(Object.keys(currentSources).length)
+    await expect(store.getMeta?.("workspace:build-sources")).resolves.toEqual(expect.arrayContaining(
+      Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
+    ))
+    const expectedFiles = [unrelated, ...currentMount === undefined ? [] : sourceKeys.flatMap(key => {
+      const prefix = currentMount ? `${currentMount}/${key}/` : ""
+      return [
+        { path: `${prefix}${key}.md`, content: `# ${key}\n`, metadata: { label: key, source: key } },
+        { path: `${prefix}${key}-extra.md`, content: `# Extra ${key}\n`, metadata: { label: key, source: key } },
+      ]
+    })]
+    const entries = await store.list("", { recursive: true })
+    expect(entries.filter(entry => entry.type === "file").map(entry => entry.path)).toEqual(expectedFiles.map(file => file.path).sort())
+    for (const file of expectedFiles) await expect(store.readFile(file.path)).resolves.toMatchObject(file)
+  })
+
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")

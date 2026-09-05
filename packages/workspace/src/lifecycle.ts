@@ -182,9 +182,10 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     await store.rm(mountPath, { recursive: true, force: true })
     abortSignal?.throwIfAborted()
   }
-  for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
+  const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
+  for (const key of rootSourceKeys) {
     abortSignal?.throwIfAborted()
-    const removedPaths = await rootBuildSourceFilePaths(store, source)
+    const removedPaths = await rootBuildSourceFilePaths(store, key)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources) {
       if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
@@ -308,10 +309,10 @@ async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuil
   return value.filter(isSyncedBuildSource)
 }
 
-async function rootBuildSourceFilePaths(store: WorkspaceStore, source: SyncedBuildSource) {
+async function rootBuildSourceFilePaths(store: WorkspaceStore, key: string) {
   const entries = await store.list("", { recursive: true })
   return entries
-    .filter(entry => entry.type === "file" && entry.metadata?.source === source.key)
+    .filter(entry => entry.type === "file" && entry.metadata?.source === key)
     .map(entry => entry.path)
 }
 
