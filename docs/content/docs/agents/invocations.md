@@ -214,6 +214,20 @@ Cloudflare and OpenWorkflow create the journal after durable recovery dispatch a
 
 Vercel Agent Definitions currently run through the inline Workflow adapter because arbitrary Agent handlers cannot be embedded in Vercel's deterministic native Workflow bundle. An accepted run starts its journal in that Agent worker, and ViteHub keeps bounded journal recovery work inside the active execution. Vercel does not expose a lifecycle hook that can guarantee arbitrary Agent recovery after that execution settles, so treat its journal as best-effort and use Workflow inspection as the authority for accepted runs. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation. The run inspection metadata reports `mode: "inline"` for this path.
 
+## Append delivery evidence
+
+Use `appendObservation()` when a host must record an external delivery before or after an Invocation finishes:
+
+```ts
+const record = await invocations.appendObservation(invocationId, {
+  name: 'report.delivered',
+  type: 'capability',
+  attributes: { 'report.id': reportId },
+}, { id: `report-delivered:${reportId}` })
+```
+
+The observation ID is required, must be at most 512 characters, and makes retries idempotent within that Invocation. The store assigns the sequence atomically. This operation does not change Invocation status or its active lease, and it applies the configured content policy. The result is the stored record, or `undefined` when the Invocation does not exist. A failed write or full observation capacity throws, so a caller cannot mistake an omitted event for durable evidence. Keep the same observation ID when retrying a write whose result is unknown. Custom stores must implement the `appendObservation` field on `AgentInvocationStoreUpdateInput`; a store that ignores it fails explicitly.
+
 ## Inspect invocations in the console
 
 Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, Devframe transport, plugin, and assets do not exist when `console` is omitted or set to `false`.

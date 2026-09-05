@@ -27,8 +27,10 @@ const MAX_AGENT_CONFIGURATION_DEPTH = 8
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
+const APPENDED_OBSERVATION_ATTRIBUTE = "vitehub.observation.appended"
 const CANONICAL_TRACE_ATTRIBUTE_KEYS = new Set([
   AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE,
+  APPENDED_OBSERVATION_ATTRIBUTE,
   "vitehub.activity.owner",
   "vitehub.activity.phase",
   "vitehub.payload.summary",
@@ -94,6 +96,8 @@ export interface AgentInvocationStoreCreateResult {
 }
 
 export interface AgentInvocationStoreUpdateInput {
+  /** Append with a stable observation identity and a sequence assigned atomically by the store. */
+  appendObservation?: Omit<TraceEventLogEntry, "sequence">
   annotations?: AgentInvocationRecord["annotations"]
   capabilityIds?: readonly string[]
   error?: AgentInvocationRecord["error"]
@@ -128,6 +132,8 @@ export interface AgentInvocationsOptions {
 }
 
 export interface AgentInvocations {
+  /** Durably append evidence to a live or terminal invocation. Repeated IDs return the existing observation. */
+  appendObservation(id: string, event: TraceEvent, options: { id: string }): Promise<AgentInvocationRecord | undefined>
   readonly [agentInvocationsBrand]: true
   get(id: string): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
@@ -658,6 +664,7 @@ function boundedObservation(
   const payload = boundedObservationPayload(observation.payload, payloadBudget, builtIns)
   const canonicalAttributes: Record<string, unknown> = {}
   if (identity !== undefined) canonicalAttributes[AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE] = identity
+  if (observation.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true) canonicalAttributes[APPENDED_OBSERVATION_ATTRIBUTE] = true
   if (observation.activity) {
     canonicalAttributes["vitehub.activity.owner"] = observation.activity.owner
     canonicalAttributes["vitehub.activity.phase"] = observation.activity.phase
@@ -792,6 +799,7 @@ function outcomeObservationPriority(observation: TraceEventLogEntry): number | u
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
   if (deliveryOutcomeObservation(observation)) return 2
+  if (observation.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true) return 2
 }
 
 function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
@@ -858,6 +866,24 @@ export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
+  const isAppend = input.appendObservation !== undefined
+  if (input.appendObservation) {
+    if (input.observation) throw new TypeError("[vitehub] Append and update observations cannot be combined.")
+    const identity = observationIdentity({ ...input.appendObservation, sequence: 0 })
+    if (!identity) throw new TypeError("[vitehub] Appended observations require a stable identity.")
+    if (record.observations.some(observation => observationIdentity(observation) === identity)) return record
+    if (record.observations.length >= MAX_OBSERVATIONS) {
+      throw new Error("[vitehub] Agent Invocation observation capacity reached; evidence was not appended.")
+    }
+    input = {
+      observation: {
+        ...input.appendObservation,
+        attributes: { ...input.appendObservation.attributes, [APPENDED_OBSERVATION_ATTRIBUTE]: true },
+        sequence: record.observations.reduce((maximum, observation) => Math.max(maximum, observation.sequence), 0) + 1,
+      },
+      timestamp: input.timestamp,
+    }
+  }
   if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
   const incomingObservation = input.observation
@@ -880,6 +906,9 @@ export function applyAgentInvocationStoreUpdate(
     ? record.observations.length < MAX_OBSERVATIONS
       ? (() => {
           const observation = cloneObservation(boundedObservation(input.observation))
+          if (record.observations.some(candidate => candidate.sequence === observation.sequence)) {
+            observation.sequence = record.observations.reduce((maximum, candidate) => Math.max(maximum, candidate.sequence), 0) + 1
+          }
           const insertAt = record.observations.findIndex(candidate => candidate.sequence > observation.sequence)
           return insertAt < 0
             ? [...record.observations, observation]
@@ -913,10 +942,10 @@ export function applyAgentInvocationStoreUpdate(
     ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
       ? { observationsTruncated: true }
       : {}),
-    ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
-    ...(status === "completed" && !record.completedAt ? { completedAt: input.timestamp } : {}),
-    ...(status === "failed" && !record.failedAt ? { failedAt: input.timestamp } : {}),
-    ...(status === "cancelled" && !record.cancelledAt ? { cancelledAt: input.timestamp } : {}),
+    ...(status === "running" && !isAppend && !record.startedAt ? { startedAt: input.timestamp } : {}),
+    ...(status === "completed" && !isAppend && !record.completedAt ? { completedAt: input.timestamp } : {}),
+    ...(status === "failed" && !isAppend && !record.failedAt ? { failedAt: input.timestamp } : {}),
+    ...(status === "cancelled" && !isAppend && !record.cancelledAt ? { cancelledAt: input.timestamp } : {}),
     status,
     updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
   }
@@ -1599,6 +1628,38 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           await update({ annotations: normalizeAnnotations(annotations), timestamp: new Date().toISOString() })
         },
       }
+    },
+    async appendObservation(id, event, appendOptions) {
+      assertInvocationId(id)
+      assertInvocationId(appendOptions.id)
+      if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
+        throw new TypeError("[vitehub] Appended observation IDs must be at most 512 characters.")
+      }
+      const observation = await createTraceEventLog({ content }).append(event)
+      if (content === "metadata") {
+        for (const key of metadataContent) {
+          const descriptor = event.attributes && Object.getOwnPropertyDescriptor(event.attributes, key)
+          if (descriptor && "value" in descriptor) {
+            observation.attributes = { ...observation.attributes, [key]: structuredClone(descriptor.value) }
+          }
+        }
+        const omitted = observation.attributes?.["content.omitted"]
+        if (Array.isArray(omitted)) {
+          const remaining = omitted.filter(key => !metadataContent.has(String(key)))
+          if (remaining.length) observation.attributes!["content.omitted"] = remaining
+          else delete observation.attributes!["content.omitted"]
+        }
+      }
+      const prepared = await boundedJournalObservation({
+        ...observation,
+        attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
+      })
+      const { sequence: _sequence, ...appendObservation } = prepared
+      const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
+      if (updated && !updated.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
+        throw new Error("[vitehub] Invocation store did not persist appended observation.")
+      }
+      return updated
     },
     async get(id) {
       assertInvocationId(id)
