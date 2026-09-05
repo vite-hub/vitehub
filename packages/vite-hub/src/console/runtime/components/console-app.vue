@@ -1384,31 +1384,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__search-shortcut {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(0.25rem);
-  transition:
-    opacity 150ms ease,
-    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .vitehub-console__search:hover .vitehub-console__search-shortcut {
-    opacity: 0.75;
-    transform: translateX(0);
-  }
-}
-
-.vitehub-console__search:focus-visible .vitehub-console__search-shortcut {
-  opacity: 0.75;
-  transform: translateX(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vitehub-console__search-shortcut {
-    transform: none;
-    transition: opacity 150ms ease;
-  }
+  display: none;
 }
 
 .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
