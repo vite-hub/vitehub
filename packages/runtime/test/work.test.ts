@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createWorkTracker } from "../src/work.ts"
 
 function fixture() {
@@ -37,6 +37,27 @@ describe("work checkpoints", () => {
     await expect(tracker.run("a", "v1", async () => { throw new Error("provider unavailable") })).rejects.toThrow("could not be persisted")
     expect(await tracker.eligible("a", "v1")).toBe(false)
     expect(tracker.active).toBe(0)
+  })
+  it.each([
+    { version: 1, fingerprint: "v1", disposition: "park", attempt: 0 },
+    { version: 1, fingerprint: "v1", disposition: "retry", attempt: 8, retryAt: 400 },
+  ])("preserves $disposition state when the checkpoint read fails", async (state) => {
+    const { tracker, records, store } = fixture()
+    records.set("a", state)
+    const error = new Error("read unavailable")
+    const get = vi.spyOn(store, "get").mockRejectedValueOnce(error)
+    const set = vi.spyOn(store, "set")
+    const run = vi.fn(async () => ({ disposition: "park" as const }))
+
+    await expect(tracker.run("a", "v1", run)).rejects.toBe(error)
+    expect(run).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+    expect(records.get("a")).toBe(state)
+    expect(tracker.active).toBe(0)
+    expect(tracker.has("a")).toBe(false)
+    expect(await tracker.run("a", "v1", run)).toBe(false)
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(run).not.toHaveBeenCalled()
   })
   it("excludes concurrent owners and releases after completion", async () => {
     const { tracker } = fixture()

@@ -78,22 +78,23 @@ export function createWorkTracker(options: {
     async run(key: string, fingerprint: string, run: () => Promise<WorkOutcome>): Promise<boolean> {
       if (active.has(key)) return false
       active.add(key)
-      let previous: WorkCheckpoint | undefined
-      let current = fingerprint
       try {
-        previous = await read(key)
+        const previous = await read(key)
         if (!eligible(previous, fingerprint)) return false
-        const result = await run()
-        if (result.disposition !== "park" && result.disposition !== "retry") throw new TypeError("Work must return a park or retry disposition.")
-        current = result.fingerprint ?? fingerprint
-        await write(key, result.disposition === "retry" ? retry(current, previous)
-          : { version: 1, fingerprint: current, disposition: "park", attempt: 0 })
-        return true
-      }
-      catch (error) {
-        try { await write(key, retry(current, previous)) }
-        catch (checkpointError) { throw new AggregateError([error, checkpointError], "Work failed and its retry checkpoint could not be persisted.") }
-        throw error
+        let current = fingerprint
+        try {
+          const result = await run()
+          if (result.disposition !== "park" && result.disposition !== "retry") throw new TypeError("Work must return a park or retry disposition.")
+          current = result.fingerprint ?? fingerprint
+          await write(key, result.disposition === "retry" ? retry(current, previous)
+            : { version: 1, fingerprint: current, disposition: "park", attempt: 0 })
+          return true
+        }
+        catch (error) {
+          try { await write(key, retry(current, previous)) }
+          catch (checkpointError) { throw new AggregateError([error, checkpointError], "Work failed and its retry checkpoint could not be persisted.") }
+          throw error
+        }
       }
       finally { active.delete(key) }
     },
