@@ -15,3 +15,9 @@ The standard Console SQLite database maintains a rebuildable usage projection. C
 Backfill runs in bounded batches. `projection.complete: false` and `partial: true` mean totals are still incomplete. Refresh after backfill finishes. This projection does not change invocation retention or hold transcripts. Deleting an invocation removes its projection. A process restart resumes pending work. A custom invocation store uses its existing paginated read interface instead of the Console SQLite projection.
 
 The native SQLite regression fixture is `packages/vite-hub/test/console-usage-index.test.ts`. It exercises 100,001 invocations, exact decimal totals, missing cost, failed and cancelled runs, auxiliary calls, pagination, replay, updates, and deletion without invoking a model.
+
+## Console image attachments
+
+With Blob storage configured, the Console composer accepts PNG, JPEG, WebP, and GIF images. Each message supports up to ten images and 10 MiB combined. You can send an image with or without text. The server stores the bytes in Blob storage and gives the Driver a reference with a download callback. Invocation journals retain image metadata and URLs without serializing callbacks or image bytes. Use durable Blob storage and content-enabled Invocation storage to retain the images and their message references across restarts.
+
+The Console renders image references in input and output messages. An Agent can publish a generated image with the Blob Capability and include its URL in Markdown. The Blob Capability also rewrites artifact links in the final response.
