@@ -5,7 +5,7 @@ import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath } from "../core/path.ts"
 import { matchesAny } from "./path.ts"
 
-import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
+import type { FileSource, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
 import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
@@ -373,7 +373,7 @@ function createResourceItem<TKey extends string>(
   }
 }
 
-export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): Source<TKey> {
+export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): FileSource<TKey> {
   if (!options || typeof options !== "object" || !options.server) {
     throw new TypeError("[vitehub] mcpResources({ server }) requires an MCP server.")
   }

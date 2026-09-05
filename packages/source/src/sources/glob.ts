@@ -4,7 +4,7 @@ import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 import { matchesAny } from "./path.ts"
 
-import type { Source, SourceContext, SourceItem } from "../core/types.ts"
+import type { FileSource, SourceContext, SourceFile } from "../core/types.ts"
 
 export interface GlobSourceOptions {
   cwd?: string
@@ -16,7 +16,7 @@ export interface GlobSourceOptions {
   prefix?: string
 }
 
-export function glob(options: GlobSourceOptions): Source<string> {
+export function glob(options: GlobSourceOptions): FileSource<string> {
   let snapshot: { key: string, keys: Promise<string[]> } | undefined
   let latest: { key: string, keys: string[] } | undefined
 
@@ -92,7 +92,7 @@ export function glob(options: GlobSourceOptions): Source<string> {
     return path
   }
 
-  const source: Source<string> = {
+  const source: FileSource<string> = {
     name: "glob",
     async prepare(ctx: SourceContext) {
       snapshot = undefined
@@ -110,7 +110,7 @@ export function glob(options: GlobSourceOptions): Source<string> {
         digest: `${info.size}:${info.mtimeMs}`,
       }
     },
-    async getItem(key: string, ctx: SourceContext): Promise<SourceItem<string>> {
+    async getItem(key: string, ctx: SourceContext): Promise<SourceFile<string>> {
       await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const filePath = await resolveGlobFilePath(key, ctx)

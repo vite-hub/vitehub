@@ -1,11 +1,13 @@
 import { comarkContent, type ContentPlugin } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
+import json from "comark-content/plugins/json"
 import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
 import { setTimeout as delay } from "node:timers/promises"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 
-import { clearSources, registerSources, useSource } from "@vite-hub/source"
+import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
+import type { SourceName } from "@vite-hub/source"
 
 import { contentSource, defineContent } from "../src/index.ts"
 
@@ -25,25 +27,23 @@ function testPlugin(name: string, setup: ContentPlugin["setup"]): ContentPlugin 
 
 describe("contentSource", () => {
   it("gives Comark Content parsed documents, navigation, cache, and runtime handling", async () => {
-    registerSources({
-      docs: {
-        name: "docs",
-        async getKeys() {
-          return ["document_1"]
-        },
-        async getItem() {
-          return {
-            content: "---\ntitle: Introduction\n---\n# Start\n\nRuntime content.\n",
-            key: "document_1",
-            path: "guide/index.md",
-          }
-        },
+    const docs = defineSource({
+      name: "docs",
+      async getKeys() {
+        return ["document_1"]
+      },
+      async getItem() {
+        return {
+          content: "---\ntitle: Introduction\n---\n# Start\n\nRuntime content.\n",
+          key: "document_1",
+          path: "guide/index.md",
+        }
       },
     })
 
     const content = defineContent({
       plugins: [sqliteFullTextSearch({ database: sqlite() })],
-      sources: { docs: "docs" },
+      sources: { docs },
     })
 
     await expect(content.list("docs")).resolves.toEqual([
@@ -73,36 +73,40 @@ describe("contentSource", () => {
     await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
   })
 
-  it("uses a fresh Source Reader when Comark refreshes runtime content", async () => {
+  it.each(["definition", "name", "factory"] as const)("uses a fresh reader on refresh with a %s", async (input) => {
     let revision = 1
-    registerSources({
-      live: {
-        name: "live",
-        async resolveRevision() {
-          return { id: String(revision), immutable: true }
-        },
-        async getKeys() {
-          return ["index.md"]
-        },
-        async getItem(_key, ctx) {
-          return {
-            content: `# Revision ${ctx.revision?.id}`,
-            key: "index.md",
-          }
-        },
+    const prepared: string[] = []
+    const docs = defineSource({
+      name: "live",
+      async resolveRevision() {
+        return { id: String(revision), immutable: true }
+      },
+      async prepare(ctx) {
+        prepared.push(ctx.revision!.id)
+      },
+      async getKeys() {
+        return ["index.md"]
+      },
+      async getItem(_key, ctx) {
+        return {
+          content: `# Revision ${ctx.revision?.id}`,
+          key: "index.md",
+        }
       },
     })
-
-    const content = defineContent({ source: "live" as any })
-    await expect(content.get("/", { fresh: true })).resolves.toEqual(
-      expect.objectContaining({ nodes: expect.arrayContaining([expect.any(Array)]) }),
-    )
+    registerSources({ docs })
+    const source = input === "definition" ? docs : input === "name" ? "docs" : () => createSource(docs)
+    const content = defineContent({ sources: { live: source } })
+    const initial = await content.get("/", { fresh: true })
+    expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
 
     revision = 2
-    await content.cache.refresh("default")
+    await content.cache.refresh("live")
 
     const refreshed = await content.get("/")
     expect(JSON.stringify(refreshed?.nodes)).toContain("Revision 2")
+    expect(prepared).toContain("1")
+    expect(prepared.at(-1)).toBe("2")
   })
 
   it("keeps each adapted source on one revision while async init parsers read", async () => {
@@ -144,7 +148,7 @@ describe("contentSource", () => {
           return { data: { text }, kind: "document", partial }
         })
       })],
-      sources: { first: "first", second: "second" },
+      sources: { first: "first" as SourceName, second: "second" as SourceName },
     })
 
     await content.init()
@@ -191,7 +195,7 @@ describe("contentSource", () => {
           return { data: { text: texts[0], texts }, kind: "document", partial }
         })
       })],
-      sources: { overlap: "overlap" },
+      sources: { overlap: "overlap" as SourceName },
     })
     await content.init()
 
@@ -291,7 +295,7 @@ describe("contentSource", () => {
           return { data: { text }, kind: "document", partial }
         })
       })],
-      sources: { errors: "errors" },
+      sources: { errors: "errors" as SourceName },
     })
     await content.init()
 
@@ -316,6 +320,46 @@ describe("contentSource", () => {
     await lateParserFinished.promise
     expect(parsed).toContain("revision 2")
     expect(revision).toBe(3)
+  })
+
+  it("accepts an items-only reader and preserves its selected revision", async () => {
+    let revision = 1
+    const definition = defineSource({
+      name: "explicit",
+      async resolveRevision() {
+        return { id: String(revision), immutable: true }
+      },
+      async getKeys() {
+        return ["index.md"]
+      },
+      async getItem(key, ctx) {
+        return { content: `revision ${ctx.revision?.id}`, key }
+      },
+    })
+    const reader = createSource(definition)
+    const source = contentSource({ items: () => reader.items() })
+    await source.keys()
+    await expect(source.getItem("index.md")).resolves.toBe("revision 1")
+
+    revision = 2
+    await source.keys()
+    await expect(source.getItem("index.md")).resolves.toBe("revision 1")
+  })
+
+  it("accepts direct structured definitions in the single-source form", async () => {
+    const settings = defineSource({
+      name: "settings",
+      async getKeys() {
+        return ["settings.json"]
+      },
+      async getItem(key) {
+        return { key, data: { theme: "dark" as const } }
+      },
+    })
+    const reader = createSource(settings)
+    expectTypeOf(await reader.get("settings.json")).toMatchTypeOf<{ data: { theme: "dark" } }>()
+    const content = defineContent({ plugins: [json()], source: settings })
+    await expect(content.get("/settings")).resolves.toEqual(expect.objectContaining({ data: { theme: "dark" } }))
   })
 
   it("serves media from the latest refreshed reader", async () => {
@@ -390,7 +434,7 @@ describe("contentSource", () => {
           return { data: { text: texts[0] }, kind: "document", partial }
         })
       })],
-      sources: { direct: contentSource("direct") },
+      sources: { direct: contentSource("direct" as SourceName) },
     })
 
     await content.init()
@@ -422,7 +466,7 @@ describe("contentSource", () => {
         },
       },
     })
-    const source = contentSource("raw")
+    const source = contentSource("raw" as SourceName)
 
     await expect(source.keys()).resolves.toEqual(["logo.png"])
     await expect(source.getItemRaw("logo.png")).resolves.toEqual(Uint8Array.of(1))
@@ -433,7 +477,7 @@ describe("contentSource", () => {
 
   it("preserves adapted source options across fresh load adapters", () => {
     const schema = { properties: { title: { type: "string" } }, type: "object" } as const
-    const source = contentSource(contentSource("options", { prefix: "/base", schema }), { prefix: "/docs" })
+    const source = contentSource(contentSource("options" as SourceName, { prefix: "/base", schema }), { prefix: "/docs" })
     const content = defineContent({ sources: { docs: source } })
 
     expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
@@ -441,8 +485,8 @@ describe("contentSource", () => {
 
   it("rejects source and sources together", () => {
     expect(() => defineContent({
-      source: "source",
-      sources: { docs: "sources" },
+      source: "source" as SourceName,
+      sources: { docs: "sources" as SourceName },
     })).toThrow()
   })
 

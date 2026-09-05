@@ -15,7 +15,8 @@ export type {
   CollectionRequestQuery,
 } from "./core/collection.ts"
 export { combineSources } from "./core/combine-sources.ts"
-export { createSource, defineSource, defineSources } from "./core/define.ts"
+export { defineSource, defineSources } from "./core/define.ts"
+export { createSource } from "./core/reader.ts"
 export {
   clearSources,
   getRegisteredSource,
@@ -26,4 +27,3 @@ export {
 export type * from "./core/types.ts"
 export type { SourceErrorCode } from "./core/errors.ts"
 export { sourceIgnores } from "./ignores.ts"
-export { custom } from "./sources/custom.ts"

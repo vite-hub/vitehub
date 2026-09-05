@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   clearSources,
-  custom,
+  defineSource,
   defineSources,
   registerSource,
   registerSources,
@@ -56,7 +56,7 @@ describe("@vite-hub/source registry", () => {
   it("registers sources and reads through useSource", async () => {
     registerSources(defineSources({
       docs: file({ content: "# Docs\n", workspacePath: "README.md" }),
-      custom: custom({
+      custom: defineSource({
         name: "custom",
         async getKeys() {
           return ["data.json"]
@@ -86,7 +86,7 @@ describe("@vite-hub/source registry", () => {
       { data: { title: "Two" }, key: "two" },
     ])
 
-    registerSource("articles", custom({
+    registerSource("articles", defineSource({
       name: "articles",
       async getKeys() {
         return ["one", "two"]
@@ -109,7 +109,7 @@ describe("@vite-hub/source registry", () => {
     let receivedSignal: AbortSignal | undefined
 
     registerSources({
-      custom: custom({
+      custom: defineSource({
         name: "custom",
         async getKeys(ctx) {
           receivedSignal = ctx.abortSignal

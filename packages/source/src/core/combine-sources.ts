@@ -78,12 +78,13 @@ interface CombinedSourcesDefinition<TSources extends CombinedSources> {
   readonly sources: TSources & ValidCombinedSources<TSources> & Record<Exclude<keyof TSources, string>, never>
 }
 
-interface CombinedSourcesReader<TSources extends CombinedSources> {
+type CombinedSourcesReader<TSources extends CombinedSources> = {
   get<const TIdentity extends CombinedIdentity<TSources>>(
     identity: TIdentity,
   ): Promise<CombinedIdentityValue<TSources, TIdentity>>
-  items(): Promise<Array<CombinedItem<TSources>>>
-}
+} & (TSources[keyof TSources] extends { items(): Promise<Array<{ key: string }>> }
+  ? { items(): Promise<Array<CombinedItem<TSources>>> }
+  : {})
 
 export function combineSources<const TSources extends CombinedSources>(
   definition: CombinedSourcesDefinition<TSources>,
@@ -134,5 +135,9 @@ export function combineSources<const TSources extends CombinedSources>(
     return flattened as Array<CombinedItem<TSources>>
   }
 
-  return { get, items }
+  const reader = Object.values(sources).every(source => source.items instanceof Function)
+    ? { get, items }
+    : { get }
+  // SAFETY: Enumeration is exposed only when every input reader supports it.
+  return reader as CombinedSourcesReader<TSources>
 }

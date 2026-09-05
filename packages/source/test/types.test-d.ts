@@ -7,13 +7,16 @@ import {
   combineSources,
   type CollectionQuery,
   createSource,
-  custom,
   defineCollection,
   defineSource,
   defineSources,
   registerSources,
   sourceIgnores,
   type Source,
+  type FileSource,
+  type SourceFile,
+  type SourceContext,
+  type SourceReader,
   type SourceData,
   type SourceItem,
   type SourceMetadata,
@@ -46,12 +49,12 @@ declare global {
   interface ViteHubSourceMap {
     articles: Source
     custom: Source
-    dbt: Source
-    docs: Source<"README.md" | "guide/setup.md">
-    dynamic: Source
-    github: Source
+    dbt: FileSource
+    docs: FileSource<"README.md" | "guide/setup.md">
+    dynamic: FileSource
+    github: FileSource
     meals: Source<`meal_${string}`, Meal, MealMetadata>
-    readme: Source<"README.md">
+    readme: FileSource<"README.md">
   }
 }
 
@@ -68,15 +71,15 @@ describe("@vite-hub/source types", () => {
       }
     }
 
-    const keyedDefinition = defineSource(context => ({
+    const keyedDefinition = (context: SourceContext) => ({
       async get(month: "2026-07") {
         return { month, rootDir: context.rootDir }
       },
-    }))
+    })
     const collection = combineSources({
       sources: {
         count: reader("same", 1),
-        keyed: createSource(keyedDefinition, { rootDir: "/recaps" }),
+        keyed: keyedDefinition({ rootDir: "/recaps" }),
         title: reader("same", "Title"),
       },
     })
@@ -89,7 +92,8 @@ describe("@vite-hub/source types", () => {
       month: "2026-07"
       rootDir: string
     }>()
-    expectTypeOf((await collection.items())[0]!.source).toEqualTypeOf<"count" | "title">()
+    // @ts-expect-error A get-only input cannot enumerate.
+    collection.items()
 
     const variants = combineSources({
       sources: {
@@ -172,8 +176,8 @@ describe("@vite-hub/source types", () => {
             },
           }
     const mixedCollection = combineSources({ sources: { mixed: mixedUnion } })
-    const mixedIdentity = (await mixedCollection.items())[0]!.identity
-    await mixedCollection.get(mixedIdentity)
+    // @ts-expect-error Every possible reader variant must support enumeration.
+    mixedCollection.items()
     combineSources({
       sources: {
         // @ts-expect-error Mixed reader unions cannot emit a variant-only key either
@@ -221,6 +225,74 @@ describe("@vite-hub/source types", () => {
     })
     // @ts-expect-error Collection aliases must be strings
     combineSources({ sources: { 0: reader("same", 1) } })
+  })
+
+  it("infers direct reader records and restricts file methods to readable items", async () => {
+    const records = defineSource({
+      name: "records",
+      async getKeys() { return ["article_1"] },
+      async getItem(key: `article_${number}`) {
+        return { key, data: { title: "One", count: 1 }, metadata: { revision: "1" } }
+      },
+      async getMeta() { return { revision: "1" } },
+    })
+    const reader = createSource(records)
+    const item = await reader.get("article_1")
+    expectTypeOf(item.data).toEqualTypeOf<{ title: string; count: number }>()
+    expectTypeOf(item.metadata).toEqualTypeOf<{ revision: string }>()
+    expectTypeOf<SourceData<typeof records>>().toEqualTypeOf<{ title: string; count: number }>()
+    expectTypeOf<SourceMetadata<typeof records>>().toEqualTypeOf<{ revision: string }>()
+    expectTypeOf(reader).toEqualTypeOf<SourceReader<typeof records>>()
+    expectTypeOf(await reader.items()).toEqualTypeOf<Array<typeof item>>()
+    // @ts-expect-error Record readers have no readable content guarantee.
+    reader.read("article_1")
+    // @ts-expect-error Record keys are not filesystem directories.
+    reader.list()
+    // @ts-expect-error The reader retains the definition's key type.
+    reader.get("other")
+
+    const docs = createSource(file("README.md"))
+    expectTypeOf(await docs.read("README.md")).toBeString()
+    expectTypeOf(await docs.read("README.md", { encoding: "binary" })).toEqualTypeOf<Uint8Array>()
+    // @ts-expect-error File keys stay inferred without a global map.
+    docs.read("missing.md")
+    // @ts-expect-error Definitions describe loaders; keyed readers are plain objects.
+    defineSource({ get: async (key: string) => key })
+    // @ts-expect-error createSource opens a definition, not an arbitrary reader factory.
+    createSource(() => ({ get: async (key: string) => key }))
+  })
+
+  it("accepts only shared keys when a direct definition is a union", async () => {
+    const definition = Math.random() > 0.5 ? file("a.md") : file("b.md")
+    const reader = createSource(definition)
+    expectTypeOf(await reader.keys()).toEqualTypeOf<"a.md"[] | "b.md"[]>()
+    // @ts-expect-error A key must be valid for every possible definition.
+    reader.get("a.md")
+    // @ts-expect-error File helpers retain the same safe input keys.
+    reader.read("b.md")
+  })
+
+  it("preserves optional bulk and metadata implementations", async () => {
+    const source = defineSource({
+      name: "records",
+      async getKeys() { return ["one"] },
+      async getItem(key: string) { return { key, data: { title: "One" } } },
+      ...(Math.random() > 0.5 ? {
+        async getItems() { return [{ key: "one", data: { count: 1 } }] },
+        async getMeta() { return { revision: "1" } },
+      } : {}),
+    })
+    const reader = createSource(source)
+    expectTypeOf(await reader.items()).toEqualTypeOf<
+      Array<{ key: string; data: { title: string } }> | Array<{ key: string; data: { count: number } }>
+    >()
+    expectTypeOf(await reader.meta("one")).toEqualTypeOf<{ revision: string } | undefined>()
+    const noMeta = createSource(defineSource({
+      name: "records",
+      async getKeys() { return ["one"] },
+      async getItem(key: string) { return { key, data: { title: "One" } } },
+    }))
+    expectTypeOf(await noMeta.meta("one")).toEqualTypeOf<undefined>()
   })
 
   it("infers Collection source rows, transformed items, cursors, and queries", async () => {
@@ -320,15 +392,15 @@ describe("@vite-hub/source types", () => {
     const dynamic = useSource("dynamic")
 
     expectTypeOf(await docs.keys()).toEqualTypeOf<Array<"README.md" | "guide/setup.md">>()
-    expectTypeOf(await docs.get("README.md")).toEqualTypeOf<SourceItem<"README.md" | "guide/setup.md">>()
+    expectTypeOf(await docs.get("README.md")).toEqualTypeOf<SourceFile<"README.md" | "guide/setup.md">>()
     expectTypeOf(await docs.read("README.md")).toEqualTypeOf<string>()
     expectTypeOf(await docs.read("README.md", { encoding: "binary" })).toEqualTypeOf<Uint8Array>()
     expectTypeOf(await docs.exists("guide/setup.md")).toEqualTypeOf<boolean>()
     expectTypeOf(await docs.meta("README.md")).toEqualTypeOf<Record<string, unknown> | undefined>()
     expectTypeOf(await docs.revision()).toEqualTypeOf<SourceRevision | undefined>()
     expectTypeOf(await dynamic.keys()).toEqualTypeOf<string[]>()
-    expectTypeOf<SourceData<"meals">>().toEqualTypeOf<Meal>()
-    expectTypeOf<SourceMetadata<"meals">>().toEqualTypeOf<MealMetadata>()
+    expectTypeOf<SourceData<ViteHubSourceMap["meals"]>>().toEqualTypeOf<Meal>()
+    expectTypeOf<SourceMetadata<ViteHubSourceMap["meals"]>>().toEqualTypeOf<MealMetadata>()
 
     const meal = await useSource("meals").get("meal_123")
     expectTypeOf(meal).toEqualTypeOf<SourceItem<`meal_${string}`, Meal, MealMetadata>>()
@@ -347,7 +419,7 @@ describe("@vite-hub/source types", () => {
 
   it("preserves explicit source key generics", async () => {
     const source = defineSource(
-      custom({
+      {
         name: "typed",
         async getKeys() {
           return ["one.md", "two.md"]
@@ -355,7 +427,7 @@ describe("@vite-hub/source types", () => {
         async getItem(key: "one.md" | "two.md") {
           return { key, content: "# Doc\n" }
         },
-      } satisfies Source<"one.md" | "two.md">),
+      } satisfies Source<"one.md" | "two.md">,
     )
 
     expectTypeOf(source).toMatchTypeOf<Source<"one.md" | "two.md">>()
@@ -363,7 +435,7 @@ describe("@vite-hub/source types", () => {
 
   it("preserves record and metadata types from a custom source", async () => {
     const source: Source<"meal_123", Meal, MealMetadata> = defineSource(
-      custom({
+      {
         name: "meals",
         async getKeys() {
           return ["meal_123"] as const
@@ -380,7 +452,7 @@ describe("@vite-hub/source types", () => {
             metadata: { revision: "1" },
           }
         },
-      } satisfies Source<"meal_123", Meal, MealMetadata>),
+      } satisfies Source<"meal_123", Meal, MealMetadata>,
     )
 
     expectTypeOf(await source.getItem("meal_123", { rootDir: "." })).toEqualTypeOf<

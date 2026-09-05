@@ -22,11 +22,12 @@ pnpm add vite-hub comark-content
 import sqlite from 'comark-content/database/sqlite-node'
 import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
+import { glob } from 'vite-hub/source/glob'
 
 export const content = defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
-    docs: 'docs',
+    docs: glob({ include: 'docs/**/*.md' }),
   },
 })
 
@@ -37,9 +38,11 @@ await content.search(['docs'], 'runtime')
 
 ViteHub discovers `server/content.ts` and serves its exported `content` instance at `/api/content/**` in Vite and Nuxt. No manual framework route or `fetch()` wrapper is required.
 
-Registered ViteHub Source names, explicit Source Readers, and native Comark Content Sources can coexist. `defineContent()` gives each adapted Source load a separate adapter that keeps its selected Reader until all parser reads finish. Registered Source names and Reader factories select a new Reader for each load. Explicit Readers stay fixed. Overlapping refreshes, fresh snapshots, and fresh document reads therefore keep their selected revisions. Raw media uses the newest successfully enumerated Source revision. Native Comark Content Sources pass through unchanged.
+Pass Source definitions directly without registration. `defineContent()` gives each adapted Source load a separate adapter that keeps its selected Reader until all parser reads finish. Each definition, registered name, or reader factory selects a new Reader for each load. Overlapping refreshes, fresh snapshots, and fresh document reads keep their selected revisions. Use `defineContent({ source: definition })` for a single Source.
 
-A direct `contentSource()` adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Use `defineContent()` to isolate overlapping loads.
+Explicit readers and native Comark Content Sources can coexist with definitions. An explicit reader keeps its selected revision across refreshes. Readers only need an `items()` method. Raw media uses the newest successfully enumerated Source revision. Native Comark Content Sources keep their own loading behavior.
+
+Use `contentSource(definition, { prefix, schema })` to set Comark options for one Source. A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Use `defineContent()` to isolate overlapping loads.
 
 Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed document cache entries and exposes `refresh(source)`, `invalidate(key)`, and `expire(key)`.
 
