@@ -10,6 +10,19 @@ import { agentGeneratedRuntimeError } from "../src/server/generated-runtime-erro
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts"
 
 describe("Agent diagnostics", () => {
+  it("explains a provider CLI version rejection without displaying its JSON envelope", () => {
+    const message = "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.";
+    const error = agentDiagnostics.AGENT_R0726({ message: JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message } }) });
+    expect(error.message).toBe(message);
+    expect(error.fix).toContain("Upgrade the Codex CLI in the Agent runner");
+  });
+
+  it("preserves unstructured provider failures", () => {
+    for (const message of ["Provider disconnected", "{malformed", JSON.stringify({ error: null })]) {
+      expect(agentDiagnostics.AGENT_R0726({ message }).message).toBe(message);
+    }
+  });
+
   it("preserves the HTTP input-error classification for application errors", () => {
     expect(isAgentTypeDiagnostic(new TypeError("Invalid application input"))).toBe(true)
     expect(isAgentTypeDiagnostic(agentDiagnostics.AGENT_R0004({ message: "Invalid attachment" }))).toBe(true)

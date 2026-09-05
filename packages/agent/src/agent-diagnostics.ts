@@ -1206,9 +1206,20 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0724: dynamicError,
     AGENT_R0725: dynamicError,
     AGENT_R0726: {
-      ...dynamicError,
+      why: ({ message }: { message?: unknown }) => {
+        const reason = String(message ?? "");
+        try {
+          const payload: unknown = JSON.parse(reason);
+          if (payload && typeof payload === "object" && "error" in payload) {
+            const error = payload.error;
+            if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+          }
+        } catch {}
+        return reason;
+      },
       fix: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
+        if (/requires a newer version of Codex/i.test(reason)) return "Upgrade the Codex CLI in the Agent runner and redeploy it, then start a new run.";
         if (/spend.?cap|spend(ing)? limit|budget.*exceed/i.test(reason)) return "Raise the provider workspace spending limit or wait for its billing reset, then start a new run.";
         if (/rate.?limit|too many requests|quota.*exhaust/i.test(reason)) return "Wait for the provider quota to reset, then retry. Reduce concurrent runs if this keeps happening.";
         if (/unauthori[sz]ed|authentication|signed out|invalid.api.key/i.test(reason)) return "Sign in again or update the provider credential, then retry.";
