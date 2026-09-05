@@ -5,6 +5,7 @@ import { parseConsoleFixture } from "../../packages/vite-hub/src/console/fixture
 import {
   createUsageSummary,
   invocationUsage,
+  parseConsoleUsageStatus,
   parseConsoleUsageWindow,
 } from "../../packages/vite-hub/src/console/runtime/server/usage.ts"
 import { consoleSearchExcerpt } from "../../packages/vite-hub/src/console/runtime/server/search.ts"
@@ -195,6 +196,17 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
+  if (path === "/api/_vitehub/console/status") {
+    json(response, { agents: [...new Set(fixture.invocations.map(record => record.agentName).filter(Boolean))].map(agent => ({
+      agent,
+      checkedAt: "2026-08-30T18:00:00.000Z",
+      readiness: "unsupported",
+      stale: false,
+      reason: "Synthetic playground data",
+    })) })
+    return true
+  }
+
   if (path === "/api/_vitehub/console/invocations") {
     const ids = url.searchParams.getAll("id")
     if (ids.length) {
@@ -244,6 +256,9 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     }
     json(response, await createUsageSummary(invocations, {
       agentName: url.searchParams.get("agent") || undefined,
+      cursor: url.searchParams.get("cursor") || undefined,
+      search: url.searchParams.get("search") || undefined,
+      status: parseConsoleUsageStatus(url.searchParams.get("status") || ""),
       now: "2026-08-30T18:00:00.000Z",
       window,
     }))

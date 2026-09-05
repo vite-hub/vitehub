@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import * as v from "valibot";
 
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
 
@@ -50,6 +50,16 @@ const usageRunSchema = v.object({
     }),
   ),
 });
+const usageSessionSchema = v.object({
+  id: v.string(),
+  agent: v.string(),
+  title: v.optional(v.string()),
+  status: v.picklist(["completed", "failed", "cancelled"]),
+  at: v.string(),
+  models: v.array(v.string()),
+  partial: v.boolean(),
+  totals: usageTotalsSchema,
+});
 const providerStatusSchema = v.object({
   agents: v.array(
     v.object({
@@ -82,6 +92,8 @@ const usageSummarySchema = v.object({
   available: v.boolean(),
   costSupported: v.boolean(),
   agents: v.array(v.object({ ...usageTotalsEntries, agent: v.string() })),
+  sessions: v.array(usageSessionSchema),
+  sessionCount: v.number(),
   runs: v.array(usageRunSchema),
   expensive: v.array(usageRunSchema),
   cursor: v.optional(v.string()),
@@ -99,22 +111,60 @@ type UsageTotals = v.InferOutput<typeof usageTotalsSchema>;
 type UsageSummary = v.InferOutput<typeof usageSummarySchema>;
 
 const route = useRoute();
+const router = useRouter();
 const props = defineProps<{ base: string }>();
 const emit = defineEmits<{ openSessions: [] }>();
-const window = ref<UsageWindow>("30d");
+function setFilter(key: string, value: string) {
+  void router.replace({ query: { ...route.query, [key]: value || undefined } });
+}
+const window = computed<UsageWindow>({
+  get: () => {
+    const parsed = v.safeParse(v.picklist(["24h", "7d", "30d", "90d"]), route.query.window);
+    return parsed.success ? parsed.output : "30d";
+  },
+  set: value => setFilter("window", value),
+});
 const metric = ref<UsageMetric>("cost");
 const breakdown = ref<UsageBreakdown>("model");
 const summary = ref<UsageSummary>();
 const loading = ref(true);
 const error = ref<unknown>();
-const agent = ref("");
+const agent = computed(() => String(route.query.agent || ""));
+const selectedAgent = computed({
+  get: () => agent.value ? `agent:${agent.value}` : "all",
+  set: (value: string) => setFilter("agent", value.startsWith("agent:") ? value.slice(6) : ""),
+});
+const status = computed({
+  get: () => {
+    const parsed = v.safeParse(v.picklist(["completed", "failed", "cancelled"]), route.query.status);
+    return parsed.success ? parsed.output : "all";
+  },
+  set: (value: string) => setFilter("status", value === "all" ? "" : value),
+});
+const search = computed(() => String(route.query.search || "").trim());
+const searchInput = ref(search.value);
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(search, value => { searchInput.value = value; });
+watch(searchInput, value => {
+  clearTimeout(searchTimer);
+  if (value.trim() === search.value) return;
+  searchTimer = setTimeout(() => setFilter("search", value.trim()), 250);
+});
+const statusOptions = [
+  { label: "All statuses", value: "all" },
+  { label: "Completed", value: "completed" },
+  { label: "Failed", value: "failed" },
+  { label: "Cancelled", value: "cancelled" },
+];
+const statusIcons = { completed: "i-lucide-check", failed: "i-lucide-x", cancelled: "i-lucide-ban" };
+const statusLabels = { completed: "Completed", failed: "Failed", cancelled: "Cancelled" };
 const statuses = ref<v.InferOutput<typeof providerStatusSchema>["agents"]>([]);
 const statusError = ref<string>();
 const runCursor = ref<string>();
 const previousCursors = ref<Array<string | undefined>>([]);
 const costSupported = computed(() => summary.value?.costSupported === true);
 const agentOptions = computed(() => [
-  { label: "All agents", value: "" },
+  { label: "All agents", value: "all" },
   ...[
     ...new Set([
       ...statuses.value.map((status) => status.agent),
@@ -123,22 +173,21 @@ const agentOptions = computed(() => [
   ]
     .filter(Boolean)
     .sort()
-    .map((value) => ({ label: value, value })),
+    .map((value) => ({ label: value, value: `agent:${value}` })),
 ]);
-function runRoute(run: v.InferOutput<typeof usageRunSchema>) {
+function runRoute(run: { id: string; agent: string }) {
   try {
     return { name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"), params: { agent: encodeAgentRouteParam(run.agent), invocation: run.id } };
   } catch { return undefined; }
 }
 
 function nextRuns() {
-  previousCursors.value.push(runCursor.value);
-  runCursor.value = summary.value?.cursor;
-  void load();
+  if (loading.value || !summary.value?.cursor) return;
+  void loadPage({ cursor: summary.value.cursor, previous: [...previousCursors.value, runCursor.value] });
 }
 function previousRuns() {
-  runCursor.value = previousCursors.value.pop();
-  void load();
+  if (loading.value || !previousCursors.value.length) return;
+  void loadPage({ cursor: previousCursors.value.at(-1), previous: previousCursors.value.slice(0, -1) });
 }
 
 let request: AbortController | undefined;
@@ -267,13 +316,13 @@ function formatMetricNumber(value: number): string {
 }
 
 function formatTokenEvidence(value: number, complete: boolean): string {
-  if (!complete && value === 0) return "—";
+  if (!complete && value === 0) return "Unavailable";
   const display = formatTokens(value);
   return complete ? display : `${display} recorded`;
 }
 
 function formatCostEvidence(value: string, estimated: boolean, complete: boolean): string {
-  if (!complete && (Number(value) || 0) === 0) return "—";
+  if (!complete && (Number(value) || 0) === 0) return "Unavailable";
   const display = formatCost(value, estimated);
   return complete ? display : `${display} recorded`;
 }
@@ -297,6 +346,14 @@ function errorMessage(value: unknown): string | undefined {
 }
 
 async function load(): Promise<void> {
+  return loadPage({ cursor: runCursor.value, previous: previousCursors.value });
+}
+
+async function refresh(): Promise<void> {
+  return loadPage({ cursor: undefined, previous: [] });
+}
+
+async function loadPage(page: { cursor: string | undefined; previous: Array<string | undefined> }): Promise<void> {
   request?.abort();
   const controller = new AbortController();
   request = controller;
@@ -309,13 +366,17 @@ async function load(): Promise<void> {
         query: {
           window: window.value,
           ...(agent.value ? { agent: agent.value } : {}),
-          ...(runCursor.value ? { cursor: runCursor.value } : {}),
+          ...(status.value !== "all" ? { status: status.value } : {}),
+          ...(search.value ? { search: search.value } : {}),
+          ...(page.cursor ? { cursor: page.cursor } : {}),
         },
         signal: controller.signal,
       }),
     );
     if (request !== controller) return;
     summary.value = result;
+    runCursor.value = page.cursor;
+    previousCursors.value = page.previous;
     error.value = undefined;
     if (!result.costSupported) metric.value = "tokens";
   } catch (value) {
@@ -342,205 +403,100 @@ async function loadStatus(): Promise<void> {
   }
 }
 watch(
-  [() => props.base, window, agent],
+  [() => props.base, window, agent, status, search],
   () => {
     runCursor.value = undefined;
     previousCursors.value = [];
+    summary.value = undefined;
     void load();
-    void loadStatus();
   },
   { immediate: true },
 );
-onBeforeUnmount(() => request?.abort());
+watch(() => props.base, () => { void loadStatus(); }, { immediate: true });
+onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 </script>
 
 <template>
-  <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 gap-0' }">
+  <UDashboardPanel id="console-usage" class="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 gap-0' }">
     <template #header>
       <UDashboardNavbar title="Usage" :ui="{ root: 'border-b border-default' }">
         <template #right>
-          <UTooltip text="Open sessions">
-            <UButton
-              class="lg:hidden"
-              icon="i-ph-sidebar-simple-light"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Open sessions"
-              @click="emit('openSessions')"
-            />
-          </UTooltip>
-          <div
-            v-if="summary"
-            class="hidden rounded-md bg-elevated p-0.5 sm:inline-flex"
-            aria-label="Usage metric"
-          >
-            <UButton
-              v-for="option in metricOptions"
-              :key="option.value"
-              :label="option.label"
-              color="neutral"
-              size="xs"
-              :variant="metric === option.value ? 'solid' : 'ghost'"
-              @click="metric = option.value"
-            />
-          </div>
-          <USelect
-            v-model="agent"
-            :items="agentOptions"
-            value-key="value"
-            aria-label="Agent"
-            size="sm"
-            class="max-w-44"
-          />
-          <USelect
-            v-model="window"
-            aria-label="Usage period"
-            class="w-24 sm:w-28"
-            size="sm"
-            value-key="value"
-            :items="windowOptions"
-          />
-          <UTooltip text="Refresh usage">
-            <UButton
-              class="hidden sm:inline-flex"
-              aria-label="Refresh usage"
-              color="neutral"
-              icon="i-ph-arrows-clockwise-light"
-              size="sm"
-              variant="ghost"
-              :loading="loading"
-              @click="
-                load();
-                loadStatus();
-              "
-            />
-          </UTooltip>
+          <UButton class="md:hidden" icon="i-lucide-panel-left" color="neutral" variant="ghost" size="sm" aria-label="Open sessions" @click="emit('openSessions')" />
+          <USelect v-model="window" aria-label="Usage period" class="w-28" size="sm" value-key="value" :items="windowOptions" />
+          <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
         </template>
       </UDashboardNavbar>
     </template>
-
     <template #body>
-      <main class="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 lg:py-10">
-        <div
-          v-if="summary"
-          class="inline-flex self-start rounded-md bg-elevated p-0.5 sm:hidden"
-          aria-label="Usage metric"
-        >
-          <UButton
-            v-for="option in metricOptions"
-            :key="option.value"
-            :label="option.label"
-            color="neutral"
-            size="xs"
-            :variant="metric === option.value ? 'solid' : 'ghost'"
-            @click="metric = option.value"
-          />
+      <main class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6" :aria-busy="loading">
+        <div class="flex flex-wrap items-center gap-2" role="search" aria-label="Session history filters">
+          <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-80" size="sm" />
+          <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
+          <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
         </div>
-        <section class="rounded-lg border border-default">
-          <div class="border-b border-default px-5 py-3">
-            <h2 class="text-sm font-semibold">ViteHub status</h2>
-            <p class="mt-1 text-xs text-muted">
-              Account and subscription checks. These checks do not send a message to the model.
-            </p>
+        <UAlert v-if="errorMessage(error)" color="error" variant="subtle" title="Could not load session history" :description="errorMessage(error)" :actions="[{ label: 'Try again', onClick: load }]" />
+        <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
+          <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" />
+          Some usage is unavailable. Recorded totals include only the evidence received.
+        </p>
+        <template v-if="summary">
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4" aria-label="Session history totals">
+            <div><dt class="text-xs text-muted">Sessions</dt><dd class="mt-1 text-2xl font-semibold tabular-nums">{{ summary.sessionCount.toLocaleString('en') }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</dd></div>
+            <div><dt class="text-xs text-muted">Tokens</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatTokenEvidence(summary.totals.totalTokens, summary.totals.totalTokensAvailable) }}</dd></div>
+            <div v-if="costSupported"><dt class="text-xs text-muted">Cost</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatCostEvidence(summary.totals.costUsd, summary.totals.costEstimated, summary.totals.costAvailable) }}</dd></div>
+            <div v-if="costSupported"><dt class="text-xs text-muted">Average per priced session</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.totals.averageCostUsd === undefined ? 'Unavailable' : formatCost(summary.totals.averageCostUsd, summary.totals.costEstimated) }}</dd></div>
+          </dl>
+        </template>
+        <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history...</p>
+        <section v-if="summary" aria-labelledby="session-history-heading">
+          <div class="mb-3 flex items-baseline justify-between gap-3">
+            <h2 id="session-history-heading" class="text-sm font-semibold">Session history</h2>
+            <span class="text-xs text-muted">Newest first</span>
           </div>
-          <p v-if="statusError" class="p-5 text-sm text-warning">{{ statusError }}</p>
-          <div v-else class="grid divide-y divide-default lg:grid-cols-2 lg:divide-y-0">
-            <article
-              v-for="status in statuses.filter((item) => !agent || item.agent === agent)"
-              :key="status.agent"
-              class="space-y-3 p-5"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h3 class="text-sm font-medium">{{ status.agent }}</h3>
-                  <p class="text-xs text-muted">{{ status.provider || "Provider" }}</p>
-                </div>
-                <UBadge
-                  :color="
-                    status.readiness === 'ready' && !status.stale
-                      ? 'success'
-                      : status.readiness === 'unavailable'
-                        ? 'error'
-                        : 'neutral'
-                  "
-                  variant="subtle"
-                  >{{ status.stale ? "Stale" : status.readiness }}</UBadge
-                >
-              </div>
-              <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
-              <div class="flex flex-wrap gap-4 text-xs text-muted">
-                <span v-if="status.authenticated !== undefined"
-                  >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
-                >
-                <span>Checked {{ formatPeriod(status.checkedAt, "hour") }}</span>
-              </div>
-              <div
-                v-for="limit in status.usageLimits?.windows ?? []"
-                :key="limit.id"
-                class="space-y-1.5"
-              >
-                <div class="flex justify-between gap-3 text-xs">
-                  <span>{{ limit.label }}</span
-                  ><span class="tabular-nums">{{ limit.usedPercent.toFixed(0) }}% used</span>
-                </div>
-                <progress
-                  class="h-1.5 w-full accent-primary"
-                  :value="Math.min(100, Math.max(0, limit.usedPercent))"
-                  max="100"
-                  :aria-label="limit.label"
-                />
-                <p v-if="limit.resetsAt" class="text-xs text-muted">
-                  Resets {{ formatPeriod(limit.resetsAt, "hour") }}
-                </p>
-              </div>
-              <p v-if="status.usageLimits?.unavailable" class="text-xs text-muted">
-                Subscription usage
-                {{
-                  status.usageLimits.unavailable.reason === "unsupported"
-                    ? "is not reported by this provider"
-                    : "could not be checked"
-                }}.
-              </p>
-            </article>
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[42rem] table-fixed text-sm" data-slot="session-history">
+              <thead class="border-b border-default text-left text-xs text-muted">
+                <tr>
+                  <th class="w-[34%] py-2 pr-4 font-medium" scope="col">Session</th>
+                  <th class="w-[19%] py-2 pr-4 font-medium" scope="col">Agent / model</th>
+                  <th class="w-[15%] py-2 pr-4 font-medium" scope="col">Last activity</th>
+                  <th class="w-[13%] py-2 pr-4 font-medium" scope="col">Status</th>
+                  <th class="py-2 pl-2 text-right font-medium" scope="col">Tokens</th>
+                  <th v-if="costSupported" class="py-2 pl-4 text-right font-medium" scope="col">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="session in summary.sessions" :key="session.id" class="border-b border-default/50 hover:bg-elevated/40">
+                  <td class="py-3 pr-4 align-top">
+                    <RouterLink v-if="runRoute(session)" :to="runRoute(session)!" class="block truncate font-medium text-highlighted underline-offset-4 hover:underline focus-visible:underline" :title="session.title || session.id">{{ session.title || session.id }}</RouterLink>
+                    <span v-else class="block truncate" :title="session.title || session.id">{{ session.title || session.id }}</span>
+                  </td>
+                  <td class="py-3 pr-4 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
+                  <td class="py-3 pr-4 align-top text-xs text-muted"><time :datetime="session.at" :title="new Date(session.at).toLocaleString()">{{ formatPeriod(session.at, 'hour') }}</time></td>
+                  <td class="py-3 pr-4 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-error' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" />{{ statusLabels[session.status] }}</span></td>
+                  <td class="py-3 pl-2 text-right align-top text-xs tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
+                  <td v-if="costSupported" class="py-3 pl-4 text-right align-top text-xs font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
+                </tr>
+                <tr v-if="!summary.sessions.length"><td :colspan="costSupported ? 6 : 5" class="py-12 text-center text-sm text-muted">{{ !summary.totals.invocationsAvailable ? 'Session history is still loading. Refresh to check progress.' : search || agent || status !== 'all' ? 'No sessions match these filters.' : 'No completed sessions in this period.' }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-3 flex items-center justify-between gap-3 text-xs text-muted">
+            <span>{{ summary.sessions.length ? `${previousCursors.length * 50 + 1}–${previousCursors.length * 50 + summary.sessions.length} of ${summary.sessionCount}` : `${summary.sessionCount} sessions` }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</span>
+            <div class="flex gap-1">
+              <UButton label="Previous" aria-label="Previous history page" color="neutral" variant="ghost" size="xs" :disabled="!previousCursors.length || loading" @click="previousRuns" />
+              <UButton label="Next" aria-label="Next history page" color="neutral" variant="ghost" size="xs" :disabled="!summary.cursor || loading" @click="nextRuns" />
+            </div>
           </div>
         </section>
+        <details v-if="summary?.available" class="border-t border-default pt-4">
+          <summary class="cursor-pointer text-sm font-medium">Usage breakdown</summary>
+          <div class="mt-4 flex flex-col gap-6">
+            <div class="flex gap-1" aria-label="Usage metric">
+              <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
+            </div>
 
-        <UAlert
-          v-if="errorMessage(error)"
-          color="error"
-          variant="subtle"
-          icon="i-ph-cloud-slash-light"
-          title="Could not load usage"
-          :description="errorMessage(error)"
-          :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: load }]"
-        />
-        <UAlert
-          v-if="summary?.partial"
-          color="warning"
-          variant="subtle"
-          icon="i-ph-warning-light"
-          title="Partial usage"
-          description="Some usage evidence is unavailable for this period. Values labeled recorded exclude missing usage."
-        />
-
-        <template v-if="loading && !summary">
-          <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <USkeleton v-for="index in 4" :key="index" class="h-28 rounded-lg" />
-          </section>
-          <USkeleton class="h-72 rounded-lg" />
-        </template>
-
-        <UEmpty
-          v-else-if="!error && !summary?.available"
-          class="min-h-96"
-          icon="i-ph-chart-bar-light"
-          title="No usage recorded yet"
-          description="Usage appears here after an Agent Invocation. Provider readiness is available before the first run."
-        />
-
-        <template v-else-if="summary">
-          <section class="overflow-hidden rounded-lg border border-default bg-elevated/20">
+          <section class="overflow-hidden">
             <div class="grid lg:grid-cols-[17rem_minmax(0,1fr)]">
               <div
                 class="flex flex-col justify-between gap-8 border-b border-default p-5 lg:border-r lg:border-b-0 sm:p-6"
@@ -717,7 +673,7 @@ onBeforeUnmount(() => request?.abort());
               <p class="text-xs text-muted">Provider-reported evidence</p>
             </div>
             <dl
-              class="grid overflow-hidden rounded-lg border border-default sm:grid-cols-2 lg:grid-cols-4"
+              class="grid overflow-hidden border-t border-default sm:grid-cols-2 lg:grid-cols-4"
             >
               <div v-if="costSupported" class="border-b border-default p-4 sm:border-r">
                 <dt class="text-xs text-muted">Total cost</dt>
@@ -811,7 +767,7 @@ onBeforeUnmount(() => request?.abort());
             </dl>
           </section>
 
-          <section class="overflow-hidden rounded-lg border border-default">
+          <section class="overflow-hidden border-t border-default">
             <div
               class="flex items-center justify-between gap-4 border-b border-default px-4 py-3 sm:px-5"
             >
@@ -903,7 +859,7 @@ onBeforeUnmount(() => request?.abort());
               </table>
             </div>
           </section>
-          <section v-if="costSupported" class="overflow-hidden rounded-lg border border-default">
+          <section v-if="costSupported" class="overflow-hidden border-t border-default">
             <div class="border-b border-default px-5 py-3">
               <h2 class="text-sm font-semibold">Average cost per run</h2>
               <p class="mt-1 text-xs text-muted">
@@ -965,10 +921,9 @@ onBeforeUnmount(() => request?.abort());
           <section
             v-for="table in [
               { key: 'expensive', title: 'Most expensive runs', rows: summary.expensive },
-              { key: 'runs', title: 'Every run', rows: summary.runs },
             ].filter((table) => table.key === 'runs' || costSupported)"
             :key="table.key"
-            class="overflow-hidden rounded-lg border border-default"
+            class="overflow-hidden border-t border-default"
           >
             <div class="flex items-center justify-between gap-3 border-b border-default px-5 py-3">
               <h2 class="text-sm font-semibold">{{ table.title }}</h2>
@@ -1025,32 +980,80 @@ onBeforeUnmount(() => request?.abort());
                 </tbody>
               </table>
             </div>
-            <div
-              v-if="table.key === 'runs'"
-              class="flex items-center justify-between border-t border-default px-5 py-3"
-            >
-              <span class="text-xs text-muted">Page {{ previousCursors.length + 1 }}</span>
-              <div class="flex gap-2">
-                <UButton
-                  label="Previous"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  :disabled="!previousCursors.length || loading"
-                  @click="previousRuns"
-                /><UButton
-                  label="Next"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  :disabled="!summary.cursor || loading"
-                  @click="nextRuns"
-                />
-              </div>
-            </div>
+
           </section>
-        </template>
+
+          </div>
+        </details>
+        <details class="border-t border-default pt-4">
+          <summary class="cursor-pointer text-sm font-medium">Provider status</summary>
+
+          <p v-if="statusError" class="p-5 text-sm text-warning">{{ statusError }}</p>
+          <div v-else class="grid divide-y divide-default lg:grid-cols-2 lg:divide-y-0">
+            <article
+              v-for="status in statuses.filter((item) => !agent || item.agent === agent)"
+              :key="status.agent"
+              class="space-y-3 p-5"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-medium">{{ status.agent }}</h3>
+                  <p class="text-xs text-muted">{{ status.provider || "Provider" }}</p>
+                </div>
+                <UBadge
+                  :color="
+                    status.readiness === 'ready' && !status.stale
+                      ? 'success'
+                      : status.readiness === 'unavailable'
+                        ? 'error'
+                        : 'neutral'
+                  "
+                  variant="subtle"
+                  >{{ status.stale ? "Stale" : status.readiness }}</UBadge
+                >
+              </div>
+              <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
+              <div class="flex flex-wrap gap-4 text-xs text-muted">
+                <span v-if="status.authenticated !== undefined"
+                  >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
+                >
+                <span>Checked {{ formatPeriod(status.checkedAt, "hour") }}</span>
+              </div>
+              <div
+                v-for="limit in status.usageLimits?.windows ?? []"
+                :key="limit.id"
+                class="space-y-1.5"
+              >
+                <div class="flex justify-between gap-3 text-xs">
+                  <span>{{ limit.label }}</span
+                  ><span class="tabular-nums">{{ limit.usedPercent.toFixed(0) }}% used</span>
+                </div>
+                <progress
+                  class="h-1.5 w-full accent-primary"
+                  :value="Math.min(100, Math.max(0, limit.usedPercent))"
+                  max="100"
+                  :aria-label="limit.label"
+                />
+                <p v-if="limit.resetsAt" class="text-xs text-muted">
+                  Resets {{ formatPeriod(limit.resetsAt, "hour") }}
+                </p>
+              </div>
+              <p v-if="status.usageLimits?.unavailable" class="text-xs text-muted">
+                Subscription usage
+                {{
+                  status.usageLimits.unavailable.reason === "unsupported"
+                    ? "is not reported by this provider"
+                    : "could not be checked"
+                }}.
+              </p>
+            </article>
+          </div>
+        </details>
       </main>
     </template>
   </UDashboardPanel>
 </template>
+
+<style scoped>
+:global(.dark .console-usage) { background: #000; }
+</style>

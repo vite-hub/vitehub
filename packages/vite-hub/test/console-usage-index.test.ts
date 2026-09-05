@@ -108,7 +108,7 @@ describe("Console persisted usage index", () => {
           sql: `UPDATE vitehub_agent_invocations SET updated_at = ? WHERE status = 'running'`,
           args: [new Date(Date.parse(now) + revision++).toISOString()],
         });
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     })();
     try {
@@ -143,6 +143,42 @@ describe("Console persisted usage index", () => {
     await client.execute("DELETE FROM vitehub_agent_invocations WHERE id = 'run'");
     expect(await replacement.query({ now })).toMatchObject({ totals: { invocations: 0 } });
   });
+  it("preserves the v1 projection while old and new processes overlap", async () => {
+    const { client, insert, index } = await fixture();
+    await insert("shared", priced("0.1"));
+    await client.batch(
+      [
+        `CREATE TABLE vitehub_console_usage_v1 (id TEXT PRIMARY KEY, usage TEXT)`,
+        `INSERT INTO vitehub_console_usage_v1 VALUES ('shared', 'old projection')`,
+        `CREATE TABLE vitehub_console_usage_v1_dirty (id TEXT PRIMARY KEY, generation INTEGER NOT NULL DEFAULT 1)`,
+        `CREATE TRIGGER vitehub_console_usage_v1_update AFTER UPDATE ON vitehub_agent_invocations BEGIN
+        INSERT INTO vitehub_console_usage_v1_dirty(id) VALUES (NEW.id)
+        ON CONFLICT(id) DO UPDATE SET generation = generation + 1;
+      END`,
+      ],
+      "write",
+    );
+    await index.rebuild();
+    expect(await index.query({ now })).toMatchObject({ sessionCount: 1 });
+    expect(
+      (await client.execute(`SELECT usage FROM vitehub_console_usage_v1 WHERE id = 'shared'`)).rows,
+    ).toEqual([{ usage: "old projection" }]);
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET record = json_set(record, '$.title', 'Updated') WHERE id = 'shared'`,
+    );
+    for (const version of ["v1", "v2"]) {
+      expect(
+        (await client.execute(`SELECT id FROM vitehub_console_usage_${version}_dirty`)).rows,
+      ).toEqual([{ id: "shared" }]);
+    }
+    expect(await index.query({ now })).toMatchObject({
+      sessions: [{ id: "shared", title: "Updated" }],
+    });
+    expect(
+      (await client.execute(`SELECT usage FROM vitehub_console_usage_v1 WHERE id = 'shared'`)).rows,
+    ).toEqual([{ usage: "old projection" }]);
+  });
+
   it("uses the same agent and date filters for aggregates and pages", async () => {
     const { insert, index } = await fixture();
     for (let i = 0; i < 55; i++) await insert(`run-${i}`, priced("0.000000000000001"));
@@ -161,6 +197,113 @@ describe("Console persisted usage index", () => {
     expect(next.runs).toHaveLength(5);
     expect(next.cursor).toBeUndefined();
   });
+  it("keeps sessions with shared titles and threads distinct, including missing usage", async () => {
+    const { client, insert, index } = await fixture();
+    await insert("a", priced("0"));
+    await insert("b", undefined, "failed");
+    await insert("c", priced("0.2"), "completed", "other");
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET record = json_set(record, '$.title', 'Same title', '$.threadId', 'shared-thread', '$.createdAt', '${now}')`,
+    );
+    await index.rebuild();
+    const summary = await index.query({ now });
+    expect(summary).toMatchObject({
+      available: true,
+      sessionCount: 3,
+      sessions: [
+        {
+          id: "c",
+          agent: "other",
+          title: "Same title",
+          totals: { costUsd: "0.2", costAvailable: true },
+        },
+        {
+          id: "b",
+          models: ["model"],
+          title: "Same title",
+          partial: true,
+          totals: { totalTokensAvailable: false, costAvailable: false },
+        },
+        {
+          id: "a",
+          title: "Same title",
+          partial: false,
+          totals: { costUsd: "0", costAvailable: true },
+        },
+      ],
+    });
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET record = json_set(record, '$.title', 'Änderung') WHERE id = 'a'`,
+    );
+    expect(await index.query({ now, search: "änderung" })).toMatchObject({
+      sessionCount: 1,
+      sessions: [{ id: "a", title: "Änderung" }],
+    });
+    await client.execute(`DELETE FROM vitehub_agent_invocations WHERE id = 'a'`);
+    expect(await index.query({ now, search: "änderung" })).toMatchObject({
+      sessionCount: 0,
+      sessions: [],
+    });
+  });
+
+  it("distinguishes partial provider usage from recorded zero usage", async () => {
+    const { insert, index } = await fixture();
+    await insert("partial", { usage: { inputTokens: 12 } });
+    await insert("zero", { usage: { totalTokens: 0 } });
+    await index.rebuild();
+    expect(await index.query({ now })).toMatchObject({
+      partial: true,
+      sessions: [
+        { id: "zero", partial: false, totals: { totalTokens: 0, totalTokensAvailable: true } },
+        {
+          id: "partial",
+          partial: true,
+          totals: { inputTokens: 12, inputTokensAvailable: true, totalTokensAvailable: false },
+        },
+      ],
+    });
+  });
+
+  it("applies literal search, status, Agent, and time filters to all pages and totals", async () => {
+    const { client, insert, index } = await fixture();
+    for (let i = 0; i < 55; i++)
+      await insert(`run-${String(i).padStart(2, "0")}`, priced("0.000000000000001"), "failed");
+    await insert("completed", priced("10"));
+    await insert("other", priced("10"), "failed", "other");
+    await insert("old", priced("10"), "failed", "bot", "2026-08-01T00:00:00.000Z");
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET record = json_set(record, '$.title', 'Fix 100%_complete')`,
+    );
+    await insert("wrong-title", priced("10"), "failed");
+    await index.rebuild();
+    const options = {
+      now,
+      window: "24h" as const,
+      agentName: "bot",
+      status: "failed" as const,
+      search: "100%_",
+    };
+    const first = await index.query(options);
+    expect(first).toMatchObject({
+      sessionCount: 55,
+      totals: { invocations: 55, costUsd: "0.000000000000055" },
+    });
+    expect(first.sessions).toHaveLength(50);
+    const second = await index.query({ ...options, cursor: String(first.cursor) });
+    expect(second).toMatchObject({
+      sessionCount: 55,
+      totals: first.totals,
+      sessions: [
+        { id: "run-04" },
+        { id: "run-03" },
+        { id: "run-02" },
+        { id: "run-01" },
+        { id: "run-00" },
+      ],
+    });
+    expect(second.cursor).toBeUndefined();
+  });
+
   it("aggregates more than 100,000 runs without a scan ceiling", async () => {
     const { client, index } = await fixture();
     const record = JSON.stringify({

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts";
 
@@ -249,6 +250,132 @@ describe("Console usage projection", () => {
       available: true,
       partial: true,
       totals: { invocations: 1, totalTokensAvailable: false },
+    });
+  });
+});
+
+describe("Console session usage history with a custom store", () => {
+  it("keeps missing usage sessions and applies filters to the complete history", async () => {
+    const store = createMemoryAgentInvocationStore();
+    const invocations = defineAgentInvocations({ store });
+    for (let index = 0; index < 55; index++) {
+      const record = invocationRecord({ totalTokens: 10 });
+      await store.create({
+        ...record,
+        id: `session-${String(index).padStart(2, "0")}`,
+        title: "Shared 100%_title",
+        annotations: { "agent.model.id": "known-model" },
+        threadId: "shared-thread",
+        agentName: "bot",
+        status: "failed",
+        ...(index === 0 ? { observations: [] } : {}),
+      });
+    }
+    await store.create({
+      ...invocationRecord({ totalTokens: 999 }),
+      id: "other-agent",
+      title: "Shared 100%_title",
+      threadId: "shared-thread",
+      agentName: "other",
+      status: "failed",
+    });
+    await store.create({
+      ...invocationRecord({ totalTokens: 999 }),
+      id: "completed",
+      title: "Shared 100%_title",
+      agentName: "bot",
+    });
+    const options = {
+      now: "2026-08-27T12:00:00.000Z",
+      window: "24h" as const,
+      agentName: "bot",
+      status: "failed" as const,
+      search: "100%_",
+    };
+    const first = await createUsageSummary(invocations, options);
+    expect(first).toMatchObject({
+      available: true,
+      sessionCount: 55,
+      totals: { invocations: 55, totalTokens: 540, totalTokensAvailable: false },
+    });
+    expect(first.sessions).toHaveLength(50);
+    const second = await createUsageSummary(invocations, {
+      ...options,
+      cursor: String(first.cursor),
+    });
+    expect(second).toMatchObject({
+      sessionCount: 55,
+      totals: first.totals,
+      sessions: [
+        { id: "session-04" },
+        { id: "session-03" },
+        { id: "session-02" },
+        { id: "session-01" },
+        {
+          id: "session-00",
+          models: ["known-model"],
+          title: "Shared 100%_title",
+          partial: true,
+          totals: { totalTokensAvailable: false },
+        },
+      ],
+    });
+    expect(second.cursor).toBeUndefined();
+  });
+
+  it("rechecks filters when a session title changes after listing", async () => {
+    const store = createMemoryAgentInvocationStore();
+    const record = invocationRecord({ totalTokens: 10 });
+    await store.create({ ...record, title: "Old title" });
+    const invocations = defineAgentInvocations({ store });
+    const list = invocations.list.bind(invocations);
+    vi.spyOn(invocations, "list").mockImplementationOnce(async (options) => {
+      const page = await list(options);
+      await store.update(record.id, {
+        timestamp: record.updatedAt,
+        observation: {
+          name: "agent.title.recorded",
+          type: "lifecycle",
+          sequence: 2,
+          timestamp: record.updatedAt,
+          attributes: { "vitehub.session.title": "New title" },
+        },
+      });
+      return page;
+    });
+    expect(
+      await createUsageSummary(invocations, { now: "2026-08-27T12:00:00.000Z", search: "old" }),
+    ).toMatchObject({ sessionCount: 0, sessions: [], totals: { invocations: 0 } });
+  });
+
+  it("uses the final finish evidence and preserves decimal ordering", async () => {
+    const record = invocationRecord({ totalTokens: 10 });
+    expect(
+      invocationUsage({
+        ...record,
+        observations: [
+          ...record.observations,
+          { ...record.observations[0]!, attributes: {}, sequence: 2 },
+        ],
+      }),
+    ).toBeUndefined();
+    const store = createMemoryAgentInvocationStore();
+    for (const [id, usd] of [
+      ["higher", "1.000000000000000002"],
+      ["lower", "1.000000000000000001"],
+    ]) {
+      await store.create({
+        ...invocationRecordFromUsageRecord({ cost: { usd }, usage: { totalTokens: 10 } }),
+        id: id!,
+      });
+    }
+    expect(
+      await createUsageSummary(defineAgentInvocations({ store }), {
+        now: "2026-08-27T12:00:00.000Z",
+      }),
+    ).toMatchObject({
+      expensive: [{ id: "higher" }, { id: "lower" }],
+      totals: { costUsd: "2.000000000000000003" },
     });
   });
 });

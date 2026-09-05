@@ -133,6 +133,8 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 
 ## Invoke Agents from the Console
 
+The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/console/usage) for the identity, coverage, and pagination contract.
+
 Set `console: { access: "auth", invoke: true }` to use ViteHub Auth, or `console: { exposure: "host-managed", invoke: true }` when host middleware protects all `/_vitehub/**` routes. Explicit access configurations keep invocation disabled by default. The development shorthand `console: true` enables invocation.
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.

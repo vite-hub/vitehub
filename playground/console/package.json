@@ -11,6 +11,8 @@
   "devDependencies": {
     "@iconify-json/ph": "catalog:ui",
     "@vitejs/plugin-vue": "^6.0.8",
+    "devframe": "catalog:runtime",
+    "h3": "catalog:unjs",
     "vite": "catalog:vite"
   },
   "engines": {
