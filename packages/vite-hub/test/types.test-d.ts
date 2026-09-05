@@ -2,7 +2,8 @@ import { expectTypeOf } from "vitest"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { vitehub } from "vite-hub"
-import { defineAgent } from "vite-hub/agent"
+import { createMessage, defineAgent } from "vite-hub/agent"
+import type { ConsoleAgentInvocationInput } from "vite-hub/console"
 import { email, executor } from "vite-hub/agent/capabilities"
 import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
@@ -37,10 +38,16 @@ vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace
 vitehub({ console: true, preset: "node" })
 vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
 vitehub({ console: { exposure: "host-managed" }, preset: "node" })
+vitehub({ console: { exposure: "host-managed", invoke: true }, preset: "node" })
+vitehub({ console: { exposure: "host-managed", invoke: false }, preset: "node" })
 // @ts-expect-error Production access contracts are mutually exclusive.
 vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" })
 // @ts-expect-error Unknown Console access modes must not silently expose inspection routes.
 vitehub({ console: { access: "public" }, preset: "node" })
+expectTypeOf<ConsoleAgentInvocationInput["prompt"]>().toBeString()
+const consoleInput: ConsoleAgentInvocationInput = { prompt: "Follow up", messages: [createMessage({ role: "user", text: "Earlier question" })] }
+expectTypeOf<NonNullable<typeof consoleInput.messages>[number]["role"]>().toEqualTypeOf<"user" | "assistant">()
+expectTypeOf(createMessage({ role: "user", text: "Earlier question" }).role).toEqualTypeOf<"user">()
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
 expectTypeOf(executor).toBeFunction()

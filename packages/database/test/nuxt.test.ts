@@ -173,7 +173,8 @@ describe("Database Nuxt integration", () => {
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {
-    const rootDir = process.cwd()
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-database-"))
+    await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
     const middlewarePath = join(rootDir, ".vitehub/nitro/database/middleware.ts")
     const previousEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__
     try {
@@ -214,7 +215,7 @@ describe("Database Nuxt integration", () => {
     }
     finally {
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
-      await rm(middlewarePath, { force: true })
+      await rm(rootDir, { force: true, recursive: true })
     }
   })
 

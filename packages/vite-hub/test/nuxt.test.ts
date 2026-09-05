@@ -1560,6 +1560,19 @@ describe("ViteHub Nuxt integration", () => {
     }, production.nuxt)).resolves.toBeUndefined()
   })
 
+  it("passes host-managed invocation and observation limits into the Nuxt Console plugin", async () => {
+    const production = createNuxt(false)
+    const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
+    await viteHubNuxtModule({
+      agent: true,
+      console: { exposure: "host-managed", invoke: true, observations },
+      preset: "node",
+    }, production.nuxt)
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain("invoke: true")
+    expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
+  })
+
   it("rejects bare production Console enablement", async () => {
     const production = createNuxt(false)
 

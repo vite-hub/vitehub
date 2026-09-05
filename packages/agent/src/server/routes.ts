@@ -1,6 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext as createHostRuntimeContext } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import {
@@ -37,7 +37,6 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
-import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
   isResolvedAgentTriggerHandledInvocation,
@@ -534,22 +533,18 @@ function createRuntimeContext(
   capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
   agentIdentity?: AgentHostIdentity,
 ): ViteAgentRouteRuntimeContext {
-  const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  // SAFETY: This constructor supplies the required route request and runtime configuration before normalization.
-  const context = createAgentRuntimeContext<ViteAgentRouteRuntimeConfig>({
+  return createHostRuntimeContext({
     ...(capabilities ? { capabilities } : {}),
     ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
-    flushWaitUntil: waitUntilController.flushWaitUntil,
     request,
     ...(run ? { run } : {}),
     runtime,
     runtimeConfig: {},
     ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
-    waitUntil: waitUntilController.waitUntil,
-  }) as AgentRuntimeContext<ViteAgentRouteRuntimeConfig> & { request: Request, runtimeConfig: ViteAgentRouteRuntimeConfig }
-  return createExecutionContext(context)
+    ...(waitUntil ? { waitUntil } : {}),
+  })
 }
 
 function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {

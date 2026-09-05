@@ -388,7 +388,8 @@ export async function resumeWorkflowAgentChannelDelivery(
   context: AgentRuntimeContext,
   binding: AgentChannelDeliveryWorkflowBinding,
 ): Promise<AgentChannelDeliveryTracker | undefined> {
-  return activeAgentChannelDelivery(binding.deliveryId) || (await workflowResolver?.(agent, context, binding))
+  const persisted = await workflowResolver?.(agent, context, binding)
+  return persisted || activeAgentChannelDelivery(binding.deliveryId)
 }
 
 export async function openAgentChannelDelivery(

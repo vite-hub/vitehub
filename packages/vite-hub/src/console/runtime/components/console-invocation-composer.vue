@@ -4,6 +4,7 @@ import * as v from "valibot";
 import { computed, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
+import type { ConsoleAgentInvocationInput } from "../rpc";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -53,7 +54,7 @@ async function submit(message: { text: string }): Promise<void> {
   loading.value = true;
   error.value = undefined;
   try {
-    const body: { invokerProfileId?: string; prompt: string } = {
+    const body: ConsoleAgentInvocationInput = {
       prompt: message.text,
     };
     if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;

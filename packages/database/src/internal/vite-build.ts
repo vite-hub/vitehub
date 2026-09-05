@@ -117,9 +117,27 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userApp
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string): Promise<Omit<GeneratedDBArtifacts, "blobRuntimeModules">> {
+/** Writes hosted modules before a framework resolves its generated runtime aliases. */
+export async function writeHostedDatabaseRuntimeModules(
+  generatedDir: string,
+  runtimeConfig: ResolvedDBViteConfig,
+  providers: readonly DBProvider[] = ["cloudflare", "vercel"],
+) {
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
   const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
+  const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")
+  await mkdir(generatedDir, { recursive: true })
+  await Promise.all([
+    writeFile(definitionDefaultsFile, `export default ${JSON.stringify(definitionDefaults)}\n`, "utf8"),
+    ...providers.map(async (provider) => {
+      const file = resolve(generatedDir, `${provider}-runtime.mjs`)
+      await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig), "utf8")
+    }),
+  ])
+  return definitionDefaultsFile
+}
+
+async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string): Promise<Omit<GeneratedDBArtifacts, "blobRuntimeModules">> {
   const generatedDir = artifactDir ?? ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
@@ -128,22 +146,15 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
   })
   const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
   const runtimeModuleFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
-  const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")
+  const definitionDefaultsFile = await writeHostedDatabaseRuntimeModules(generatedDir, runtimeConfig)
 
-  await Promise.all([writeFile(
-    definitionDefaultsFile,
-    `export default ${JSON.stringify(definitionDefaults)}\n`,
-    "utf8",
-  ), ...providerEntrySpecs.map(async (spec) => {
+  await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
     entryFiles[spec.name] = entryFile
     runtimeModuleFiles[spec.name] = runtimeModuleFile
-    await Promise.all([
-      writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8"),
-      writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, normalizedRuntimeConfig), "utf8"),
-    ])
-  })])
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8")
+  }))
 
   return {
     cloudflareWorkerFile: entryFiles.cloudflare,

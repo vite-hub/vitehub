@@ -1,7 +1,6 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeQueueOptions } from "../config.ts"
-import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import {
   createQueueError,
   isQueueBoundaryIdentity,
@@ -13,7 +12,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import { getQueueClientCache, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueName, QueuePayload, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
 function createQueueDefinitionNotFoundError(name: string) {
   const queue = normalizePublicQueueIdentifier(name)
@@ -91,7 +90,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   return await runQueueProviderOperation(provider.provider, "create-client", () => createClient(provider))
 }
 
-export async function getQueue(name: string): Promise<QueueClient> {
+async function getDynamicQueue(name: string): Promise<QueueClient> {
   const definition = await loadNamedQueueDefinition(name)
   if (!definition) {
     throw createQueueDefinitionNotFoundError(name)
@@ -118,19 +117,14 @@ export async function getQueue(name: string): Promise<QueueClient> {
   return await pending
 }
 
-export async function runQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): Promise<QueueSendResult> {
-  const normalized = normalizeQueueEnqueueInput(input)
-  const queue = await getQueue(name)
-  return await queue.send({
-    ...normalized.options,
-    id: normalized.id,
-    payload: normalized.payload,
-  })
+async function runDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<QueueSendResult> {
+  const queue = await getDynamicQueue(name)
+  return await queue.send(payload, options)
 }
 
-export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): void {
+function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): void {
   const request = getQueueRuntimeEvent()
-  const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
+  const task = () => runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {
@@ -145,4 +139,27 @@ export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueue
   if (typeof waitUntil === "function") {
     waitUntil(promise)
   }
+}
+
+/** Dispatch externally supplied names and payloads after application validation. */
+export const dynamicQueue: {
+  defer: typeof deferDynamicQueue
+  get: typeof getDynamicQueue
+  run: typeof runDynamicQueue
+} = {
+  defer: deferDynamicQueue,
+  get: getDynamicQueue,
+  run: runDynamicQueue,
+}
+
+export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<"cloudflare" | "vercel", QueuePayload<TName>>> {
+  return await getDynamicQueue(name)
+}
+
+export function runQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<QueueSendResult> {
+  return runDynamicQueue(name, payload, options)
+}
+
+export function deferQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): void {
+  deferDynamicQueue(name, payload, options)
 }

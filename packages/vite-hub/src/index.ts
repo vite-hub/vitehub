@@ -866,6 +866,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(hubQueue({
+      importBase: `${generatedImportBase}/queue`,
       provider: plan.services.queue.adapter,
       providerImportAliases,
     } as QueueModuleOptions))
