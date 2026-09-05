@@ -49,12 +49,12 @@ node test/run-package-task.mjs test --packages vite-hub
 For one regression, build first, then run from the package directory so Vitest uses its package config:
 
 ```sh
-node test/run-package-task.mjs build --packages vite-hub
+corepack pnpm exec vp run -t vite-hub#build
 corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
 corepack pnpm --dir packages/vite-hub run typecheck
 ```
 
-Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and use the matching directory. Add the following checks only when their behavior is affected:
+Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and use the matching directory. Use the Vite+ target build for dependency builds; `run-package-task.mjs build --packages` builds only the selected packages. Add the following checks only when their behavior is affected:
 
 | Change | Check from the repository root |
 | --- | --- |

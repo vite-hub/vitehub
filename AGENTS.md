@@ -34,7 +34,7 @@ Build the affected package and its dependencies before running focused tests. Fr
 
 ```sh
 corepack pnpm install --frozen-lockfile
-node test/run-package-task.mjs build --packages vite-hub
+corepack pnpm exec vp run -t vite-hub#build
 corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
 ```
 
