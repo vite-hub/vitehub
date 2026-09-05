@@ -1,4 +1,6 @@
 import { expect, it, vi } from "vitest";
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }));
+
 import { publishAgentActivity } from "../src/index.ts";
 
 it("publishes a deterministic wait without resolving an agent or starting a provider", async () => {

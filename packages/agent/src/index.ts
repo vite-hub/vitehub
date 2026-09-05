@@ -7116,6 +7116,7 @@ export async function publishAgentActivity(
     capabilities: {},
     memo<T>(key: string, create: () => T): T {
       if (!memoized.has(key)) memoized.set(key, create())
+      // SAFETY: Each memo key retains the value created by its caller for this activity update.
       return memoized.get(key) as T
     },
     waitUntil: work => { pending.push(Promise.resolve(work)) },

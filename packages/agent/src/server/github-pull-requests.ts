@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import * as v from "valibot";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import type { GitHubHost } from "./github-host.ts";
 
 export type PullRequestFeedback = {
@@ -30,6 +32,31 @@ export type PullRequest = {
   updatedAt: string;
   url: string;
 };
+
+const pullRequestSchema = v.object({
+  baseRefOid: v.string(),
+  baseRefName: v.string(),
+  body: v.string(),
+  headRefName: v.string(),
+  headRefOid: v.string(),
+  headRepository: v.nullable(v.object({ nameWithOwner: v.string() })),
+  isDraft: v.boolean(),
+  labels: v.optional(v.unknown()),
+  mergeStateStatus: v.string(),
+  number: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  reviewDecision: v.nullable(v.string()),
+  state: v.string(),
+  statusCheckRollup: v.unknown(),
+  title: v.string(),
+  updatedAt: v.string(),
+  url: v.string(),
+});
+
+function repositoryParts(repository: string) {
+  const [owner, name, extra] = repository.split("/");
+  if (!owner || !name || extra !== undefined) throw new Error("Expected a GitHub owner/repository.");
+  return { owner, name };
+}
 
 type Connection<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
 export type GitHubPullRequestComment = {
@@ -82,7 +109,7 @@ export function createGitHubPullRequests(
         ),
         readOpenPullRequestFeedback(repository),
       ]);
-      const pullRequests = JSON.parse(result.stdout) as PullRequest[];
+      const pullRequests = v.parse(v.array(pullRequestSchema), JSON.parse(result.stdout));
       return await Promise.all(
         pullRequests.map((pullRequest) =>
           readRequiredCheckState(repository, {
@@ -106,7 +133,7 @@ export function createGitHubPullRequests(
         readPullRequestFeedback(repository, number),
       ]);
       return await readRequiredCheckState(repository, {
-        ...(JSON.parse(result.stdout) as PullRequest),
+        ...v.parse(pullRequestSchema, JSON.parse(result.stdout)),
         ...(feedback ? { feedback } : {}),
       });
     });
@@ -127,7 +154,7 @@ export function createGitHubPullRequests(
 
   async function readOpenPullRequestFeedback(repository: string) {
     // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
-    const [owner, name] = repository.split("/") as [string, string];
+    const { owner, name } = repositoryParts(repository);
     const query = `query($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number ${feedbackFields}}}}}`;
     const result = await github.command(
       ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `query=${query}`],
@@ -139,7 +166,7 @@ export function createGitHubPullRequests(
     return new Map<number, PullRequestFeedback>(
       await Promise.all(
         nodes.map(
-          async (node) =>
+          async (node): Promise<[number, PullRequestFeedback]> =>
             [
               node.number,
               Object.values(feedbackConnections(node)).some(
@@ -150,7 +177,7 @@ export function createGitHubPullRequests(
               )
                 ? await readPullRequestFeedback(repository, node.number)
                 : digestFeedback(node),
-            ] as [number, PullRequestFeedback],
+            ],
         ),
       ),
     );
@@ -189,7 +216,7 @@ export function createGitHubPullRequests(
     repository: string,
     number: number,
   ): Promise<PullRequestFeedback> {
-    const [owner, name] = repository.split("/") as [string, string];
+    const { owner, name } = repositoryParts(repository);
     const query = `query($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`;
     const cursors = new Map<string, string>();
     const collected = {
@@ -216,18 +243,17 @@ export function createGitHubPullRequests(
       );
       const node: FeedbackNode = JSON.parse(result.stdout)?.data?.repository?.pullRequest;
       let more = false;
-      for (const [key, connection] of Object.entries(feedbackConnections(node))) {
-        const items = collected[key as keyof typeof collected];
-        for (const item of connection.nodes)
-          (items as Map<string, GitHubPullRequestComment | FeedbackReview | FeedbackThread>).set(
-            item.id,
-            item,
-          );
+      feedbackConnections(node);
+      function collect<T extends { id: string }>(key: string, connection: Connection<T>, items: Map<string, T>) {
+        for (const item of connection.nodes) items.set(item.id, item);
         if (connection.pageInfo.hasNextPage) {
           cursors.set(key, connection.pageInfo.endCursor);
           more = true;
         }
       }
+      collect("comments", node.comments, collected.comments);
+      collect("reviews", node.reviews, collected.reviews);
+      collect("threads", node.reviewThreads, collected.threads);
       if (!more) break;
     } while (true);
     for (const thread of collected.threads.values()) {
@@ -284,10 +310,10 @@ export function createGitHubPullRequests(
       const result = await github.command(args, { repository });
       return parseRequiredChecks(result.stdout, result.stderr);
     } catch (error) {
-      const result = error as Error & { stderr?: unknown; stdout?: unknown };
+      const result = isRuntimeRecord(error) ? error : {};
       const checks = parseRequiredChecks(
-        typeof result.stdout === "string" ? result.stdout : "",
-        typeof result.stderr === "string" ? result.stderr : "",
+        hasRuntimeType(result.stdout, "string") ? result.stdout : "",
+        hasRuntimeType(result.stderr, "string") ? result.stderr : "",
       );
       if (checks !== undefined) return checks;
       throw new Error(`Failed to read required checks for ${repository}#${number}.`, {
@@ -314,11 +340,11 @@ export function pullRequestCheckState(
   ]);
   let pending = false;
   for (const value of statusCheckRollup) {
-    if (!value || typeof value !== "object") {
+    if (!isRuntimeRecord(value)) {
       pending = true;
       continue;
     }
-    const { bucket, conclusion, state, status } = value as Record<string, unknown>;
+    const { bucket, conclusion, state, status } = value;
     if (bucket === "fail" || bucket === "cancel") return "failed";
     if (bucket === "pending") {
       pending = true;
@@ -329,12 +355,12 @@ export function pullRequestCheckState(
       state === "ERROR" ||
       state === "FAILURE" ||
       (status === "COMPLETED" &&
-        typeof conclusion === "string" &&
+        hasRuntimeType(conclusion, "string") &&
         failedConclusions.has(conclusion))
     )
       return "failed";
     if (status === "COMPLETED") {
-      if (typeof conclusion !== "string" || !conclusion) pending = true;
+      if (!hasRuntimeType(conclusion, "string") || !conclusion) pending = true;
     } else if (status !== undefined || state !== "SUCCESS") pending = true;
   }
   return pending ? "pending" : "passed";

@@ -1189,7 +1189,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
-    const token = typeof options.token === 'function' ? await options.token(context) : options.token
+    const token = hasRuntimeType(options.token, 'function') ? await options.token(context) : options.token
     return requiredString(token, 'token')
   }
   const env = await githubEnv(context)
