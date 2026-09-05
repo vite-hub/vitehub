@@ -3257,6 +3257,47 @@ describe("Agent Invocations", () => {
     }).toThrow("getSummary()")
   })
 
+  it("copies memory summaries without cloning observation payloads", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = "2026-01-01T00:00:00.000Z"
+    await store.create({
+      annotations: { project: "original" },
+      capabilityIds: ["search"],
+      createdAt: timestamp,
+      id: "summary-copy",
+      observations: [{
+        attributes: { "capability.id": "search" },
+        name: "tool.result",
+        payload: { value: "large observation payload".repeat(1000), visibility: "public" },
+        sequence: 1,
+        timestamp,
+        type: "run",
+      }],
+      status: "completed",
+      traceId: "summary-copy-trace",
+      updatedAt: timestamp,
+    })
+    const clone = vi.spyOn(globalThis, "structuredClone")
+    try {
+      const summary = await store.getSummary("summary-copy")
+      const page = await store.list()
+      expect(clone).not.toHaveBeenCalled()
+      expect(summary).not.toHaveProperty("observations")
+      expect(page.invocations).toEqual([summary])
+      expect(summary?.annotations).not.toBe(page.invocations[0]?.annotations)
+      expect(summary?.capabilityIds).not.toBe(page.invocations[0]?.capabilityIds)
+      summary!.annotations!.project = "changed"
+      expect((await store.getSummary("summary-copy"))?.annotations).toEqual({ project: "original" })
+      expect((await store.get("summary-copy"))?.observations[0]?.payload).toEqual({
+        value: "large observation payload".repeat(1000),
+        visibility: "public",
+      })
+    }
+    finally {
+      clone.mockRestore()
+    }
+  })
+
   it("reads invocation metadata through the store summary method", async () => {
     const memory = createMemoryAgentInvocationStore()
     memory.create({

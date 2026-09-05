@@ -226,13 +226,20 @@ function observationPersistenceKey(observation: TraceEventLogEntry): string | nu
   return observationIdentity(observation) ?? observation.sequence
 }
 
-function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
+function cloneSummary(record: AgentInvocationRecord): AgentInvocationSummary {
+  const { observations: _observations, ...summary } = record
   return {
-    ...record,
+    ...summary,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
     ...(record.capabilityIds ? { capabilityIds: [...record.capabilityIds] } : {}),
     ...(record.observationLimits ? { observationLimits: { ...record.observationLimits } } : {}),
     ...(record.error ? { error: structuredClone(record.error) } : {}),
+  }
+}
+
+function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
+  return {
+    ...cloneSummary(record),
     observations: record.observations.map(cloneObservation),
   }
 }
@@ -1119,8 +1126,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     getSummary(id) {
       const record = records.get(id)
       if (!record) return
-      const { observations: _observations, ...summary } = cloneRecord(record)
-      return summary
+      return cloneSummary(record)
     },
     getClaimToken(id) {
       return claims.get(id)?.token
@@ -1145,10 +1151,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const page = candidates.slice(0, limit)
       return {
         ...(candidates.length > limit && page.length ? { cursor: page.at(-1)!.cursor } : {}),
-        invocations: page.map(record => {
-          const { observations: _observations, ...summary } = cloneRecord(record)
-          return summary
-        }),
+        invocations: page.map(cloneSummary),
       }
     },
     listAgentNames() {
