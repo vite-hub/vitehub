@@ -21,7 +21,7 @@ it('generates the route used by the drain CLI by default', async () => {
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-it.each([undefined, 'default', 'host', '$host'])('wires lifecycle and drain to export %s', async (exportName) => {
+it.each([undefined, 'default', 'host', '$host', 'π', '变量', 'host\u200Cname', 'host\u200Dname'])('wires lifecycle and drain to export %s', async (exportName) => {
   const root = await mkdtemp(join(tmpdir(), 'vitehub-host-export-'))
   try {
     const hook = processAgentHost({ entry: 'agent.ts', exportName, drainRoute: '/drain' }).config
@@ -42,7 +42,7 @@ it.each([undefined, 'default', 'host', '$host'])('wires lifecycle and drain to e
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-it.each(['', 'host"name', 'host;throw', 'a.b'])('rejects invalid export name %j', async (exportName) => {
+it.each(['', 'host"name', 'host;throw', 'a.b', '1host', '\u200Chost', '💥'])('rejects invalid export name %j', async (exportName) => {
   const hook = processAgentHost({ entry: 'agent.ts', exportName }).config
   if (!hasRuntimeType(hook, 'function')) throw new Error('Expected a config hook')
   // SAFETY: This plugin config hook uses only the supplied config, not its Vite context.

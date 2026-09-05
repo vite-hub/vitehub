@@ -11,7 +11,7 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       const directory = resolve(root, ".vitehub/process-host");
       const entry = resolve(root, options.entry);
       const exportName = options.exportName ?? "default";
-      if (!/^[A-Za-z_$][\w$]*$/.test(exportName))
+      if (!/^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u.test(exportName))
         throw new Error("Process host exportName must be a JavaScript identifier.");
       const hostImport = exportName !== "default"
         ? `import { ${exportName} as host } from ${JSON.stringify(entry)}`
