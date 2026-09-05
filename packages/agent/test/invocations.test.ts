@@ -1325,7 +1325,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains a full multi-capability tool catalog within the configuration budget", async () => {
-    const invocations = defineAgentInvocations({ configuration: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 1024 * 1024 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("large-tool-catalog"))
     if (!journal) throw new Error("Expected the invocation journal.")
     const tools = Array.from({ length: 40 }, (_, index) => ({
@@ -1340,6 +1340,19 @@ describe("Agent Invocations", () => {
     const event = (await invocations.getByRunId("large-tool-catalog"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
     expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ tools })
     expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+  })
+
+  it("constrains retained configuration to an explicit string budget", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 4096 }, store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("limited-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { instructions: ["x".repeat(5000), "y".repeat(5000)] },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("limited-configuration"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ instructions: ["x".repeat(4096), "[truncated]"] })
+    expect(event?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
   it("marks bounded Agent configuration as truncated", async () => {

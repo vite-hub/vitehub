@@ -695,10 +695,10 @@ function boundedObservationAttributeValue(
     items: 16_384,
     collectionItems: MAX_CAPABILITY_IDS,
     maxDepth: MAX_AGENT_CONFIGURATION_DEPTH,
-    stringLength: 1024 * 1024,
+    stringLength: maxStringLength,
     truncated: false,
   }
-  const configuration = boundedObservationValue(value, configurationBudget, 0, MAX_OBSERVATION_CONTENT_STRING_LENGTH, builtIns)
+  const configuration = boundedObservationValue(value, configurationBudget, 0, Math.min(maxStringLength, MAX_OBSERVATION_CONTENT_STRING_LENGTH), builtIns)
   budget.truncated ||= configurationBudget.truncated
   return configuration
 }
@@ -748,7 +748,7 @@ function boundedObservation(
             key,
             value,
             budget,
-            isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
+            key === "vitehub.agent.configuration" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
             builtIns,
           )]]
         })),
