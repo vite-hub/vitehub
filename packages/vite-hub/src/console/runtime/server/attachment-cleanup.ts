@@ -67,11 +67,11 @@ async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string): 
     return parsed.success ? [parsed.output] : undefined
   }
   if (!v.safeParse(idSchema, suffix.slice(6)).success) return undefined
-  const [failure, bytes] = await storage.get(pathname)
+  const [failure, blob] = await storage.get(pathname)
   if (failure) throw failure
-  if (!bytes) return undefined
+  if (!blob) return undefined
   let data: unknown
-  try { data = JSON.parse(new TextDecoder().decode(bytes)) }
+  try { data = JSON.parse(await blob.text()) }
   catch { return undefined }
   const parsed = v.safeParse(v.pipe(v.array(idSchema), v.minLength(1), v.maxLength(10)), data)
   return parsed.success ? parsed.output : undefined

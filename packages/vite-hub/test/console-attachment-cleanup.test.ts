@@ -25,7 +25,7 @@ function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"
     async get(path) {
       try {
         const bytes = await readFile(filename(path))
-        return [null, Uint8Array.from(bytes).buffer]
+        return [null, new Blob([Uint8Array.from(bytes)])]
       }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return [null, null]
