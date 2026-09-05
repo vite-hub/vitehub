@@ -61,7 +61,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
     ssr: true,

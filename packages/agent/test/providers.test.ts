@@ -10,7 +10,7 @@ import { promisify } from "node:util"
 import { Message } from "chat"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { build as viteBuild } from "vite"
+import { mergeConfig, build as viteBuild } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
@@ -1874,10 +1874,7 @@ describe("agent Vite plugin", () => {
       build: {
         rolldownOptions: {
           external: ["existing", () => true],
-        },
-        rollupOptions: {
-          external: ["legacy"],
-          input: "legacy-entry",
+          input: "server-entry",
         },
       },
       nitro: {
@@ -1937,10 +1934,10 @@ describe("agent Vite plugin", () => {
     expect(output.build).toEqual({
       rolldownOptions: {
         external: ["existing", ...optionalAgentRuntimeExternals],
-        input: "legacy-entry",
+        input: "server-entry",
       },
     })
-    expect(config.build.rollupOptions).toBeUndefined()
+    expect(mergeConfig(config, output).build.rolldownOptions.external).not.toContainEqual(expect.any(Function))
   })
 
   it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {

@@ -314,7 +314,7 @@ describe("hubBrowser", () => {
     const buildResult = await build({
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           external: [
             "@cloudflare/playwright",
             "@vite-hub/runtime",
@@ -362,7 +362,7 @@ describe("hubBrowser", () => {
     const buildResult = await build({
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           external: ["cloudflare:workers"],
         },
         ssr: "server.ts",

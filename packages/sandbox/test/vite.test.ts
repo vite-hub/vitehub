@@ -547,7 +547,7 @@ describe("hubSandbox", () => {
     await viteBuild({
       appType: "custom",
       build: {
-        rollupOptions: { input: join(rootDir, "src/server.ts") },
+        rolldownOptions: { input: join(rootDir, "src/server.ts") },
         write: false,
       },
       nitro: { preset: "cloudflare-module" } as Record<string, any>,
@@ -1541,7 +1541,7 @@ describe("hubSandbox", () => {
     const stableFacade = join(rootDir, ".vitehub/sandbox/runtime/sandbox.mjs")
     await viteBuild({
       build: {
-        rollupOptions: { external: provider === "cloudflare" ? ["cloudflare:workers"] : [] },
+        rolldownOptions: { external: provider === "cloudflare" ? ["cloudflare:workers"] : [] },
         ssr: stableFacade,
         write: false,
       },

@@ -659,27 +659,18 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 }
 
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
-  // SAFETY: This adapter augments Vite's build config only with the legacy rollupOptions field that it reads below.
-  const build = (config.build ?? {}) as NonNullable<BuildWithRolldownOptions["build"]> & { rollupOptions?: unknown }
-  const rollupOptions = isRecord(build.rollupOptions) ? build.rollupOptions : {}
-  // SAFETY: The legacy rollupOptions record is narrowed above and exposes Rollup's documented external option.
-  const configuredExternal = build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined
+  const build = config.build ?? {}
+  const configuredExternal = build.rolldownOptions?.external
   const rolldownExternal = Array.isArray(configuredExternal)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and Rolldown accepts only its string and RegExp members here.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
     ? configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
     : configuredExternal
-  delete build.rollupOptions
+  // Vite merges returned arrays with the input config, so normalize the input too.
   build.rolldownOptions = {
-    ...rollupOptions,
     ...build.rolldownOptions,
-    external: mergeRollupExternals(
-      rolldownExternal,
-      additions,
-    ),
+    external: mergeRollupExternals(rolldownExternal, additions),
   }
-  return {
-    ...build,
-  }
+  return { ...build }
 }
 
 function cloneNitroConfig(value: unknown): NitroConfig {

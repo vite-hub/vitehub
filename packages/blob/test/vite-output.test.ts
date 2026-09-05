@@ -302,7 +302,7 @@ describe("Vite provider outputs", () => {
       },
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "server.mjs" },
         },

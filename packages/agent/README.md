@@ -35,6 +35,8 @@ ViteHub resolves those project dependencies directly. Production self-hosted Nod
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
+The Vite integration requires Vite 8. Configure build inputs, output options, and external dependencies under `build.rolldownOptions`.
+
 ## Minimal API
 
 ```ts

@@ -73,7 +73,7 @@ export default defineConfig(async () => {
     appType: "custom" as const,
     build: {
       outDir: "dist/client",
-      rollupOptions: {
+      rolldownOptions: {
         external: ["askweb"],
         input: resolve(import.meta.dirname, input),
       },
@@ -101,8 +101,8 @@ export default defineConfig(async () => {
       ...baseConfig,
       build: {
         ...baseConfig.build,
-        rollupOptions: {
-          ...baseConfig.build.rollupOptions,
+        rolldownOptions: {
+          ...baseConfig.build.rolldownOptions,
           external: [
             "@cloudflare/sandbox",
             "askweb",
