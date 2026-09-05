@@ -36,3 +36,12 @@ it("rejects remote URLs, unsupported files, missing images, and path traversal",
   await expect(upload("data:text/html;base64,PHNjcmlwdD4=")).rejects.toMatchObject({ statusCode: 415 })
   await expect(consoleInputMessage("", ["../../secret"])).rejects.toMatchObject({ statusCode: 400 })
 })
+
+it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
+  await expect(consoleAttachmentUpload({ method: "POST", req: { json: async () => body } }))
+    .rejects.toMatchObject({ statusCode: 400, message: "An image data URL is required." })
+})
+
+it.each([[123], [null], [{}], ["../../secret"]])("rejects invalid attachment IDs: %j", async (id) => {
+  await expect(consoleInputMessage("", [id])).rejects.toMatchObject({ statusCode: 400, message: "Invalid attachment ID." })
+})
