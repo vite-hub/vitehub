@@ -72,6 +72,8 @@
     "./agent/channels": "./dist/agent/channels.js",
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
     "./agent/eval": "./dist/agent/eval.js",
+    "./agent/evlog": "./dist/agent/evlog.js",
+    "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
@@ -158,15 +160,7 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json",
-    "./agent/evlog": {
-      "types": "./dist/agent/evlog.d.ts",
-      "import": "./dist/agent/evlog.js"
-    },
-    "./agent/evlog/posthog": {
-      "types": "./dist/agent/evlog/posthog.d.ts",
-      "import": "./dist/agent/evlog/posthog.js"
-    }
+    "./tsconfig": "./tsconfig.json"
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",

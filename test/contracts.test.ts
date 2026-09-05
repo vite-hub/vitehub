@@ -262,6 +262,11 @@ describe("package manifest contracts", () => {
   })
 })
 
+it("loads the built framework entry with its embedded export map", () => {
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e", "import('vite-hub').then(module => console.log(typeof module.vitehub))"], { cwd: repoRoot, encoding: "utf8" })
+  expect(output.trim()).toBe("function")
+})
+
 describe("docs import contracts", () => {
   it("documents every public framework import", () => {
     const manifest = readPackageManifest("vite-hub")
