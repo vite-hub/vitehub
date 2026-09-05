@@ -44,6 +44,11 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   let cursor: string | undefined
   let running = false
 
+  function reportError(error: unknown) {
+    try { options.onError?.(error) }
+    catch { /* Reporting errors must not stop replay. */ }
+  }
+
   const envelopeSchema = v.object({
     uuid: v.pipe(v.string(), v.uuid()),
     timestamp: v.pipe(v.string(), v.check(value => Number.isFinite(Date.parse(value)))),
@@ -107,8 +112,11 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
         if (observation.name !== pendingEvent) continue
         const delivery = parse(observation.payload?.visibility === "public" ? observation.payload.value : observation.attributes?.["papercut.envelope"])
         if (delivery && delivery.properties.invocation_id === invocation?.id && !acknowledged.has(delivery.uuid)) {
-          await deliver(delivery, journal)
-          acknowledged.add(delivery.uuid)
+          try {
+            await deliver(delivery, journal)
+            acknowledged.add(delivery.uuid)
+          }
+          catch (error) { reportError(error) }
         }
       }
     }
@@ -118,7 +126,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   function schedule(delay: number) {
     if (!running) return
     timer = setTimeout(() => {
-      replay = replayPage().catch(error => { try { options.onError?.(error) } catch { /* Reporting errors must not stop replay. */ } }).finally(() => {
+      replay = replayPage().catch(reportError).finally(() => {
         replay = undefined
         schedule(cursor ? 1000 : intervalMs)
       })

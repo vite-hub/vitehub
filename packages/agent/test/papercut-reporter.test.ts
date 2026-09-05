@@ -65,6 +65,29 @@ it("replays a failed report after reopening SQLite with its original ID and time
   finally { first.close(); second.close(); await rm(directory, { recursive: true, force: true }) }
 })
 
+it("continues replay after one delivery fails", async () => {
+  const journal = await fixture()
+  const later = { ...delivery, uuid: "a9f70f76-04e0-5df7-a930-39404c45969c", properties: { ...delivery.properties, papercut_id: "later" } }
+  const persist = createPapercutReporter({ invocations: () => journal, send: async () => { throw new Error("offline") } })
+  await expect(persist.report(delivery)).rejects.toThrow("offline")
+  await expect(persist.report(later)).rejects.toThrow("offline")
+  await persist.stop()
+
+  const onError = vi.fn()
+  const send = vi.fn(async (item: PapercutDelivery) => {
+    if (item.uuid === delivery.uuid) throw new Error("still offline")
+  })
+  const replay = createPapercutReporter({ invocations: () => journal, send, onError, intervalMs: 1000 })
+  replay.start()
+  try {
+    await vi.waitFor(async () => expect((await journal.get("run"))?.observations.some(item => item.name === "agent.papercut.delivered" && item.attributes?.["papercut.uuid"] === later.uuid)).toBe(true))
+    expect(send).toHaveBeenCalledWith(delivery, expect.any(AbortSignal))
+    expect(send).toHaveBeenCalledWith(later, expect.any(AbortSignal))
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "still offline" }))
+  }
+  finally { await replay.stop() }
+})
+
 it("bounds a stuck delivery and leaves it pending for replay", async () => {
   const journal = await fixture()
   let signal: AbortSignal | undefined

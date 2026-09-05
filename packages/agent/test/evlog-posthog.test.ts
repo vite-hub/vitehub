@@ -24,7 +24,7 @@ it.each([200, 401])("rejects HTTP %s without an acknowledgement and hides respon
   await exporter.flush()
 })
 
-it("uses PostHog's exception parser and propagates failed exception delivery", async () => {
+it("uses PostHog's exception parser with acknowledged delivery", async () => {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ status: "Ok" }))
   vi.stubGlobal("fetch", fetch)
   const exporter = posthogAgentExporter({ apiKey: "secret", service: "test" })
@@ -33,5 +33,14 @@ it("uses PostHog's exception parser and propagates failed exception delivery", a
   expect(batch.event).toBe("$exception")
   expect(batch.properties.$exception_list).toHaveLength(1)
   expect(batch.properties.run_id).toBe("run")
+  await exporter.flush()
+})
+
+it("rejects exception delivery without an acknowledgement", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response("offline", { status: 503 }))
+  vi.stubGlobal("fetch", fetch)
+  const exporter = posthogAgentExporter({ apiKey: "secret", service: "test" })
+  await expect(exporter.exception(new Error("safe diagnostic"), { run_id: "run" })).rejects.toThrow("did not acknowledge")
+  expect(fetch).toHaveBeenCalledTimes(3)
   await exporter.flush()
 })
