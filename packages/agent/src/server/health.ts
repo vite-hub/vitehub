@@ -49,14 +49,14 @@ export function createAgentHealth(options: AgentHealthOptions): () => Promise<Ag
     const workload = base?.workload ?? (agent.invocations ? await readAgentInvocationWorkload(agent.invocations, 0) : {})
     if (!base) {
       diagnostics.push({ label: 'Runtime', status: 'ok', value: globalThis.process?.version ? `Node ${globalThis.process.version}` : 'Server runtime' })
-      const status = await readStatus(agent, agent.name ?? options.name)
-      diagnostics.push({
-        label: 'Provider',
-        status: status.readiness === 'ready' && !status.stale ? 'ok' : status.readiness === 'unsupported' ? 'neutral' : 'warning',
-        value: status.readiness === 'ready' && !status.stale ? 'Ready' : status.stale ? 'Status unavailable' : status.readiness,
-        detail: status.checkedAt ? `Checked ${status.checkedAt}` : undefined,
-      })
     }
+    const status = await readStatus(agent, agent.name ?? options.name)
+    diagnostics.push({
+      label: 'Provider',
+      status: status.readiness === 'ready' && !status.stale ? 'ok' : status.readiness === 'unsupported' ? 'neutral' : 'warning',
+      value: status.readiness === 'ready' && !status.stale ? 'Ready' : status.stale ? 'Status unavailable' : status.readiness,
+      detail: status.checkedAt ? `Checked ${status.checkedAt}` : undefined,
+    })
     diagnostics.push({ label: 'Agent', status: 'ok', value: agent.name ?? options.name })
     const model = driver?.provider?.model ?? driver?.model?.id
     if (model) diagnostics.push({ label: 'Model', status: 'ok', value: model, detail: driver?.provider?.reasoningEffort ? `${driver.provider.reasoningEffort} reasoning effort` : undefined })

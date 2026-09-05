@@ -4,6 +4,7 @@ import { createAgentHealth } from '../src/server/health.ts'
 import type { AgentHealthOptions } from '../src/server/health.ts'
 
 const agent = defineAgent({ name: 'support', driver: { kind: 'codex', model: 'gpt-6-astra', reasoningEffort: 'medium', capacity: { concurrency: 4 } } })
+vi.spyOn(agent, 'status').mockResolvedValue({ agent: 'support', checkedAt: new Date().toISOString(), readiness: 'ready', stale: false })
 const processHealth: NonNullable<AgentHealthOptions['process']> = {
   health: async () => ({ checkedAt: new Date().toISOString(), status: 'healthy', diagnostics: [{ label: 'Runtime', status: 'ok', value: 'Node' }], workload: { active: 0, completed: 1, failed: 0, stale: 0, total: 1 } }),
 }
@@ -72,4 +73,16 @@ it('reports GitHub budget waits without exposing credentials or treating them as
   expect(JSON.stringify(report)).not.toContain('private-token')
   access.mockRejectedValueOnce(new Error('private-token'))
   expect((await health()).status).toBe('degraded')
+})
+
+
+it('composes process recovery with definition provider readiness', async () => {
+  const status = vi.fn(async () => ({ agent: 'support', checkedAt: new Date().toISOString(), readiness: 'unknown' as const, stale: false }))
+  const health = createAgentHealth({ name: 'Support', agent: () => ({ ...agent, status }), process: processHealth })
+  const report = await health()
+  expect(status).toHaveBeenCalledOnce()
+  expect(report.status).toBe('degraded')
+  expect(report.workload.completed).toBe(1)
+  expect(report.diagnostics).toContainEqual(expect.objectContaining({ label: 'Runtime', status: 'ok' }))
+  expect(report.diagnostics).toContainEqual(expect.objectContaining({ label: 'Provider', status: 'warning', value: 'unknown' }))
 })
