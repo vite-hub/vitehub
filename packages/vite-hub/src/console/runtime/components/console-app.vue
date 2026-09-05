@@ -1116,6 +1116,7 @@ onBeforeUnmount(() => {
             class="h-full min-h-0 overflow-hidden"
           >
             <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
@@ -1210,6 +1211,7 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                 v-if="invocationView"
                 :invocation="invocationView"
                 v-model:tab="inspectorTab"
@@ -1321,6 +1323,7 @@ onBeforeUnmount(() => {
             >
               <template #content>
                 <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                   :invocation="invocationView"
                   :maximizable="false"
                   v-model:tab="inspectorTab"

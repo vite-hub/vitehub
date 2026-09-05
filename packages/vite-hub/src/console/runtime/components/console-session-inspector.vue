@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { Diagnostic } from "nostics";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 type InspectorTab = "details" | "trace" | "workspace";
@@ -383,27 +383,7 @@ async function loadFile(path: string) {
 }
 
 async function requestJson(path: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(path, { signal });
-  if (!response.ok) {
-    const payload = record(await response.json().catch(() => undefined));
-    throw new RequestError(
-      stringValue(payload?.statusMessage) ||
-        stringValue(payload?.statusText) ||
-        `Request failed with status ${response.status}.`,
-      response.status,
-    );
-  }
-  return response.json();
-}
-
-class RequestError extends Diagnostic {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super({ code: "VITE_HUB_R0111", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, RequestError);
-    this.name = "RequestError";
-  }
+  return requestConsole(path, { signal });
 }
 
 function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
@@ -669,6 +649,7 @@ function message(error: unknown) {
             >{{ segment }}</span
           ></template
         >
+        <small v-if="workspace?.revision === 'current'" title="Current mounted files, not a snapshot of this run">Current files</small>
         <small v-if="file">{{ file.size }} bytes</small>
         <div class="session-inspector__workspace-actions">
           <UTooltip text="Reload Workspace"
@@ -707,7 +688,7 @@ function message(error: unknown) {
           <div class="session-inspector__file">
             <div v-if="!selectedPath" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
-              <span class="session-inspector__eyebrow">Immutable snapshot</span>
+              <span class="session-inspector__eyebrow">{{ workspace.revision === "current" ? "Current mounted files · not a run snapshot" : "Immutable snapshot" }}</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
                 {{ workspace.paths.length }} files<span v-if="workspace.pullRequest !== undefined">

@@ -9,6 +9,7 @@ import consoleBlobHandler from "./blob.get.ts"
 import consoleDatabaseHandler from "./database.get.ts"
 import consoleDefinitionsHandler from "./definitions.get.ts"
 import consoleInvocationCapabilitiesHandler from "./invocation-capabilities.get.ts"
+import consoleInvocationWorkspaceHandler from "./invocation-workspace.get.ts"
 import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleKVHandler from "./kv.get.ts"
@@ -108,6 +109,7 @@ const operations = {
   [consoleRpcMethods.blob]: (input: ConsoleRpcInput) => consoleBlobHandler(requestEvent("blob", input)),
   [consoleRpcMethods.database]: (input: ConsoleRpcInput) => consoleDatabaseHandler(requestEvent("database", input)),
   [consoleRpcMethods.definitions]: (input: ConsoleRpcInput) => consoleDefinitionsHandler(requestEvent("definitions", input)),
+  [consoleRpcMethods.invocationWorkspace]: (input: ConsoleRpcInput) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input)),
   [consoleRpcMethods.invocation]: (input: ConsoleRpcInput) => consoleInvocationHandler(requestEvent("invocations", input)),
   [consoleRpcMethods.invocationCapabilities]: (input: ConsoleRpcInput) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input)),
   [consoleRpcMethods.invocations]: (input: ConsoleRpcInput) => consoleInvocationsHandler(requestEvent("invocations", input)),

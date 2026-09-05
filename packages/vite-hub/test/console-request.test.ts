@@ -27,6 +27,15 @@ afterEach(() => {
 mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call, ensureTrusted: async () => true }));
 
 describe("Console requests", () => {
+  it("routes Workspace file requests through RPC with the invocation id", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { content: "hello" } })
+    await expect(requestConsole("/workspace/api/_vitehub/console/invocations/run%20one/workspace?path=AGENTS.md"))
+      .resolves.toEqual({ content: "hello" })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocationWorkspace, {
+      id: "run one", method: "GET", query: { path: "AGENTS.md" },
+    })
+  })
+
   it("deduplicates keys repeated across provider pages", () => {
     expect(appendUniqueConsoleKeys(["first", "repeated"], ["repeated", "last"]))
       .toEqual(["first", "repeated", "last"])

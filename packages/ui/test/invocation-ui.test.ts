@@ -1663,6 +1663,19 @@ describe("Agent Invocation UI", () => {
 
   });
 
+  it("explains provider spend caps and preserves explicit recovery instructions", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z", id: "quota", observations: [],
+      status: "failed", traceId: "trace", updatedAt: "2026-08-22T00:00:00.000Z",
+      error: { code: "AGENT_R0726", message: "Workspace spend cap reached" },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-error__recovery").text()).toContain("Raise the limit");
+    expect(wrapper.get(".vh-invocation-error__details").text()).toContain("Workspace spend cap reached");
+    const explicit = mount(AgentInvocationInspector, { props: { invocation: { ...invocation, error: { ...invocation.error!, fix: "Contact the workspace owner." } } } });
+    expect(explicit.get(".vh-invocation-error__recovery").text()).toContain("Contact the workspace owner.");
+  });
+
   it("keeps bounded runtime diagnostics available behind a disclosure", () => {
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z",

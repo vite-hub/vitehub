@@ -15,6 +15,8 @@ When that message has no semantic text, such as an attachment-only audio or imag
 Applications can use the finish extension to name a job, run, artifact, or other durable record without depending on a chat interface.
 It can limit title generation to selected Agent Trigger ids.
 
+The default generation prompt follows T3 Code’s editorial rules: name the subject and desired outcome in 3–8 words, under 40 characters. It requests a JSON object with a `title` field. Output is normalized to one line and bounded by `maxLength`. An explicit title Driver uses `fallback` on failure or timeout; this does not prevent the main answer.
+
 ## Configure titles
 
 Attach `title()` to any Agent Definition that needs a generated title.
@@ -77,7 +79,7 @@ Test a vague first message and confirm the fallback title is used instead of an 
 | `fallback` | `string` | `"Untitled"` | Title used when generation returns no usable text. |
 | `id` | `string` | `"title"` | Capability id. |
 | `instructions` | `string` | none | System instructions for model-backed title generation. |
-| `maxLength` | `number` | `80` | Maximum title length. |
+| `maxLength` | `number` | `39` | Maximum title length. |
 | `model` | `AgentModelResolver` | Agent model, then heuristic fallback | Model used for title generation. |
 | `template` | `string \| function` | generated | Prompt template for model-backed generation. String templates can use `{{ message }}` and `{{ source }}`. |
 | `trigger` | `string \| string[]` | all triggers | Limit title generation to selected Agent Trigger ids. |

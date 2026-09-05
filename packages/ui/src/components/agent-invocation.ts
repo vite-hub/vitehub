@@ -214,8 +214,24 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
+function errorRecovery(error: NonNullable<AgentInvocationView["error"]>) {
+  const reason = error.message.toLowerCase();
+  const fix = error.fix || (
+    /spend.?cap|spend(ing)? limit|budget.*exceed/.test(reason)
+      ? "The provider rejected this run because the workspace spending limit was reached. Raise the limit or wait for the billing reset, then start a new run. Retrying before capacity is restored will fail again."
+      : /rate.?limit|too many requests/.test(reason)
+        ? "Wait for the provider’s rate limit to reset, then retry. Reduce concurrent runs if this keeps happening."
+        : undefined
+  );
+  return fix ? h("div", { class: "vh-invocation-error__recovery" }, [
+    h("strong", "How to fix"), h("p", fix),
+  ]) : null;
+}
+
 function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
-  const details: Record<string, unknown> = {};
+  const details: Record<string, unknown> = { message: error.message };
+  if (error.fix) details.fix = error.fix;
+  if (error.docs) details.docs = error.docs;
   if (error.code !== undefined) details.code = error.code;
   if (error.requestId) details.requestId = error.requestId;
   if (error.status !== undefined) details.status = error.status;
@@ -223,7 +239,7 @@ function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
   if (error.details) details.details = error.details;
   if (error.cause) details.cause = error.cause;
   if (error.errors?.length) details.errors = error.errors;
-  if (!Object.keys(details).length) return null;
+  if (Object.keys(details).length === 1) return null;
   return h("details", { class: "vh-invocation-error__details" }, [
     h("summary", "Diagnostic details"),
     h("pre", payloadText(details)),
@@ -1434,6 +1450,7 @@ export const AgentInvocation = defineComponent({
               ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
                   h("strong", props.invocation.error.name ?? "Invocation failed"),
                   h("span", props.invocation.error.message),
+                  errorRecovery(props.invocation.error),
                   diagnosticDetails(props.invocation.error),
                 ])
               : null,
@@ -1585,7 +1602,7 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ) : null,
-              h("h4", agentInvocationTitle(props.invocation)),
+              h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)),
               agentInvocationContext(props.invocation) !== props.invocation.id
                 ? h("p", agentInvocationContext(props.invocation))
                 : null,
@@ -1602,7 +1619,8 @@ export const AgentInvocationInspector = defineComponent({
                 ? h("div", { class: "vh-invocation-inspector__error" }, [
                     h("strong", props.invocation.error.name ?? "Invocation failed"),
                     h("p", props.invocation.error.message),
-                    diagnosticDetails(props.invocation.error),
+                    errorRecovery(props.invocation.error),
+                  diagnosticDetails(props.invocation.error),
                   ])
                 : null,
             ]),

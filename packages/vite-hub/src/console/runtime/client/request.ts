@@ -39,6 +39,8 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
       method: consoleRpcMethods.agentInvocations,
     }
   }
+  const workspaceMatch = /^invocations\/([^/]+)\/workspace$/.exec(operation)
+  if (workspaceMatch) return { id: decodeURIComponent(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
   if (operation.startsWith("invocations/")) {
     return {
       id: decodeURIComponent(operation.slice("invocations/".length)),

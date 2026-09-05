@@ -855,8 +855,8 @@
 }
 
 .vh-invocation-message__content[data-collapsed="true"] {
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.75rem), transparent);
-  mask-image: linear-gradient(to bottom, black calc(100% - 1.75rem), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 0.65rem), rgb(0 0 0 / 35%));
+  mask-image: linear-gradient(to bottom, black calc(100% - 0.65rem), rgb(0 0 0 / 35%));
   max-height: 10.5rem;
   overflow: hidden;
 }
@@ -2103,8 +2103,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-execution__model-icon {
   color: var(--vh-ui-text);
-  height: 2rem;
-  width: 2rem;
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
 .vh-invocation-execution__provider {
@@ -2651,4 +2651,26 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   .vh-invocation-inspector__chevron {
     transition: none;
   }
+}
+
+.vh-invocation-error__recovery {
+  color: var(--vh-ui-text);
+  margin-block: 0.75rem;
+}
+
+.vh-invocation-error__recovery strong {
+  font-size: 0.75rem;
+}
+
+.vh-invocation-error__recovery p {
+  line-height: 1.5;
+  margin-block: 0.25rem 0;
+}
+
+.vh-invocation-inspector__content > section > h4.vh-invocation-inspector__title {
+  color: var(--vh-ui-text);
+  font-size: 0.8125rem;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-transform: none;
 }
