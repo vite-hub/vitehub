@@ -782,7 +782,12 @@ function isListedLiveEntry(entry: WorkspaceEntry, path: string, options: ListOpt
 }
 
 function liveSourceStat(source: ReturnType<typeof normalizeWorkspaceSources>[number], workspacePath: string): WorkspaceStat | undefined {
-  return liveSourceEntries(source).find(entry => entry.path === workspacePath)
+  const paths = source.livePaths
+  if (!paths) return
+  if (Object.hasOwn(paths, workspacePath)) return { path: workspacePath, type: "file" }
+  if (Object.keys(paths).some(path => path.startsWith(`${workspacePath}/`))) {
+    return { path: workspacePath, type: "directory" }
+  }
 }
 
 async function currentSourceTreePaths(source: ReturnType<typeof normalizeWorkspaceSources>[number], sourceContext: ReturnType<typeof createSourceContext>) {
