@@ -1803,6 +1803,24 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).not.toContain("Search indexed records")
   })
 
+  it("retains configuration explicitly without retaining arbitrary trace content", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      invocations,
+      capabilities: [inspectableToolCapability()],
+      driver: { run: async context => {
+        await context.traceLog?.append({ name: "private", type: "run", attributes: { "input.prompt": "private prompt" } })
+        return "done"
+      } },
+    })
+    await runAgent(agent, runtime("configuration-only"), { prompt: "hello" })
+    const record = await invocations.getByRunId("configuration-only")
+    const configured = record?.observations.findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).toContain("Search indexed records")
+    const privateEvent = record?.observations.find(entry => entry.name === "private")
+    expect(JSON.stringify(privateEvent)).not.toContain("private prompt")
+  })
+
   it("persists resolved instructions when invocation content is enabled", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({

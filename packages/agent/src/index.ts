@@ -3766,8 +3766,8 @@ async function createAgentInvocationContext<
         const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
         if (!configuration) return
         const journalTraceLog = invocationJournal.context.traceLog
-        const persistedConfiguration = journalTraceLog
-          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog
+        const persistedConfiguration = invocationJournal.configuration === "content" || (journalTraceLog
+          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog)
           ? configuration
           : agentTelemetryConfigurationForContent(configuration, {})
         await runtimeContext.traceLog?.append({

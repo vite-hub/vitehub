@@ -167,6 +167,8 @@ export function observationLimits(options: AgentInvocationObservationOptions = {
 }
 
 export interface AgentInvocationsOptions {
+  /** Retain resolved instructions and tool contracts independently of other trace content. Defaults to metadata. */
+  configuration?: TraceEventContentPolicy
   content?: TraceEventContentPolicy
   metadataContent?: readonly string[]
   observations?: AgentInvocationObservationOptions
@@ -194,6 +196,7 @@ interface BoundAgentInvocations extends AgentInvocations {
 }
 
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  configuration?: TraceEventContentPolicy
   context: AgentRuntimeContext<TRuntimeConfig>
   finish(status: Extract<AgentInvocationRecordStatus, "completed" | "failed" | "cancelled">, error?: unknown): Promise<void>
   running(): Promise<void>
@@ -1332,6 +1335,9 @@ function journalTraceLog(
 
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
   assertStore(options?.store)
+  if (options.configuration !== undefined && options.configuration !== "content" && options.configuration !== "metadata") {
+    throw agentDiagnostics.AGENT_R0624({ message: '[vitehub] Agent Invocations configuration must be "content" or "metadata".' })
+  }
   if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
     throw agentDiagnostics.AGENT_R0624({ message: '[vitehub] Agent Invocations content must be "content" or "metadata".' })
   }
@@ -1631,6 +1637,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         writeNextObservation()
       }
       return {
+        configuration: options.configuration,
         context: {
           ...context,
           run: { ...context.run, runId },
