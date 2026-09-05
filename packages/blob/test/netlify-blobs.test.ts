@@ -157,7 +157,18 @@ describe("Netlify Blobs driver", () => {
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["two.txt"])
   })
 
-  it.each(["!", btoa("invalid JSON")])("rejects malformed cursor %s before listing", async (cursor) => {
+  it.each([
+    ["invalid encoding", "!"],
+    ["invalid JSON", btoa("invalid JSON")],
+    ["null", btoa(JSON.stringify(null))],
+    ["array", btoa(JSON.stringify([]))],
+    ["missing fields", btoa(JSON.stringify({}))],
+    ["string index", btoa(JSON.stringify({ directoriesConsumed: false, index: "0" }))],
+    ["negative index", btoa(JSON.stringify({ directoriesConsumed: false, index: -1 }))],
+    ["fractional index", btoa(JSON.stringify({ directoriesConsumed: false, index: 0.5 }))],
+    ["non-boolean directory state", btoa(JSON.stringify({ directoriesConsumed: "false", index: 0 }))],
+    ["non-string provider cursor", btoa(JSON.stringify({ directoriesConsumed: false, index: 0, providerCursor: 1 }))],
+  ])("rejects malformed cursor with %s before listing", async (_, cursor) => {
     vi.stubGlobal("fetch", vi.fn())
 
     await expect(createDriver(options).list({ cursor })).rejects.toThrow()

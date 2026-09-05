@@ -24,10 +24,23 @@ function encodeFoldedCursor(value: FoldedCursor) {
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
   const decoded = Buffer.from(cursor, "base64url").toString("utf8")
-  const parsed = JSON.parse(decoded) as Partial<FoldedCursor>
+  const parsed: unknown = JSON.parse(decoded)
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new TypeError("Invalid Blob cursor.")
+  }
+  const index = Reflect.get(parsed, "index")
+  const providerCursor = Reflect.get(parsed, "providerCursor")
+  if (
+    typeof index !== "number"
+    || !Number.isInteger(index)
+    || index < 0
+    || (providerCursor !== undefined && typeof providerCursor !== "string")
+  ) {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   return {
-    index: typeof parsed.index === "number" && Number.isFinite(parsed.index) ? parsed.index : 0,
-    providerCursor: parsed.providerCursor,
+    index,
+    providerCursor,
   }
 }
 

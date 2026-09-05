@@ -124,12 +124,22 @@ function readProperty(value: unknown, key: string) {
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0 }
   const parsed: unknown = JSON.parse(decodeBase64(cursor))
+  const directoriesConsumed = readProperty(parsed, "directoriesConsumed")
   const index = readProperty(parsed, "index")
   const providerCursor = readProperty(parsed, "providerCursor")
+  if (
+    typeof directoriesConsumed !== "boolean"
+    || !isNumber(index)
+    || !Number.isInteger(index)
+    || index < 0
+    || (providerCursor !== undefined && !isString(providerCursor))
+  ) {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   return {
-    directoriesConsumed: readProperty(parsed, "directoriesConsumed") === true,
-    index: isNumber(index) && index >= 0 ? index : 0,
-    providerCursor: isString(providerCursor) ? providerCursor : undefined,
+    directoriesConsumed,
+    index,
+    providerCursor,
   }
 }
 

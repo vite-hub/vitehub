@@ -728,7 +728,17 @@ describe("blob runtime", () => {
     ])
   })
 
-  it.each(["!", btoa("invalid JSON")])("rejects malformed files-sdk cursor %s before listing", async (cursor) => {
+  it.each([
+    ["invalid encoding", "!"],
+    ["invalid JSON", btoa("invalid JSON")],
+    ["null", Buffer.from(JSON.stringify(null)).toString("base64url")],
+    ["array", Buffer.from(JSON.stringify([])).toString("base64url")],
+    ["missing index", Buffer.from(JSON.stringify({})).toString("base64url")],
+    ["string index", Buffer.from(JSON.stringify({ index: "0" })).toString("base64url")],
+    ["negative index", Buffer.from(JSON.stringify({ index: -1 })).toString("base64url")],
+    ["fractional index", Buffer.from(JSON.stringify({ index: 0.5 })).toString("base64url")],
+    ["non-string provider cursor", Buffer.from(JSON.stringify({ index: 0, providerCursor: 1 })).toString("base64url")],
+  ])("rejects malformed files-sdk cursor with %s before listing", async (_, cursor) => {
     const { createDriver } = await import("../src/drivers/s3.ts")
     const driver = createDriver({ bucket: "assets", driver: "s3" })
 
