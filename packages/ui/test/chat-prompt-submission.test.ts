@@ -90,14 +90,12 @@ describe("AgentChatPrompt submission with Nuxt UI", () => {
     expect(wrapper.emitted("submit")).toBeUndefined();
     expect(wrapper.get('button[aria-label="Send prompt"]').attributes("disabled")).toBeDefined();
 
+    const secondFile = { ...filePart, filename: "second.txt" };
     first.resolve(filePart);
+    second.resolve(secondFile);
     await flushPromises();
-    await wrapper.setProps({ files: [filePart] });
-    expect(wrapper.get('button[aria-label="Send prompt"]').attributes("disabled")).toBeDefined();
-    second.resolve({ ...filePart, filename: "second.txt" });
-    await flushPromises();
-    const files = [filePart, { ...filePart, filename: "second.txt" }];
-    expect(wrapper.emitted("update:files")?.at(-1)).toEqual([files]);
+    const files = [filePart, secondFile];
+    expect(wrapper.emitted("update:files")).toEqual([[files]]);
     await wrapper.setProps({ files });
 
     expect(wrapper.get('button[aria-label="Send prompt"]').attributes("disabled")).toBeUndefined();

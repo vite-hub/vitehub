@@ -33,6 +33,8 @@ export const AgentChatPrompt = defineComponent({
       (props.modelValue.trim().length > 0 || props.files.length > 0),
     );
     let disposed = false;
+    let nextBatch = 0;
+    const convertedBatches = new Map<number, readonly FileUIPart[]>();
     onBeforeUnmount(() => {
       disposed = true;
     });
@@ -48,6 +50,7 @@ export const AgentChatPrompt = defineComponent({
       input: FileList | Iterable<File>,
       onAccepted?: () => void,
     ) => {
+      const batch = nextBatch++;
       pendingFiles.value++;
       try {
         const rawFiles = Array.from(input);
@@ -55,11 +58,18 @@ export const AgentChatPrompt = defineComponent({
         if (acceptedFiles.length === 0) return;
         onAccepted?.();
         const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
-        if (!disposed) emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+        if (!disposed) convertedBatches.set(batch, files);
       } catch (error) {
         if (!disposed) emit("error", error);
       } finally {
         pendingFiles.value--;
+        if (!disposed && pendingFiles.value === 0 && convertedBatches.size > 0) {
+          const files = [...convertedBatches]
+            .sort(([first], [second]) => first - second)
+            .flatMap(([, converted]) => converted);
+          convertedBatches.clear();
+          emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+        }
       }
     };
     const paste = async (event: ClipboardEvent) => {
