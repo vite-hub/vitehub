@@ -1,5 +1,10 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
+import * as v from "valibot"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
+
+const providerErrorEnvelopeSchema = v.object({
+  error: v.object({ message: v.string() }),
+})
 
 const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0921",
@@ -1209,11 +1214,8 @@ export const agentDiagnostics = defineDiagnostics({
       why: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
         try {
-          const payload: unknown = JSON.parse(reason);
-          if (payload && typeof payload === "object" && "error" in payload) {
-            const error = payload.error;
-            if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
-          }
+          const payload = v.safeParse(providerErrorEnvelopeSchema, JSON.parse(reason));
+          if (payload.success) return payload.output.error.message;
         } catch {}
         return reason;
       },
