@@ -1020,7 +1020,7 @@ async function combinedUsageRecord(
   )))).filter((record): record is AgentUsageRecord => Boolean(record))
   if (!records.length) return
   if (records.length === 1) return records[0]
-  const shared = <K extends "credentialSource" | "model" | "transport">(key: K): AgentUsageRecord[K] | undefined => {
+  const shared = <K extends "credentialSource" | "model" | "provider" | "transport">(key: K): AgentUsageRecord[K] | undefined => {
     const value = records[0]![key]
     return records.every(record => JSON.stringify(record[key]) === JSON.stringify(value)) ? value : undefined
   }
@@ -1031,6 +1031,7 @@ async function combinedUsageRecord(
     ...(cost ? { cost } : {}),
     ...(shared("credentialSource") ? { credentialSource: shared("credentialSource") } : {}),
     ...(shared("model") ? { model: shared("model") } : {}),
+    ...(shared("provider") ? { provider: shared("provider") } : {}),
     ...(shared("transport") ? { transport: shared("transport") } : {}),
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     usage: await usage as AgentUsageRecord["usage"],

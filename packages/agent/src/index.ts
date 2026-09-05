@@ -4317,7 +4317,7 @@ function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
 }
 
 function mergedUsageRecords(...values: unknown[]): Record<string, unknown> {
-  const keys = ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"] as const
+  const keys = ["calls", "cost", "credentialSource", "latency", "model", "provider", "raw", "response", "run", "transport", "usage"] as const
   return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
 }
 

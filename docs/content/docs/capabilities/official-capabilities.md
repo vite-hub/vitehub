@@ -40,7 +40,6 @@ import {
   skills,
   transcribe,
   usage,
-  cost,
   diagnostics,
   webSearch,
   workspaceShell,
@@ -103,8 +102,7 @@ import {
 | Title | [`title()`](/docs/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | Replace a summary command with a conversation summary. |
 | Progress summary | [`progressSummary()`](/docs/capabilities/progress-summary) | Summarize current reasoning and tool activity while an Agent streams. |
-| Usage | [`usage()`](/docs/capabilities/usage) | Request provider usage metadata and expose a normalized Agent Usage Record. |
-| Cost | [`cost()`](/docs/capabilities/cost) | Add exact and display-ready USD cost to Agent Usage Records. |
+| Usage | [`usage()`](/docs/capabilities/usage) | Request provider usage metadata and expose normalized tokens and cost. |
 
 ## Next steps
 

@@ -3,7 +3,7 @@ import type { LanguageModel } from "ai"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
-import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, sandbox, schedule, skills, streamTranscription, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
+import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -230,7 +230,7 @@ describe("agent public types", () => {
     })
   })
 
-  it("types usage cost pricing and finish extensions", () => {
+  it("types usage pricing and finish extensions", () => {
     const pricing = ((context) => {
       expectTypeOf(context.usage).toMatchTypeOf<NonNullable<AgentUsageRecord["usage"]>>()
       return {
@@ -239,13 +239,14 @@ describe("agent public types", () => {
         source: "custom",
       }
     }) satisfies AgentUsagePricing
-    const options = { pricing } satisfies CostOptions
-    const gatewayPricingOptions = { timeout: 5_000 } satisfies VercelAiGatewayPricingOptions
+    const options = { pricing } satisfies UsageOptions
+    const modelsDevPricingOptions = { timeout: 5_000 } satisfies ModelsDevPricingOptions
 
-    expectTypeOf(cost(options)).toMatchTypeOf<AgentCapabilityDefinition>()
-    expectTypeOf(vercelAiGatewayPricing(gatewayPricingOptions)).toMatchTypeOf<AgentUsagePricing>()
+    expectTypeOf(usage(options)).toMatchTypeOf<AgentCapabilityDefinition>()
+    expectTypeOf(usage({ pricing: false })).toMatchTypeOf<AgentCapabilityDefinition>()
+    expectTypeOf(modelsDevPricing(modelsDevPricingOptions)).toMatchTypeOf<AgentUsagePricing>()
     defineAgent({
-      capabilities: [cost(options)],
+      capabilities: [usage(options)],
       driver: { run: () => "ok" },
       hooks: {
         "agent:error"(event) {
@@ -265,7 +266,7 @@ describe("agent public types", () => {
           void event.error
           // @ts-expect-error Agent Finish Hooks do not receive normalized error messages.
           void event.errorMessage
-          expectTypeOf(event.extensions.get("cost")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("usage")).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.extensions.get("unregistered")).toEqualTypeOf<unknown>()
         },
       },

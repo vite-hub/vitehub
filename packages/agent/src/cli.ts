@@ -10,7 +10,7 @@ import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agen
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
-import { enrichAgentUsageCost, vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
+import { enrichAgentUsageCost, modelsDevPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -115,7 +115,7 @@ const devPayloadMaxLength = 1200
 let devUsagePricing: AgentUsagePricing | undefined
 
 function defaultDevUsagePricing() {
-  return devUsagePricing ??= vercelAiGatewayPricing({
+  return devUsagePricing ??= modelsDevPricing({
     fetch: (...args) => globalThis.fetch(...args),
   })
 }

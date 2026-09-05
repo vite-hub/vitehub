@@ -2070,7 +2070,7 @@ export interface AgentUsage {
 export interface AgentUsageCost {
   display: string
   estimated: boolean
-  source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
+  source: "custom" | "estimated" | "models.dev" | "provider" | (string & {})
   usd: string
 }
 
@@ -2089,6 +2089,7 @@ export interface AgentUsageRecord {
     tokensPerSecond?: number
   }
   model?: string
+  provider?: string
   raw?: unknown
   response?: {
     finishReason?: unknown
