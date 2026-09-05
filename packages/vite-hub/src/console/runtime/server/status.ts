@@ -1,6 +1,6 @@
 import { createExecutionContext } from "@vite-hub/runtime"
 
-import type { AgentInput, AgentProviderStatus } from "@vite-hub/agent"
+import type { AgentInput, AgentProviderStatus, AgentRuntimeContext } from "@vite-hub/agent"
 
 /** A definition owns its account. Cache by definition identity, never by provider name. */
 export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutMs?: number } = {}): (agent: AgentInput, name: string) => Promise<AgentProviderStatus> {
@@ -20,7 +20,7 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
         reject(controller.signal.reason)
       }, options.timeoutMs ?? 15_000)
     })
-    const probe = agent.status ? Promise.resolve().then(() => agent.status!(createExecutionContext({
+    const probe = agent.status ? Promise.resolve().then(() => agent.status!(createExecutionContext<AgentRuntimeContext>({
       agentIdentity: { name }, runtime: "unknown" as const, runtimeConfig: {},
     }), { abortSignal: controller.signal })) : Promise.resolve<AgentProviderStatus>({
       agent: name, checkedAt: new Date(now).toISOString(), readiness: "unsupported", stale: false,
