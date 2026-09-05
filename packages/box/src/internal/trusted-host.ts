@@ -564,6 +564,7 @@ async function createTrustedHostSession(options: {
         options.root,
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
+      runOptions.abortSignal?.throwIfAborted();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
@@ -957,6 +958,7 @@ function processHandle(
   let abortReason: unknown;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
   const abort = () => {
+    if (abortReason) return;
     abortReason = abortSignal?.reason || new Error("Box command aborted.");
     signalProcessTree(child, "SIGTERM");
     forceKillTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 250);
@@ -972,6 +974,7 @@ function processHandle(
       else resolvePromise({ exitCode: code ?? 1 });
     });
   });
+  if (abortSignal?.aborted) abort();
   return {
     pid: child.pid,
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
