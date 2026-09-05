@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -18,8 +17,9 @@ import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
-import { installConsoleFixtureInvocations, installConsoleInvocations } from "./console/runtime/server/invocations.ts"
-import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
+import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
+import { discoverConsoleBuildCatalog } from "./console/build.ts"
+import { writeConsoleNitroPlugin } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
@@ -292,107 +292,6 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
     }
     if (!existing) imports.push({ from, name })
   }
-}
-
-function renderConsoleNitroPlugin(
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly { handler: string; name: string }[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  kvStores: readonly string[],
-  fixture?: string,
-  fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
-  runtimeBinding?: string,
-  invoke = false,
-): string {
-  const agentsEnabled = sections.includes("agents")
-  const blobEnabled = sections.includes("blob")
-  const databaseEnabled = sections.includes("databases")
-  const kvEnabled = sections.includes("kv")
-  const definitionsEnabled = consoleDefinitionSectionIds.some(section => sections.includes(section))
-  const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
-  const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
-  return [
-    `import { installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
-    ...(blobEnabled
-      ? [
-          `import { installConsoleBlob } from "vite-hub/console/blob"`,
-          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
-        ]
-      : []),
-    ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`]
-      : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
-    ...(databaseEnabled
-      ? [
-          `import { installConsoleDatabase } from "vite-hub/console/database"`,
-          `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
-        ]
-      : []),
-    ...(kvEnabled
-      ? [
-          `import { installConsoleKV } from "vite-hub/console/kv"`,
-          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
-        ]
-      : []),
-    ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)})`,
-    ...(blobEnabled
-      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
-      : []),
-    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
-    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.definitions)})`] : []),
-    ...(databaseEnabled
-      ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.definitions.databases?.map(definition => definition.name) ?? [])})`]
-      : []),
-    ...(agentsEnabled
-      ? fixture
-        ? [
-            `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { invocations: vitehubConsoleInvocations })`,
-          ]
-        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""} })`]
-      : []),
-    ...(kvEnabled
-      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
-      : []),
-    "export default function viteHubConsolePlugin() {}",
-    "",
-  ].join("\n")
-}
-
-async function writeConsoleNitroPlugin(
-  file: string,
-  projectRoot: string,
-  sections: readonly ConsoleSectionId[],
-  agents: readonly { handler: string; name: string }[],
-  catalog: ConsoleBuildCatalog,
-  blobStores: readonly string[],
-  kvStores: readonly string[],
-  fixture?: string,
-  runtimeBinding?: string,
-  invoke = false,
-  active: () => boolean = () => true,
-): Promise<string> {
-  const snapshot = fixture ? readConsoleFixture(fixture) : undefined
-  const identity = createConsoleInvocationsIdentity(
-    projectRoot,
-    fixture,
-    snapshot ? consoleFixtureRevision(snapshot) : undefined,
-    runtimeBinding,
-  )
-  if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke)
-  if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
-    await mkdir(resolve(file, ".."), { recursive: true })
-    await writeFile(file, contents, "utf8")
-  }
-  if (fixture && snapshot) {
-    installConsoleFixtureInvocations(projectRoot, fixture, snapshot, consoleFixtureRevision(snapshot), runtimeBinding)
-  }
-  return identity
 }
 
 async function installConsole(
