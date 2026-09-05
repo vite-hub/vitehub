@@ -9,11 +9,11 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import type { AgentRuntimeContext } from "@vite-hub/agent"
+import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts"
 
 function setup() {
-  const run = vi.fn((_context: AgentRuntimeContext) => "From the requested receipt date.")
+  const run = vi.fn((_context: AgentRunContext) => "From the requested receipt date.")
   const invocations = defineAgentInvocations({
     metadataContent: ["input.messages", "input.prompt"],
     store: createMemoryAgentInvocationStore(),
@@ -23,7 +23,6 @@ function setup() {
   const agent = defineAgent({ driver: { run }, invocations, name: "history-fixture", runtime: false })
   installConsoleAgentDefinitions([{ definition: agent, fallbackName: "history-fixture" }], {
     invoke: true,
-    invocations,
     projectRoot: root,
   })
   const handler = createConsoleDevframeHandler()
