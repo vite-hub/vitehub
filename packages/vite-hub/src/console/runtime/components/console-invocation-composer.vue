@@ -1,19 +1,14 @@
 <script setup lang="ts">
 import { AgentChatPrompt } from "@vite-hub/ui";
-import * as v from "valibot";
 import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
-import { requestConsole } from "../client/request";
-import type { ConsoleAgentInvocationInput } from "../rpc";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import { startConsoleAgentInvocation } from "../client/invocation";
 
 interface ConsoleAgentProfile {
   id: string;
   label?: string;
 }
-
-const invocationResultSchema = v.object({ id: v.string() });
 
 const props = defineProps<{
   agent: string;
@@ -51,37 +46,27 @@ function errorMessage(value: unknown): string {
 function filterFiles(selected: readonly File[]): readonly File[] {
   const accepted = selected.filter(file => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type));
   if (accepted.length !== selected.length) error.value = new Error("Use a PNG, JPEG, WebP, or GIF image. Other files are not supported by this Console input yet.");
-  return accepted;
+  if (accepted.some(file => file.size > 10 * 1024 * 1024)) {
+    error.value = new Error("Images must be at most 10 MiB.");
+  }
+  return accepted.filter(file => file.size <= 10 * 1024 * 1024);
 }
 
 async function submit(message: { text: string; files?: readonly FileUIPart[] }): Promise<void> {
   if (loading.value || (!message.text.trim() && !message.files?.length)) return;
   loading.value = true;
   error.value = undefined;
+  const agent = props.agent;
+  const base = props.base;
   try {
-    const body: ConsoleAgentInvocationInput = {
-      prompt: message.text,
-    };
-    if (message.files?.length) {
-      body.files = message.files.map(({ url, filename }) => ({ url, filename }));
+    const started = await startConsoleAgentInvocation({ agent, base, invokerProfileId: selectedProfileId.value }, message);
+    if (props.agent === agent && props.base === base) {
+      draft.value = "";
+      files.value = [];
+      emit("started", started);
     }
-    if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;
-    const response = await requestConsole(
-      `${props.base}/${encodeURIComponent(props.agent)}/invocations`,
-      {
-        body,
-        method: "POST",
-      },
-    );
-    const result = v.safeParse(invocationResultSchema, response);
-    if (!result.success || !result.output.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0102({ message: "The Agent invocation response did not include an id." });
-    }
-    draft.value = "";
-    files.value = [];
-    emit("started", { agent: props.agent, id: result.output.id });
   } catch (value) {
-    error.value = value;
+    if (props.agent === agent && props.base === base) error.value = value;
   } finally {
     loading.value = false;
   }
@@ -140,13 +125,13 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
             }"
             @submit="submit"
           >
-            <template #submit>
+            <template #submit="{ canSubmit }">
               <UButton
                 aria-label="Start Agent"
                 class="console-invocation-composer__submit size-8 rounded-full active:scale-[0.97]"
                 color="primary"
                 icon="i-ph-arrow-up-light"
-                :disabled="(!draft.trim() && !files.length) || loading"
+                :disabled="!canSubmit"
                 :loading="loading"
                 square
                 size="sm"

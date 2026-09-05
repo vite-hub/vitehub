@@ -144,3 +144,5 @@ Set `console.observations` to configure the fallback journal's observation count
 ## Console images
 
 The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/console/usage).
+
+Console image uploads require invocation to be enabled. The Console fixes the Agent, route, and invoker profile when submission starts, so switching Agents during an upload cannot redirect the input. Uploads without a usable Blob serving URL are removed before the request fails.
