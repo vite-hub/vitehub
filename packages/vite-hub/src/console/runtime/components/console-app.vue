@@ -180,7 +180,6 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
       [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
         .filter((value): value is string => Boolean(value))
         .join(" · ") || undefined,
-    description: invocation.error?.message,
     id: invocation.id,
     project: agentInvocationProject(invocation),
     provider:

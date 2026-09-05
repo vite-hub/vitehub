@@ -1638,6 +1638,10 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-inspector__error").text()).toBe(
       "Provider errorThe provider stopped before returning a result.",
     );
+    const secondary = mount(AgentInvocationInspector, { props: { invocation, showError: false } });
+    expect(secondary.text()).toContain("Failed");
+    expect(secondary.find(".vh-invocation-inspector__error").exists()).toBe(false);
+
   });
 
   it("keeps bounded runtime diagnostics available behind a disclosure", () => {
@@ -2684,17 +2688,17 @@ describe("Agent Invocation UI", () => {
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    expect(wrapper.get(".vh-invocation-execution__model").attributes("title")).toBe("gpt-5.6-sol");
+    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
     expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
-    expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Captured setup");
+    expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Agent setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
     expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
     expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
-    expect(wrapper.get(".vh-invocation-execution").text()).toContain("GPT 5.6 Sol");
-    expect(wrapper.get(".vh-invocation-execution").text()).toContain("OpenAI");
+    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
+    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("OpenAI");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("1 of 2 used");
     expect(wrapper.findAll(".vh-agent-tool-list > *").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
 
@@ -2703,6 +2707,12 @@ describe("Agent Invocation UI", () => {
     });
     expect(compact.find(".vh-invocation-inspector__status").exists()).toBe(false);
     expect(compact.find(".vh-invocation-timeline").exists()).toBe(false);
-    expect(compact.text()).toContain("Captured setup");
+    expect(compact.text()).toContain("Agent setup");
+    const shortened = mount(AgentInvocationInspector, { props: {
+      invocation: { ...invocation, configuration: { ...invocation.configuration, runtime: { name: "unknown" }, truncated: true } },
+    } });
+    expect(shortened.get('[role="note"]').text()).toContain("Some setup values were shortened");
+    expect(shortened.get(".vh-invocation-inspector__group--execution").text()).not.toContain("unknown");
+
   });
 });
