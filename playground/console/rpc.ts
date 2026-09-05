@@ -24,12 +24,12 @@ export function consoleMockRPC(): Plugin {
               type: "query",
               jsonSerializable: true,
               async handler(input: ConsoleRpcInput = {}): Promise<ConsoleRpcResult> {
-                const address = server.httpServer?.address()
-                if (!address || typeof address === "string") throw new Error("Playground server is not listening")
+                const serverUrl = server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
+                if (!serverUrl) throw new Error("Playground server is not listening")
                 const path = operation === "invocation" ? `invocations/${encodeURIComponent(input.id ?? "")}`
                   : operation === "agentInvocations" ? `agents/${input.agent ?? ""}/invocations`
                     : operation === "invocationCapabilities" ? "invocation-capabilities" : operation
-                const url = new URL(`/api/_vitehub/console/${path}`, `http://127.0.0.1:${address.port}`)
+                const url = new URL(`/api/_vitehub/console/${path}`, serverUrl)
                 for (const [key, value] of Object.entries(input.query ?? {})) {
                   for (const entry of Array.isArray(value) ? value : [value]) url.searchParams.append(key, entry)
                 }

@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import type {
   AgentInvocationRecord,
   AgentInvocationSummary,
@@ -180,7 +181,10 @@ export function usageQueryWindow(options: UsageQuery): {
   if (options.cursor !== undefined) {
     try {
       if (options.cursor.length > 32_768) throw new Error("Cursor too long");
-      after = v.parse(historyCursorSchema, JSON.parse(decodeURIComponent(options.cursor)));
+      after = v.parse(
+        historyCursorSchema,
+        JSON.parse(Buffer.from(options.cursor, "base64url").toString("utf8")),
+      );
       if (
         after.scope !== cursorScope(options) ||
         new Date(after.to).toISOString() !== after.to ||
@@ -214,9 +218,9 @@ export function usageCursor(
   to: string,
   last: { at: string; id: string },
 ): string {
-  return encodeURIComponent(
+  return Buffer.from(
     JSON.stringify({ version: 1, to, at: last.at, id: last.id, scope: cursorScope(options) }),
-  );
+  ).toString("base64url");
 }
 
 // SQLite's binary text ordering compares Unicode code points, including IDs outside the BMP.
