@@ -1330,7 +1330,7 @@ describe("Agent invocation console", () => {
         preset: "node",
         resolveAuthConfig: () => auth([
           { authorize: true, route: "/_vitehub/**" },
-          { authorize: true, route: "/api/_vitehub/console/**" },
+          { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
         ]),
         sections: ["agents"],
       })

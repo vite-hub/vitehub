@@ -432,7 +432,7 @@ describe("vitehub", () => {
         access: {
           routes: [
             { authorize: true, route: "/_vitehub/**" },
-            { authorize: true, route: "/api/_vitehub/console/**" },
+            { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
           ],
         },
       })
