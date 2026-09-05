@@ -135,7 +135,7 @@ export function combineSources<const TSources extends CombinedSources>(
     return flattened as Array<CombinedItem<TSources>>
   }
 
-  const reader = Object.values(sources).every(source => typeof source.items === "function")
+  const reader = Object.values(sources).every(source => source.items instanceof Function)
     ? { get, items }
     : { get }
   // SAFETY: Enumeration is exposed only when every input reader supports it.

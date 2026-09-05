@@ -94,7 +94,7 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
       options?: TOptions,
     ): Promise<ReadSourceResult<TOptions>> {
       const item = await get(key)
-      if (typeof item.content === "undefined") throw createMissingContentError(key)
+      if (item.content === undefined) throw createMissingContentError(key)
       return decodeSourceContent(item.content, options)
     },
     async meta(key: string) {

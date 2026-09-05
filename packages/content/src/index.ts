@@ -119,6 +119,10 @@ function isRuntimeObject(value: unknown): value is object {
   return value !== null && Object(value) === value && !isRuntimeFunction(value)
 }
 
+function isSourceName(input: ContentSourceInput): input is SourceName {
+  return Object(input) !== input && Object.prototype.toString.call(input) === "[object String]"
+}
+
 function isComarkContentSource(input: ContentSourceInput): input is ComarkContentSource {
   return (
     isRuntimeObject(input)
@@ -183,7 +187,7 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const currentReader = typeof sourceInput === "string"
+            const currentReader = isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
                 ? createSource(sourceInput)

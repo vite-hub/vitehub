@@ -6,6 +6,16 @@ interface KeyedSourceReader {
   get(key: never): Promise<unknown>
 }
 
+function isRuntimeFunction(value: unknown): value is Function {
+  if (value === null || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 type ValidCachedGet<TReader extends KeyedSourceReader> =
   (<T>() => T extends TReader["get"] ? 1 : 2) extends
   (<T>() => T extends (key: Parameters<TReader["get"]>[0]) => ReturnType<TReader["get"]> ? 1 : 2)
@@ -39,14 +49,13 @@ export function cachedSource<const TReader extends KeyedSourceReader>(
     return await (await cachedGet)(key)
   }
 
-  // SAFETY: The facade inherits the reader and forwards access to it. Its own
-  // properties stay configurable so frozen reader methods can be wrapped.
+  // SAFETY: Object.create(reader) returns an object that inherits TReader's full public contract.
   const facade = Object.create(reader) as TReader
   return new Proxy(facade, {
     get(_target, property) {
       if (property === "get") return readCached
       const value: unknown = Reflect.get(reader, property, reader)
-      return typeof value === "function" ? value.bind(reader) : value
+      return isRuntimeFunction(value) ? value.bind(reader) : value
     },
     set(_target, property, value: unknown) {
       return Reflect.set(reader, property, value, reader)
