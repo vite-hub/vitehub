@@ -2668,3 +2668,75 @@ describe("workflow runtime", () => {
     })
   })
 })
+
+describe("Workflow input dispatch", () => {
+  it("does not dispatch when the definition is missing", async () => {
+    const onDispatch = vi.fn()
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    enterWorkflowRuntimeEvent({ onDispatch })
+    await expect(runWorkflow("missing-input-owner")).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
+    expect(onDispatch).not.toHaveBeenCalled()
+  })
+
+  it("dispatches once before Cloudflare submission, including retries", async () => {
+    const onDispatch = vi.fn()
+    const createBatch = vi.fn(async () => {
+      expect(onDispatch).toHaveBeenCalledOnce()
+      throw new Error("acknowledgement lost")
+    })
+    setWorkflowRuntimeConfig({ provider: "cloudflare", binding: "INPUT_OWNER" })
+    enterWorkflowRuntimeEvent({ onDispatch, env: { INPUT_OWNER: { createBatch } } })
+    const workflow = createWorkflow("input-owner", async () => "done")
+    await expect(workflow.run()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    expect(createBatch).toHaveBeenCalledTimes(2)
+    expect(onDispatch).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])("dispatches only after OpenWorkflow connects: failure=%s", async (fails) => {
+    const onDispatch = vi.fn(() => {
+      expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledOnce()
+      expect(openWorkflowMock.runOptions).toHaveLength(0)
+    })
+    if (fails) openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw new Error("database unavailable") })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    enterWorkflowRuntimeEvent({ onDispatch })
+    const workflow = createWorkflow("input-owner", async () => "done")
+    if (fails) await expect(workflow.run()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    else await expect(workflow.run()).resolves.toMatchObject({ status: "queued" })
+    expect(onDispatch).toHaveBeenCalledTimes(fails ? 0 : 1)
+  })
+
+  it.each([false, true])("dispatches only after Vercel runtime loading: failure=%s", async (fails) => {
+    const onDispatch = vi.fn()
+    const start = vi.fn(async () => {
+      expect(onDispatch).toHaveBeenCalledOnce()
+      throw new Error("acknowledgement lost")
+    })
+    setVercelWorkflowRuntimeLoader(async () => {
+      expect(onDispatch).not.toHaveBeenCalled()
+      if (fails) throw new Error("runtime unavailable")
+      return { start, getRun: vi.fn(), listSteps: vi.fn(), resumeHook: vi.fn() }
+    })
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "input-owner": async () => ({ default: { handler: async () => "done", options: { native: async () => "native" } } }),
+    })
+    enterWorkflowRuntimeEvent({ onDispatch })
+    await expect(runWorkflow("input-owner")).rejects.toMatchObject({ code: fails ? "VERCEL_WORKFLOW_SDK_LOAD_FAILED" : "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+    expect(start).toHaveBeenCalledTimes(fails ? 0 : 1)
+    expect(onDispatch).toHaveBeenCalledTimes(fails ? 0 : 1)
+  })
+
+  it("dispatches before the inline fallback can execute", async () => {
+    const onDispatch = vi.fn()
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    enterWorkflowRuntimeEvent({ onDispatch })
+    const handler = vi.fn(async () => {
+      expect(onDispatch).toHaveBeenCalledOnce()
+      return "done"
+    })
+    await createWorkflow("inline-input-owner", handler).run()
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    expect(onDispatch).toHaveBeenCalledOnce()
+  })
+})

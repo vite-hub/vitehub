@@ -1053,8 +1053,14 @@ async function runAgentAsWorkflow<
     workflowSettlementTasks.push(task)
     context.waitUntil?.(task)
   }
+  let inputHandedOff = false
   const workflowEvent = {
     ...(cloudflareEnv ? { env: cloudflareEnv } : {}),
+    onDispatch() {
+      if (inputHandedOff) return
+      options.onInputHandoff?.()
+      inputHandedOff = true
+    },
     settled: observeSettlement,
     waitUntil,
     context: {
@@ -1100,7 +1106,6 @@ async function runAgentAsWorkflow<
     }
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
-  options.onInputHandoff?.()
   try {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(

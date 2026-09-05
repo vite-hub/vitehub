@@ -135,11 +135,19 @@ describe("Workflow delivery lock portability", () => {
   })
 })
 
-it.each(["preparation", "provider"] as const)("signals input handoff only when reaching the runtime: %s", async (stage) => {
+it.each(["preparation", "provider-preparation", "provider"] as const)("signals input handoff only when reaching the runtime: %s", async (stage) => {
   const failure = new Error("Startup failed")
   const onInputHandoff = vi.fn()
   const providerRun = vi.fn(async () => {
-    expect(onInputHandoff).toHaveBeenCalledOnce()
+    const state = await import("@vite-hub/workflow/runtime/state")
+    // SAFETY: startAgentInvocation owns the event surrounding this mocked Workflow handle.
+    const event = state.getWorkflowRuntimeEvent() as { onDispatch?: () => void }
+    expect(onInputHandoff).not.toHaveBeenCalled()
+    if (stage === "provider") {
+      event.onDispatch?.()
+      // A recovery Workflow can reuse the event without taking input ownership again.
+      event.onDispatch?.()
+    }
     throw failure
   })
   setAgentWorkflowRuntimeLoaders({
@@ -153,7 +161,7 @@ it.each(["preparation", "provider"] as const)("signals input handoff only when r
   const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: workflow("handoff") })
   await expect(startAgentInvocation(agent, runtime(), {}, { onInputHandoff })).rejects.toBe(failure)
   expect(onInputHandoff).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
-  expect(providerRun).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
+  expect(providerRun).toHaveBeenCalledTimes(stage === "preparation" ? 0 : 1)
 })
 
 it("signals inline input handoff before executing the Driver", async () => {
