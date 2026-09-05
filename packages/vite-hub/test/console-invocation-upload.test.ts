@@ -24,7 +24,7 @@ vi.mock("../src/console/runtime/server/agents.ts", () => ({
 }))
 vi.mock("../src/console/runtime/server/attachments.ts", () => ({
   consoleAttachmentRequestBytes: 14 * 1024 * 1024,
-  storeConsoleAttachments: mocks.store,
+  storeConsoleInputMessage: mocks.store,
   consoleInputMessage: mocks.input,
 }))
 
@@ -34,7 +34,7 @@ const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
 const invoke = (body: unknown) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { json: async () => body } })
 beforeEach(() => {
   vi.resetAllMocks()
-  mocks.store.mockResolvedValue([{ id: "image-id", name: "test.png" }])
+  mocks.store.mockResolvedValue({ role: "user", parts: [{ type: "image", id: "image-id" }] })
   mocks.input.mockResolvedValue({ role: "user", parts: [{ type: "image", id: "image-id" }] })
   mocks.start.mockResolvedValue({ id: "invocation-id", inspect: async () => ({ outcome: "unavailable" }) })
 })
@@ -53,8 +53,8 @@ it.each([
 
 it("starts file-only invocations with references from the same request", async () => {
   await expect(invoke({ prompt: "", files, invokerProfileId: "default" })).resolves.toMatchObject({ id: "invocation-id" })
-  expect(mocks.store).toHaveBeenCalledWith({ files })
-  expect(mocks.input).toHaveBeenCalledWith("", [{ id: "image-id", name: "test.png" }])
+  expect(mocks.store).toHaveBeenCalledWith("", { files })
+  expect(mocks.input).not.toHaveBeenCalled()
   expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ messages: [{ role: "user", parts: [{ type: "image", id: "image-id" }] }] })
 })
 
@@ -75,5 +75,5 @@ it("still accepts existing stored attachment references without uploading again"
 it("accepts image payloads larger than the normal JSON request limit", async () => {
   const largeFiles = [{ url: `data:image/png;base64,${"YQ==".repeat(20000)}` }]
   await expect(invoke({ prompt: "test", files: largeFiles })).resolves.toMatchObject({ id: "invocation-id" })
-  expect(mocks.store).toHaveBeenCalledWith({ files: largeFiles })
+  expect(mocks.store).toHaveBeenCalledWith("test", { files: largeFiles })
 })

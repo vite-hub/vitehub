@@ -24,6 +24,15 @@ export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promi
 }
 
 export async function storeConsoleAttachments(body: unknown): Promise<ImagePart[]> {
+  return withStoredConsoleAttachments(body, async attachments => attachments)
+}
+
+/** Roll back new objects if input reconstruction fails before the Agent owns them. */
+export async function storeConsoleInputMessage(prompt: string, body: unknown): Promise<ReturnType<typeof createMessage>> {
+  return withStoredConsoleAttachments(body, attachments => consoleInputMessage(prompt, attachments))
+}
+
+async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachments: ImagePart[]) => Promise<T>): Promise<T> {
   const parsed = v.safeParse(uploadSchema, body)
   if (!parsed.success) throw error(400, "Provide between 1 and 10 image data URLs.")
   let totalBytes = 0
@@ -51,7 +60,7 @@ export async function storeConsoleAttachments(body: unknown): Promise<ImagePart[
       if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
       attachments.push({ id, mediaType: file.mediaType, name: file.name, size: file.bytes.length, type: "image", url: stored.url })
     }
-    return attachments
+    return await consume(attachments)
   }
   catch (failure) {
     const cleanupErrors: Error[] = []

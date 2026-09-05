@@ -1,4 +1,4 @@
-import { consoleAttachmentRequestBytes, consoleInputMessage, storeConsoleAttachments } from "./attachments.ts"
+import { consoleAttachmentRequestBytes, consoleInputMessage, storeConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
@@ -117,16 +117,8 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     throw consoleError(400, "Unknown Agent invocation profile.")
   }
 
-  const attachments = body.files === undefined
-    ? body.attachments
-    : await storeConsoleAttachments({ files: body.files })
-  if (attachments !== undefined) {
-    messages = [...(messages || []), await consoleInputMessage(prompt, attachments)]
-  }
-  else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
-
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
-  const controller = await startAgentInvocation(agent, createExecutionContext({
+  const context = createExecutionContext({
     agentIdentity: { name },
     capabilities: { console },
     memo: memo(),
@@ -134,7 +126,17 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
-  }), {
+  })
+  if (body.files !== undefined) {
+    messages = [...(messages || []), await storeConsoleInputMessage(prompt, { files: body.files })]
+  }
+  else if (body.attachments !== undefined) {
+    messages = [...(messages || []), await consoleInputMessage(prompt, body.attachments)]
+  }
+  else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
+
+  // After handoff, a failed start may already have durable work. Console cannot roll it back.
+  const controller = await startAgentInvocation(agent, context, {
     context: profileId ? { invokerProfileId: profileId } : {},
     ...messages ? { messages } : {},
     prompt,
