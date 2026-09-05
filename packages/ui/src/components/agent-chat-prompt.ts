@@ -1,5 +1,5 @@
 import type { ChatStatus, FileUIPart } from "ai";
-import { defineComponent, h, mergeProps, type PropType, ref, resolveComponent } from "vue";
+import { computed, defineComponent, h, mergeProps, onBeforeUnmount, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
 
@@ -25,6 +25,19 @@ export const AgentChatPrompt = defineComponent({
   emits: ["error", "reload", "submit", "stop", "update:files", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
     const input = ref<HTMLInputElement | null>(null);
+    const pendingFiles = ref(0);
+    const preparingFiles = computed(() => pendingFiles.value > 0);
+    const canSubmit = computed(() =>
+      props.status === "ready" &&
+      !preparingFiles.value &&
+      (props.modelValue.trim().length > 0 || props.files.length > 0),
+    );
+    let disposed = false;
+    let nextBatch = 0;
+    const convertedBatches = new Map<number, readonly FileUIPart[]>();
+    onBeforeUnmount(() => {
+      disposed = true;
+    });
     const UButton = resolveComponent("UButton");
     const UChatPrompt = resolveComponent("UChatPrompt");
     const UChatPromptSubmit = resolveComponent("UChatPromptSubmit");
@@ -37,15 +50,26 @@ export const AgentChatPrompt = defineComponent({
       input: FileList | Iterable<File>,
       onAccepted?: () => void,
     ) => {
+      const batch = nextBatch++;
+      pendingFiles.value++;
       try {
         const rawFiles = Array.from(input);
         const acceptedFiles = props.filterFiles?.(rawFiles) ?? rawFiles;
         if (acceptedFiles.length === 0) return;
         onAccepted?.();
         const files = await Promise.all(Array.from(acceptedFiles, fileToUIPart));
-        emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+        if (!disposed) convertedBatches.set(batch, files);
       } catch (error) {
-        emit("error", error);
+        if (!disposed) emit("error", error);
+      } finally {
+        pendingFiles.value--;
+        if (!disposed && pendingFiles.value === 0 && convertedBatches.size > 0) {
+          const files = [...convertedBatches]
+            .sort(([first], [second]) => first - second)
+            .flatMap(([, converted]) => converted);
+          convertedBatches.clear();
+          emit("update:files", nextPromptFiles(props.files, files, props.multiple));
+        }
       }
     };
     const paste = async (event: ClipboardEvent) => {
@@ -70,8 +94,8 @@ export const AgentChatPrompt = defineComponent({
           "onUpdate:modelValue": (value: string) =>
             emit("update:modelValue", value.replace(attachmentSubmitSentinel, "")),
           onSubmit: () => {
+            if (!canSubmit.value) return;
             const text = props.modelValue.trim();
-            if (!text && props.files.length === 0) return;
             emit("submit", { files: props.files, text } satisfies AgentChatPromptSubmit);
           },
         }),
@@ -140,7 +164,11 @@ export const AgentChatPrompt = defineComponent({
                   type: "button",
                   variant: "ghost",
                 }),
-              slots.submit?.({ status: props.status }) ??
+              slots.submit?.({
+                canSubmit: canSubmit.value,
+                preparingFiles: preparingFiles.value,
+                status: props.status,
+              }) ??
                 h(UChatPromptSubmit, {
                   "aria-label": {
                     error: "Retry prompt",
@@ -148,6 +176,7 @@ export const AgentChatPrompt = defineComponent({
                     streaming: "Stop response",
                     submitted: "Stop response",
                   }[props.status],
+                  disabled: props.status === "ready" && !canSubmit.value,
                   onReload: () => emit("reload"),
                   status: props.status,
                   onStop: () => emit("stop"),
