@@ -1491,17 +1491,14 @@ function githubActivityTime(value: string): string {
   return `<relative-time datetime="${value}">${value}</relative-time>`
 }
 
-function githubActivityBadge(status: AgentActivityStatus): string {
-  const values: Record<AgentActivityStatus, { color: string, label: string }> = {
-    cancelled: { color: "6e7781", label: "cancelled" },
-    completed: { color: "1f883d", label: "completed" },
-    failed: { color: "d1242f", label: "failed" },
-    queued: { color: "6e7781", label: "queued" },
-    running: { color: "0969da", label: "running" },
-    waiting: { color: "bf8700", label: "waiting for input" },
-  }
-  const value = values[status]
-  return `![Agent: ${value.label}](https://img.shields.io/badge/agent-${encodeURIComponent(value.label)}-${value.color})`
+function githubActivityDuration(entry: GitHubActivityHistoryEntry): string {
+  if (entry.status === "running" || entry.status === "waiting") return "In progress"
+  if (!entry.startedAt || !entry.updatedAt) return "—"
+  const seconds = Math.max(0, Math.round((Date.parse(entry.updatedAt) - Date.parse(entry.startedAt)) / 1_000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 function githubActivityText(value: string, limit: number): string {
@@ -1519,27 +1516,27 @@ function githubActivityTask(task: AgentActivityTask): string {
 }
 
 function githubActivityLinks(links: readonly { label: string, url: string }[]): string {
-  return links.map(link => `[${link.label}](<${link.url}>)`).join(" · ")
+  return links.map(link => `[${githubActivityText(link.label, 160)}](<${link.url.replace(/[<>\r\n|]/g, value => encodeURIComponent(value))}>)`).join(" · ")
 }
 
 function renderGithubActivity(
   activity: AgentActivityUpdate,
   state: GitHubActivityCommentState,
 ): string {
-  const sections = [
-    encodeGithubActivityState(state),
-    githubActivityBadge(activity.status),
-  ]
-  const links = githubActivityLinksState(activity.links)
-  if (activity.status === "queued") sections.push("Starting")
-  if (links.length) sections.push(githubActivityLinks(links))
+  const sections = [encodeGithubActivityState(state)]
   const current = state.current
-  const running = activity.status === "running" || activity.status === "waiting"
-  const time = activity.status === "queued" ? undefined : running ? current?.startedAt : current?.updatedAt
+  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry === current || entry.links.length > 0))
+  const labels: Record<AgentActivityStatus, string> = {
+    queued: "Starting", running: "Running", waiting: "Waiting for input",
+    completed: "Completed", failed: "Failed", cancelled: "Cancelled",
+  }
   sections.push([
-    "| Status | Updated |",
-    "| --- | --- |",
-    `| ${activity.status} | ${time ? `${running ? "Running since" : "Last run at"} ${githubActivityTime(time)}` : "Waiting to start"} |`,
+    "| Session | Status | Started | Duration |",
+    "| --- | --- | --- | --- |",
+    ...sessions.map(entry => {
+      const links = githubActivityLinks(entry.links.map((link, index) => ({ ...link, label: index === 0 ? "View session" : link.label })))
+      return `| ${links || "Pending"} | ${entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry)} |`
+    }),
   ].join("\n"))
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (current?.summary && ["completed", "failed", "cancelled"].includes(activity.status)) {
@@ -1548,13 +1545,15 @@ function renderGithubActivity(
   if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   if (state.history.length) {
     const history = state.history
-      .filter(entry => entry.links.length)
+      .filter(entry => entry.links.length && entry.summary)
       .map(entry => `<li>\n\n${githubActivityLinks(entry.links)}${entry.updatedAt ? ` · ${githubActivityTime(entry.updatedAt)}` : ""}${entry.status ? ` · ${entry.status}` : ""}${entry.summary ? `\n\n${githubActivityText(entry.summary, 2_000)}` : ""}\n\n</li>`)
       .join("\n")
-    if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`)
+    if (history) sections.push(`<details>\n<summary>Previous results</summary>\n\n<ul>\n${history}\n</ul>\n</details>`)
   }
   const body = sections.join("\n\n")
   if (Buffer.byteLength(body) <= githubActivityBodyLimit) return body
+  // Drop the oldest run before truncating current tasks, results, or errors.
+  if (state.history.length) return renderGithubActivity(activity, { ...state, history: state.history.slice(0, -1) })
   const stateMarker = sections[0]!
   let bounded = stateMarker
   for (const section of sections.slice(1)) {
