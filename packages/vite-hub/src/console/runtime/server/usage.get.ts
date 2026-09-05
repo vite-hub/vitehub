@@ -62,9 +62,9 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   const invocations = getConsoleInvocations();
   return cached(invocations, JSON.stringify([agentName ?? null, window, cursor]), async () => {
     const costConfigured = (agentName ? [agentName] : getConsoleAgents()).some((name) => {
-      const capabilities = getConsoleAgentDefinition(name)?.capabilities;
+      const capabilities = getConsoleAgentDefinition(name, "inspect")?.capabilities;
       return (
-        Array.isArray(capabilities) && capabilities.some((capability) => capability?.id === "cost")
+        Array.isArray(capabilities) && capabilities.some((capability) => capability?.id === "usage")
       );
     });
     const index = getConsoleUsageIndex(invocations);

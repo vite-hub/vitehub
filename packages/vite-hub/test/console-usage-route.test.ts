@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it } from "vitest"
+import { usage } from "@vite-hub/agent/capabilities"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
+import usageHandler from "../src/console/runtime/server/usage.get.ts"
 
 it("registers one production Usage GET endpoint when configuration is reapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
@@ -17,4 +21,23 @@ it("registers one production Usage GET endpoint when configuration is reapplied"
       { handler: expect.stringMatching(/server\/usage\.get\.js$/), route: "/api/_vitehub/console/usage", method: "get" },
     ])
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.each([false, true])("recognizes built-in Usage before the first invocation when invoke is %s", async (invoke) => {
+  const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+  installConsoleAgentDefinitions([{
+    definition: {
+      capabilities: [usage()],
+      invocations,
+      async resolve() { throw new Error("Usage inspection must not invoke the Agent") },
+    },
+    fallbackName: "usage-agent",
+  }], { projectRoot: process.cwd(), invoke })
+
+  for (const query of ["", "?agent=usage-agent"]) {
+    expect(await usageHandler({
+      method: "GET",
+      req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
+    })).toMatchObject({ available: false, costSupported: true })
+  }
 })
