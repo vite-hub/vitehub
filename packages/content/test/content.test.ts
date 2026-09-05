@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
+import type { SourceName } from "@vite-hub/source"
 
 import { contentSource, defineContent } from "../src/index.ts"
 
@@ -147,7 +148,7 @@ describe("contentSource", () => {
           return { data: { text }, kind: "document", partial }
         })
       })],
-      sources: { first: "first", second: "second" },
+      sources: { first: "first" as SourceName, second: "second" as SourceName },
     })
 
     await content.init()
@@ -194,7 +195,7 @@ describe("contentSource", () => {
           return { data: { text: texts[0], texts }, kind: "document", partial }
         })
       })],
-      sources: { overlap: "overlap" },
+      sources: { overlap: "overlap" as SourceName },
     })
     await content.init()
 
@@ -294,7 +295,7 @@ describe("contentSource", () => {
           return { data: { text }, kind: "document", partial }
         })
       })],
-      sources: { errors: "errors" },
+      sources: { errors: "errors" as SourceName },
     })
     await content.init()
 
@@ -433,7 +434,7 @@ describe("contentSource", () => {
           return { data: { text: texts[0] }, kind: "document", partial }
         })
       })],
-      sources: { direct: contentSource("direct") },
+      sources: { direct: contentSource("direct" as SourceName) },
     })
 
     await content.init()
@@ -465,7 +466,7 @@ describe("contentSource", () => {
         },
       },
     })
-    const source = contentSource("raw")
+    const source = contentSource("raw" as SourceName)
 
     await expect(source.keys()).resolves.toEqual(["logo.png"])
     await expect(source.getItemRaw("logo.png")).resolves.toEqual(Uint8Array.of(1))
@@ -476,7 +477,7 @@ describe("contentSource", () => {
 
   it("preserves adapted source options across fresh load adapters", () => {
     const schema = { properties: { title: { type: "string" } }, type: "object" } as const
-    const source = contentSource(contentSource("options", { prefix: "/base", schema }), { prefix: "/docs" })
+    const source = contentSource(contentSource("options" as SourceName, { prefix: "/base", schema }), { prefix: "/docs" })
     const content = defineContent({ sources: { docs: source } })
 
     expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
@@ -484,8 +485,8 @@ describe("contentSource", () => {
 
   it("rejects source and sources together", () => {
     expect(() => defineContent({
-      source: "source",
-      sources: { docs: "sources" },
+      source: "source" as SourceName,
+      sources: { docs: "sources" as SourceName },
     })).toThrow()
   })
 
