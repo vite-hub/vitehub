@@ -35,6 +35,8 @@ const keys = await docs.keys()
 const first = await docs.read(keys[0]!)
 ```
 
+`file()` follows a symbolic link only when its resolved target stays inside the Source root. `glob()` is also confined to the Source root. It does not follow symbolic links by default, and it checks each file path again before it reads content or metadata. Set `followSymlinks: true` to follow links when their resolved targets stay inside the Source root. This option controls file selection. It does not isolate the process from concurrent file system changes.
+
 `revision()` resolves an origin snapshot once per reader. Revision-aware loaders
 then use the same immutable identity for preparation, keys, and item reads.
 

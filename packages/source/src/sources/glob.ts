@@ -21,23 +21,31 @@ export function glob(options: GlobSourceOptions): Source<string> {
   let latest: { key: string, keys: string[] } | undefined
 
   async function getContextKey(ctx: SourceContext) {
-    return resolveCwd(resolveSourceRoot(ctx), options.cwd)
+    const { root, cwd } = await resolveGlobPaths(resolveSourceRoot(ctx), options.cwd)
+    return `${root}\0${cwd}`
   }
 
   async function loadKeys(ctx: SourceContext) {
-    const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
+    const paths = await resolveGlobPaths(resolveSourceRoot(ctx), options.cwd)
     const ignore = normalizePatterns(options.ignore)
     const files = await tinyglobby(options.include, {
-      cwd,
+      cwd: paths.cwd,
       dot: options.dot ?? false,
       followSymbolicLinks: options.followSymlinks ?? false,
       ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
       onlyFiles: true,
     })
-    return files
-      .map(file => normalizeSourcePath(file))
+    let keys = files
+      .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
       .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
-      .sort((left, right) => left.localeCompare(right))
+    if (options.followSymlinks) {
+      const rooted: string[] = []
+      for (const key of keys) {
+        if (await resolveRootedGlobFilePath(key, paths, true)) rooted.push(key)
+      }
+      keys = rooted
+    }
+    return keys.sort((left, right) => left.localeCompare(right))
   }
 
   async function refreshKeys(ctx: SourceContext) {
@@ -71,10 +79,17 @@ export function glob(options: GlobSourceOptions): Source<string> {
     const keys = await getKnownKeys(ctx)
     if (keys.includes(key)) return
     if (options.keyCache !== false) {
-      throw sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+      throw missingKeyError(key)
     }
     if ((await refreshKeys(ctx)).includes(key)) return
-    throw sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+    throw missingKeyError(key)
+  }
+
+  async function resolveGlobFilePath(key: string, ctx: SourceContext) {
+    const paths = await resolveGlobPaths(resolveSourceRoot(ctx), options.cwd)
+    const path = await resolveRootedGlobFilePath(key, paths, options.followSymlinks === true)
+    if (!path) throw missingKeyError(key)
+    return path
   }
 
   const source: Source<string> = {
@@ -89,9 +104,8 @@ export function glob(options: GlobSourceOptions): Source<string> {
     async getMeta(key: string, ctx: SourceContext) {
       await assertKey(key, ctx)
       const { stat } = await import("node:fs/promises")
-      const { resolve } = await import("node:path")
-      const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
-      const info = await stat(resolve(cwd, key))
+      const path = await resolveGlobFilePath(key, ctx)
+      const info = await stat(path)
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }
@@ -99,11 +113,10 @@ export function glob(options: GlobSourceOptions): Source<string> {
     async getItem(key: string, ctx: SourceContext): Promise<SourceItem<string>> {
       await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
-      const { resolve } = await import("node:path")
-      const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
+      const filePath = await resolveGlobFilePath(key, ctx)
       const prefix = normalizeSafeSourcePath(options.prefix || "", { allowEmpty: true })
-      const bytes = await readFile(resolve(cwd, key))
-      const info = await stat(resolve(cwd, key))
+      const bytes = await readFile(filePath)
+      const info = await stat(filePath)
       return {
         key,
         path: normalizeSourcePath(prefix ? `${prefix}/${key}` : key),
@@ -115,6 +128,10 @@ export function glob(options: GlobSourceOptions): Source<string> {
   return source
 }
 
+function missingKeyError(key: string) {
+  return sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+}
+
 function normalizePatterns(patterns: string | readonly string[] | undefined): readonly string[] {
   if (!patterns) return []
   return Array.isArray(patterns) ? patterns : [String(patterns)]
@@ -124,15 +141,57 @@ function resolveSourceRoot(ctx: SourceContext) {
   return ctx.sourceRootDir || ctx.rootDir
 }
 
-async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
+interface ResolvedGlobPaths {
+  root: string
+  cwd: string
+}
+
+async function resolveGlobPaths(rootDir: string, cwd = "."): Promise<ResolvedGlobPaths> {
   const { realpath } = await import("node:fs/promises")
-  const { isAbsolute, relative, resolve } = await import("node:path")
+  const { isAbsolute, relative, resolve, sep } = await import("node:path")
   const resolvedRoot = await realpath(resolve(rootDir))
   const resolvedCwdPath = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
   const resolvedCwd = await realpath(resolvedCwdPath)
   const rel = relative(resolvedRoot, resolvedCwd)
-  if (rel && (rel.startsWith("..") || isAbsolute(rel))) {
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw sourceError(`[vitehub] glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
   }
-  return resolvedCwd
+  return { root: resolvedRoot, cwd: resolvedCwd }
+}
+
+async function resolveRootedGlobFilePath(
+  key: string,
+  paths: ResolvedGlobPaths,
+  followSymlinks: boolean,
+): Promise<string | undefined> {
+  const { lstat, realpath } = await import("node:fs/promises")
+  const { isAbsolute, relative, resolve, sep } = await import("node:path")
+  const safeKey = normalizeSafeSourcePath(key, { allowReserved: true })
+  const path = resolve(paths.cwd, safeKey)
+
+  if (followSymlinks) {
+    let target: string
+    try {
+      target = await realpath(path)
+    }
+    catch (error) {
+      if (isUnavailablePathError(error)) return
+      throw error
+    }
+    const rel = relative(paths.root, target)
+    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return
+    return target
+  }
+
+  let current = paths.cwd
+  for (const part of safeKey.split("/")) {
+    current = resolve(current, part)
+    if ((await lstat(current)).isSymbolicLink()) return
+  }
+  return path
+}
+
+function isUnavailablePathError(error: unknown) {
+  return error instanceof Error
+    && ["ENOENT", "ELOOP"].includes(String(Reflect.get(error, "code")))
 }
