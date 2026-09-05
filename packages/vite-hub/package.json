@@ -89,7 +89,6 @@
     "./blob": "./dist/blob.js",
     "./blob/content-type": "./dist/blob/content-type.js",
     "./box": "./dist/box.js",
-    "./box/ssh": "./dist/box/ssh.js",
     "./browser": "./dist/browser.js",
     "./browser/actions": "./dist/browser/actions.js",
     "./browser/controllers/cdp": "./dist/browser/controllers/cdp.js",
