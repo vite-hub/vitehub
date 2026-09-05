@@ -67,7 +67,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
       for (const file of message.files) {
         const uploaded = await requestConsole(`${props.base.replace(/\/agents$/, "")}/attachments`, { method: "POST", body: file });
         const parsed = v.parse(invocationResultSchema, uploaded);
-        body.attachments.push(parsed.id);
+        body.attachments.push({ id: parsed.id, name: file.filename?.slice(0, 255) || "image" });
       }
     }
     if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;

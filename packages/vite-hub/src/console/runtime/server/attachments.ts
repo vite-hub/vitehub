@@ -1,15 +1,16 @@
-import { createMessage } from "@vite-hub/agent"
 import * as v from "valibot"
+import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
 import { assertConsoleRequest, consoleRequestJSON } from "./request.ts"
 import type { ImagePart } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 
+const uploadSchema = v.object({ url: v.string(), filename: v.optional(v.string(), "image") })
+const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
+
 const prefix = "vitehub-console-attachments/"
 const maximumBytes = 10 * 1024 * 1024
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
-const uploadSchema = v.object({ url: v.string(), filename: v.fallback(v.string(), "image") })
-const attachmentIdsSchema = v.array(v.pipe(v.string(), v.regex(/^[0-9a-f-]{36}$/)))
 
 function error(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode, statusMessage: message })
@@ -18,31 +19,30 @@ function error(statusCode: number, message: string): Error {
 /** Store bytes before starting an invocation. Only durable references enter its journal. */
 export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promise<ImagePart> {
   assertConsoleRequest(event, ["POST"])
-  const result = v.safeParse(uploadSchema, await consoleRequestJSON(event, Math.ceil(maximumBytes * 4 / 3) + 4096))
-  if (!result.success) throw error(400, "An image data URL is required.")
-  const body = result.output
-  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(body.url)
+  const body = await consoleRequestJSON(event, Math.ceil(maximumBytes * 4 / 3) + 4096)
+  const parsed = v.safeParse(uploadSchema, body)
+  if (!parsed.success) throw error(400, "An image data URL is required.")
+  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(parsed.output.url)
   if (!match || !imageTypes.has(match[1]!)) throw error(415, "Use a PNG, JPEG, WebP, or GIF image.")
   const bytes = Buffer.from(match[2]!, "base64")
   if (!bytes.length || bytes.length > maximumBytes) throw error(413, "Images must be between 1 byte and 10 MiB.")
   const id = crypto.randomUUID()
-  const name = body.filename.slice(0, 255)
+  const name = parsed.output.filename.slice(0, 255)
   let storage: ReturnType<typeof getConsoleBlob>["storage"]
   try { storage = getConsoleBlob().storage }
   catch { throw error(503, "Configure ViteHub Blob storage to send and retain Console attachments.") }
-  const [failure, stored] = await storage.put(`${prefix}${id}`, bytes, { contentType: match[1], customMetadata: { name } })
+  const [failure, stored] = await storage.put(`${prefix}${id}`, bytes, { contentType: match[1] })
   if (failure) throw failure
   if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
   return { id, mediaType: match[1]!, name, size: bytes.length, type: "image", url: stored.url }
 }
 
 export async function consoleInputMessage(prompt: string, attachments: unknown): Promise<ReturnType<typeof createMessage>> {
-  if (!Array.isArray(attachments) || attachments.length > 10) throw error(400, "Attachments must contain at most ten stored image IDs.")
-  const result = v.safeParse(attachmentIdsSchema, attachments)
-  if (!result.success) throw error(400, "Invalid attachment ID.")
+  const parsed = v.safeParse(attachmentIdsSchema, attachments)
+  if (!parsed.success) throw error(400, "Invalid attachment ID.")
   let totalBytes = 0
   const parts: ImagePart[] = []
-  for (const id of new Set(result.output)) {
+  for (const { id, name } of new Map(parsed.output.map(part => [part.id, part])).values()) {
     const storage = getConsoleBlob().storage
     const [headError, metadata] = await storage.head(`${prefix}${id}`)
     if (headError) throw headError
@@ -50,7 +50,7 @@ export async function consoleInputMessage(prompt: string, attachments: unknown):
     totalBytes += metadata.size ?? maximumBytes + 1
     if (totalBytes > maximumBytes) throw error(413, "Combined images exceed 10 MiB.")
     parts.push({
-      id, type: "image", mediaType: metadata.contentType, name: metadata.customMetadata.name, size: metadata.size, url: metadata.url,
+      id, type: "image", mediaType: metadata.contentType, name, size: metadata.size, url: metadata.url,
       async fetchData() {
         const [readError, data] = await storage.get(`${prefix}${id}`)
         if (readError) throw readError

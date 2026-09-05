@@ -1,3 +1,4 @@
+import { validateAgentPreparationRoute } from "./internal/routes.ts"
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
@@ -2854,6 +2855,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             getCloudflareStateImport(agent, frameworkOptions),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
+      if (installPreparation && resolved && resolved.preparation) {
+        const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
+        const routes = existing.filter(isRecord).map(handler => handler.route).filter(route => hasRuntimeType(route, "string"))
+        validateAgentPreparationRoute(resolved.preparation.route || "/api/_vitehub/ready", [
+          ...routes,
+          ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)).map(handler => handler.route),
+        ])
+      }
       const mergedAgentNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         mergeNitroHandlers(nitro, nitroHandlers),
         [

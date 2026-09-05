@@ -16,12 +16,18 @@ it("retains image bytes and metadata across storage restart without embedding by
   const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
   const connect = () => {
     setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
-    installConsoleBlob(base, blob)
+    installConsoleBlob(base, {
+      ...blob,
+      put(path, bytes, options) {
+        if (options?.customMetadata && Object.keys(options.customMetadata).length) throw new Error("Provider does not support custom metadata")
+        return blob.put(path, bytes, options)
+      },
+    })
   }
   connect()
   const attachment = await upload(`data:image/png;base64,${png}`)
   connect()
-  const message = await consoleInputMessage("", [attachment.id])
+  const message = await consoleInputMessage("", [{ id: attachment.id, name: attachment.name }])
   const part = message.parts[0]
   expect(part).toMatchObject({ type: "image", id: attachment.id, mediaType: "image/png", name: "test.png" })
   expect(JSON.stringify(message)).not.toContain(png)
@@ -34,7 +40,7 @@ it("retains image bytes and metadata across storage restart without embedding by
 it("rejects remote URLs, unsupported files, missing images, and path traversal", async () => {
   await expect(upload("https://example.test/image.png")).rejects.toMatchObject({ statusCode: 415 })
   await expect(upload("data:text/html;base64,PHNjcmlwdD4=")).rejects.toMatchObject({ statusCode: 415 })
-  await expect(consoleInputMessage("", ["../../secret"])).rejects.toMatchObject({ statusCode: 400 })
+  await expect(consoleInputMessage("", [{ id: "../../secret", name: "secret" }])).rejects.toMatchObject({ statusCode: 400 })
 })
 
 it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
