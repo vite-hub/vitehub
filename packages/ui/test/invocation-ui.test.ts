@@ -2690,6 +2690,9 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
+    expect(wrapper.find(".vh-invocation-execution__model-icon path").exists()).toBe(true);
+    expect(wrapper.get(".vh-invocation-execution__workspace svg").attributes("stroke")).toBe("currentColor");
+    expect(wrapper.get(".vh-invocation-execution__workspace").text()).toContain("Read and write");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
     expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
