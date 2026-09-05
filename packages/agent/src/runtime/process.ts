@@ -211,3 +211,15 @@ function formatBytes(value: number): string {
 function formatPressure(value: number): string {
   return `${Math.round(value * 100)}%`
 }
+
+/** Recover invocations owned by this host before admitting new work. */
+export async function createProcessAgentInvocations(
+  options: import("../invocations.ts").AgentInvocationsOptions & {
+    recovery: Parameters<typeof import("../server/invocation-health.ts").failInterruptedAgentInvocations>[1]
+  },
+): Promise<import("../invocations.ts").AgentInvocations> {
+  const { defineAgentInvocations } = await import("../invocations.ts")
+  const { failInterruptedAgentInvocations } = await import("../server/invocation-health.ts")
+  await failInterruptedAgentInvocations(options.store, options.recovery)
+  return defineAgentInvocations(options)
+}

@@ -1336,6 +1336,9 @@ interface GitHubActivityTarget {
 }
 
 interface GitHubActivityHistoryEntry {
+  startedAt?: string
+  updatedAt?: string
+  summary?: string
   links: readonly { label: string, url: string }[]
   runId: string
   status?: AgentActivityStatus
@@ -1441,7 +1444,7 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
             : []))
           const status = maybeString(item.status)
           // SAFETY: The membership check limits status to AgentActivityStatus values.
-          return [{ links, runId: maybeString(item.runId)!, ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
+          return [{ links, runId: maybeString(item.runId)!, startedAt: githubActivityDate(item.startedAt), updatedAt: githubActivityDate(item.updatedAt), summary: maybeString(item.summary)?.slice(0, 2_000), ...(status && ["cancelled", "completed", "failed", "queued", "running", "waiting"].includes(status) ? { status: status as AgentActivityStatus } : {}) }]
         })
       : []
     const current = entries(value.current ? [value.current] : [])[0]
@@ -1477,6 +1480,15 @@ function encodeGithubActivityState(state: GitHubActivityCommentState): string {
     marker = encode()
   }
   return marker
+}
+
+function githubActivityDate(value: unknown): string | undefined {
+  if (!hasRuntimeType(value, "string") || !Number.isFinite(Date.parse(value))) return
+  return new Date(value).toISOString()
+}
+
+function githubActivityTime(value: string): string {
+  return `<relative-time datetime="${value}">${value}</relative-time>`
 }
 
 function githubActivityBadge(status: AgentActivityStatus): string {
@@ -1519,13 +1531,25 @@ function renderGithubActivity(
     githubActivityBadge(activity.status),
   ]
   const links = githubActivityLinksState(activity.links)
+  if (activity.status === "queued") sections.push("Starting")
   if (links.length) sections.push(githubActivityLinks(links))
+  const current = state.current
+  const running = activity.status === "running" || activity.status === "waiting"
+  const time = activity.status === "queued" ? undefined : running ? current?.startedAt : current?.updatedAt
+  sections.push([
+    "| Status | Updated |",
+    "| --- | --- |",
+    `| ${activity.status} | ${time ? `${running ? "Running since" : "Last run at"} ${githubActivityTime(time)}` : "Waiting to start"} |`,
+  ].join("\n"))
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
+  if (current?.summary && ["completed", "failed", "cancelled"].includes(activity.status)) {
+    sections.push(`Latest result\n\n${githubActivityText(current.summary, 2_000)}`)
+  }
   if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   if (state.history.length) {
     const history = state.history
       .filter(entry => entry.links.length)
-      .map(entry => `<li>${githubActivityLinks(entry.links)}</li>`)
+      .map(entry => `<li>\n\n${githubActivityLinks(entry.links)}${entry.updatedAt ? ` · ${githubActivityTime(entry.updatedAt)}` : ""}${entry.status ? ` · ${entry.status}` : ""}${entry.summary ? `\n\n${githubActivityText(entry.summary, 2_000)}` : ""}\n\n</li>`)
       .join("\n")
     if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`)
   }
@@ -1590,7 +1614,16 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         if (knownCommentId && !existing) commentIds.delete(activityKey)
         if (mode === "initialize" && existing) return
         const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
-        const current = { links: githubActivityLinksState(context.activity.links), runId, status: context.activity.status }
+        const sameRun = previous.current?.runId === runId ? previous.current : undefined
+        const current: GitHubActivityHistoryEntry = {
+          links: githubActivityLinksState(context.activity.links),
+          runId,
+          status: context.activity.status,
+          startedAt: githubActivityDate(context.activity.startedAt) ?? sameRun?.startedAt
+            ?? (context.activity.status === "running" ? new Date().toISOString() : undefined),
+          updatedAt: githubActivityDate(context.activity.updatedAt) ?? new Date().toISOString(),
+          summary: terminal ? context.activity.summary?.replace(/<!--[^]*?-->/g, "").trim().slice(0, 2_000) : undefined,
+        }
         const reconcileDuplicates = async () => {
           for (const duplicate of owned.filter(comment => comment !== existing)) {
             const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined

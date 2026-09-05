@@ -302,3 +302,13 @@ The Console guide covers Vite and Nuxt setup, fallback storage, production limit
 ## Control child work
 
 Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. A model-facing application Capability tool can use that controller when it needs child control, or `runAgent()` when it handles the configured runtime's return value.
+
+## Scheduled results and process recovery
+
+`runScheduledAgent()` consumes streamed driver output before returning. The final response, completion hooks, and capacity release finish together. Configure `driver.output.schema` for a validated result that the scheduler can use directly. A thrown stream or schema error remains a failed invocation; applications do not need to reconstruct results from telemetry.
+
+For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
+
+`agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
+
+For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.

@@ -12,6 +12,7 @@ export {
 export { defineAgentRunEvents } from "./run-events.ts"
 export {
   AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE,
+  agentInvocationId,
   applyAgentInvocationStoreUpdate,
   createMemoryAgentInvocationStore,
   defineAgentInvocations,

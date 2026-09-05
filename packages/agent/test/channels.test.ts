@@ -126,7 +126,8 @@ describe("agent channels", () => {
       await update(context("run-1", "running") as never)
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-1", "completed") as never)
-      expect(stored?.body).not.toContain("Review complete.")
+      expect(stored?.body).toContain("Review complete.")
+      expect(stored?.body).toContain("Last run at <relative-time datetime=")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running") as never)
 
@@ -138,6 +139,8 @@ describe("agent channels", () => {
       expect(stored?.body).not.toContain("\n# [link]")
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Previous sessions</summary>")
+      expect(stored?.body).toContain("Review complete.")
+      expect(stored?.body).toContain("Running since <relative-time datetime=")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body.match(/vitehub-agent-activity:/g)).toHaveLength(1)
 
