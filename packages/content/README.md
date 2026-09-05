@@ -23,7 +23,9 @@ await content.get("/guide")
 await content.navigation(["docs"])
 ```
 
-Each Comark cache refresh creates a ViteHub Source Reader. Each load therefore reads one pinned origin revision. Native Comark Sources pass through unchanged.
+`defineContent()` gives each adapted Source load a separate adapter that keeps its selected Reader until all parser reads finish. Registered Source names and Reader factories select a new Reader for each load. Explicit Readers stay fixed. Overlapping refreshes, fresh snapshots, and fresh document reads therefore keep their selected revisions. Raw media uses the newest successfully enumerated Source revision. Native Comark Sources pass through unchanged.
+
+A direct `contentSource()` adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Use `defineContent()` to isolate overlapping loads.
 
 The combined `vite-hub` framework discovers `server/content.ts` and serves its exported `content` instance at `/api/content/**`.
 
