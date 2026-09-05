@@ -67,6 +67,29 @@ Declaring a Workspace does not automatically grant model-backed or custom Driver
 
 AI SDK Model Drivers make one output-only correction call when a known tool receives arguments that fail its input schema. The correction cannot select another tool or execute a provider-defined tool. Set `driver.execution.repairToolCall: false` to disable this behavior.
 
+## Extend an Agent
+
+Use `extends` to make one Agent Definition the default for another:
+
+```ts [server/agents/bot-dev/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import bot from '../bot/agent'
+
+export default defineAgent({
+  extends: bot,
+  driver: { model: 'gpt-5.6-sol' },
+  workspace: {
+    store: { provider: 'local', root: '.vitehub/workspaces/bot-dev' },
+  },
+})
+```
+
+The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
+
+Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. Changing a Driver kind or store provider replaces that configuration.
+
+`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
+
 ## Return structured output
 
 Set `driver.output` when downstream code needs validated data instead of free-form text.
@@ -105,7 +128,8 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 
 | Option | Purpose |
 | --- | --- |
-| `driver` | Required. Selects one built-in provider, model-backed, or custom-run execution path. |
+| `extends` | Inherits configuration from one Agent Definition. |
+| `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
 | `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |

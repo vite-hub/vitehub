@@ -69,6 +69,14 @@
       "types": "./dist/eve.d.ts",
       "import": "./dist/eve.js"
     },
+    "./evlog": {
+      "types": "./dist/evlog.d.ts",
+      "import": "./dist/evlog.js"
+    },
+    "./evlog/posthog": {
+      "types": "./dist/evlog/posthog.d.ts",
+      "import": "./dist/evlog/posthog.js"
+    },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
       "import": "./dist/invocations/d1.js"
@@ -188,7 +196,9 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "evlog": "^2.28.1",
+    "posthog-node": "^5.51.6"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -208,7 +218,9 @@
     "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "evlog": "^2.28.1",
+    "posthog-node": "^5.51.6"
   },
   "peerDependenciesMeta": {
     "@chat-adapter/discord": {
@@ -245,6 +257,12 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "evlog": {
+      "optional": true
+    },
+    "posthog-node": {
       "optional": true
     }
   },

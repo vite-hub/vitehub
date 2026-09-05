@@ -782,9 +782,15 @@ importers:
       eve:
         specifier: 0.46.1
         version: 0.46.1(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@libsql/client@0.18.0)(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(@vercel/queue@0.5.1(@opentelemetry/api@1.9.1))(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.58(zod@4.5.4))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.3.1)(ioredis@5.11.1)(jiti@2.7.0)(just-bash@3.4.2)(lru-cache@11.5.2)(miniflare@4.20260714.0)(rollup@4.63.1)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@1.15.11)(tailwindcss@4.3.3))(wrangler@4.129.0(@cloudflare/workers-types@5.20260904.1))
+      evlog:
+        specifier: ^2.28.1
+        version: 2.28.1(32afbcc2489734bf34f2f8d59f22cdf3)
       miniflare:
         specifier: 4.20260714.0
         version: 4.20260714.0
+      posthog-node:
+        specifier: ^5.51.6
+        version: 5.51.6(rxjs@7.8.2)
       publint:
         specifier: catalog:tooling
         version: 0.3.24
@@ -7532,6 +7538,12 @@ packages:
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
 
+  '@posthog/core@1.50.5':
+    resolution: {integrity: sha512-afEchuShDaVIoxAIj76kDZQ1DhfesDmgfVp+mtTzsA3wlc8DF5uoz8YjuTjnxOicWkpP5HCDqYidK/1kT125Cg==}
+
+  '@posthog/types@1.409.0':
+    resolution: {integrity: sha512-239umoaZVb2GBaXeEyJpwFvjhrrChJH8NHCwiao23EBSu3NA6EN0MTMoaHSmMEf4yjiXEFFoYJA6FjJAXF5HGA==}
+
   '@publint/pack@0.1.7':
     resolution: {integrity: sha512-4EDEmvxWtgsCnnVeBvtFIFZtUhPPt1+bA9JrSwU4Sa//6oKtzCSlGGXYJr44OD9aGISymbieJ4mCKHUygUDU+g==}
     engines: {node: '>=18'}
@@ -8400,7 +8412,7 @@ packages:
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3':
-    resolution: {integrity: sha512-5/6KJ5SRsv8fU6r18GmIScaeHjo3nG6QVGXHy3cvTnBS1R7kBTOg7o6AyMih6sdi1EZ0QuD0qQ+80MpzfVGNEQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3}
     version: 0.0.38
     peerDependencies:
       effect: 4.0.0-beta.103
@@ -14257,6 +14269,15 @@ packages:
   postgres@3.4.9:
     resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
     engines: {node: '>=12'}
+
+  posthog-node@5.51.6:
+    resolution: {integrity: sha512-r+Ge3p0OnOcOWeTnvKZmAtDwECeIoyNTyxBxuZc8wM6RHCQ9j2Xrhogrf39HSq1Y2gIOpWLqIDRmWDcu7xmqcA==}
+    engines: {node: ^20.20.0 || >=22.22.0}
+    peerDependencies:
+      rxjs: ^7.0.0
+    peerDependenciesMeta:
+      rxjs:
+        optional: true
 
   powershell-utils@0.1.0:
     resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
@@ -23482,6 +23503,12 @@ snapshots:
       supports-color: 10.2.2
 
   '@poppinss/exception@1.2.3': {}
+
+  '@posthog/core@1.50.5':
+    dependencies:
+      '@posthog/types': 1.409.0
+
+  '@posthog/types@1.409.0': {}
 
   '@publint/pack@0.1.7':
     dependencies:
@@ -34553,6 +34580,12 @@ snapshots:
 
   postgres@3.4.9:
     optional: true
+
+  posthog-node@5.51.6(rxjs@7.8.2):
+    dependencies:
+      '@posthog/core': 1.50.5
+    optionalDependencies:
+      rxjs: 7.8.2
 
   powershell-utils@0.1.0: {}
 

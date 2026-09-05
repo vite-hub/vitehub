@@ -158,7 +158,15 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./agent/evlog": {
+      "types": "./dist/agent/evlog.d.ts",
+      "import": "./dist/agent/evlog.js"
+    },
+    "./agent/evlog/posthog": {
+      "types": "./dist/agent/evlog/posthog.d.ts",
+      "import": "./dist/agent/evlog/posthog.js"
+    }
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
