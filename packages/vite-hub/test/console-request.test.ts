@@ -24,7 +24,7 @@ afterEach(() => {
   mocks.connectDevframe.mockClear()
 })
 
-mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call }));
+mocks.connectDevframe.mockImplementation(async () => ({ call: mocks.call, ensureTrusted: async () => true }));
 
 describe("Console requests", () => {
   it("deduplicates keys repeated across provider pages", () => {
@@ -33,8 +33,8 @@ describe("Console requests", () => {
   })
 
   it("replaces a disconnected client and shares the replacement across concurrent retries", async () => {
-    const old = { call: vi.fn().mockResolvedValue({ ok: true, value: "first" }), close: vi.fn(), status: "connected" }
-    const replacement = { call: vi.fn().mockResolvedValue({ ok: true, value: "recovered" }), status: "connected" }
+    const old = { ensureTrusted: async () => true, call: vi.fn().mockResolvedValue({ ok: true, value: "first" }), close: vi.fn(), status: "connected" }
+    const replacement = { ensureTrusted: async () => true, call: vi.fn().mockResolvedValue({ ok: true, value: "recovered" }), status: "connected" }
     mocks.connectDevframe.mockResolvedValueOnce(old).mockResolvedValueOnce(replacement)
     await expect(requestConsole("/reconnect/api/_vitehub/console/sections")).resolves.toBe("first")
     old.status = "disconnected"
@@ -48,13 +48,25 @@ describe("Console requests", () => {
   })
 
   it("does not replay a submitted invocation when its connection drops", async () => {
-    const client = { call: vi.fn().mockRejectedValue(new Error("connection dropped")), status: "connected" }
+    const client = { ensureTrusted: async () => true, call: vi.fn().mockRejectedValue(new Error("connection dropped")), status: "connected" }
     mocks.connectDevframe.mockResolvedValueOnce(client)
     await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
       method: "POST", body: { prompt: "Run once" },
     })).rejects.toThrow("connection dropped")
     expect(client.call).toHaveBeenCalledOnce()
     expect(mocks.connectDevframe).toHaveBeenCalledOnce()
+  })
+
+  it("discards a failed handshake before allowing another request", async () => {
+    const failed = { call: vi.fn(), ensureTrusted: vi.fn().mockRejectedValue(new Error("handshake timed out")), close: vi.fn() }
+    mocks.connectDevframe.mockResolvedValueOnce(failed)
+    await expect(requestConsole("/handshake/api/_vitehub/console/sections")).rejects.toThrow("handshake timed out")
+    expect(failed.ensureTrusted).toHaveBeenCalledWith(10_000)
+    expect(failed.call).not.toHaveBeenCalled()
+    expect(failed.close).toHaveBeenCalledOnce()
+    mocks.call.mockResolvedValue({ ok: true, value: "ready" })
+    await expect(requestConsole("/handshake/api/_vitehub/console/sections")).resolves.toBe("ready")
+    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
   })
 
   it("supports requests without query or signal options", async () => {

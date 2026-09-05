@@ -59,6 +59,15 @@ function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
       otpParam: false,
       simpleAuth: false,
       transport: "sse",
+    }).then(async (connected) => {
+      try {
+        await connected.ensureTrusted(10_000)
+        return connected
+      }
+      catch (error) {
+        connected.close?.()
+        throw error
+      }
     }).catch((error) => {
       clients.delete(baseURL)
       throw error
