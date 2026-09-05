@@ -38,7 +38,7 @@ export default defineConfig({
     cssCodeSplit: false,
     emptyOutDir: true,
     outDir: resolve(import.meta.dirname, ".vitehub/console"),
-    rollupOptions: {
+    rolldownOptions: {
       input: resolve(clientRoot, "main.js"),
       output: {
         assetFileNames: asset => asset.names.some(name => name.endsWith(".css"))

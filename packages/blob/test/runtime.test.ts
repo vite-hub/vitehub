@@ -692,6 +692,83 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("resumes folded files-sdk listings within and across provider pages", async () => {
+    const items = (keys: string[]) => keys.map(key => ({
+      etag: "etag",
+      key,
+      lastModified: "2026-01-01T00:00:00.000Z",
+      metadata: {},
+      size: 5,
+      type: "text/plain",
+    }))
+    const first = { cursor: "folders", items: items(["a/first.txt"]) }
+    const folders = { cursor: "last", items: items(["a/nested/file.txt"]) }
+    const last = { items: items(["a/second.txt", "a/third.txt"]) }
+    filesSdkMock.list
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(folders)
+      .mockResolvedValueOnce(last)
+      .mockResolvedValueOnce(last)
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const firstPage = expectBlobSuccess(await blob.list({ folded: true, limit: 1, prefix: "a/" }))
+    const secondPage = expectBlobSuccess(await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" }))
+    const thirdPage = expectBlobSuccess(await blob.list({ cursor: secondPage.cursor, folded: true, limit: 1, prefix: "a/" }))
+
+    expect(firstPage.blobs.map(blob => blob.pathname)).toEqual(["a/first.txt"])
+    expect(secondPage.blobs.map(blob => blob.pathname)).toEqual(["a/second.txt"])
+    expect(secondPage.folders).toEqual(["a/nested/"])
+    expect(thirdPage.blobs.map(blob => blob.pathname)).toEqual(["a/third.txt"])
+    expect(thirdPage).toMatchObject({ cursor: undefined, folders: [], hasMore: false })
+    expect(filesSdkMock.list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: undefined, limit: 1000, prefix: "a/" },
+      { cursor: "folders", limit: 1000, prefix: "a/" },
+      { cursor: "last", limit: 1000, prefix: "a/" },
+      { cursor: "last", limit: 1000, prefix: "a/" },
+    ])
+  })
+
+  it.each([
+    ["invalid encoding", "!"],
+    ["invalid JSON", btoa("invalid JSON")],
+    ["null", Buffer.from(JSON.stringify(null)).toString("base64url")],
+    ["array", Buffer.from(JSON.stringify([])).toString("base64url")],
+    ["missing index", Buffer.from(JSON.stringify({})).toString("base64url")],
+    ["string index", Buffer.from(JSON.stringify({ index: "0" })).toString("base64url")],
+    ["negative index", Buffer.from(JSON.stringify({ index: -1 })).toString("base64url")],
+    ["fractional index", Buffer.from(JSON.stringify({ index: 0.5 })).toString("base64url")],
+    ["non-string provider cursor", Buffer.from(JSON.stringify({ index: 0, providerCursor: 1 })).toString("base64url")],
+  ])("rejects malformed files-sdk cursor with %s before listing", async (_, cursor) => {
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ cursor, folded: true })).rejects.toThrow()
+
+    expect(filesSdkMock.list).not.toHaveBeenCalled()
+  })
+
+  it("rejects a files-sdk cursor index outside the fetched page", async () => {
+    const page = {
+      cursor: "next",
+      items: [{
+        etag: "etag",
+        key: "first.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }],
+    }
+    filesSdkMock.list.mockResolvedValueOnce(page)
+    const cursor = Buffer.from(JSON.stringify({ index: Number.MAX_SAFE_INTEGER })).toString("base64url")
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+
+    expect(filesSdkMock.list).toHaveBeenCalledOnce()
+  })
+
   it("loads MinIO through its provider-specific driver import", async () => {
     process.env.MINIO_ROOT_PASSWORD = "password"
     process.env.MINIO_ROOT_USER = "minio"

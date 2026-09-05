@@ -10,7 +10,7 @@ import { promisify } from "node:util"
 import { Message } from "chat"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { build as viteBuild } from "vite"
+import { mergeConfig, build as viteBuild } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
@@ -90,6 +90,12 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 }
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
+
+const rolldownExternalCases = [
+  { name: "array", external: ["existing", () => true, /^node:/], expected: ["existing", /^node:/] },
+  { name: "string", external: "existing", expected: ["existing"] },
+  { name: "RegExp", external: /^node:/, expected: [/^node:/] },
+]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
@@ -549,27 +555,45 @@ describe("agent Vite plugin", () => {
     }
   }, 60_000)
 
-  it("normalizes the final server environment externals for Rolldown", async () => {
+  it.each(rolldownExternalCases)("normalizes $name externals in the final server environment", async ({ external, expected }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const hook = plugin.configEnvironment
+    const outputPlugin = { name: "output-plugin" }
+    const config = {
+      build: {
+        rolldownOptions: {
+          external,
+          input: ["server-entry"],
+          output: {
+            plugins: [outputPlugin],
+          },
+        },
+      },
+      consumer: "server",
+    }
     const result = isRuntimeFunction(hook)
       ? hook.call(
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
           // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
-          {
-            build: { rolldownOptions: { external: ["existing", () => true, /^node:/] } },
-            consumer: "server",
-          } as never,
+          config as never,
           // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,
         )
       : undefined
 
     expect(result).toMatchObject({
-      build: { rolldownOptions: { external: ["existing", /^node:/] } },
+      build: { rolldownOptions: { external: [] } },
+    })
+    // SAFETY: The server environment hook returns a Vite configuration fragment.
+    expect(mergeConfig(config, result as never).build.rolldownOptions).toEqual({
+      external: expected,
+      input: ["server-entry"],
+      output: {
+        plugins: [outputPlugin],
+      },
     })
   })
 
@@ -1867,17 +1891,18 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("installs automatic Cloudflare chat state for Cloudflare hosting", async () => {
+  it.each(rolldownExternalCases)("installs automatic Cloudflare chat state with $name externals", async ({ external, expected }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    const outputPlugin = { name: "output-plugin" }
     const config = {
       build: {
         rolldownOptions: {
-          external: ["existing", () => true],
-        },
-        rollupOptions: {
-          external: ["legacy"],
-          input: "legacy-entry",
+          external,
+          input: ["server-entry"],
+          output: {
+            plugins: [outputPlugin],
+          },
         },
       },
       nitro: {
@@ -1936,11 +1961,16 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...optionalAgentRuntimeExternals],
-        input: "legacy-entry",
+        external: optionalAgentRuntimeExternals,
       },
     })
-    expect(config.build.rollupOptions).toBeUndefined()
+    expect(mergeConfig(config, output).build.rolldownOptions).toEqual({
+      external: [...expected, ...optionalAgentRuntimeExternals],
+      input: ["server-entry"],
+      output: {
+        plugins: [outputPlugin],
+      },
+    })
   })
 
   it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {

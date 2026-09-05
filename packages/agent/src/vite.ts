@@ -659,26 +659,24 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 }
 
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
-  // SAFETY: This adapter augments Vite's build config only with the legacy rollupOptions field that it reads below.
-  const build = (config.build ?? {}) as NonNullable<BuildWithRolldownOptions["build"]> & { rollupOptions?: unknown }
-  const rollupOptions = isRecord(build.rollupOptions) ? build.rollupOptions : {}
-  // SAFETY: The legacy rollupOptions record is narrowed above and exposes Rollup's documented external option.
-  const configuredExternal = build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined
-  const rolldownExternal = Array.isArray(configuredExternal)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and Rolldown accepts only its string and RegExp members here.
-    ? configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
-    : configuredExternal
-  delete build.rollupOptions
-  build.rolldownOptions = {
-    ...rollupOptions,
-    ...build.rolldownOptions,
-    external: mergeRollupExternals(
-      rolldownExternal,
-      additions,
-    ),
+  const build = config.build ?? {}
+  const configuredExternal = build.rolldownOptions?.external
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite can merge scalar and array externals; normalize both before returning additions.
+  const external = typeof configuredExternal === "string" || configuredExternal instanceof RegExp ? [configuredExternal] : configuredExternal
+  if (Array.isArray(external)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
+    const supportedExternal = external.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
+    if (build.rolldownOptions) build.rolldownOptions.external = supportedExternal
+    return {
+      rolldownOptions: {
+        external: additions.filter(source => !supportedExternal.includes(source)),
+      },
+    }
   }
   return {
-    ...build,
+    rolldownOptions: {
+      external: mergeRollupExternals(configuredExternal, additions),
+    },
   }
 }
 

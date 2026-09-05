@@ -106,7 +106,7 @@ describe("D1 Agent Invocation store", () => {
       timestamp,
     })
     expect((await journal.get("one"))?.title).toBe("Meal review")
-    expect((await journal.getSummary?.("one"))?.title).toBe("Meal review")
+    expect((await journal.getSummary("one"))?.title).toBe("Meal review")
     expect((await journal.list({ search: "Meal review" })).invocations.map(item => item.id)).toEqual(["one"])
   })
 
@@ -227,7 +227,7 @@ describe("D1 Agent Invocation store", () => {
     expect(await journal.listAgentNames?.()).toEqual(["alpha", "beta"])
     expect(await journal.listCapabilityIds?.()).toEqual(["files", "search"])
     expect(await journal.listCapabilityIds?.("alpha")).toEqual(["search"])
-    expect(await journal.getSummary?.("one")).not.toHaveProperty("observations")
+    expect(await journal.getSummary("one")).not.toHaveProperty("observations")
     expect(await journal.list({ status: [] })).toEqual({ invocations: [] })
   })
 

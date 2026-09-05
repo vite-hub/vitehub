@@ -118,7 +118,7 @@ describe("KV Vite output", () => {
       appType: "custom",
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           external: ["preserved-external"],
           input: entry,
           output: { entryFileNames: "worker.js" },
@@ -169,7 +169,7 @@ describe("KV Vite output", () => {
       appType: "custom",
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -223,7 +223,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -269,7 +269,7 @@ describe("KV Vite output", () => {
       appType: "custom",
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -332,7 +332,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -369,7 +369,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -407,7 +407,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -455,7 +455,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },
@@ -493,7 +493,7 @@ describe("KV Vite output", () => {
       build: {
         emptyOutDir: false,
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "worker.js" },
         },

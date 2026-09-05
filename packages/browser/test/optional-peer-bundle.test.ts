@@ -14,7 +14,7 @@ async function bundle(entry: string, conditions: string[] = ["node"]): Promise<s
     await writeFile(source, `export * from ${JSON.stringify(entry)}\n`)
     const result = await build({
       build: {
-        rollupOptions: { external: ["@cloudflare/playwright", "@vite-hub/runtime", "cloudflare:workers", "playwright-core"] },
+        rolldownOptions: { external: ["@cloudflare/playwright", "@vite-hub/runtime", "cloudflare:workers", "playwright-core"] },
         ssr: source,
         write: false,
       },

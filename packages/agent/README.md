@@ -35,6 +35,8 @@ ViteHub resolves those project dependencies directly. Production self-hosted Nod
 
 Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubdeps: false` because the pinned runtime is an exact pkg.pr.new tarball.
 
+The Vite integration requires Vite 8. Configure build inputs, output options, and external dependencies under `build.rolldownOptions`.
+
 ## Minimal API
 
 ```ts
@@ -295,6 +297,14 @@ This is not the Database Capability. It is Agent-owned runtime state for chat be
 Vite discovers Agent files and generates runtime state for the active server host. Route-enabled Channels contribute host routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); Provider Tools stay Capability-scoped instead of becoming one global Agent config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
+## Invocation summaries
+
+`defineAgentInvocations()` returns `getSummary(id)` for metadata reads without observations. Every store must implement this method. Use `get(id)` for the full record. Both methods return `undefined` when the Invocation does not exist.
+
+## GitHub pull request Workspaces
+
+GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repository mount. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` use the Workspace root. Set `workspace: false` to disable the contribution.
 
 ## D1 invocation storage
 

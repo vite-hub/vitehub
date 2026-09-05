@@ -4,7 +4,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   build: {
     outDir: "dist/cloudflare",
-    rollupOptions: {
+    rolldownOptions: {
       external: ["cloudflare:workers"],
       input: ".vitehub/nitro/blob/runtime.mjs",
       output: { entryFileNames: "server.mjs" },

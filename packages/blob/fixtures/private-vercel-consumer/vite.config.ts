@@ -9,7 +9,7 @@ export default defineConfig({
   },
   build: {
     outDir: "dist/client",
-    rollupOptions: { input: "src/server.ts" },
+    rolldownOptions: { input: "src/server.ts" },
     ssr: "src/server.ts",
   },
   plugins: [hubBlob()],

@@ -394,7 +394,7 @@ describe("Vite provider outputs", () => {
       appType: "custom",
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "server.mjs" },
         },
@@ -581,7 +581,7 @@ describe("Vite provider outputs", () => {
       },
       build: {
         outDir: "dist",
-        rollupOptions: {
+        rolldownOptions: {
           input: entry,
           output: { entryFileNames: "server.mjs" },
         },

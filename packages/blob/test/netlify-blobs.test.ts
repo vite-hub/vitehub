@@ -157,6 +157,49 @@ describe("Netlify Blobs driver", () => {
     expect(second.blobs.map(blob => blob.pathname)).toEqual(["two.txt"])
   })
 
+  it.each([
+    ["invalid encoding", "!"],
+    ["invalid JSON", btoa("invalid JSON")],
+    ["null", btoa(JSON.stringify(null))],
+    ["array", btoa(JSON.stringify([]))],
+    ["missing fields", btoa(JSON.stringify({}))],
+    ["string index", btoa(JSON.stringify({ directoriesConsumed: false, index: "0" }))],
+    ["negative index", btoa(JSON.stringify({ directoriesConsumed: false, index: -1 }))],
+    ["fractional index", btoa(JSON.stringify({ directoriesConsumed: false, index: 0.5 }))],
+    ["non-boolean directory state", btoa(JSON.stringify({ directoriesConsumed: "false", index: 0 }))],
+    ["non-string provider cursor", btoa(JSON.stringify({ directoriesConsumed: false, index: 0, providerCursor: 1 }))],
+  ])("rejects malformed cursor with %s before listing", async (_, cursor) => {
+    vi.stubGlobal("fetch", vi.fn())
+
+    await expect(createDriver(options).list({ cursor })).rejects.toThrow()
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
+  it("rejects a cursor index outside the fetched page", async () => {
+    mockListPages({
+      first: {
+        blobs: [{ etag: "one", key: "one.txt" }],
+        directories: [],
+        next_cursor: "next",
+      },
+      next: {
+        blobs: [{ etag: "two", key: "two.txt" }],
+        directories: [],
+      },
+    })
+    const cursor = btoa(JSON.stringify({
+      directoriesConsumed: false,
+      index: Number.MAX_SAFE_INTEGER,
+    }))
+
+    await expect(createDriver(options).list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
   it("retries transient list failures", async () => {
     const cancel = vi.fn()
     vi.stubGlobal("fetch", vi.fn()
