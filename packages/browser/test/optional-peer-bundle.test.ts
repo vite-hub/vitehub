@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -41,6 +41,8 @@ describe("Browser optional peer bundle", () => {
       cwd: new URL("..", import.meta.url),
     })
     await promisify(execFile)("tar", ["-xzf", archive, "-C", packedRoot])
+    // Packing excludes installed dependencies such as nostics.
+    await symlink(new URL("../node_modules", import.meta.url), join(packedRoot, "node_modules"), "junction")
   })
   afterAll(async () => {
     if (packedRoot) await rm(packedRoot, { force: true, recursive: true })
