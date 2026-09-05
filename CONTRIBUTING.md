@@ -40,11 +40,13 @@ Keep one owner responsible for integration and completion. Record commands and i
 
 Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) and [`test/tasks.ts`](test/tasks.ts) define root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
 
-Start with the affected package. The package runner builds its dependency graph before package tests:
+Start with the affected package's full `test` script so every package-owned test invocation runs, including suites with a separate configuration:
 
 ```sh
-node test/run-package-task.mjs test --packages vite-hub
+corepack pnpm --dir packages/vite-hub run test
 ```
+
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. The package runner currently substitutes plain `vp test` for these scripts and can omit additional test invocations.
 
 For one regression, build first, then run from the package directory so Vitest uses its package config:
 
