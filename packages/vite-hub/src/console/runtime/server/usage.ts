@@ -126,7 +126,7 @@ export function decimal(value: string | undefined): Decimal | undefined {
   };
 }
 
-function stringValue(value: unknown): string | undefined {
+export function stringValue(value: unknown): string | undefined {
   const result = v.safeParse(stringSchema, value);
   return result.success ? result.output : undefined;
 }

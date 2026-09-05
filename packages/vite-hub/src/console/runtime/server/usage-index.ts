@@ -5,6 +5,7 @@ import {
   emptyTotals,
   modelUsage,
   publicTotals,
+  stringValue,
   usageNode,
 } from "./usage.ts";
 
@@ -87,14 +88,15 @@ export function createConsoleUsageIndex(client: Client): {
       FROM ${dirty} d JOIN ${source} s ON s.id = d.id LIMIT 250`);
     const writes: InStatement[] = [];
     for (const row of page.rows) {
-      const finish = typeof row.finish === "string" ? JSON.parse(row.finish) : undefined;
+      const finishValue = stringValue(row.finish);
+      const finish = finishValue === undefined ? undefined : JSON.parse(finishValue);
       const incomplete = finish?.attributes?.["vitehub.observation.truncated"] === true;
       const usage = incomplete
         ? undefined
         : usageNode(
             finish?.attributes?.["usage.record"],
             true,
-            typeof row.model === "string" ? row.model : undefined,
+            stringValue(row.model),
           );
       const entries: Array<[string, ConsoleInvocationUsage | undefined]> = [["", usage]];
       if (usage) entries.push(...modelUsage(usage));
@@ -206,14 +208,9 @@ export function createConsoleUsageIndex(client: Client): {
         ],
         "read",
       );
-      const [periods, models, agents, runs, expensive, remaining] = results as [
-        (typeof results)[number],
-        (typeof results)[number],
-        (typeof results)[number],
-        (typeof results)[number],
-        (typeof results)[number],
-        (typeof results)[number],
-      ];
+      const [periods, models, agents, runs, expensive, remaining] = results;
+      if (!periods || !models || !agents || !runs || !expensive || !remaining)
+        throw new Error("Expected six usage query results");
       const incomplete = Number(remaining.rows[0]?.count) > 0;
       const groups = (rows: Row[]) => {
         const result = new Map<string, UsageTotal>();
@@ -226,7 +223,7 @@ export function createConsoleUsageIndex(client: Client): {
             total[metric] += Number(row[metric] ?? 0);
             total[`${metric}Available`] &&= Number(row[`${metric}Count`]) === count;
           }
-          const cost = decimal(typeof row.cost === "string" ? row.cost : undefined);
+          const cost = decimal(stringValue(row.cost));
           total.costAvailable &&= cost !== undefined;
           total.costEstimated ||= Number(row.estimated) === 1;
           if (cost) {
