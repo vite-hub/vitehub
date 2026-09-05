@@ -20,7 +20,7 @@ const navigationFailed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
 const items = computed(() =>
   sections.value
-    .filter((section) => !props.exclude?.includes(section))
+    .filter((section) => section !== "usage" && !props.exclude?.includes(section))
     .map((section) => ({ id: section, ...consoleSectionDetails[section] })),
 );
 
@@ -55,6 +55,7 @@ onMounted(loadSections);
         @click="openSection(item.id)"
       />
     </UTooltip>
+    <UButton v-if="sections.includes('usage') && !exclude?.includes('usage')" aria-label="Usage" label="Usage" icon="i-lucide-chart-no-axes-column" color="neutral" variant="ghost" size="xs" @click="openSection('usage')" />
     <UTooltip v-if="navigationFailed" text="Retry loading primitives">
       <UButton
         aria-label="Retry loading primitives"
