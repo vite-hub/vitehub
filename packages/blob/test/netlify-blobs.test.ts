@@ -177,6 +177,29 @@ describe("Netlify Blobs driver", () => {
     expect(store.getMetadata).not.toHaveBeenCalled()
   })
 
+  it("rejects a cursor index outside the fetched page", async () => {
+    mockListPages({
+      first: {
+        blobs: [{ etag: "one", key: "one.txt" }],
+        directories: [],
+        next_cursor: "next",
+      },
+      next: {
+        blobs: [{ etag: "two", key: "two.txt" }],
+        directories: [],
+      },
+    })
+    const cursor = btoa(JSON.stringify({
+      directoriesConsumed: false,
+      index: Number.MAX_SAFE_INTEGER,
+    }))
+
+    await expect(createDriver(options).list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
   it("retries transient list failures", async () => {
     const cancel = vi.fn()
     vi.stubGlobal("fetch", vi.fn()

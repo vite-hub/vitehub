@@ -747,6 +747,28 @@ describe("blob runtime", () => {
     expect(filesSdkMock.list).not.toHaveBeenCalled()
   })
 
+  it("rejects a files-sdk cursor index outside the fetched page", async () => {
+    const page = {
+      cursor: "next",
+      items: [{
+        etag: "etag",
+        key: "first.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }],
+    }
+    filesSdkMock.list.mockResolvedValueOnce(page)
+    const cursor = Buffer.from(JSON.stringify({ index: Number.MAX_SAFE_INTEGER })).toString("base64url")
+    const { createDriver } = await import("../src/drivers/s3.ts")
+    const driver = createDriver({ bucket: "assets", driver: "s3" })
+
+    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+
+    expect(filesSdkMock.list).toHaveBeenCalledOnce()
+  })
+
   it("loads MinIO through its provider-specific driver import", async () => {
     process.env.MINIO_ROOT_PASSWORD = "password"
     process.env.MINIO_ROOT_USER = "minio"

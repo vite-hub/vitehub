@@ -174,6 +174,10 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
             throw error
           }
 
+          if (start > 0 && start >= result.items.length) {
+            throw new TypeError("Invalid Blob cursor.")
+          }
+
           let consumed = start
           for (const item of result.items.slice(start)) {
             consumed += 1

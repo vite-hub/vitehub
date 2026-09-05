@@ -416,6 +416,9 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
           prefix: listOptions.prefix,
         })
         const blobs = page.blobs ?? []
+        if (startIndex > 0 && startIndex >= blobs.length) {
+          throw new TypeError("Invalid Blob cursor.")
+        }
         const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit)
         if (consumeDirectories) {
           for (const directory of page.directories ?? []) folders.add(directory)
