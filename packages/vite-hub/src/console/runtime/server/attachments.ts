@@ -33,7 +33,11 @@ export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promi
   catch { throw error(503, "Configure ViteHub Blob storage to send and retain Console attachments.") }
   const [failure, stored] = await storage.put(`${prefix}${id}`, bytes, { contentType: match[1] })
   if (failure) throw failure
-  if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
+  if (!stored.url) {
+    const [cleanupError] = await storage.del(`${prefix}${id}`)
+    if (cleanupError) throw cleanupError
+    throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
+  }
   return { id, mediaType: match[1]!, name, size: bytes.length, type: "image", url: stored.url }
 }
 

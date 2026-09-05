@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 import { blob } from "../../blob/src/runtime/storage.ts"
+import { blobError } from "../../blob/src/errors.ts"
 import { setBlobRuntimeConfig } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 import { consoleAttachmentUpload, consoleInputMessage } from "../src/console/runtime/server/attachments.ts"
@@ -41,6 +42,29 @@ it("rejects remote URLs, unsupported files, missing images, and path traversal",
   await expect(upload("https://example.test/image.png")).rejects.toMatchObject({ statusCode: 415 })
   await expect(upload("data:text/html;base64,PHNjcmlwdD4=")).rejects.toMatchObject({ statusCode: 415 })
   await expect(consoleInputMessage("", [{ id: "../../secret", name: "secret" }])).rejects.toMatchObject({ statusCode: 400 })
+})
+
+it("removes a rejected upload when Blob serving is not configured", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base } })
+  installConsoleBlob(base, blob)
+
+  await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ statusCode: 503 })
+  const [failure, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  expect(failure).toBeNull()
+  expect(result?.blobs).toEqual([])
+})
+
+it("surfaces a rejected upload's cleanup failure", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base } })
+  const cleanupError = blobError("BLOB_OPERATION_FAILED", "del", "default")
+  installConsoleBlob(base, {
+    ...blob,
+    async del() { return [cleanupError, undefined] },
+  })
+
+  await expect(upload(`data:image/png;base64,${png}`)).rejects.toBe(cleanupError)
 })
 
 it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
