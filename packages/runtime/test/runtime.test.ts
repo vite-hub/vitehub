@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
+import { spawnSync } from "node:child_process"
 import { runInNewContext } from "node:vm"
 
 import {
@@ -67,6 +68,58 @@ describe("@vite-hub/runtime", () => {
     rejectEarlierTask!(new Error("later failure"))
 
     await expect(flushing).rejects.toBe(firstFailure)
+  })
+
+  it("observes waitUntil rejections before a delayed flush in Node", () => {
+    const moduleUrl = new URL("../src/index.ts", import.meta.url).href
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      import { createRuntimeWaitUntilController } from ${JSON.stringify(moduleUrl)}
+      const controller = createRuntimeWaitUntilController()
+      controller.waitUntil(Promise.reject(new Error("background failure")))
+      setTimeout(async () => {
+        try {
+          await controller.flushWaitUntil()
+          process.exitCode = 2
+        }
+        catch (error) {
+          if (!(error instanceof Error) || error.message !== "background failure") process.exitCode = 3
+          else console.log("flush observed failure")
+        }
+      }, 25)
+    `], { encoding: "utf8" })
+
+    expect(child.status).toBe(0)
+    expect(child.stdout.trim()).toBe("flush observed failure")
+    expect(child.stderr).toBe("")
+  })
+
+  it("forwards the original task without consuming its rejection", async () => {
+    let forwarded: Promise<unknown> | undefined
+    const controller = createRuntimeWaitUntilController({
+      forward: (task) => {
+        forwarded = task
+      },
+    })
+    const failure = new Error("forwarded failure")
+    const task = Promise.reject(failure)
+
+    controller.waitUntil(task)
+    expect(forwarded).toBe(task)
+    await expect(forwarded).rejects.toBe(failure)
+    await expect(controller.flushWaitUntil()).rejects.toBe(failure)
+  })
+
+  it("retains a waitUntil task when host forwarding throws", async () => {
+    const forwardingFailure = new Error("forwarding failure")
+    const taskFailure = new Error("task failure")
+    const controller = createRuntimeWaitUntilController({
+      forward() {
+        throw forwardingFailure
+      },
+    })
+
+    expect(() => controller.waitUntil(Promise.reject(taskFailure))).toThrow(forwardingFailure)
+    await expect(controller.flushWaitUntil()).rejects.toBe(taskFailure)
   })
 
   it("creates complete execution contexts from omitted host fields", () => {

@@ -1191,6 +1191,8 @@ export function createRuntimeWaitUntilController(options: {
       if (failed) throw error
     },
     waitUntil(task) {
+      // Observe rejection now. The original task stays queued so flushWaitUntil can report it.
+      void task.catch(() => {})
       pending.push(task)
       options.forward?.(task)
     },
