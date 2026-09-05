@@ -126,6 +126,45 @@ describe("Agent Channel delivery journal", () => {
     }
   })
 
+  it.each(["persisted", "missing", "error"] as const)("checks durable Workflow ownership before an active tracker: %s", async (result) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const active = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram",
+      provider: "telegram",
+      scope: "chat:support:telegram",
+      sourceId: `workflow-active-${result}`,
+    })
+    const persisted = { ...active, claimed: true, event: vi.fn(active.event) }
+    const failure = new Error("Durable ownership unavailable")
+    const resolve = vi.fn(async () => {
+      if (result === "error") throw failure
+      return result === "persisted" ? persisted : undefined
+    })
+    setAgentChannelDeliveryWorkflowResolver(resolve)
+    try {
+      const resumed = resumeWorkflowAgentChannelDelivery({}, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        channelId: "telegram",
+        deliveryId: active.delivery.id,
+        provider: "telegram",
+        state: "chat",
+      })
+      if (result === "error") await expect(resumed).rejects.toBe(failure)
+      else await expect(resumed).resolves.toBe(result === "persisted" ? persisted : active)
+      expect(resolve).toHaveBeenCalledOnce()
+    }
+    finally {
+      detachAgentChannelDelivery(active)
+      setAgentChannelDeliveryWorkflowResolver(async () => undefined)
+      info.mockRestore()
+    }
+  })
+
   it("resumes Workflow custody through the installed host State owner", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()

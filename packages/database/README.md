@@ -172,6 +172,7 @@ Applications installed through `vite-hub` use `vite-hub/database` and `vite-hub/
 
 - Local SQLite is a file on one machine. It is suitable for local development and single-host deployments with persistent storage, not shared state across multiple instances or ephemeral filesystems.
 - Cloudflare output uses a configured D1 binding. Other hosts and local development do not use that binding automatically.
+- Nuxt prepares discovered Database Definitions for Cloudflare and Vercel before Nitro resolves the Drizzle runtime imports. Explicit Nitro aliases take precedence.
 - Set `cloudflare.http: true` only when local or non-Cloudflare code must call Cloudflare's D1 API. It requires `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and a database id. Cloudflare applies its global API rate limit and recommends the REST API for administrative use, so sustained application traffic should go through a narrowly authenticated proxy Worker.
 - For Vercel or another non-Cloudflare host, configure a hosted SQLite or libSQL-compatible `connection.url` and keep its optional `connection.authToken` in server environment variables.
 - `@vite-hub/database/nuxt` is a narrow bridge for one D1 host resource. It is not the general Database integration for multiple Named Databases.

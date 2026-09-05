@@ -37,6 +37,12 @@ Choose the result that matches the application you are building:
 
 Both guides use `vite-hub`, include complete files and commands, and need no provider credentials. Do not treat the configuration fragment above as a successful runtime check by itself.
 
+Custom H3 and Nuxt routes can import `getRuntimeContext` from
+`vite-hub/runtime/h3`. Call it once per invocation to normalize event bindings,
+host `waitUntil`, and memo storage. Without a real host lifetime API, await the
+returned `flushWaitUntil()` before responding. See the
+[Runtime Context guide](https://vitehub.dev/docs/concepts/runtime-context).
+
 The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare preset uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
@@ -124,3 +130,11 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [Generated files](https://vitehub.dev/docs/development/generated-files)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
+
+## Invoke Agents from the Console
+
+Set `console: { access: "auth", invoke: true }` to use ViteHub Auth, or `console: { exposure: "host-managed", invoke: true }` when host middleware protects all `/_vitehub/**` routes. Explicit access configurations keep invocation disabled by default. The development shorthand `console: true` enables invocation.
+
+Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
+
+Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.

@@ -18,6 +18,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0008: dynamicError,
     BROWSER_R0009: dynamicError,
     BROWSER_R0010: dynamicError,
+    BROWSER_R0011: dynamicError,
     BROWSER_B0001: dynamicError,
     BROWSER_B0002: dynamicError,
   },

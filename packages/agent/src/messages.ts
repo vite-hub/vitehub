@@ -364,13 +364,13 @@ function omitUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T
 }
 
-export function createMessage(options: CreateMessageOptions): Message {
+export function createMessage<Role extends Message["role"]>(options: CreateMessageOptions & { role: Role }): Message & { role: Role } {
   const parts = [
     ...(options.text ? [{ id: "text-0", text: options.text, type: "text" } satisfies TextPart] : []),
     ...(options.parts || []).map(normalizePart),
   ]
 
-  const message: Message = {
+  const message: Message & { role: Role } = {
     id: options.id || createId("msg"),
     parts,
     role: options.role,

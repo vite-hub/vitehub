@@ -66,6 +66,10 @@ export default defineAgent({
 });
 ```
 
+## Custom Capability tools
+
+Custom Capability tools infer their handler input from inline Standard Schema validators. Schema transforms and optional outputs keep their types. A mismatched handler is a type error. Raw JSON Schema needs an explicit handler input type. Use `defineCapability<Config>()({...})` when you set the runtime config type. See the [custom Capability guide](https://vitehub.dev/docs/capabilities/custom-capabilities).
+
 ## Coding provider drivers
 
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
@@ -155,6 +159,10 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 `access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution, token refresh, and GitHub CLI work stop on cancellation. Pass an upper bound for the GraphQL query's point cost as `ensureGraphQLBudget(repository, { cost })`; the host returns a reservation. Call `reservation.submit()` immediately before sending the query, then call `reservation.settle(actualCost)` with the non-negative point cost reported by GitHub after it completes. The actual cost cannot exceed the reserved cost. Call `reservation.release()` if work stops before submission. The host keeps submitted reservations deducted during concurrent budget refreshes until settlement confirms that the query completed. A later refresh reconciles GitHub's reported remaining points. The `credentials` callback receives the scoped `signal`; pass it to secret-manager or network requests. When GitHub cannot resolve an opaque token through `/user`, return a stable `rateLimitKey` with the token so rotations of the same credential share one budget while different credentials stay isolated. Shared GraphQL admission checks have an independent 60-second command limit. Set `graphQLCheckTimeout` on `createGitHubHost()` when the host needs a different limit.
 
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
+
+`defineAgentInvocations({ observations, store })` configures retained observation count, content string length, encoded byte budget, and finish drain time. Defaults remain 256 observations, 65,536 UTF-16 code units of content strings, and a one-second drain, with a 16 MiB aggregate storage limit. Explicit limits support longer traces without removing bounds; records keep those limits across restarts. See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for the limits and privacy policy.
+
+`title()` accepts message input or a plain `prompt`. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
@@ -287,3 +295,13 @@ This is not the Database Capability. It is Agent-owned runtime state for chat be
 Vite discovers Agent files and generates runtime state for the active server host. Route-enabled Channels contribute host routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); Provider Tools stay Capability-scoped instead of becoming one global Agent config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
+## D1 invocation storage
+
+`@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. Generate the required SQL with `d1AgentInvocationSchema()` and apply it through your D1 migration tool before requests use the store. The adapter does not create or migrate tables at runtime.
+
+D1 batches and conditional writes preserve concurrent journal updates across Workers. Claims use the database clock. Terminal records use the same 30-day and 10,000-record retention defaults as the libSQL store. Pending and running records are retained. `maxAgeMs: false` and `maxRecords: false` disable each limit. An update rejects after 32 concurrent write conflicts. Keep application redaction outside the store.
+
+D1 caps retained observations at 1,000,000 UTF-8 bytes to fit its 2 MB row limit. The adapter checks the complete row, preserves lifecycle fields and appended evidence when it removes excess ordinary observations, and rejects a row that still cannot fit. The resolved observation budget is stored with each record.
+
+See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for binding setup, schema generation, and migration limits.

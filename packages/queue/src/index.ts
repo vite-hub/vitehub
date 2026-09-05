@@ -10,7 +10,7 @@ export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
 export { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName } from "./integrations/cloudflare.ts"
 export { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 export { getVercelQueueTopicName } from "./integrations/vercel.ts"
-export { deferQueue, getQueue, runQueue } from "./runtime/client.ts"
+export { deferQueue, dynamicQueue, getQueue, runQueue } from "./runtime/client.ts"
 export { createQueueClient } from "./runtime/create-client.ts"
 export { createQueueCloudflareWorker } from "./internal/runtime/cloudflare-vite.ts"
 
@@ -24,7 +24,9 @@ export type {
   QueueDefinition,
   QueueDefinitionOptions,
   QueueDefinitionRegistry,
-  QueueEnqueueInput,
+  QueueName,
+  QueuePayload,
+  QueueRegistry,
   QueueEnqueueOptions,
   QueueHandler,
   QueueJob,

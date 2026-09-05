@@ -2,6 +2,15 @@ import { defineDiagnostics, Diagnostic } from "nostics"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R0921",
+  "AGENT_R0920",
+  "AGENT_R0919",
+  "AGENT_R0917",
+  "AGENT_R0916",
+  "AGENT_R0914",
+  "AGENT_R0911",
+  "AGENT_R0910",
+  "AGENT_R0907",
   "AGENT_R0906",
   // Instruction composition retains the input-error status of Markdown Template failures.
   "MARKDOWN_TEMPLATE_R0008",
@@ -441,6 +450,21 @@ const dynamicError = {
 export const agentDiagnostics = defineDiagnostics({
   docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
   codes: {
+    AGENT_R0907: dynamicError,
+    AGENT_R0908: dynamicError,
+    AGENT_R0909: dynamicError,
+    AGENT_R0910: dynamicError,
+    AGENT_R0911: dynamicError,
+    AGENT_R0912: dynamicError,
+    AGENT_R0913: dynamicError,
+    AGENT_R0914: dynamicError,
+    AGENT_R0915: dynamicError,
+    AGENT_R0916: dynamicError,
+    AGENT_R0917: dynamicError,
+    AGENT_R0918: dynamicError,
+    AGENT_R0919: dynamicError,
+    AGENT_R0920: dynamicError,
+    AGENT_R0921: dynamicError,
     AGENT_R0905: dynamicError,
     AGENT_R0906: dynamicError,
     AGENT_R0903: dynamicError,

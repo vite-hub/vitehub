@@ -92,32 +92,6 @@ function invocationBrand(value: string | undefined): InvocationBrand | undefined
   };
 }
 
-function invocationBrandMark(brand: InvocationBrand | undefined, className: string) {
-  if (!brand) return null;
-  if (brand.id === "z-ai") {
-    return h("svg", {
-      "aria-hidden": "true",
-      class: `vh-invocation-brand__logo ${className}`,
-      viewBox: "0 0 30 30",
-    }, [
-      h("rect", { fill: "#2d2d2d", height: "28", rx: "4", width: "28", x: "1", y: "1" }),
-      h("path", {
-        d: "M15.47 7.1l-1.3 1.85c-.2.29-.54.47-.9.47h-7.1V7.09h9.3Zm8.83 0L13.14 22.91H5.7L16.86 7.1h7.44Zm-9.77 15.81 1.31-1.86c.2-.29.54-.47.9-.47h7.09v2.33h-9.3Z",
-        fill: "#fff",
-      }),
-    ]);
-  }
-  if (brand.id === "openrouter") {
-    return h("svg", {
-      "aria-hidden": "true",
-      class: `vh-invocation-brand__logo ${className}`,
-      viewBox: "0 0 401.4 293.7",
-    }, [
-      h("path", { d: "M303.9475 17.1993c42.7973 0 77.4893 34.6933 77.4893 77.4893s-34.692 77.4893-77.4893 77.4893l76.8617 76.8625c9.7637 9.7631 2.849 26.4566-10.957 26.4566H148.9688C77.642 275.497 19.82 217.675 19.82 146.348S77.642 17.199 148.9688 17.199h154.9787ZM148.9688 68.8588c-42.796 0-77.4893 34.6933-77.4893 77.4893s34.6933 77.4894 77.4893 77.4894 77.4894-34.6933 77.4894-77.4894-34.6933-77.4893-77.4894-77.4893Z" }),
-    ]);
-  }
-  return h("span", { class: `vh-invocation-brand__fallback ${className}` }, brand.label.slice(0, 1));
-}
 
 function invocationModelName(value: string): string {
   const slug = value.split("/").at(-1) ?? "";
@@ -992,37 +966,24 @@ function inspectorCollection(title: string, items: readonly string[]) {
 
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
-  if (!model?.id) return null;
-  const maker = invocationBrand(model.id.includes("/") ? model.id.split("/")[0] : undefined);
-  const provider = invocationBrand(model.provider ?? configuration.driver?.provider);
-  const modelBrand = maker ?? provider;
-  const context = [
-    inspectorRow("Driver", configuration.driver?.kind),
-    inspectorRow("Runtime", configuration.runtime?.name),
+  const modelId = model?.id;
+  const provider = invocationBrand(
+    model?.provider
+      ?? configuration.driver?.provider
+      ?? (modelId?.includes("/") ? modelId.split("/")[0] : undefined),
+  );
+  const runtime = configuration.runtime?.name;
+  const rows = [
+    inspectorRow("Model", modelId ? invocationModelName(modelId) : undefined),
+    inspectorRow("Provider", provider?.label),
+    inspectorRow("Runtime", runtime && runtime !== "unknown" ? runtime : undefined),
     inspectorRow("Workspace", workspaceLabel(configuration)),
   ].filter(item => item !== null);
-  return h("div", {
-    class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution",
-  }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Execution")]),
-    h("div", { class: "vh-invocation-execution" }, [
-      h("div", { class: "vh-invocation-execution__model", title: model.id }, [
-        invocationBrandMark(modelBrand, "vh-invocation-execution__model-logo"),
-        h("div", [
-          h("strong", invocationModelName(model.id)),
-          maker ? h("span", `by ${maker.label}`) : null,
-        ]),
-      ]),
-      provider
-        ? h("div", { class: "vh-invocation-execution__route" }, [
-            h("span", "via"),
-            invocationBrandMark(provider, "vh-invocation-execution__provider-logo"),
-            h("strong", provider.label),
-          ])
-        : null,
-    ]),
-    context.length ? h("dl", { class: "vh-invocation-inspector__list" }, context) : null,
-  ]);
+  return rows.length
+    ? h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
+        h("dl", { class: "vh-invocation-inspector__list" }, rows),
+      ])
+    : null;
 }
 
 function inspectorTools(
@@ -1067,7 +1028,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
   const workspace = workspaceLabel(configuration);
   const setup = [
     inspectorRow("Driver", driver),
-    inspectorRow("Runtime", configuration.runtime?.name),
+    inspectorRow("Runtime", configuration.runtime?.name === "unknown" ? undefined : configuration.runtime?.name),
     inspectorRow("Workspace", workspace),
   ].filter((item) => item !== null);
   const execution = inspectorExecution(configuration);
@@ -1137,20 +1098,15 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
         )
       : null,
   ].filter((item) => item !== null);
-  return [
-    configuration.truncated
-      ? h("div", { class: "vh-invocation-inspector__notice", role: "note" }, [
-          h("strong", "Configuration truncated"),
-          h("p", "Some values were shortened by the invocation journal."),
-        ])
-      : null,
-    groups.length
-      ? inspectorSection(
-          "Captured setup",
-          h("div", { class: "vh-invocation-inspector__groups" }, groups),
-        )
-      : null,
-  ];
+  return groups.length || configuration.truncated
+    ? [inspectorSection("Agent setup", h("div", { class: "vh-invocation-inspector__groups" }, [
+        configuration.truncated
+          ? h("p", { class: "vh-invocation-inspector__notice", role: "note" },
+              "Some setup values were shortened when this run was recorded.")
+          : null,
+        ...groups,
+      ]))]
+    : [];
 }
 
 function renderInvocationActivity(
@@ -1441,6 +1397,7 @@ export const AgentInvocationInspector = defineComponent({
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
+    showError: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1568,7 +1525,7 @@ export const AgentInvocationInspector = defineComponent({
                       : null,
                   ])
                 : null,
-              props.invocation.error
+              props.showError && props.invocation.error
                 ? h("div", { class: "vh-invocation-inspector__error" }, [
                     h("strong", props.invocation.error.name ?? "Invocation failed"),
                     h("p", props.invocation.error.message),

@@ -276,7 +276,9 @@ async function resolveEvalAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   caller: string | undefined,
 ): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!agent) return await resolveSiblingAgent(caller)
-  return typeof agent === "function" ? await agent() : agent
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public input is a typed union of an Agent Definition and its factory; call only the factory.
+  const resolved = typeof agent === "function" ? await agent() : agent
+  return caller ? withSiblingWorkspaceSourceRoot(resolved, caller) : resolved
 }
 
 function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(

@@ -216,6 +216,28 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it.each([false, true])("infers the caller Source root for explicit Eval Agents (factory: %s)", async (factory) => {
+    const { defineEval } = await import("../src/eval.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, workspace: {} })
+    defineEval({ agent: factory ? async () => agent : agent, name: "explicit", workspace: "explicit", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
+      __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: expect.stringMatching(/packages[/\\]agent[/\\]test$/) } },
+    })
+  })
+
+  it("keeps explicit Eval workspace Source roots", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, workspace: { sourceRootDir: "/explicit/source/root" } })
+    defineEval({ agent, name: "explicit-root", workspace: "explicit-root", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
+      __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: "/explicit/source/root" } },
+    })
+  })
+
   it("uses exact variants when variants are provided", async () => {
     const { defineEval } = await import("../src/eval.ts")
 

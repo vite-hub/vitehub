@@ -4,7 +4,7 @@ import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 import { createQueueError } from "../errors.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 
-import { getQueue } from "./client.ts"
+import { dynamicQueue } from "./client.ts"
 
 import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
@@ -70,7 +70,7 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 }
 
 export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
-  const queue = await getQueue(name)
+  const queue = await dynamicQueue.get(name)
   if (queue.provider !== "vercel") {
     throw createQueueError("VERCEL_PROVIDER_EXPECTED", {
       details: { provider: queue.provider },

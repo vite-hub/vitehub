@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { createQueueNitroConfig, hubQueue } from "./vite.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
@@ -6,7 +7,10 @@ import type { QueueVitePlugin } from "./vite.ts"
 export type QueueNuxtModuleOptions = QueueModuleOptions
 
 type NuxtLike = {
-  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) => void
+  hook?: {
+    (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>): void
+    (name: "prepare:types", handler: (context: { references: { path: string }[] }) => void): void
+  }
   options: {
     dev?: boolean
     rootDir?: string
@@ -28,6 +32,10 @@ function findQueueVitePlugin(plugins: unknown[]): QueueVitePlugin | undefined {
 
 export default function viteHubQueueNuxtModule(options: QueueNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
+
+  nuxt.hook?.("prepare:types", (context) => {
+    context.references.push({ path: resolve(nuxt.options.rootDir || process.cwd(), ".vitehub/queue.d.ts") })
+  })
 
   nuxt.options.vite ??= {}
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []

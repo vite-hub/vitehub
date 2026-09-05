@@ -11,6 +11,8 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -69,8 +71,9 @@ interface ResolvedDatabaseNuxtD1Options {
 }
 
 export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNuxtModule {
-  // SAFETY: Nuxt invokes this module with the options and lifecycle hooks described by DatabaseNuxtModule.
+  // SAFETY: This callback receives both required module metadata methods below before it is returned to Nuxt.
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
+    // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the options this integration reads.
     const nuxtOptions = (nuxt as NuxtLike).options
     const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions, nuxtOptions)
     if (resolvedOptions === false) {
@@ -134,7 +137,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           )
         }
         if (!nuxtOptions.dev) {
-          mergeNitroDatabaseRuntimeAlias(config, root, provider ?? (d1 ? "cloudflare" : undefined))
+          const runtimeProvider = provider ?? (d1 ? "cloudflare" : undefined)
+          if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
+            const runtime = resolveDBViteConfig(resolvedOptions, root, { serverDirs })
+            if (runtime) {
+              await writeGeneratedDatabaseArtifacts(runtime)
+              await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
+            }
+          }
+          mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)

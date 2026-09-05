@@ -13,6 +13,7 @@ import {
 } from "@vite-hub/internal/build/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
+import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
@@ -140,7 +141,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       srcDir: "/tmp/vitehub-nuxt/app",
       vite: { kv: undefined as KVModuleOptions | undefined, plugins } as UserConfig & {
         kv?: KVModuleOptions
-        queue?: boolean
+        queue?: QueueModuleOptions
         workflow?: boolean
         workspace?: false
       },
@@ -1560,6 +1561,19 @@ describe("ViteHub Nuxt integration", () => {
     }, production.nuxt)).resolves.toBeUndefined()
   })
 
+  it("passes host-managed invocation and observation limits into the Nuxt Console plugin", async () => {
+    const production = createNuxt(false)
+    const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
+    await viteHubNuxtModule({
+      agent: true,
+      console: { exposure: "host-managed", invoke: true, observations },
+      preset: "node",
+    }, production.nuxt)
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain("invoke: true")
+    expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
+  })
+
   it("rejects bare production Console enablement", async () => {
     const production = createNuxt(false)
 
@@ -2081,6 +2095,32 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
     })
+  })
+
+  it.each([
+    ["module flag", true, undefined, true],
+    ["Vite options with module enabled", true, { namePrefix: "vite-" }, true],
+    ["Vite options", undefined, { namePrefix: "vite-" }, true],
+    ["Vite options overriding a disabled module", false, { namePrefix: "vite-" }, true],
+    ["Vite disabled overriding an enabled module", true, false, false],
+    ["disabled module", false, undefined, false],
+    ["unconfigured Queue", undefined, undefined, false],
+  ] as const)("includes Queue types in Nuxt and Nitro for %s", async (_name, queue, viteQueue, enabled) => {
+    const { nuxt } = createNuxt()
+    nuxt.options.vite.queue = viteQueue
+
+    await viteHubNuxtModule({ preset: "cloudflare", queue }, nuxt)
+
+    const typescript = {
+      tsConfig: {
+        include: [
+          "../.vitehub/types.d.ts",
+          ...(enabled ? ["../.vitehub/queue.d.ts"] : []),
+          expect.stringContaining("cloudflare-types.d.ts"),
+        ],
+      },
+    }
+    expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript })
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {

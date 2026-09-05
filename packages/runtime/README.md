@@ -49,25 +49,18 @@ Create the host context explicitly, register one Runtime Capability, and look it
 up through the public package entry:
 
 ```ts
-import { createExecutionContext, defineCapability, getCapability } from "@vite-hub/runtime";
+import { createRuntimeContext, defineCapability, getCapability } from "@vite-hub/runtime";
 
-const values = new Map<string, unknown>();
-const context = createExecutionContext({
+const context = createRuntimeContext({
   capabilities: {
     health: defineCapability("health", { status: "ready" }),
   },
-  memo<T>(key: string, create: () => T): T {
-    if (!values.has(key)) values.set(key, create());
-    return values.get(key) as T;
-  },
   runtime: "node",
-  waitUntil(task) {
-    void task.catch(console.error);
-  },
 });
 
 const health = getCapability(context, "health");
 console.log(`${context.runtime}:${health.kind}`);
+await context.flushWaitUntil();
 ```
 
 Running the file prints:
@@ -76,10 +69,15 @@ Running the file prints:
 node:health
 ```
 
-This proves context construction and capability lookup. The `waitUntil` fallback
-only observes rejected promises in a long-lived process. It does not keep a
-serverless request alive. A production host must delegate background work to its
-provider lifetime API.
+`createRuntimeContext()` gives each operation a fresh memo cache and tracks work
+registered with `waitUntil()`. Pass the host's `waitUntil` method to forward that
+work to a real provider lifetime. Without one, await `flushWaitUntil()` before
+returning. A flush drains nested work and then reports the first observed failure.
+The constructor does not extend serverless lifetime or cancel background tasks.
+
+For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
+`vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
+methods. The Runtime owner package has no H3 dependency.
 
 `createExecutionContext()` always returns a complete Execution Context. It creates
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
@@ -89,9 +87,10 @@ and preserves the supplied objects when the host provides them.
 
 ### Runtime Host Context
 
-`createExecutionContext()` normalizes an object supplied by the host. The host
-still owns `runtime`, `memo`, `waitUntil`, request or event data, provider
-bindings, and cleanup. Runtime does not discover framework globals, propagate an
+`createExecutionContext()` normalizes a complete object supplied by the host.
+`createRuntimeContext()` also supplies memo storage and background-work tracking.
+The host still owns the runtime name, request or event data, provider bindings,
+background-work lifetime, and cleanup. Runtime does not discover framework globals, propagate an
 ambient context, or isolate concurrent requests.
 
 Treat every value on the context as available to code that receives it. Runtime

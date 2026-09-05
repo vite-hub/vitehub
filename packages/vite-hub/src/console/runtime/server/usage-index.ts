@@ -11,6 +11,7 @@ import {
 
 import type { ConsoleInvocationUsage, ConsoleUsageWindow, UsageTotal } from "./usage.ts";
 import type { Client, InStatement, Row } from "@libsql/client";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
 const metrics = [
   "inputTokens",
@@ -228,7 +229,7 @@ export function createConsoleUsageIndex(client: Client): {
       );
       const [periods, models, agents, runs, expensive, remaining] = results;
       if (!periods || !models || !agents || !runs || !expensive || !remaining)
-        throw new Error("Expected six usage query results");
+        throw viteHubErrorDiagnostics.VITE_HUB_R0119({ message: "Expected six usage query results" });
       const incomplete = Number(remaining.rows[0]?.count) > 0;
       const groups = (rows: Row[]) => {
         const result = new Map<string, UsageTotal>();

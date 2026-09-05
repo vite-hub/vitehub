@@ -11,3 +11,7 @@ declare module "#vitehub/browser/runtime" {
   const config: import("./types.ts").BrowserRuntimeConfig
   export default config
 }
+
+declare module "#vitehub/browser/chromium" {
+  export const loadChromium: typeof import("./internal/chromium.ts").loadChromium
+}

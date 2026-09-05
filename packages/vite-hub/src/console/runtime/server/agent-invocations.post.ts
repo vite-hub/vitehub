@@ -1,4 +1,4 @@
-import { agentInvocationId, startAgentInvocation } from "@vite-hub/agent"
+import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
 
@@ -7,10 +7,11 @@ import { console } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 
+import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-const allowedInputKeys = new Set(["prompt", "invokerProfileId"])
+const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages"])
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
@@ -84,6 +85,25 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
 
   const prompt = stringValue(body.prompt)?.trim() ?? ""
   if (!prompt) throw consoleError(400, "Agent invocation requires a prompt.")
+  let messages: Message[] | undefined
+  if (body.messages !== undefined) {
+    if (!Array.isArray(body.messages)) throw consoleError(400, "Agent invocation messages must be an array.")
+    try {
+      messages = deserializeMessages({ messages: body.messages, version: 1 })
+      const ids = new Set<string>()
+      for (const message of messages) {
+        if (message.role !== "user" && message.role !== "assistant") throw viteHubErrorDiagnostics.VITE_HUB_R0116({ message: "History requires user or assistant messages." })
+        // Supplied history cannot assert tool execution or approval, even inside an assistant Message.
+        if (message.parts.some(part => part.type !== "text" && !isAttachmentPart(part))) throw viteHubErrorDiagnostics.VITE_HUB_R0117({ message: "History requires text or attachment parts." })
+        if (ids.has(message.id)) throw viteHubErrorDiagnostics.VITE_HUB_R0118({ message: "History message ids must be unique." })
+        ids.add(message.id)
+      }
+    }
+    catch {
+      throw consoleError(400, "Agent invocation messages must be valid user or assistant messages with unique ids and only text or attachment parts.")
+    }
+    messages.push(createMessage({ role: "user", text: prompt }))
+  }
   const profileValue = body.invokerProfileId
   let profileId: string | undefined
   if (profileValue !== undefined) {
@@ -105,6 +125,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     waitUntil: tasks.waitUntil,
   }), {
     context: profileId ? { invokerProfileId: profileId } : {},
+    ...messages ? { messages } : {},
     prompt,
   })
   tasks.waitUntil(waitForInvocation(controller))

@@ -6189,12 +6189,10 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("does not generate titles for metadata-only invocation journals", async () => {
+  it("generates titles for metadata-only invocation journals without retaining title content", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
-    const execute = vi.fn(() => {
-      throw new Error("title should not run")
-    })
+    const execute = vi.fn(() => "Private title")
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       capabilities: [title({ execute })],
@@ -6211,7 +6209,9 @@ describe("agent message protocol", () => {
       messages: [createMessage({ role: "user", text: "Name this run" })],
     })).resolves.toMatchObject({ text: "ok" })
 
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledOnce()
+    const record = await invocations.getByRunId("metadata-title-run")
+    expect(JSON.stringify(record)).not.toContain("Private title")
   })
 
   it("auto-commits workspace writes when finish delivery effects are inactive", async () => {

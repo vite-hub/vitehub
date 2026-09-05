@@ -177,22 +177,21 @@ const browser = createBrowser({
 })
 
 const session = await browser.open()
-const control = await session.attach(playwright())
-
 try {
-  await control.client.page.goto('https://example.com')
-}
-finally {
+  const control = await session.attach(playwright())
   try {
-    await control.release()
+    await control.client.page.goto('https://example.com')
   }
   finally {
-    await session.close()
+    await control.release()
   }
+}
+finally {
+  await session.close()
 }
 ```
 
-Provider and controller subpaths are for low-level integrations. Use them when an application needs Playwright, mutable page state, downloads, or CDP instead of stateless actions. Install `@cloudflare/playwright` and `playwright-core` when using the Cloudflare Playwright controller.
+Provider and controller subpaths are for low-level integrations. Use them when an application needs Playwright, mutable page state, downloads, or CDP instead of stateless actions. Install `@cloudflare/playwright` and `playwright-core` when using the Cloudflare Playwright controller. Cloudflare builds select the `workerd` export condition and exclude the Node Playwright loader. Standalone Worker bundlers must also select `workerd`. The built-in Playwright CDP adapter requires Node.js.
 
 `localBrowser({ executablePath })` from `@vite-hub/browser/providers/local` starts a local Chromium process for trusted-host development. It supports CDP control and live handoff, but ViteHub doesn't select it through `browser: true`. Pass it to `createBrowser()` when the application manages the browser process itself.
 
