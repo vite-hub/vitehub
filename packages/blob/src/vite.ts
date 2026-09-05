@@ -192,9 +192,10 @@ function renderNitroBlobMiddleware(importBase = blobPackageName): string {
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
+  const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
   return [
     `import { blob } from '${importBase}'`,
-    `import { createError, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    `import { createError, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "import { defineCachedHandler } from 'nitro/cache'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
@@ -223,7 +224,20 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
           "  if (error) throw error",
           "  return stream",
         ]),
-    "}, { headersOnly: true, maxAge: 0 })",
+    ...(cacheControl !== undefined
+      ? [
+          "}, {",
+          "  headersOnly: true,",
+          "  maxAge: 0,",
+          "  // Keep the configured policy after conditional request handling sets default cache headers.",
+          "  handleCacheHeaders(event, conditions) {",
+          "    const handled = handleCacheHeaders(event, conditions)",
+          `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
+          "    return handled",
+          "  },",
+          "})",
+        ]
+      : ["}, { headersOnly: true, maxAge: 0 })"]),
     "",
   ].join("\n")
 }
