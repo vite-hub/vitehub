@@ -1865,7 +1865,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("persists compact tool descriptions for content-enabled Console inspection", async () => {
+  it("persists exact tool descriptions for content-enabled Console inspection", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({
       content: "content",
@@ -1905,11 +1905,10 @@ describe("Agent Invocations", () => {
     // SAFETY: The invocation configuration event owns the asserted, JSON-compatible tools projection.
     const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { tools?: { description?: string, name: string }[] } | undefined
     expect(configuration?.tools).toEqual([expect.objectContaining({
-      description: expect.stringMatching(/^Find matching records\. Detailed guidance\./),
+      description: `  Find matching records.\n${"Detailed guidance. ".repeat(20)}  `,
       name: "lookup",
     })])
-    expect(configuration?.tools?.[0]?.description).toHaveLength(240)
-    expect(configuration?.tools?.[0]?.description).not.toContain("\n")
+    expect(configuration?.tools?.[0]?.description).toContain("\n")
   })
 
   it("does not reacquire journal ownership for observations appended after finish", async () => {
