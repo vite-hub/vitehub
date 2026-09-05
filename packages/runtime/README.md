@@ -177,3 +177,19 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/capabilities/diagnostics)
 - [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)
+
+### Work checkpoints
+
+`createWorkTracker({ store })` owns single-process work deduplication and durable park/retry checkpoints. The store exposes asynchronous `get(key)` and `set(key, checkpoint)` operations. The application supplies a meaningful state fingerprint and decides whether a completed run should park or retry.
+
+```ts
+import { createWorkTracker } from '@vite-hub/runtime'
+
+const work = createWorkTracker({ store, retryMs: 60_000, maxRetryMs: 3_600_000 })
+await work.run(key, observedFingerprint, async () => {
+  await repair()
+  return { disposition: 'park', fingerprint: repairedFingerprint }
+})
+```
+
+Unchanged parked work is skipped. Retries use bounded exponential backoff, including thrown errors. A changed fingerprint bypasses cooldown. Failed checkpoint writes retain a local cooldown and propagate the persistence failure; they do not claim durability. Active keys are exclusive within one tracker. Use an external lease for multiple hosts sharing work. `eligible(key, fingerprint)` supports discovery filtering, while `run` rechecks eligibility after acquiring local ownership.
