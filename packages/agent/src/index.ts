@@ -464,6 +464,8 @@ export type {
   AgentToolStep,
   AgentWaitUntil,
   AgentProviderCredentialContext,
+  AgentProviderStatus,
+  AgentProviderUsageLimits,
   AgentProviderCredentialResolver,
   AgentProviderCredentialValue,
   AgentProviderEnvironment,
@@ -1721,6 +1723,18 @@ function defineBaseAgent<
     version,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
+    async status(context, statusOptions) {
+      const checkedAt = new Date().toISOString()
+      if (driver.kind !== "provider") return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported" }
+      const { inspectAgentProvider } = await import("./provider-agent.ts")
+      return inspectAgentProvider(driver, {
+        ...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
+        agentIdentity: { name: name ?? context.agentIdentity?.name ?? "agent" },
+        context: createAgentInvocationContextStore(),
+        purpose: "inspection",
+        abortSignal: statusOptions?.abortSignal,
+      })
+    },
     async resolve(context) {
       context = withAgentIdentityOwner(definition, context)
       const adapterInstance = await resolveBaseAgent(context)
@@ -4303,7 +4317,7 @@ function mergedReadableObjects(...values: unknown[]): Record<string, unknown> {
 }
 
 function mergedUsageRecords(...values: unknown[]): Record<string, unknown> {
-  const keys = ["calls", "cost", "credentialSource", "latency", "model", "raw", "response", "run", "transport", "usage"] as const
+  const keys = ["calls", "cost", "credentialSource", "latency", "model", "provider", "raw", "response", "run", "transport", "usage"] as const
   return Object.assign({}, ...values.map(value => definedObjectPropertiesWithInherited(value, keys)))
 }
 

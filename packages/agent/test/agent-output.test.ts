@@ -70,7 +70,10 @@ describe("agent output helpers", () => {
       modelId,
       provider: "custom-provider",
       usage: { inputTokens: 1 },
-    }).usageRecord?.model).toBe(`custom-provider/${modelId}`)
+    }).usageRecord).toMatchObject({
+      model: `custom-provider/${modelId}`,
+      provider: "custom-provider",
+    })
   })
 
   it("normalizes provider-reported cost with canonical precedence", () => {
@@ -642,6 +645,7 @@ describe("agent output helpers", () => {
             durationMs: 1000,
           },
           model: "anthropic/claude-opus-4-8",
+          provider: "google-vertex",
           response: {
             id: "resp_1",
             timestamp: "2026-06-22T20:00:00.000Z",
@@ -876,6 +880,7 @@ describe("agent output helpers", () => {
         type: "usage",
         usageRecord: {
           model: "anthropic/claude-opus-4-8",
+          provider: "google-vertex",
           usage: {
             inputTokens: 16,
             outputTokens: 4,

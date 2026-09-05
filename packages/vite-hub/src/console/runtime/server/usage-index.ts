@@ -57,9 +57,14 @@ export function createConsoleUsageIndex(client: Client): {
           `CREATE INDEX IF NOT EXISTS ${table}_cost ON ${table}(model_key, length(cost_whole) DESC, cost_whole DESC, cost_fraction DESC, sequence DESC)`,
           `CREATE TABLE IF NOT EXISTS ${dirty} (id TEXT PRIMARY KEY, generation INTEGER NOT NULL DEFAULT 1)`,
           ...["INSERT", "UPDATE"].map(
+            event => `DROP TRIGGER IF EXISTS ${table}_${event.toLowerCase()}`,
+          ),
+          ...["INSERT", "UPDATE"].map(
             (event) => `CREATE TRIGGER IF NOT EXISTS ${table}_${event.toLowerCase()}
         AFTER ${event} ON ${source} BEGIN
-          INSERT INTO ${dirty}(id) VALUES (NEW.id)
+          DELETE FROM ${table} WHERE id = NEW.id AND (NEW.status IS NULL OR NEW.status NOT IN (${terminalStatusList}));
+          DELETE FROM ${dirty} WHERE id = NEW.id AND (NEW.status IS NULL OR NEW.status NOT IN (${terminalStatusList}));
+          INSERT INTO ${dirty}(id) SELECT NEW.id WHERE NEW.status IN (${terminalStatusList})
           ON CONFLICT(id) DO UPDATE SET generation = generation + 1;
         END`,
           ),
@@ -68,6 +73,10 @@ export function createConsoleUsageIndex(client: Client): {
         DELETE FROM ${dirty} WHERE id = OLD.id;
       END`,
           `DELETE FROM ${table} WHERE status IS NULL OR status NOT IN (${terminalStatusList})`,
+          `DELETE FROM ${dirty} WHERE NOT EXISTS (
+        SELECT 1 FROM ${source} s WHERE s.id = ${dirty}.id
+        AND s.status IN (${terminalStatusList})
+      )`,
           `INSERT OR IGNORE INTO ${dirty}(id)
         SELECT s.id FROM ${source} s LEFT JOIN ${table} p ON p.id = s.id AND p.model_key = ''
         WHERE s.status IN (${terminalStatusList}) AND (p.id IS NULL OR p.revision != s.updated_at)`,
@@ -88,7 +97,8 @@ export function createConsoleUsageIndex(client: Client): {
       (SELECT j.value FROM json_each(s.record, '$.observations') j
         WHERE json_extract(j.value, '$.name') = 'agent.invocation.finish'
         ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS finish
-      FROM ${dirty} d JOIN ${source} s ON s.id = d.id LIMIT 250`);
+      FROM ${dirty} d JOIN ${source} s ON s.id = d.id
+      WHERE s.status IN (${terminalStatusList}) LIMIT 250`);
     const writes: InStatement[] = [];
     for (const row of page.rows) {
       const finishValue = stringValue(row.finish);
@@ -211,7 +221,8 @@ export function createConsoleUsageIndex(client: Client): {
             sql: `SELECT * FROM ${table} WHERE model_key = '' AND ${filter} AND cost_usd IS NOT NULL ORDER BY length(cost_whole) DESC, cost_whole DESC, cost_fraction DESC, sequence DESC LIMIT 10`,
             args,
           },
-          `SELECT COUNT(*) AS count FROM ${dirty}`,
+          `SELECT COUNT(*) AS count FROM ${dirty} d JOIN ${source} s ON s.id = d.id
+          WHERE s.status IN (${terminalStatusList})`,
         ],
         "read",
       );

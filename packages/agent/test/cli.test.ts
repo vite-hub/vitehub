@@ -2333,13 +2333,16 @@ describe("agent CLI", () => {
     const stderr = stream()
     const stdout = stream()
     const pricingFetch = vi.fn(async () => Response.json({
-      data: [{
-        id: "anthropic/claude-opus-4.8",
-        pricing: {
-          input: "0.000005",
-          output: "0.000025",
+      anthropic: {
+        models: {
+          "claude-opus-4-8": {
+            cost: {
+              input: 5,
+              output: 25,
+            },
+          },
         },
-      }],
+      },
     }))
     vi.stubGlobal("fetch", pricingFetch)
     try {
@@ -2348,7 +2351,7 @@ describe("agent CLI", () => {
           return ndjson([
             { agent: "support", trigger: "chat.message", type: "start" },
             { text: "done", type: "text-delta" },
-            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: "claude-opus-4-8", usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
+            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: "anthropic/claude-opus-4-8", provider: "anthropic", usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
             { type: "finish" },
           ])
         }

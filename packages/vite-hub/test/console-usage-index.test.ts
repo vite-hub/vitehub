@@ -94,6 +94,35 @@ describe("Console persisted usage index", () => {
       expensive: [],
     });
   });
+  it("projects terminal usage while active invocations keep updating", async () => {
+    const { client, insert, index } = await fixture();
+    await index.rebuild();
+    for (let i = 0; i < 250; i++) await insert(`running-${i}`, priced("10"), "running");
+    await insert("completed", priced("0.1"));
+
+    let updating = true;
+    const updates = (async () => {
+      let revision = 0;
+      while (updating) {
+        await client.execute({
+          sql: `UPDATE vitehub_agent_invocations SET updated_at = ? WHERE status = 'running'`,
+          args: [new Date(Date.parse(now) + revision++).toISOString()],
+        });
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }
+    })();
+    try {
+      expect(await index.query({ now })).toMatchObject({
+        projection: { complete: true, pending: 0 },
+        totals: { invocations: 1, pricedInvocations: 1, costUsd: "0.1" },
+        runs: [{ id: "completed" }],
+      });
+    } finally {
+      updating = false;
+      await updates;
+      await index.rebuild();
+    }
+  });
   it("rebuilds idempotently, updates evidence, and removes deleted records", async () => {
     const { client, insert, index } = await fixture();
     await insert("run", priced("0.01"));

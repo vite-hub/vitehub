@@ -1334,7 +1334,10 @@ describe("Agent invocation console", () => {
       const protectedConsole = consoleVitePlugin({
         console: { access: "auth", invoke: true },
         preset: "node",
-        resolveAuthConfig: () => auth([{ authorize: true, route: "/_vitehub/**" }]),
+        resolveAuthConfig: () => auth([
+          { authorize: true, route: "/_vitehub/**" },
+          { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
+        ]),
         sections: ["agents"],
       })
       const protectedHook = protectedConsole.config
@@ -1343,7 +1346,11 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers).toEqual(
-        expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/**" }), expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ route: "/api/_vitehub/console/status" }),
+          expect.objectContaining({ route: "/_vitehub/**" }),
+          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+        ]),
       )
       await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`,

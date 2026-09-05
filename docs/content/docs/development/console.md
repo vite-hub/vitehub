@@ -125,11 +125,11 @@ Fixtures often contain prompts and model output. Use synthetic or scrubbed recor
 
 ## Protect the Console route
 
-The Console registers its page, assets, and Devframe SSE transport under `/_vitehub/**`. The transport uses `/_vitehub/rpc/**`; the previous `/api/_vitehub/console/**` handlers are not registered. A production build rejects bare `console: true` so this inspection surface cannot be exposed accidentally.
+The Console registers its page, assets, and Devframe SSE transport under `/_vitehub/**`. The transport uses `/_vitehub/rpc/**`. Provider status also uses `GET /api/_vitehub/console/status`; the other previous resource handlers are not registered. A production build rejects bare `console: true` so this inspection interface cannot be exposed by accident.
 
 ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so keep the production access policy below.
 
-If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard `/_vitehub/**` in the Primary Auth Definition. The host decides what makes a user an administrator.
+If the app uses ViteHub Auth, set `console: { access: 'auth' }` and guard `/_vitehub/**` and `/api/_vitehub/console/**` in the Primary Auth Definition. The host decides what makes a user an administrator.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -152,6 +152,7 @@ export default defineAuth({
   access: {
     routes: [
       { route: '/_vitehub/**', authorize: authorizeConsole },
+      { route: '/api/_vitehub/console/**', authorize: authorizeConsole },
     ],
   },
 })
@@ -161,7 +162,7 @@ ViteHub checks for an Auth Session before it calls `authorizeConsole`. A missing
 
 The `role` field above is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist already used by the host.
 
-Apps that use another authentication library must protect `/_vitehub/**` in host middleware and acknowledge that boundary explicitly:
+Apps that use another authentication library must protect `/_vitehub/**` and `/api/_vitehub/console/**` in host middleware and acknowledge that boundary explicitly:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -233,7 +234,7 @@ Invocation journals are metadata-only by default. In that mode, Captured setup i
 
 Open **Usage** in the Console sidebar to inspect provider-reported tokens and cost across the past 24 hours, 7 days, 30 days, or 90 days. The dashboard groups completed Agent Invocations by time and model. A warning appears when the bounded journal scan reaches 10,000 records or a recorded finish event is truncated, so partial totals are never presented as complete.
 
-Session details also show the normalized usage record for one invocation. Add the [Usage Capability](/docs/capabilities/usage) when the provider needs an explicit usage request or the Agent must expose the normalized Agent Usage Record at finish. Providers that report usage without the Capability still appear because the recorded finish event is authoritative.
+Session details also show the normalized usage record for one invocation. Add the [Usage Capability](/docs/capabilities/usage) when the provider needs an explicit usage request, estimated cost, or a typed Agent Usage Record at finish. Providers that report usage without the Capability still appear because the recorded finish event is authoritative.
 
 The Console does not calculate missing provider data. Token counts, model metadata, and provider-reported cost remain absent when the provider does not report them.
 
