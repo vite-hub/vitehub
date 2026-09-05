@@ -661,16 +661,21 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
   const build = config.build ?? {}
   const configuredExternal = build.rolldownOptions?.external
-  const rolldownExternal = Array.isArray(configuredExternal)
+  if (Array.isArray(configuredExternal)) {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
-    ? configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
-    : configuredExternal
-  // Vite merges returned arrays with the input config, so normalize the input too.
-  build.rolldownOptions = {
-    ...build.rolldownOptions,
-    external: mergeRollupExternals(rolldownExternal, additions),
+    const supportedExternal = configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
+    if (build.rolldownOptions) build.rolldownOptions.external = supportedExternal
+    return {
+      rolldownOptions: {
+        external: additions.filter(source => !supportedExternal.includes(source)),
+      },
+    }
   }
-  return { ...build }
+  return {
+    rolldownOptions: {
+      external: mergeRollupExternals(configuredExternal, additions),
+    },
+  }
 }
 
 function cloneNitroConfig(value: unknown): NitroConfig {

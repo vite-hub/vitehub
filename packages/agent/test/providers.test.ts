@@ -553,23 +553,41 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const hook = plugin.configEnvironment
+    const outputPlugin = { name: "output-plugin" }
+    const config = {
+      build: {
+        rolldownOptions: {
+          external: ["existing", () => true, /^node:/],
+          input: ["server-entry"],
+          output: {
+            plugins: [outputPlugin],
+          },
+        },
+      },
+      consumer: "server",
+    }
     const result = isRuntimeFunction(hook)
       ? hook.call(
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
           // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
-          {
-            build: { rolldownOptions: { external: ["existing", () => true, /^node:/] } },
-            consumer: "server",
-          } as never,
+          config as never,
           // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,
         )
       : undefined
 
     expect(result).toMatchObject({
-      build: { rolldownOptions: { external: ["existing", /^node:/] } },
+      build: { rolldownOptions: { external: [] } },
+    })
+    // SAFETY: The server environment hook returns a Vite configuration fragment.
+    expect(mergeConfig(config, result as never).build.rolldownOptions).toEqual({
+      external: ["existing", /^node:/],
+      input: ["server-entry"],
+      output: {
+        plugins: [outputPlugin],
+      },
     })
   })
 
@@ -1870,11 +1888,15 @@ describe("agent Vite plugin", () => {
   it("installs automatic Cloudflare chat state for Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    const outputPlugin = { name: "output-plugin" }
     const config = {
       build: {
         rolldownOptions: {
           external: ["existing", () => true],
-          input: "server-entry",
+          input: ["server-entry"],
+          output: {
+            plugins: [outputPlugin],
+          },
         },
       },
       nitro: {
@@ -1933,11 +1955,16 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.plugins?.some((plugin) => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
       rolldownOptions: {
-        external: ["existing", ...optionalAgentRuntimeExternals],
-        input: "server-entry",
+        external: optionalAgentRuntimeExternals,
       },
     })
-    expect(mergeConfig(config, output).build.rolldownOptions.external).not.toContainEqual(expect.any(Function))
+    expect(mergeConfig(config, output).build.rolldownOptions).toEqual({
+      external: ["existing", ...optionalAgentRuntimeExternals],
+      input: ["server-entry"],
+      output: {
+        plugins: [outputPlugin],
+      },
+    })
   })
 
   it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {
