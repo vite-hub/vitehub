@@ -24,6 +24,8 @@ const table = "vitehub_console_usage_v1";
 const dirty = "vitehub_console_usage_v1_dirty";
 const source = "vitehub_agent_invocations";
 const durations = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
+const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
+const terminalStatusList = [...terminalStatuses].map(status => `'${status}'`).join(",");
 
 export interface UsageQuery {
   agentName?: string;
@@ -65,9 +67,10 @@ export function createConsoleUsageIndex(client: Client): {
         DELETE FROM ${table} WHERE id = OLD.id;
         DELETE FROM ${dirty} WHERE id = OLD.id;
       END`,
+          `DELETE FROM ${table} WHERE status IS NULL OR status NOT IN (${terminalStatusList})`,
           `INSERT OR IGNORE INTO ${dirty}(id)
         SELECT s.id FROM ${source} s LEFT JOIN ${table} p ON p.id = s.id AND p.model_key = ''
-        WHERE p.id IS NULL OR p.revision != s.updated_at`,
+        WHERE s.status IN (${terminalStatusList}) AND (p.id IS NULL OR p.revision != s.updated_at)`,
         ],
         "write",
       );
@@ -98,8 +101,12 @@ export function createConsoleUsageIndex(client: Client): {
             true,
             stringValue(row.model),
           );
-      const entries: Array<[string, ConsoleInvocationUsage | undefined]> = [["", usage]];
-      if (usage) entries.push(...modelUsage(usage));
+      const entries: Array<[string, ConsoleInvocationUsage | undefined]> = terminalStatuses.has(
+        String(row.status),
+      )
+        ? [["", usage]]
+        : [];
+      if (entries.length && usage) entries.push(...modelUsage(usage));
       writes.push({
         sql: `DELETE FROM ${table} WHERE id = ? AND EXISTS(SELECT 1 FROM ${dirty} WHERE id = ? AND generation = ?)`,
         args: [row.id!, row.id!, row.generation!],
@@ -179,7 +186,7 @@ export function createConsoleUsageIndex(client: Client): {
         resolution === "hour"
           ? "strftime('%Y-%m-%dT%H:00:00.000Z', at)"
           : "strftime('%Y-%m-%dT00:00:00.000Z', at)";
-      const filter = `at >= ? AND at <= ?${options.agentName ? " AND agent = ?" : ""}`;
+      const filter = `status IN (${terminalStatusList}) AND at >= ? AND at <= ?${options.agentName ? " AND agent = ?" : ""}`;
       const args = [from, to, ...(options.agentName ? [options.agentName] : [])];
       const aggregate = (group: string, modelRows = false): InStatement => ({
         // Group equal decimal costs before multiplication in JS bigint. SQLite REAL must not round money.

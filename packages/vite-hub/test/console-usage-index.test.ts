@@ -69,6 +69,31 @@ describe("Console persisted usage index", () => {
       runs: expect.arrayContaining([{ id: "unknown", agent: "bot", status: "completed", at: now }]),
     });
   });
+  it("excludes pending and running invocations", async () => {
+    const { client, insert, index } = await fixture();
+    await insert("completed", priced("0.1"));
+    await insert("pending", priced("10"), "pending");
+    await insert("running", priced("20"), "running");
+    await index.rebuild();
+    expect(await index.query({ now })).toMatchObject({
+      projection: { complete: true, pending: 0 },
+      totals: { invocations: 1, pricedInvocations: 1, costUsd: "0.1" },
+      models: [{ model: "model", invocations: 1, costUsd: "0.1" }],
+      runs: [{ id: "completed" }],
+      expensive: [{ id: "completed" }],
+    });
+    await client.execute(
+      `UPDATE vitehub_agent_invocations SET status = 'running' WHERE id = 'completed'`,
+    );
+    await index.rebuild();
+    expect(await index.query({ now })).toMatchObject({
+      projection: { complete: true, pending: 0 },
+      totals: { invocations: 0 },
+      models: [],
+      runs: [],
+      expensive: [],
+    });
+  });
   it("rebuilds idempotently, updates evidence, and removes deleted records", async () => {
     const { client, insert, index } = await fixture();
     await insert("run", priced("0.01"));
