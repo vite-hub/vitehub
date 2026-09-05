@@ -72,6 +72,8 @@
     "./agent/channels": "./dist/agent/channels.js",
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
     "./agent/eval": "./dist/agent/eval.js",
+    "./agent/evlog": "./dist/agent/evlog.js",
+    "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
