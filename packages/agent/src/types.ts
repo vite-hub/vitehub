@@ -1580,12 +1580,20 @@ export type AgentCliOptions = Record<never, never>
 
 export type AgentRouteOption = boolean | string
 
+export interface AgentWebhookAlias {
+  agent: string
+  webhook: string
+}
+
 export interface AgentRoutesOptions {
+  /** Additional public paths handled by an existing Agent webhook, without an HTTP proxy. */
+  aliases?: Record<string, AgentWebhookAlias>
   discordGateway?: AgentRouteOption
   inspection?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
+  aliases?: Record<string, AgentWebhookAlias>
   discordGateway: false | string
   inspection: false | string
   webhooks: string

@@ -142,6 +142,13 @@ watch(
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
+    if (!props.workspaceBase) {
+      openViews.value = openViews.value.filter((view) => view !== "workspace");
+      openPaths.value = [];
+      selectedPath.value = undefined;
+      if (tab.value === "workspace") tab.value = "details";
+      if (activeSurface.value === "view:workspace" || activeSurface.value.startsWith("file:")) activeSurface.value = "view:details";
+    }
     if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
@@ -208,6 +215,7 @@ watch([workspace, treeOpen], async ([value, open]) => {
 });
 
 function openView(value: InspectorTab) {
+  if (value === "workspace" && !props.workspaceBase) return;
   if (!openViews.value.includes(value)) openViews.value = [...openViews.value, value];
   tab.value = value;
   activeSurface.value = `view:${value}`;

@@ -195,3 +195,25 @@ A Box isolates Home, configuration, and declared process environment from ambien
 Resolved environment values, file contents, state keys, and physical Home paths are excluded from `box.plan`; `box.plan.home.state` lists declared target paths with opaque stable identities. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 
 Box does not own Workspace snapshots, diffs, or commits. Workspace materializes those files through `BoxSession.files`, while Box remains responsible for execution and lifecycle.
+
+
+## Trusted SSH command transport
+
+`@vite-hub/box/ssh` exports `sshLaunch` for Agent provider launch callbacks and `serveSsh` for a trusted sidecar. The client requires Node and OpenSSH. The server requires the optional `ssh2` peer.
+
+```ts
+import { sshLaunch } from "@vite-hub/box/ssh"
+
+const launch = sshLaunch({
+  host: "127.0.0.1",
+  port: 2222,
+  user: "agent",
+  identityFile: "/ssh/id_ed25519",
+  hostKeyFile: "/ssh/ssh_host_ed25519_key.pub",
+})
+// Pass launch to driver.launch in an Agent Definition.
+```
+
+The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
+
+This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups.

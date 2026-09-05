@@ -22,11 +22,11 @@ export function agentRouteUsesParam(route: false | string | undefined, param: st
   return Boolean(route && normalizeAgentRoute(route).split("/").includes(`:${param}`))
 }
 
-/** Readiness is a static endpoint and must not shadow an application handler. */
-export function validateAgentPreparationRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[]): string {
+/** Generated static endpoints must not shadow application handlers. */
+export function validateAgentStaticRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[], label = "readiness"): string {
   const normalized = normalizeAgentRoute(route).replace(/\/$/, "") || "/"
   if (!route.trim() || /[:*?#\[\]]/.test(normalized)) {
-    throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Agent readiness requires a static route path." })
+    throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} requires a static route path.` })
   }
   const target = normalized.split("/")
   const conflict = handlers.find(({ route: handler, middleware }) => {
@@ -40,6 +40,6 @@ export function validateAgentPreparationRoute(route: string, handlers: readonly 
     }
     return parts.length === target.length
   })
-  if (conflict) throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent readiness route conflicts with the existing route ${JSON.stringify(conflict.route)}.` })
+  if (conflict) throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} route conflicts with the existing route ${JSON.stringify(conflict.route)}.` })
   return normalized
 }

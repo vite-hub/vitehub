@@ -1119,7 +1119,6 @@ onBeforeUnmount(() => {
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
-              :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
               v-model:tab="inspectorTab"
               v-model:active-surface="inspectorActiveSurface"
               v-model:open-views="inspectorOpenViews"
@@ -1213,7 +1212,6 @@ onBeforeUnmount(() => {
               <ConsoleSessionInspector
                 v-if="invocationView"
                 :invocation="invocationView"
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                 v-model:tab="inspectorTab"
                 v-model:active-surface="inspectorActiveSurface"
                 v-model:open-views="inspectorOpenViews"
@@ -1325,7 +1323,6 @@ onBeforeUnmount(() => {
                 <ConsoleSessionInspector
                   :invocation="invocationView"
                   :maximizable="false"
-                  :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"

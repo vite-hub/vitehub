@@ -996,7 +996,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
       const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
       const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
-        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
+        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: home ? ["CODEX_HOME"] : [],
       }))
       signal?.throwIfAborted()
       binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
@@ -2157,7 +2157,10 @@ async function* runProvider<
       if (!hasRuntimeType(providerCommand, "string")) {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
-      const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      const requiredEnvironment = Object.freeze([
+        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+      ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,

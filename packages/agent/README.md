@@ -367,3 +367,18 @@ The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 u
 `agentEvlogPlugin(telemetry, reporters)` from `@vite-hub/agent/evlog` owns Nitro request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [evlog guide](https://vitehub.dev/docs/agents/evlog) for host drain reuse and background delivery.
 
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
+
+
+For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
+
+```ts
+hubAgent({
+  routes: {
+    aliases: {
+      "/api/github/webhook": { agent: "support", webhook: "github" },
+    },
+  },
+})
+```
+
+Aliases use the native webhook handler, retaining the request body and signature headers. The target Channel must be configured on that Agent. Static route collisions fail at build time. Deno and standalone Netlify output do not currently support aliases.

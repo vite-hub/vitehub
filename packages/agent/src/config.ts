@@ -35,6 +35,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
       },
     },
     routes: {
+      ...(options?.routes?.aliases ? { aliases: options.routes.aliases } : {}),
       discordGateway: discordGatewayRoute,
       inspection: inspectionRoute,
       webhooks: defaultAgentWebhookRoute,
