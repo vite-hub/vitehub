@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
@@ -66,7 +67,7 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   const load = workflowCapabilityLoaders.console
-  if (!load) throw new Error("[vitehub] The Console Workflow capability requires a generated runtime loader.")
+  if (!load) throw agentDiagnostics.AGENT_R0603({ message: "[vitehub] The Console Workflow capability requires a generated runtime loader." })
   return await load()
 }
 

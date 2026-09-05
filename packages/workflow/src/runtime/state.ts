@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const RUNS_LIMIT = 1024
 const RUNS_TTL_MS = 5 * 60 * 1000
@@ -119,14 +120,14 @@ function consumeInlineWorkflowDefinition(name: string, expected?: WorkflowDefini
 
 export function registerInlineWorkflowDefinition(name: string, definition: WorkflowDefinition): void {
   if (!name || typeof name !== "string") {
-    throw new TypeError("`createWorkflow()` requires a workflow name.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0023({ message: "`createWorkflow()` requires a workflow name." })
   }
 
   const loadingDefinitions = loadingInlineRegistryStorage.getStore()
   const existing = inlineRegistry.get(name)
   if (existing && existing !== definition) {
     if (!loadingDefinitions) {
-      throw new Error(`Duplicate workflow name "${name}" from inline definitions.`)
+      throw workflowErrorDiagnostics.WORKFLOW_R0024({ message: `Duplicate workflow name "${name}" from inline definitions.` })
     }
   }
   inlineRegistry.set(name, definition)
@@ -160,7 +161,7 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
 
   if (inlineDefinition) {
     if (entry) {
-      throw new Error(`Duplicate workflow name "${name}" from inline and discovered definitions.`)
+      throw workflowErrorDiagnostics.WORKFLOW_R0025({ message: `Duplicate workflow name "${name}" from inline and discovered definitions.` })
     }
     return inlineDefinition
   }

@@ -3,6 +3,7 @@ import { copyFile, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:f
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { basename, resolve } from 'pathe'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const generationMarker = '// vitehub-sandbox-generation: '
 const generationLockClaimStaleMs = 30_000
@@ -316,7 +317,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
         continue
       }
       if (Date.now() >= deadline)
-        throw new Error(`[vitehub] Timed out waiting to prepare the Sandbox runtime in ${generatedDir}.`)
+        throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Timed out waiting to prepare the Sandbox runtime in ${generatedDir}.` })
       await delay(pollMs)
       continue
     }
@@ -324,7 +325,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
     try {
       const created = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath, publicationPath)
       if (!created || created.ownerValue !== undefined || created.leaseIno !== undefined)
-        throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
+        throw sandboxErrorDiagnostics.SANDBOX_R0034({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.` })
       createdLock = created
       await options.beforeInitializeLock?.()
       ownerFile = await open(ownerPath, 'wx')
@@ -333,7 +334,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
       await leaseFile.writeFile(owner)
       ownedLock = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath, publicationPath)
       if (!ownedLock)
-        throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
+        throw sandboxErrorDiagnostics.SANDBOX_R0035({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.` })
       break
     }
     catch (error) {
@@ -367,7 +368,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
   let heartbeatError: unknown
   const assertOwned = async () => {
     if (heartbeatError)
-      throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`, { cause: heartbeatError })
+      throw sandboxErrorDiagnostics.SANDBOX_R0036({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`, cause: heartbeatError })
     const active = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath, publicationPath)
     if (!ownedLock
       || !active
@@ -376,7 +377,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
       || active.leaseDev !== ownedLock.leaseDev
       || active.leaseIno !== ownedLock.leaseIno
       || active.ownerValue !== owner) {
-      throw new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0037({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.` })
     }
   }
   const publish = async <T>(publication: () => Promise<T>) => {
@@ -434,10 +435,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
   heartbeatAbort.abort()
   await heartbeat.catch(error => cleanupErrors.push(error))
   if (heartbeatError) {
-    cleanupErrors.push(new Error(
-      `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`,
-      { cause: heartbeatError },
-    ))
+    cleanupErrors.push(sandboxErrorDiagnostics.SANDBOX_R0038({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`, cause: heartbeatError }))
   }
   const activeOwner = await readFile(ownerPath, 'utf8').catch(() => undefined)
   const active = await observeSandboxRuntimeGenerationLock(lockDir, ownerPath, leasePath, publicationPath)
@@ -491,7 +489,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
     }
   }
   else if (!heartbeatError) {
-    cleanupErrors.push(new Error(`[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.`))
+    cleanupErrors.push(sandboxErrorDiagnostics.SANDBOX_R0039({ message: `[vitehub] Lost ownership while preparing the Sandbox runtime in ${generatedDir}.` }))
   }
   await leaseFile?.close().catch(error => cleanupErrors.push(error))
   await ownerFile?.close().catch(error => cleanupErrors.push(error))
@@ -510,7 +508,7 @@ export async function withSandboxRuntimeGenerationLock<T>(
   if (cleanupErrors.length > 1)
     throw new AggregateError(cleanupErrors, `[vitehub] Failed to clean up the Sandbox runtime generation lock in ${generatedDir}.`)
   if (!operationResult)
-    throw new Error(`[vitehub] Sandbox runtime preparation completed without a result in ${generatedDir}.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0040({ message: `[vitehub] Sandbox runtime preparation completed without a result in ${generatedDir}.` })
   return operationResult.value
 }
 
@@ -564,7 +562,7 @@ export async function restoreSandboxRuntimeGeneration(
     },
   )
   if (activeRuntimeExists)
-    throw new Error(`[vitehub] Sandbox runtime changed during activation; the previous runtime is retained at ${previousRuntime}.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0041({ message: `[vitehub] Sandbox runtime changed during activation; the previous runtime is retained at ${previousRuntime}.` })
   await lease.assertOwned()
   await move(previousRuntime, activeRuntime)
 }

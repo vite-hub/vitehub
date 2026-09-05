@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import type { QueueClient, QueueDefinition, QueueDefinitionRegistry, QueueProviderOptions, ResolvedQueueOptions } from "../../types.ts"
+import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export type QueueRuntimeClientFactory = (options: QueueProviderOptions) => QueueClient | Promise<QueueClient>
 
@@ -13,6 +14,10 @@ let registryOverride: QueueDefinitionRegistry | undefined
 const queueEventStorage = new AsyncLocalStorage<unknown>()
 let queueEventDefaults: unknown
 const queueClientCache = new Map<string, Promise<unknown>>()
+
+export function missingQueueDefinitionError(): Error {
+  return queueErrorDiagnostics.QUEUE_R0013({ message: "Missing queue definition." })
+}
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined, createClient?: QueueRuntimeClientFactory): void {
   runtimeConfig = config

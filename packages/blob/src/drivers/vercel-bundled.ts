@@ -1,6 +1,7 @@
 import { del, get, head, list, put } from "@vercel/blob"
 
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 function toBlobObject(blob: {
   contentType?: string
@@ -112,7 +113,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     },
     async put(pathname, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
       if (putOptions.customMetadata && Object.keys(putOptions.customMetadata).length > 0) {
-        throw new Error("The Vercel Blob driver does not support custom metadata")
+        throw blobErrorDiagnostics.BLOB_R0011({ message: "The Vercel Blob driver does not support custom metadata" })
       }
       const result = await put(pathname, body as Parameters<typeof put>[1], {
         ...auth,

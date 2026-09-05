@@ -19,6 +19,7 @@ import type {
   WorkspaceStore,
   WorkspaceStoreOptions,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceResolutionInput {
   dev?: boolean
@@ -170,7 +171,7 @@ export function resolveRuntimeVercelBlobWorkspaceStore(
   const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
 
   if (isMaskedWorkspaceRuntimeValue(token)) {
-    throw new Error("Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel workspace Blob storage.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0066({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel workspace Blob storage." })
   }
 
   return {

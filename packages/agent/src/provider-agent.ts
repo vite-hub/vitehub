@@ -72,6 +72,7 @@ import type {
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface ProviderAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -108,13 +109,13 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
     parent = join(parent, segment)
     const parentEntry = await lstat(parent).catch(() => undefined)
-    if (parentEntry?.isSymbolicLink()) throw new Error(`[vitehub] Generated provider file parent must not be a symbolic link: ${parent}`)
-    if (parentEntry && !parentEntry.isDirectory()) throw new Error(`[vitehub] Generated provider file parent must be a directory: ${parent}`)
+    if (parentEntry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0669({ message: `[vitehub] Generated provider file parent must not be a symbolic link: ${parent}` })
+    if (parentEntry && !parentEntry.isDirectory()) throw agentDiagnostics.AGENT_R0670({ message: `[vitehub] Generated provider file parent must be a directory: ${parent}` })
     if (!parentEntry) directories.push(parent)
   }
   const entry = await lstat(path).catch(() => undefined)
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
-    throw new Error(`[vitehub] Generated provider file collides with a non-file entry: ${path}`)
+    throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
   }
   const generated = {
     content: entry?.isFile() ? await readFile(path) : undefined,
@@ -290,11 +291,11 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
 
 function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
   if (!isRuntimeRecord(value) || Array.isArray(value)) {
-    throw new TypeError("[vitehub] driver.env must resolve to an object containing only string or undefined values.")
+    throw agentDiagnostics.AGENT_R0672({ message: "[vitehub] driver.env must resolve to an object containing only string or undefined values." })
   }
   const entries = Object.entries(value)
   if (entries.some(([, item]) => item !== undefined && !hasRuntimeType(item, "string"))) {
-    throw new TypeError("[vitehub] driver.env must resolve to an object containing only string or undefined values.")
+    throw agentDiagnostics.AGENT_R0673({ message: "[vitehub] driver.env must resolve to an object containing only string or undefined values." })
   }
   // SAFETY: Every resolved entry was validated as string or undefined above.
   return Object.fromEntries(entries) as AgentProviderEnvironment
@@ -302,10 +303,10 @@ function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment
 
 function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (!isRuntimeRecord(value) || !hasRuntimeType(value.command, "string") || !value.command.trim()) {
-    throw new TypeError("[vitehub] driver.launch must resolve to a non-empty command.")
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch must resolve to a non-empty command." })
   }
   if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
-    throw new TypeError("[vitehub] driver.launch args must contain only strings.")
+    throw agentDiagnostics.AGENT_R0675({ message: "[vitehub] driver.launch args must contain only strings." })
   }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
   if (value.args !== undefined) launch.args = [...value.args]
@@ -495,7 +496,7 @@ async function materializeProviderLauncher(
   cwd: string,
 ): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
-    throw new Error("[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable.")
+    throw agentDiagnostics.AGENT_R0676({ message: "[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable." })
   }
   const sourcePath = join(root, "provider-launcher.mjs")
   const path = join(root, "provider-launcher")
@@ -577,7 +578,7 @@ const codexCredentialNextFilePattern = /^\.(?:auth\.json|config\.toml|\.vitehub-
 let codexCredentialScavenging = Promise.resolve()
 
 function codexRuntimeCleanupFailure(reason: unknown): unknown {
-  return reason ?? new Error("[vitehub] Codex Driver runtime cleanup rejected without a reason.")
+  return reason ?? agentDiagnostics.AGENT_R0677({ message: "[vitehub] Codex Driver runtime cleanup rejected without a reason." })
 }
 
 function normalizeCodexCredentials(value: unknown): string {
@@ -586,17 +587,17 @@ function normalizeCodexCredentials(value: unknown): string {
     ? Reflect.apply(unseal, value, [])
     : value
   if (!hasRuntimeType(unsealed, "string") || !unsealed.trim()) {
-    throw new Error("[vitehub] Codex Driver credentials are missing.")
+    throw agentDiagnostics.AGENT_R0678({ message: "[vitehub] Codex Driver credentials are missing." })
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(unsealed)
   }
   catch {
-    throw new Error("[vitehub] Codex Driver credentials must be valid JSON.")
+    throw agentDiagnostics.AGENT_R0679({ message: "[vitehub] Codex Driver credentials must be valid JSON." })
   }
   if (!parsed || !hasRuntimeType(parsed, "object") || Array.isArray(parsed)) {
-    throw new Error("[vitehub] Codex Driver credentials must contain a JSON object.")
+    throw agentDiagnostics.AGENT_R0680({ message: "[vitehub] Codex Driver credentials must contain a JSON object." })
   }
   return `${JSON.stringify(parsed)}\n`
 }
@@ -726,9 +727,9 @@ async function configureCodexCredentialHome(homePath: string): Promise<void> {
   await chmod(homePath, 0o700)
   const configPath = join(homePath, "config.toml")
   const configEntry = await lstat(configPath).catch(() => undefined)
-  if (configEntry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}`)
-  if (configEntry && (!configEntry.isFile() || configEntry.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile config must be a singly linked file: ${configPath}`)
-  if (configEntry && configEntry.size > codexCredentialConfigMaxBytes) throw new Error(`[vitehub] Codex Driver profile config must not exceed ${codexCredentialConfigMaxBytes} bytes: ${configPath}`)
+  if (configEntry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0681({ message: `[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}` })
+  if (configEntry && (!configEntry.isFile() || configEntry.nlink !== 1)) throw agentDiagnostics.AGENT_R0682({ message: `[vitehub] Codex Driver profile config must be a singly linked file: ${configPath}` })
+  if (configEntry && configEntry.size > codexCredentialConfigMaxBytes) throw agentDiagnostics.AGENT_R0683({ message: `[vitehub] Codex Driver profile config must not exceed ${codexCredentialConfigMaxBytes} bytes: ${configPath}` })
   const config = await readFile(configPath, "utf8").catch((error) => {
     if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
     throw error
@@ -821,7 +822,7 @@ async function createTemporaryCodexCredentialHome(credentials: string): Promise<
       homePath,
       async release() {
         if (dirname(root) !== tmpdir() || !basename(root).startsWith(codexCredentialTemporaryPrefix)) {
-          throw new Error(`[vitehub] Refusing to remove unexpected Codex credential root: ${root}`)
+          throw agentDiagnostics.AGENT_R0684({ message: `[vitehub] Refusing to remove unexpected Codex credential root: ${root}` })
         }
         await rm(root, { force: true, recursive: true })
       },
@@ -839,8 +840,8 @@ async function ensureCodexProfileHome(profile: string): Promise<string> {
   for (const segment of relative(current, join(dataRoot, profile)).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
-    if (entry?.isSymbolicLink()) throw new Error(`[vitehub] Codex Driver profile directory must not be a symbolic link: ${current}`)
-    if (entry && !entry.isDirectory()) throw new Error(`[vitehub] Codex Driver profile path must contain only directories: ${current}`)
+    if (entry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0685({ message: `[vitehub] Codex Driver profile directory must not be a symbolic link: ${current}` })
+    if (entry && !entry.isDirectory()) throw agentDiagnostics.AGENT_R0686({ message: `[vitehub] Codex Driver profile path must contain only directories: ${current}` })
     if (!entry) {
       await mkdir(current, { mode: 0o700 }).catch(async (error) => {
         const raced = await lstat(current).catch(() => undefined)
@@ -863,12 +864,12 @@ async function openCodexProfileHome(profile: string, credentials: string): Promi
     }))
   const seedPath = join(homePath, ".vitehub-seed.sha256")
   const seed = await lstat(seedPath).catch(() => undefined)
-  if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}`)
-  if (seed && seed.size > codexCredentialSeedMaxBytes) throw new Error(`[vitehub] Codex Driver profile seed must not exceed ${codexCredentialSeedMaxBytes} bytes: ${seedPath}`)
+  if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw agentDiagnostics.AGENT_R0687({ message: `[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}` })
+  if (seed && seed.size > codexCredentialSeedMaxBytes) throw agentDiagnostics.AGENT_R0688({ message: `[vitehub] Codex Driver profile seed must not exceed ${codexCredentialSeedMaxBytes} bytes: ${seedPath}` })
   const seedHash = seed ? (await readFile(seedPath, "utf8")).trim() : ""
   const authPath = join(homePath, "auth.json")
   const auth = await lstat(authPath).catch(() => undefined)
-  if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw new Error(`[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}`)
+  if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw agentDiagnostics.AGENT_R0689({ message: `[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}` })
   const persistedCredentialsAreValid = auth?.isFile() && !auth.isSymbolicLink() && auth.size <= codexCredentialAuthMaxBytes
     ? await readFile(authPath, "utf8")
         .then((value) => {
@@ -909,7 +910,7 @@ async function prepareCodexCredentialHome<
   if (options.provider !== "codex") return
   if (options.credentials === undefined) return
   if (process.platform === "win32") {
-    throw new Error("[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access.")
+    throw agentDiagnostics.AGENT_R0690({ message: "[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access." })
   }
   return prepareCodexCredentials(options, { ...providerMetadataContext(context), abortSignal: context.input.abortSignal, purpose: "invocation" }, isAuxiliaryAgentAdapterContext(context))
 }
@@ -920,7 +921,7 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
   auxiliary = false,
 ): Promise<CodexCredentialHome | undefined> {
   if (options.provider !== "codex" || options.credentials === undefined) return
-  if (process.platform === "win32") throw new Error("[vitehub] Provisioned Codex credentials require owner-only file access.")
+  if (process.platform === "win32") throw agentDiagnostics.AGENT_R0905({ message: "[vitehub] Provisioned Codex credentials require owner-only file access." })
   const requestedProfile = options.credentialProfile?.trim()
   const requestedProfileKey = requestedProfile ? `${process.cwd()}:${requestedProfile}` : undefined
   // Auxiliary Drivers run inside their parent invocation. Isolate only a Home
@@ -941,14 +942,14 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
   const key = `${process.cwd()}:${profile}`
   const unavailableReason = unavailableCodexCredentialProfiles.get(key)
   if (unavailableReason !== undefined) {
-    throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
+    throw agentDiagnostics.AGENT_R0691({ message: `[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, cause: unavailableReason })
   }
   const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.abortSignal)
   try {
     const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
     const unavailableReason = unavailableCodexCredentialProfiles.get(key)
     if (unavailableReason !== undefined) {
-      throw new Error(`[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, { cause: unavailableReason })
+      throw agentDiagnostics.AGENT_R0692({ message: `[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, cause: unavailableReason })
     }
     const homePath = await openCodexProfileHome(profile, credentials)
     const invocationProfiles = codexCredentialProfilesByInvocation.get(context.context) || new Set<string>()
@@ -984,7 +985,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     signal?.throwIfAborted()
     const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
     signal?.throwIfAborted()
-    if (home && overrides?.CODEX_HOME !== undefined) throw new TypeError("[vitehub] driver.credentials owns CODEX_HOME.")
+    if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
       ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...overrides,
@@ -1101,7 +1102,7 @@ function providerCleanupTimedOut(error: unknown): boolean {
 
 async function removeProviderRoot(root: string): Promise<void> {
   if (dirname(root) !== tmpdir() || !basename(root).startsWith("vitehub-provider-")) {
-    throw new Error(`[vitehub] Refusing to remove unexpected Provider Agent Driver root: ${root}`)
+    throw agentDiagnostics.AGENT_R0693({ message: `[vitehub] Refusing to remove unexpected Provider Agent Driver root: ${root}` })
   }
   if (process.platform === "win32") return await rm(root, { force: true, recursive: true })
   await new Promise<void>((resolve, reject) => {
@@ -1116,7 +1117,7 @@ async function removeProviderRoot(root: string): Promise<void> {
     child.once("error", finish)
     child.once("close", (code, childSignal) => {
       if (code === 0) finish()
-      else finish(new Error(`[vitehub] Provider Agent Driver root cleanup exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.`))
+      else finish(agentDiagnostics.AGENT_R0694({ message: `[vitehub] Provider Agent Driver root cleanup exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.` }))
     })
   })
 }
@@ -1149,7 +1150,7 @@ function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unk
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   if (!("~standard" in schema)) return schema as Record<string, unknown>
   const jsonSchema = schema["~standard"]?.jsonSchema
-  if (!jsonSchema?.input) throw new Error("[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation.")
+  if (!jsonSchema?.input) throw agentDiagnostics.AGENT_R0695({ message: "[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation." })
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
 }
@@ -1158,15 +1159,15 @@ async function validateToolInput(tool: AgentToolDefinition, input: unknown): Pro
   if (!tool.inputSchema) return input
   if ("~standard" in tool.inputSchema) {
     const standard = tool.inputSchema["~standard"]
-    if (!standard) throw new TypeError(`[vitehub] Invalid schema for Agent tool "${tool.name}".`)
+    if (!standard) throw agentDiagnostics.AGENT_R0696({ message: `[vitehub] Invalid schema for Agent tool "${tool.name}".` })
     const result = await standard.validate(input)
-    if (result.issues?.length) throw new TypeError(`[vitehub] Invalid input for Agent tool "${tool.name}".`)
+    if (result.issues?.length) throw agentDiagnostics.AGENT_R0697({ message: `[vitehub] Invalid input for Agent tool "${tool.name}".` })
     return "value" in result ? result.value : input
   }
   const { Validator } = await import("@cfworker/json-schema")
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const result = new Validator(tool.inputSchema as never, "7").validate(input)
-  if (!result.valid) throw new TypeError(`[vitehub] Invalid input for Agent tool "${tool.name}": ${result.errors.map(error => error.error).join("; ")}`)
+  if (!result.valid) throw agentDiagnostics.AGENT_R0698({ message: `[vitehub] Invalid input for Agent tool "${tool.name}": ${result.errors.map(error => error.error).join("; ")}` })
   return input
 }
 
@@ -1302,7 +1303,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || hasRuntimeType(address, "string")) throw new Error("[vitehub] Provider Agent Driver failed to start its Capability tool server.")
+  if (!address || hasRuntimeType(address, "string")) throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
   return {
     async close() {
       http.closeAllConnections()
@@ -1456,7 +1457,7 @@ function workspaceSessionStarter(workspace: ReadonlyWorkspaceFacade) {
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const files = workspace.fs as typeof workspace.fs & { startSession?: StartSession }
   const startSession = facade.startSession || files.startSession
-  if (!startSession) throw new Error("[vitehub] Provider Agent Driver workspace requires Workspace Session support.")
+  if (!startSession) throw agentDiagnostics.AGENT_R0700({ message: "[vitehub] Provider Agent Driver workspace requires Workspace Session support." })
   return startSession.bind(facade.startSession ? workspace : files)
 }
 
@@ -1504,7 +1505,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
-    throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
+    throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
   }
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
@@ -1601,19 +1602,19 @@ function attachmentId(threadId: string): string {
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
-  if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   const data = await resolveAttachmentData(part)
   if (data === undefined && part.url) {
-    throw new TypeError("[vitehub] Provider attachment URLs require application-owned fetchData() resolution.")
+    throw agentDiagnostics.AGENT_R0703({ message: "[vitehub] Provider attachment URLs require application-owned fetchData() resolution." })
   }
-  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data or fetchData().`)
+  if (data === undefined) throw agentDiagnostics.AGENT_R0704({ message: `[vitehub] Provider ${part.type} attachment requires data or fetchData().` })
   const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
-  if (declaredSize !== undefined && declaredSize > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
-  if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (declaredSize !== undefined && declaredSize > maxBytes) throw agentDiagnostics.AGENT_R0705({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
+  if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw agentDiagnostics.AGENT_R0706({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   const bytes = data instanceof Blob
     ? new Uint8Array(await data.arrayBuffer())
     : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
-  if (bytes.byteLength > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (bytes.byteLength > maxBytes) throw agentDiagnostics.AGENT_R0707({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   return bytes
 }
 
@@ -1624,7 +1625,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   for (const part of parts) {
-    if (part.type !== "image") throw new TypeError("[vitehub] Provider Agent Drivers currently support image attachments only.")
+    if (part.type !== "image") throw agentDiagnostics.AGENT_R0708({ message: "[vitehub] Provider Agent Drivers currently support image attachments only." })
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     const bytes = await attachmentBytes(part, remaining)
@@ -1862,13 +1863,13 @@ async function* runProvider<
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
-    throw new Error(`[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.`)
+    throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
   }
   if (context.providerTools?.length) {
-    throw new Error("[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools.")
+    throw agentDiagnostics.AGENT_R0710({ message: "[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools." })
   }
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
-    throw new TypeError("[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds.")
+    throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const effectiveSignal = context.input.abortSignal && timeoutSignal
@@ -2075,7 +2076,7 @@ async function* runProvider<
         || !(hasRuntimeType(source.content, "string") || source.content instanceof Uint8Array)
         || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
-      if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
+      if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     if (workspaceSession) {
@@ -2108,11 +2109,11 @@ async function* runProvider<
           effectiveSignal,
         ))
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
-      throw new TypeError("[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME.")
+      throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
     if ((options.reasoningEffort !== undefined || options.reasoningSummary !== undefined)
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
-      throw new TypeError("[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS.")
+      throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
     }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
@@ -2120,7 +2121,7 @@ async function* runProvider<
       await cleanupRoot()
     }
     if (options.sessionStorePath !== undefined && (!hasRuntimeType(options.sessionStorePath, "string") || !options.sessionStorePath.trim())) {
-      throw new TypeError("[vitehub] driver.sessionStorePath must be a non-empty string.")
+      throw agentDiagnostics.AGENT_R0715({ message: "[vitehub] driver.sessionStorePath must be a non-empty string." })
     }
     sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey
       ? partitionProviderSessionStore(
@@ -2154,7 +2155,7 @@ async function* runProvider<
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
-        throw new TypeError("[vitehub] driver.providerSettings.binaryPath must be a string.")
+        throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
       const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
@@ -2169,7 +2170,7 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
-      if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
+      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
         effectiveSignal,
@@ -2245,7 +2246,7 @@ async function* runProvider<
     )
     const replayAttachments = !preservesProviderSession && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
-    if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
+    if (!prompt) throw agentDiagnostics.AGENT_R0718({ message: "[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment." })
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
@@ -2299,7 +2300,7 @@ async function* runProvider<
         continue
       }
       const current = raced.provider
-      if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
+      if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
       if (current.value.threadId && current.value.threadId !== threadId) {
         nextEvent = events.next()
         continue
@@ -2315,14 +2316,14 @@ async function* runProvider<
       const normalized = providerEvent(current.value, context.tools, messagePhases)
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
-      if (failure?.type === "error") caught = new Error(failure.error)
+      if (failure?.type === "error") caught = agentDiagnostics.AGENT_R0720({ message: failure.error })
       if (current.value.type === "session.exited") {
-        caught = new Error(`[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
+        caught = agentDiagnostics.AGENT_R0721({ message: `[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
       }
       if (current.value.turnId === turn.turnId && current.value.type === "turn.aborted") {
         caught = effectiveSignal?.aborted
           ? effectiveSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
-          : new Error(`[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
+          : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
@@ -2366,7 +2367,7 @@ async function* runProvider<
         if (stopped) runtimeCleanupSettled = true
         await releaseCodexCredentialHome(stopped
           ? deferredRuntimeFailure
-          : new Error("[vitehub] Provider Agent Driver deferred runtime cleanup timed out."))
+          : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
       })())
     }
     let workspaceFinalization: Promise<void> | undefined
@@ -2381,7 +2382,7 @@ async function* runProvider<
           await closeWorkspace(
             context,
             workspaceSession,
-            caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")),
+            caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
             cleanup.signal,
           )
         }
@@ -2467,7 +2468,7 @@ async function* runProvider<
       }
       else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
         let timeout: ReturnType<typeof setTimeout> | undefined
-        const cleanupTimeout = new Error("[vitehub] Provider Agent Driver invocation cleanup timed out.")
+        const cleanupTimeout = agentDiagnostics.AGENT_R0725({ message: "[vitehub] Provider Agent Driver invocation cleanup timed out." })
         invocationCleanupDeferred = Promise.race([
           cleanupTask,
           new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
@@ -2553,7 +2554,7 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
       if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
       else if (event.type === "usage") usageRecord = event.usageRecord
       else if (event.type === "finish") finishReason = event.reason
-      else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+      else if (event.type === "error" && !event.recoverable) throw agentDiagnostics.AGENT_R0726({ message: event.error })
     }
   }
   finally {

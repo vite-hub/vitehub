@@ -1,4 +1,5 @@
 import type { EmailProviderError, EmailProviderErrorCode } from "./types.ts"
+import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 
 const emailProviderErrorCodes = new Set<EmailProviderErrorCode>([
   "AUTH",
@@ -17,7 +18,7 @@ export function emailProviderError(
   message: string,
   options: { cause?: unknown, retryable?: boolean, status?: number } = {},
 ): EmailProviderError {
-  return Object.assign(new Error(message, { cause: options.cause }), {
+  return Object.assign(emailErrorDiagnostics.EMAIL_R0007({ message: message, ...{ cause: options.cause } }), {
     code,
     driver,
     name: "EmailProviderError",

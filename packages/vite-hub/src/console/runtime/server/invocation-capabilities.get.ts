@@ -2,6 +2,7 @@ import { getConsoleInvocations } from "./invocations.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export default async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent): Promise<{
   capabilities: readonly string[]
@@ -9,7 +10,7 @@ export default async function consoleInvocationCapabilitiesHandler(event: Consol
   assertConsoleRequest(event)
   const agentName = consoleRequestURL(event).searchParams.get("agent")?.trim() || undefined
   if (agentName && agentName.length > 512) {
-    throw Object.assign(new Error("Invalid Agent name"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0053({ message: "Invalid Agent name" }), {
       statusCode: 400,
       statusMessage: "Invalid Agent name",
     })

@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { basename, dirname, join, relative } from "node:path"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface EncodedColocatedAgentFile {
   content: string
@@ -47,7 +48,7 @@ export function readColocatedAgentFiles(
   const rootStats = options.rejectUnsupportedEntries ? lstatSync(root) : statSync(root)
   if (!rootStats.isDirectory()) {
     if (options.rejectUnsupportedEntries) {
-      throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${directoryName}`)
+      throw internalErrorDiagnostics.INTERNAL_B0002({ message: `[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${directoryName}` })
     }
     return
   }
@@ -65,7 +66,7 @@ export function readColocatedAgentFiles(
       }
       if (!entry.isFile()) {
         if (options.rejectUnsupportedEntries) {
-          throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${target}`)
+          throw internalErrorDiagnostics.INTERNAL_B0003({ message: `[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${target}` })
         }
         continue
       }
@@ -73,24 +74,24 @@ export function readColocatedAgentFiles(
       const size = statSync(file).size
       fileCount += 1
       if (options.fileCountLimit !== undefined && fileCount > options.fileCountLimit) {
-        throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${options.fileCountLimit} files.`)
+        throw internalErrorDiagnostics.INTERNAL_B0004({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${options.fileCountLimit} files.` })
       }
       if (options.fileSizeLimit !== undefined && size > options.fileSizeLimit) {
-        throw new Error(`[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}`)
+        throw internalErrorDiagnostics.INTERNAL_B0005({ message: `[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}` })
       }
       totalSize += size
       if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
-        throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.`)
+        throw internalErrorDiagnostics.INTERNAL_B0006({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.` })
       }
 
       const content = readFileSync(file)
       if (content.byteLength !== size) {
         if (options.fileSizeLimit !== undefined && content.byteLength > options.fileSizeLimit) {
-          throw new Error(`[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}`)
+          throw internalErrorDiagnostics.INTERNAL_B0007({ message: `[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}` })
         }
         totalSize += content.byteLength - size
         if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
-          throw new Error(`[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.`)
+          throw internalErrorDiagnostics.INTERNAL_B0008({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.` })
         }
       }
       files[target] = {

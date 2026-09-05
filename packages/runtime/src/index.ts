@@ -1,5 +1,6 @@
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export {
   formatRuntimeDiagnosticError,
@@ -85,7 +86,7 @@ export function isExecutionAuthority(value: unknown): value is ExecutionAuthorit
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
   if (!isExecutionAuthority(value)) {
-    throw new TypeError("[vitehub] Invalid execution authority descriptor.")
+    throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
   if (
     hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])

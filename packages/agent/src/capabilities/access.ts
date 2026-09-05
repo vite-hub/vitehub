@@ -37,6 +37,7 @@ import type {
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type WorkspaceAccessRuntime = Pick<
   typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
@@ -317,7 +318,7 @@ function setWorkspaceOverride<TRuntimeConfig extends AgentRuntimeConfig>(
 ): void {
   const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName> & Partial<WorkspaceOverrideRuntime<WorkspaceName>>)[workspaceOverrideSymbol]
   if (!override) {
-    throw new Error("[vitehub] access() could not apply Workspace Scope.")
+    throw agentDiagnostics.AGENT_R0014({ message: "[vitehub] access() could not apply Workspace Scope." })
   }
   override(workspace)
 }
@@ -348,10 +349,10 @@ export function access<
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
 export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
   if (!options || !hasRuntimeType(options, "object")) {
-    throw new TypeError("[vitehub] access() requires options.")
+    throw agentDiagnostics.AGENT_R0015({ message: "[vitehub] access() requires options." })
   }
   if (!options.chat && !options.workspace) {
-    throw new TypeError("[vitehub] access() requires at least one access surface.")
+    throw agentDiagnostics.AGENT_R0016({ message: "[vitehub] access() requires at least one access surface." })
   }
   return defineCapability({
     id: "access",
@@ -367,10 +368,10 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
     async prepare(context) {
       if (!options.workspace) return
       if (!context.workspace) {
-        throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
+        throw agentDiagnostics.AGENT_R0017({ message: "[vitehub] access({ workspace }) requires an explicit workspace." })
       }
       if ("diff" in context.workspace && context.driver?.kind !== "provider") {
-        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for provider Agent Drivers.")
+        throw agentDiagnostics.AGENT_R0018({ message: "[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for provider Agent Drivers." })
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
@@ -529,14 +530,14 @@ async function resolveWorkspaceScope<
 ): Promise<ResolvedWorkspaceScope> {
   const selection = normalizeSelection(await resolveSelection(options, context))
   if (!selection) {
-    throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. defaultScope or resolve() must produce a Workspace Scope.")
+    throw agentDiagnostics.AGENT_R0019({ message: "[vitehub] access({ workspace }) could not resolve a Workspace Scope. defaultScope or resolve() must produce a Workspace Scope." })
   }
 
   const definition = selection.definition || options.scopes?.[selection.scope] || {}
   const role = selection.role || "viewer"
   const all = definition.all === true
   if (all && role !== "admin") {
-    throw new Error(`[vitehub] Workspace Scope "${selection.scope}" requires the admin role.`)
+    throw agentDiagnostics.AGENT_R0020({ message: `[vitehub] Workspace Scope "${selection.scope}" requires the admin role.` })
   }
 
   return {
@@ -724,7 +725,7 @@ function sourceGrantPaths(
   workspaceRuntime: WorkspaceAccessRuntime,
 ): string[] {
   if (!workspaceDefinition) {
-    throw new Error(`[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.`)
+    throw agentDiagnostics.AGENT_R0021({ message: `[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.` })
   }
   const definition = workspaceDefinition?.sources?.[source]
   if (!definition) return []
@@ -736,7 +737,7 @@ function normalizeScopePath(path = ""): string {
   const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
   const parts = normalized.split("/").filter(Boolean)
   if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) {
-    throw new Error(`[vitehub] Workspace Scope path must stay inside the workspace: "${path}".`)
+    throw agentDiagnostics.AGENT_R0022({ message: `[vitehub] Workspace Scope path must stay inside the workspace: "${path}".` })
   }
   return normalized
 }
@@ -758,7 +759,7 @@ function isVisiblePath(scope: ResolvedWorkspaceScope, path: string): boolean {
 }
 
 function notFound(path: string): Error {
-  return new Error(`[vitehub] Workspace path does not exist: ${path || "."}.`)
+  return agentDiagnostics.AGENT_R0023({ message: `[vitehub] Workspace path does not exist: ${path || "."}.` })
 }
 
 function filterEntries(scope: ResolvedWorkspaceScope, entries: WorkspaceEntry[]): WorkspaceEntry[] {
@@ -1003,7 +1004,7 @@ function scopedSourceRequestExecution(
   return {
     async executeSourceRequest(input) {
       if (!await sourceRequestVisible(fs(), input)) {
-        throw new Error("[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target.")
+        throw agentDiagnostics.AGENT_R0024({ message: "[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target." })
       }
       return await executor.executeSourceRequest(input)
     },

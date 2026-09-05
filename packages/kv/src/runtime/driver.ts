@@ -2,6 +2,7 @@ import type { Driver } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 type AnyRecord = Record<PropertyKey, unknown>
 
@@ -57,7 +58,7 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): KVRu
 
   const resolve = () => driverPromise ||= (async () => {
     const runtime = resolveRuntimeKVOptions(config)
-    if (!runtime) throw new Error("KV runtime is disabled.")
+    if (!runtime) throw kvErrorDiagnostics.KV_R0002({ message: "KV runtime is disabled." })
     return createRuntimeDriver(runtime.store)
   })()
 

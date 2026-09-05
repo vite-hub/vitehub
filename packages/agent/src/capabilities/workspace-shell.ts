@@ -15,6 +15,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface WorkspaceShellOptions {
   commands?: string[] | "all"
@@ -30,7 +31,7 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
       ? options.commands
       : validateWorkspaceCommands(options.commands)
   if (commands && mode !== "write") {
-    throw new Error("[vitehub] workspaceShell({ commands }) requires mode: \"write\" because provider commands run in the active Workspace Session.")
+    throw agentDiagnostics.AGENT_R0297({ message: "[vitehub] workspaceShell({ commands }) requires mode: \"write\" because provider commands run in the active Workspace Session." })
   }
   const timeout = normalizeWorkspaceCommandTimeout(options.timeout, "workspaceShell({ timeout })")
 
@@ -41,7 +42,7 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
     tools: ({ context, driver, workspace }) => {
       if (commands && driver?.kind !== "provider") {
-        throw new Error("[vitehub] workspaceShell({ commands }) is available only to provider Drivers. Use sandbox() for model-backed command tools.")
+        throw agentDiagnostics.AGENT_R0298({ message: "[vitehub] workspaceShell({ commands }) is available only to provider Drivers. Use sandbox() for model-backed command tools." })
       }
       return {
         ...(driver?.kind === "provider"

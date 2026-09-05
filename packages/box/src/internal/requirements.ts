@@ -1,4 +1,5 @@
 import type { BoxResolvedRequirement, ResolvedBoxRequirementInput } from "../index.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const maximumDiagnosticLength = 4_000;
 
@@ -86,7 +87,7 @@ export function boxRequirementError(
 ): Error {
   const details = commandFailureDetails(failure, secrets, timeout, includeDiagnosticOutput);
   const name = diagnosticText(requirement.name, secrets);
-  return new Error(`[vitehub] Box requirement "${name}" failed${details ? `: ${details}` : "."}`);
+  return boxErrorDiagnostics.BOX_R0124({ message: `[vitehub] Box requirement "${name}" failed${details ? `: ${details}` : "."}` });
 }
 
 function commandFailureDetails(

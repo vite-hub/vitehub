@@ -5,12 +5,13 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { Diagnostic } from "nostics"
 
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const exec = promisify(execFile)
 const GITHUB_RATE_LIMIT_FALLBACK_MS = 5 * 60_000
-const GITHUB_RATE_LIMIT_ERROR_CODE = "VITEHUB_GITHUB_RATE_LIMIT"
 const GITHUB_GRAPHQL_CHECK_TIMEOUT_MS = 60_000
 
 export type GitHubHostSecret = string | { unseal: () => string }
@@ -93,15 +94,16 @@ export interface GitHubHost {
   withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
 
-class GitHubRateLimitError extends Error {
-  readonly code = GITHUB_RATE_LIMIT_ERROR_CODE
+class GitHubRateLimitError extends Diagnostic {
   readonly resetAt: number
 
   constructor(repository: string, limit: GitHubGraphQLRateLimit, cause?: unknown) {
-    super(
-      `GitHub GraphQL work for ${repository} is queued until ${new Date(limit.resetAt).toISOString()} (${limit.remaining} points remaining).`,
-      cause === undefined ? undefined : { cause },
-    )
+    super({
+      cause,
+      code: "AGENT_R0889",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      why: `GitHub GraphQL work for ${repository} is queued until ${new Date(limit.resetAt).toISOString()} (${limit.remaining} points remaining).`,
+    }, GitHubRateLimitError)
     this.name = "GitHubRateLimitError"
     this.resetAt = limit.resetAt
   }
@@ -113,7 +115,7 @@ function secret(value: GitHubHostSecret | undefined): string | undefined {
 
 function positiveInteger(value: string, name: string): number {
   const number = Number(value)
-  if (!Number.isSafeInteger(number) || number <= 0) throw new TypeError(`${name} must be a positive integer.`)
+  if (!Number.isSafeInteger(number) || number <= 0) throw agentDiagnostics.AGENT_R0748({ message: `${name} must be a positive integer.` })
   return number
 }
 
@@ -208,7 +210,7 @@ export function parseGraphQLRateLimit(value: unknown, checkedAt: number = Date.n
   const reset = isRuntimeRecord(graphql) ? graphql.reset : undefined
   if (!hasRuntimeType(remaining, "number") || !Number.isSafeInteger(remaining) || remaining < 0
     || !hasRuntimeType(reset, "number") || !Number.isSafeInteger(reset) || reset < 1) {
-    throw new TypeError("GitHub did not return a valid GraphQL rate limit.")
+    throw agentDiagnostics.AGENT_R0749({ message: "GitHub did not return a valid GraphQL rate limit." })
   }
   return { checkedAt, remaining, resetAt: reset * 1_000 }
 }
@@ -258,7 +260,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         evicted = true
         break
       }
-      if (!evicted) throw new Error("GitHub credential budget state capacity is exhausted by active rate limits.")
+      if (!evicted) throw agentDiagnostics.AGENT_R0750({ message: "GitHub credential budget state capacity is exhausted by active rate limits." })
     }
     budgetStateAccess.delete(key)
     budgetStateAccess.set(key, now)
@@ -287,7 +289,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       timeout: input.timeout,
     })
     const token = result.stdout.trim()
-    if (!token) throw new Error("GitHub authentication is not configured.")
+    if (!token) throw agentDiagnostics.AGENT_R0751({ message: "GitHub authentication is not configured." })
     return token
   }
 
@@ -306,13 +308,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       signal: input.signal,
     })
     if (response.status === 403) {
-      throw new Error("GitHub credentials that cannot identify their user must provide rateLimitKey.")
+      throw agentDiagnostics.AGENT_R0752({ message: "GitHub credentials that cannot identify their user must provide rateLimitKey." })
     }
-    if (!response.ok) throw new Error(`GitHub user request failed with ${response.status}.`)
+    if (!response.ok) throw agentDiagnostics.AGENT_R0753({ message: `GitHub user request failed with ${response.status}.` })
     const body: unknown = await response.json()
     const id = isRuntimeRecord(body) ? body.id : undefined
     if (!hasRuntimeType(id, "number") || !Number.isSafeInteger(id) || id <= 0) {
-      throw new TypeError("GitHub did not return a valid authenticated user ID.")
+      throw agentDiagnostics.AGENT_R0754({ message: "GitHub did not return a valid authenticated user ID." })
     }
     const key = `user:${id}`
     if (fallbackIdentities.size >= fallbackIdentityLimit) {
@@ -335,8 +337,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let rateLimitKey: string
 
     if (appValues.some(Boolean)) {
-      if (!appValues.every(Boolean)) throw new Error("GitHub App appId, installationId, and privateKey must be configured together.")
-      if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
+      if (!appValues.every(Boolean)) throw agentDiagnostics.AGENT_R0755({ message: "GitHub App appId, installationId, and privateKey must be configured together." })
+      if (!appOwner) throw agentDiagnostics.AGENT_R0756({ message: "GitHub App owner must be configured with App credentials." })
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = await fallbackToken(config, input)
         rateLimitKey = await fallbackRateLimitKey(token, config.rateLimitKey, input)
@@ -356,11 +358,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             method: "POST",
             signal: input.signal,
           })
-          if (!response.ok) throw new Error(`GitHub App token request failed with ${response.status}.`)
+          if (!response.ok) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${response.status}.` })
           const body: unknown = await response.json()
           const responseToken = isRuntimeRecord(body) ? body.token : undefined
           const expiresAt = isRuntimeRecord(body) ? body.expires_at : undefined
-          if (!hasRuntimeType(responseToken, "string")) throw new Error("GitHub App token response did not include a token.")
+          if (!hasRuntimeType(responseToken, "string")) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token." })
           appToken = {
             expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
             token: responseToken,
@@ -449,7 +451,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   async function ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLReservation> {
-    if (!Number.isSafeInteger(options.cost) || options.cost <= 0) throw new TypeError("GitHub GraphQL cost must be a positive integer.")
+    if (!Number.isSafeInteger(options.cost) || options.cost <= 0) throw agentDiagnostics.AGENT_R0759({ message: "GitHub GraphQL cost must be a positive integer." })
     const operation = controlledOperation(options)
     try {
       operation.signal.throwIfAborted()
@@ -480,17 +482,17 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         let settled = false
         const settle = (actualCost: number, released: boolean = false) => {
           if (!Number.isSafeInteger(actualCost) || actualCost < 0) {
-            throw new TypeError("GitHub GraphQL actual cost must be a non-negative integer.")
+            throw agentDiagnostics.AGENT_R0760({ message: "GitHub GraphQL actual cost must be a non-negative integer." })
           }
           if (actualCost > options.cost) {
-            throw new RangeError("GitHub GraphQL actual cost cannot exceed its reserved cost.")
+            throw agentDiagnostics.AGENT_R0761({ message: "GitHub GraphQL actual cost cannot exceed its reserved cost." })
           }
           if (settled) return
           if (!released && reservation.submittedAtVersion === undefined) {
-            throw new Error("GitHub GraphQL reservations must be submitted before they are settled.")
+            throw agentDiagnostics.AGENT_R0762({ message: "GitHub GraphQL reservations must be submitted before they are settled." })
           }
           if (released && reservation.submittedAtVersion !== undefined) {
-            throw new Error("Submitted GitHub GraphQL reservations cannot be released.")
+            throw agentDiagnostics.AGENT_R0763({ message: "Submitted GitHub GraphQL reservations cannot be released." })
           }
           settled = true
           const outstanding = reservations.get(key)
@@ -522,8 +524,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           },
           settle,
           submit() {
-            if (settled) throw new Error("Settled GitHub GraphQL reservations cannot be submitted.")
-            if (reservation.expired) throw new Error("Expired GitHub GraphQL reservations cannot be submitted.")
+            if (settled) throw agentDiagnostics.AGENT_R0764({ message: "Settled GitHub GraphQL reservations cannot be submitted." })
+            if (reservation.expired) throw agentDiagnostics.AGENT_R0765({ message: "Expired GitHub GraphQL reservations cannot be submitted." })
             reservation.submittedAtVersion ??= limitVersions.get(key) ?? limitVersion
           },
         }
@@ -639,11 +641,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         : "disabled://pull-request-head-repository-unavailable"
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
       if (pullRequest.headRepository) {
-        if (!pullRequest.headRef) throw new Error("A pull request headRef is required when headRepository is supplied.")
+        if (!pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." })
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
-      if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
+      if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
       operation.signal.throwIfAborted()
       const push = async () => {
         const refreshed = await access({

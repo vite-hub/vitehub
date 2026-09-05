@@ -18,6 +18,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { Message } from "../messages.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface InputCommandDeliveryMessage {
   react: (content: string, options?: { transient?: boolean }) => Promise<void>
@@ -106,24 +107,24 @@ let transientReactionId = 0
 
 export function assertInputCommandName(name: string): void {
   if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
-    throw new TypeError(`[vitehub] Input command "${name}" must be a lowercase stable identifier.`)
+    throw agentDiagnostics.AGENT_R0096({ message: `[vitehub] Input command "${name}" must be a lowercase stable identifier.` })
   }
 }
 
 function normalizeInputCommands(options: InputCommandsOptions): Record<string, InputCommand> {
   if (!options || !hasRuntimeType(options, "object") || !options.commands || !hasRuntimeType(options.commands, "object") || Array.isArray(options.commands)) {
-    throw new TypeError("[vitehub] inputCommands({ commands }) requires a command map.")
+    throw agentDiagnostics.AGENT_R0097({ message: "[vitehub] inputCommands({ commands }) requires a command map." })
   }
   for (const [name, command] of Object.entries(options.commands)) {
     assertInputCommandName(name)
     if (!command || !hasRuntimeType(command, "object")) {
-      throw new TypeError(`[vitehub] Input command "${name}" must be an object.`)
+      throw agentDiagnostics.AGENT_R0098({ message: `[vitehub] Input command "${name}" must be an object.` })
     }
     if (command.description !== undefined && (!hasRuntimeType(command.description, "string") || !command.description.trim())) {
-      throw new TypeError(`[vitehub] Input command "${name}" description must be a non-empty string.`)
+      throw agentDiagnostics.AGENT_R0099({ message: `[vitehub] Input command "${name}" description must be a non-empty string.` })
     }
     if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => !hasRuntimeType(channel, "string") || !channel.trim()))) {
-      throw new TypeError(`[vitehub] Input command "${name}" channels must be non-empty Channel IDs.`)
+      throw agentDiagnostics.AGENT_R0100({ message: `[vitehub] Input command "${name}" channels must be non-empty Channel IDs.` })
     }
   }
   return options.commands
@@ -132,10 +133,10 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
 export function normalizeInputCommandTrigger(trigger: unknown): string {
   if (trigger === undefined) return "/"
   if (!hasRuntimeType(trigger, "string") || !trigger) {
-    throw new TypeError("[vitehub] inputCommands({ trigger }) must be a non-empty string.")
+    throw agentDiagnostics.AGENT_R0101({ message: "[vitehub] inputCommands({ trigger }) must be a non-empty string." })
   }
   if (/\s/.test(trigger)) {
-    throw new TypeError("[vitehub] inputCommands({ trigger }) must not contain whitespace.")
+    throw agentDiagnostics.AGENT_R0102({ message: "[vitehub] inputCommands({ trigger }) must not contain whitespace." })
   }
   return trigger
 }
@@ -457,7 +458,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
       while (cursor <= text.length) {
         const invocation = findInputCommandInvocation(text, trigger, commands, cursor)
         if (!invocation) break
-        if (++runs > maxRuns) throw new Error("[vitehub] inputCommands exceeded the maximum command expansion depth.")
+        if (++runs > maxRuns) throw agentDiagnostics.AGENT_R0103({ message: "[vitehub] inputCommands exceeded the maximum command expansion depth." })
 
         const command = commands[invocation.name]!
         // SAFETY: Input command parsing establishes the asserted command contract.

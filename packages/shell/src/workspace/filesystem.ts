@@ -18,6 +18,7 @@ import type {
   ShellStat,
   WritableShellWorkspace,
 } from "./types.ts"
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceShellFileSystem extends IFileSystem {
   readonly writeFs: boolean
@@ -41,11 +42,11 @@ interface WriteFileOptions {
 }
 
 function createEscapeError(path: string) {
-  return new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
+  return shellErrorDiagnostics.SHELL_R0013({ message: `[vitehub] Workspace path escapes the workspace root: "${path}".` })
 }
 
 function createReadonlyError() {
-  return new Error("[vitehub] Workspace filesystem is read-only.")
+  return shellErrorDiagnostics.SHELL_R0014({ message: "[vitehub] Workspace filesystem is read-only." })
 }
 
 function toShellContent(content: ShellContent): Uint8Array {
@@ -233,19 +234,19 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   async chmod(_path: string, _mode: number): Promise<void> {
-    throw new Error("chmod is not supported by the workspace filesystem.")
+    throw shellErrorDiagnostics.SHELL_R0015({ message: "chmod is not supported by the workspace filesystem." })
   }
 
   async symlink(_target: string, _linkPath: string): Promise<void> {
-    throw new Error("symlink is not supported by the workspace filesystem.")
+    throw shellErrorDiagnostics.SHELL_R0016({ message: "symlink is not supported by the workspace filesystem." })
   }
 
   async link(_existingPath: string, _newPath: string): Promise<void> {
-    throw new Error("link is not supported by the workspace filesystem.")
+    throw shellErrorDiagnostics.SHELL_R0017({ message: "link is not supported by the workspace filesystem." })
   }
 
   async readlink(_path: string): Promise<string> {
-    throw new Error("readlink is not supported by the workspace filesystem.")
+    throw shellErrorDiagnostics.SHELL_R0018({ message: "readlink is not supported by the workspace filesystem." })
   }
 
   async lstat(path: string): Promise<FsStat> {
@@ -257,7 +258,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   async utimes(_path: string, _atime: Date, _mtime: Date): Promise<void> {
-    throw new Error("utimes is not supported by the workspace filesystem.")
+    throw shellErrorDiagnostics.SHELL_R0019({ message: "utimes is not supported by the workspace filesystem." })
   }
 
   #requireWritable() {

@@ -1,3 +1,4 @@
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { comarkContent } from "comark-content"
 import { defineEventHandler } from "h3"
 
@@ -71,7 +72,7 @@ function normalizeContentSourcePath(path = ""): string {
     || parts[0] === ".git"
     || parts[0] === ".vitehub"
   ) {
-    throw new TypeError(`[vitehub] Content Source path escapes the source root: ${path}.`)
+    throw contentErrorDiagnostics.CONTENT_R0001({ message: `[vitehub] Content Source path escapes the source root: ${path}.` })
   }
   return normalized
 }
@@ -102,7 +103,7 @@ function textContent(item: ContentSourceItem): string {
     const serialized = JSON.stringify(item.data)
     if (serialized !== undefined) return serialized
   }
-  throw new TypeError(`[vitehub] contentSource() cannot read ${JSON.stringify(item.key)} as content.`)
+  throw contentErrorDiagnostics.CONTENT_R0002({ message: `[vitehub] contentSource() cannot read ${JSON.stringify(item.key)} as content.` })
 }
 
 function isRuntimeFunction(value: unknown): value is Function {
@@ -197,7 +198,7 @@ function createContentSourceFactory(
             for (const item of await currentReader.items()) {
               const path = contentPath(item)
               if (nextItems.has(path)) {
-                throw new TypeError(`[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.`)
+                throw contentErrorDiagnostics.CONTENT_R0003({ message: `[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.` })
               }
               nextItems.set(path, item)
             }
@@ -219,7 +220,7 @@ function createContentSourceFactory(
         async getItem(key) {
           const path = normalizeContentSourcePath(key)
           const item = (await loadItems()).get(path)
-          if (!item) throw new TypeError(`[vitehub] contentSource() could not find ${JSON.stringify(key)}.`)
+          if (!item) throw contentErrorDiagnostics.CONTENT_R0004({ message: `[vitehub] contentSource() could not find ${JSON.stringify(key)}.` })
           return textContent(item)
         },
         async getItemRaw(key) {
@@ -311,7 +312,7 @@ export function defineContentHandler(
   return defineEventHandler(async (event: H3Event) => {
     if (event.req instanceof Request) return await content.handler(event.req)
 
-    if (!event.node) throw new TypeError("[vitehub] Content received an unsupported non-Web request.")
+    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
     // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
     const nodeRequest = event.node.req as NodeContentRequest
     const method = event.method || nodeRequest.method || "GET"

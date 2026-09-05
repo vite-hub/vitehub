@@ -62,7 +62,8 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:esbuild-v27"
+    "esbuild": "catalog:esbuild-v27",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

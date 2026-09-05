@@ -6,6 +6,7 @@ import { findFilesystemPathReferences } from './internal/shared/discovered-defin
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
 import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 const builtinModuleSet = new Set([
@@ -82,7 +83,7 @@ export async function bundleSandboxDefinition(
   } = {},
 ): Promise<SandboxDefinitionBundle> {
   if (options.includeProject === true && !options.project)
-    throw new Error(`[vitehub] Sandbox Definition ${file} declares project: true but no project was resolved.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0001({ message: `[vitehub] Sandbox Definition ${file} declares project: true but no project was resolved.` })
   const project = options.includeProject === false ? undefined : options.project
   if (options.execution === 'module' && project) {
     const prefix = project.packagePath === '.' ? '' : `${project.packagePath}/`
@@ -161,9 +162,7 @@ export async function bundleSandboxDefinition(
   const hasUnbundledRuntimeDependency = hasRuntimeModuleResolution
     || externalImports.some(specifier => !builtinModuleSet.has(specifier))
   if (options.includeProject === false && hasUnbundledRuntimeDependency) {
-    throw new Error(
-      `[vitehub] Sandbox Definition ${file} declares project: false but has a runtime dependency that could not be bundled.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0002({ message: `[vitehub] Sandbox Definition ${file} declares project: false but has a runtime dependency that could not be bundled.` })
   }
   const requiresProject = options.includeProject === true
     || (options.includeProject !== false && (

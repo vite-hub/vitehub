@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 
@@ -42,7 +43,7 @@ const clock = "(CAST(strftime('%s', 'now') AS INTEGER) * 1000 + CAST(substr(strf
 function tableName(prefix = "vitehub_agent_") {
   const table = `${prefix}invocations`
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
-    throw new TypeError("[vitehub] D1 Agent Invocation tablePrefix must form an SQL identifier.")
+    throw agentDiagnostics.AGENT_R0910({ message: "[vitehub] D1 Agent Invocation tablePrefix must form an SQL identifier." })
   }
   return table
 }
@@ -75,7 +76,7 @@ function retention(value: false | number | undefined, fallback: number, maximum 
   if (value === false) return false
   const result = value ?? fallback
   if (!Number.isSafeInteger(result) || result < 1 || result > maximum) {
-    throw new TypeError("[vitehub] D1 Agent Invocation retention limits must be positive safe integers or false.")
+    throw agentDiagnostics.AGENT_R0911({ message: "[vitehub] D1 Agent Invocation retention limits must be positive safe integers or false." })
   }
   return result
 }
@@ -113,7 +114,7 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
   const limits = observationLimits(input.observationLimits)
   limits.maxBytes = Math.min(limits.maxBytes, maximumObservationBytes)
   const retained = byteBoundedObservations(input.observations, limits)
-  if (append && retained.truncated) throw new Error("[vitehub] D1 Agent Invocation byte capacity reached; evidence was not appended.")
+  if (append && retained.truncated) throw agentDiagnostics.AGENT_R0912({ message: "[vitehub] D1 Agent Invocation byte capacity reached; evidence was not appended." })
   let stored = {
     ...input,
     observationLimits: limits,
@@ -124,12 +125,12 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
   // Include all repeated SQL text columns and leave the remaining provider budget for claims and row encoding.
   const rowBytes = () => [stored.id, ...values].reduce((bytes, value) => bytes + encoder.encode(value).byteLength, 0)
   if (rowBytes() > maximumRowBytes) {
-    if (append) throw new Error("[vitehub] D1 Agent Invocation row byte capacity reached; evidence was not appended.")
+    if (append) throw agentDiagnostics.AGENT_R0913({ message: "[vitehub] D1 Agent Invocation row byte capacity reached; evidence was not appended." })
     stored = { ...stored, observations: stored.observations.filter(isAppendedObservation), observationsTruncated: true }
     values = columns(stored)
   }
   if (rowBytes() > maximumRowBytes) {
-    throw new TypeError("[vitehub] D1 Agent Invocation metadata exceeds the row byte limit while preserving appended evidence. Reduce metadata before storing this record.")
+    throw agentDiagnostics.AGENT_R0914({ message: "[vitehub] D1 Agent Invocation metadata exceeds the row byte limit while preserving appended evidence. Reduce metadata before storing this record." })
   }
   return { stored, values }
 }
@@ -168,7 +169,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         db.prepare(`SELECT sequence, record, revision FROM ${table} WHERE id = ?`).bind(input.id),
       ])
       const row = results.at(-1)?.results[0]
-      if (!row) throw new Error(`[vitehub] D1 Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
+      if (!row) throw agentDiagnostics.AGENT_R0915({ message: `[vitehub] D1 Agent Invocation ${JSON.stringify(input.id)} was removed by retention.` })
       return { created: results[before.length]!.meta.changes > 0, record: record(row) }
     },
     async get(id) {
@@ -182,8 +183,8 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
       return result.results[0] ? summary(result.results[0]) : undefined
     },
     async claim(id, claimId, leaseMs, claimOptions) {
-      if (!Number.isSafeInteger(leaseMs) || leaseMs < 1) throw new TypeError("[vitehub] D1 Agent Invocation leaseMs must be a positive safe integer.")
-      if (encoder.encode(claimId).byteLength > 512) throw new TypeError("[vitehub] D1 Agent Invocation claimId must be at most 512 UTF-8 bytes.")
+      if (!Number.isSafeInteger(leaseMs) || leaseMs < 1) throw agentDiagnostics.AGENT_R0916({ message: "[vitehub] D1 Agent Invocation leaseMs must be a positive safe integer." })
+      if (encoder.encode(claimId).byteLength > 512) throw agentDiagnostics.AGENT_R0917({ message: "[vitehub] D1 Agent Invocation claimId must be at most 512 UTF-8 bytes." })
       const db = await database()
       const result = await db.prepare(`UPDATE ${table} SET revision = revision + 1, claim_id = ?, claim_token = ?, claim_expires_at = ${clock} + ?
         WHERE id = ? AND (claim_id IS NULL OR claim_id = ? OR claim_expires_at <= ${clock}
@@ -221,16 +222,16 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         ])
         if (result[0]?.results[0]) return record(result[0].results[0])
       }
-      throw new Error(`[vitehub] D1 Agent Invocation ${JSON.stringify(id)} update exceeded 32 concurrent write retries.`)
+      throw agentDiagnostics.AGENT_R0918({ message: `[vitehub] D1 Agent Invocation ${JSON.stringify(id)} update exceeded 32 concurrent write retries.` })
     },
     async list(listOptions = {}) {
       const limit = listOptions.limit ?? 50
-      if (!Number.isInteger(limit) || limit < 1) throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.")
+      if (!Number.isInteger(limit) || limit < 1) throw agentDiagnostics.AGENT_R0919({ message: "[vitehub] Agent Invocation list limit must be a positive integer." })
       const pageSize = Math.min(limit, 100)
       const before = listOptions.cursor === undefined ? undefined : Number(listOptions.cursor)
-      if (before !== undefined && (!Number.isSafeInteger(before) || before < 1 || String(before) !== listOptions.cursor)) throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
+      if (before !== undefined && (!Number.isSafeInteger(before) || before < 1 || String(before) !== listOptions.cursor)) throw agentDiagnostics.AGENT_R0920({ message: "[vitehub] Agent Invocation cursor is invalid." })
       const search = listOptions.search?.trim()
-      if (search && search.length > 256) throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+      if (search && search.length > 256) throw agentDiagnostics.AGENT_R0921({ message: "[vitehub] Agent Invocation search must be at most 256 characters." })
       const statuses = listOptions.status === undefined ? [] : Array.isArray(listOptions.status) ? listOptions.status : [listOptions.status]
       if (Array.isArray(listOptions.status) && !statuses.length) return { invocations: [] }
       const filters: string[] = []

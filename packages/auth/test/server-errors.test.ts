@@ -29,12 +29,12 @@ describe("server authentication provider boundaries", () => {
   })
 
   it.each([
-    ["missing API", { api: {} }, "Better Auth did not expose api.getSession()."],
-    ["malformed response", { api: { getSession: () => ({ session: {}, user: {} }) } }, "Better Auth returned an invalid session response."],
-  ])("preserves ViteHub's %s validation", async (_case, auth, message) => {
+    ["missing API", { api: {} }, "AUTH_R0011", "Better Auth did not expose api.getSession()."],
+    ["malformed response", { api: { getSession: () => ({ session: {}, user: {} }) } }, "AUTH_R0012", "Better Auth returned an invalid session response."],
+  ])("preserves ViteHub's %s validation", async (_case, auth, code, message) => {
     providerMocks.betterAuth.mockReturnValueOnce(auth)
 
-    await expect(requireAuth(request, definition)).rejects.toEqual(new TypeError(message))
+    await expect(requireAuth(request, definition)).rejects.toMatchObject({ code, message })
   })
 
   it.each([

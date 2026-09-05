@@ -1,4 +1,5 @@
 import { AgentHttpError } from "../http-error.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export const defaultAgentInboundBodyBytes = 1024 * 1024
 export const maximumAgentInboundBodyBytes = 10 * 1024 * 1024
@@ -16,7 +17,7 @@ function bodyTooLarge(): AgentHttpError {
 function resolveBodyLimit(value: number | undefined): number {
   if (value === undefined) return defaultAgentInboundBodyBytes
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximumAgentInboundBodyBytes) {
-    throw new TypeError(`[vitehub] Agent maxBodyBytes must be a positive integer no greater than ${maximumAgentInboundBodyBytes}.`)
+    throw agentDiagnostics.AGENT_R0768({ message: `[vitehub] Agent maxBodyBytes must be a positive integer no greater than ${maximumAgentInboundBodyBytes}.` })
   }
   return value
 }

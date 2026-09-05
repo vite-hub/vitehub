@@ -6,6 +6,7 @@ import type {
 } from "../types.ts"
 import type { McpCapabilityOptions, McpClient, McpClientConfig } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
   return `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
@@ -32,14 +33,14 @@ function withMcpInitializationCompatibility(connection: McpClient | McpClientCon
 function assertMcpIntegrityOptions(options: McpCapabilityOptions) {
   if (options.integrity === undefined) return
   if (!isRecord(options.integrity)) {
-    throw new TypeError("[vitehub] mcp({ integrity }) requires fingerprint maps keyed by configured server name.")
+    throw agentDiagnostics.AGENT_R0114({ message: "[vitehub] mcp({ integrity }) requires fingerprint maps keyed by configured server name." })
   }
   for (const [server, fingerprints] of Object.entries(options.integrity)) {
     if (!Object.hasOwn(options.servers, server)) {
-      throw new TypeError(`[vitehub] mcp({ integrity }) references unknown server "${server}".`)
+      throw agentDiagnostics.AGENT_R0115({ message: `[vitehub] mcp({ integrity }) references unknown server "${server}".` })
     }
     if (!isRecord(fingerprints) || Object.values(fingerprints).some(value => typeof value !== "string")) {
-      throw new TypeError(`[vitehub] mcp({ integrity }) requires a tool fingerprint map for server "${server}".`)
+      throw agentDiagnostics.AGENT_R0116({ message: `[vitehub] mcp({ integrity }) requires a tool fingerprint map for server "${server}".` })
     }
   }
 }
@@ -49,7 +50,7 @@ export function mcp<
   Name extends WorkspaceName = WorkspaceName,
 >(options: McpCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   if (!options || typeof options !== "object" || !options.servers || typeof options.servers !== "object") {
-    throw new TypeError("[vitehub] mcp({ servers }) requires a server map.")
+    throw agentDiagnostics.AGENT_R0117({ message: "[vitehub] mcp({ servers }) requires a server map." })
   }
   assertMcpIntegrityOptions(options)
   return defineMcpToolCapability({

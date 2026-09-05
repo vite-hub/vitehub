@@ -24,6 +24,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { Message } from "../messages.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type ToUIMessageStreamResponse = (...args: unknown[]) => Response
@@ -195,7 +196,7 @@ function progressSummaryAdapterRunContext(
   prompt: string,
 ): AgentAdapterRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] progressSummary({ driver }) requires an agent runtime context.")
+    throw agentDiagnostics.AGENT_R0156({ message: "[vitehub] progressSummary({ driver }) requires an agent runtime context." })
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
@@ -215,7 +216,7 @@ function progressSummaryRunContext(
   prompt: string,
 ): AgentRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] progressSummary({ driver }) requires an agent runtime context.")
+    throw agentDiagnostics.AGENT_R0157({ message: "[vitehub] progressSummary({ driver }) requires an agent runtime context." })
   }
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {
@@ -232,7 +233,7 @@ function progressSummaryRunContext(
 async function resultText(result: unknown): Promise<string | undefined> {
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
-    if (event.type === "error" && !event.recoverable) throw new Error(event.error)
+    if (event.type === "error" && !event.recoverable) throw agentDiagnostics.AGENT_R0158({ message: event.error })
     if (event.type === "text-delta") text += event.text
   }
   return text || toAgentRunResult(result).text

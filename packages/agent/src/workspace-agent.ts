@@ -83,6 +83,7 @@ import type {
   WorkspaceRules,
   WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
@@ -290,11 +291,11 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
 
 function assertWorkspaceReference(reference: { name: string }): void {
   if (!reference.name.trim()) {
-    throw new TypeError("[vitehub] Workspace reference requires a non-empty string name.")
+    throw agentDiagnostics.AGENT_R0878({ message: "[vitehub] Workspace reference requires a non-empty string name." })
   }
   const unsupported = Object.keys(reference).filter(key => !workspaceReferenceKeys.has(key))
   if (unsupported.length) {
-    throw new TypeError(`[vitehub] Workspace reference does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0879({ message: `[vitehub] Workspace reference does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
 }
 
@@ -347,14 +348,14 @@ function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: bo
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   if (!definition || !hasRuntimeType(definition, "object")) {
-    throw new TypeError("[vitehub] defineWorkspace requires a workspace definition.")
+    throw agentDiagnostics.AGENT_R0880({ message: "[vitehub] defineWorkspace requires a workspace definition." })
   }
   if ("name" in definition) {
-    throw new TypeError("[vitehub] Workspace names are inferred from definition filenames.")
+    throw agentDiagnostics.AGENT_R0881({ message: "[vitehub] Workspace names are inferred from definition filenames." })
   }
   const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
   if (unsupported.length) {
-    throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
 }
 
@@ -367,7 +368,7 @@ function withCapabilityWorkspaceSources(
   const sources = { ...workspace.sources }
   for (const [key, source] of Object.entries(contributed)) {
     if (key in sources) {
-      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+      throw agentDiagnostics.AGENT_R0883({ message: `[vitehub] Workspace source "${key}" is already defined.` })
     }
     sources[key] = source
   }
@@ -982,7 +983,7 @@ function resolveInstructionImportFromFile(specifier: string, importer: string): 
   const fs = getNodeBuiltin("node:fs")
   const path = getNodeBuiltin("node:path")
   if (!fs || !path) {
-    throw new Error(`[vitehub] Instruction import "${specifier}" requires local filesystem access.`)
+    throw agentDiagnostics.AGENT_R0884({ message: `[vitehub] Instruction import "${specifier}" requires local filesystem access.` })
   }
   const file = path.resolve(path.dirname(importer), specifier)
   return {
@@ -1023,22 +1024,22 @@ export async function resolveWorkspaceInstructionBindings(
   const resolved: Record<string, unknown> = {}
   for (const [key, binding] of Object.entries(bindings)) {
     if (key === "sources") {
-      throw new Error("[vitehub] Workspace instruction binding \"sources\" is reserved. Cover Sources with ::source blocks in Agent Driver Instructions.")
+      throw agentDiagnostics.AGENT_R0885({ message: "[vitehub] Workspace instruction binding \"sources\" is reserved. Cover Sources with ::source blocks in Agent Driver Instructions." })
     }
     if (!/^[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*$/.test(key)) {
-      throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.`)
+      throw agentDiagnostics.AGENT_R0886({ message: `[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.` })
     }
     if (binding === null || hasRuntimeType(binding, "string") || hasRuntimeType(binding, "number") || hasRuntimeType(binding, "boolean")) {
       resolved[key] = binding
       continue
     }
     if (binding && hasRuntimeType(binding, "object") && hasRuntimeType(binding.path, "string")) {
-      if (!workspace) throw new Error(`[vitehub] Workspace instruction binding "${key}" requires Workspace access.`)
+      if (!workspace) throw agentDiagnostics.AGENT_R0887({ message: `[vitehub] Workspace instruction binding "${key}" requires Workspace access.` })
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       resolved[key] = await workspace.fs.readFile(binding.path as never)
       continue
     }
-    throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be a scalar value or { path }.`)
+    throw agentDiagnostics.AGENT_R0888({ message: `[vitehub] Workspace instruction binding "${key}" must be a scalar value or { path }.` })
   }
   return Object.keys(resolved).length ? resolved : undefined
 }

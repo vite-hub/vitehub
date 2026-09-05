@@ -3,6 +3,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
@@ -40,7 +41,7 @@ export type AgentInvocationStreamEvent =
 function parseAgentInvocationStreamEvent(line: string): AgentInvocationStreamEvent {
   const event: unknown = JSON.parse(line)
   if (!isRuntimeRecord(event) || !hasRuntimeType(event.type, "string")) {
-    throw new TypeError("Invalid Agent Invocation Stream event.")
+    throw agentDiagnostics.AGENT_R0607({ message: "Invalid Agent Invocation Stream event." })
   }
   // SAFETY: The stream endpoint owns the event payloads; the reader validates their shared discriminated-union boundary.
   return event as AgentInvocationStreamEvent
@@ -162,7 +163,7 @@ export function createAgentInvocationStreamResponse(
     if (options.timeout && options.timeout > 0) {
       timeout = setTimeout(() => {
         const error = `Agent Invocation Stream timed out after ${options.timeout}ms of inactivity.`
-        fail(controller, new Error(error), "invocation", { code: "INTERNAL", error })
+        fail(controller, agentDiagnostics.AGENT_R0608({ message: error }), "invocation", { code: "INTERNAL", error })
       }, options.timeout)
     }
   }

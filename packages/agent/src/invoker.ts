@@ -11,6 +11,7 @@ import type {
   AgentRunMetadata,
   AgentRuntimeConfig,
 } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export const agentInvokerContextKey = "invoker"
 const agentActorContextKey = "actor"
@@ -62,19 +63,19 @@ function normalizeAgentEmail(value: unknown): AgentInvoker["email"] {
 
 export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): AgentInvoker {
   if (!isRecord(value)) {
-    throw new TypeError(`[vitehub] ${label} must be an object with a non-empty string id.`)
+    throw agentDiagnostics.AGENT_R0636({ message: `[vitehub] ${label} must be an object with a non-empty string id.` })
   }
 
   const id = stringValue(value.id)
   if (!id) {
-    throw new TypeError(`[vitehub] ${label} requires a non-empty string id.`)
+    throw agentDiagnostics.AGENT_R0637({ message: `[vitehub] ${label} requires a non-empty string id.` })
   }
 
   const kind = stringValue(value.kind)
   const displayLabel = stringValue(value.label)
   const meta = value.meta
   if (meta !== undefined && !isRecord(meta)) {
-    throw new TypeError(`[vitehub] ${label}.meta must be an object when provided.`)
+    throw agentDiagnostics.AGENT_R0638({ message: `[vitehub] ${label}.meta must be an object when provided.` })
   }
   const email = normalizeAgentEmail(value.email) || normalizeAgentEmail(meta?.email)
 
@@ -97,14 +98,14 @@ export function normalizeAgentInvokerProfiles<
 ): TProfile[] {
   if (profiles === undefined) return []
   if (!Array.isArray(profiles)) {
-    throw new TypeError("[vitehub] defineAgent({ invoker.profiles }) must be an ordered array.")
+    throw agentDiagnostics.AGENT_R0639({ message: "[vitehub] defineAgent({ invoker.profiles }) must be an ordered array." })
   }
 
   const seen = new Set<string>()
   return profiles.map((profile, index) => {
     const normalized = normalizeAgentInvoker(profile, `defineAgent({ invoker.profiles[${index}] })`)
     if (seen.has(normalized.id)) {
-      throw new Error(`[vitehub] Duplicate Agent Invoker Profile id "${normalized.id}" in one agent.`)
+      throw agentDiagnostics.AGENT_R0640({ message: `[vitehub] Duplicate Agent Invoker Profile id "${normalized.id}" in one agent.` })
     }
     seen.add(normalized.id)
     // SAFETY: TProfile extends the normalized Agent Invoker contract and normalization preserves that profile's typed metadata.
@@ -122,10 +123,10 @@ export function normalizeAgentInvokerOptions<
   if (options === undefined) return undefined
   const runtimeOptions: unknown = options
   if (!isRecord(runtimeOptions)) {
-    throw new TypeError("[vitehub] defineAgent({ invoker }) must be an object.")
+    throw agentDiagnostics.AGENT_R0641({ message: "[vitehub] defineAgent({ invoker }) must be an object." })
   }
   if (runtimeOptions.resolve !== undefined && !hasRuntimeType(runtimeOptions.resolve, "function")) {
-    throw new TypeError("[vitehub] defineAgent({ invoker.resolve }) must be a function.")
+    throw agentDiagnostics.AGENT_R0642({ message: "[vitehub] defineAgent({ invoker.resolve }) must be a function." })
   }
   return {
     ...options,
@@ -230,7 +231,7 @@ function selectAgentInvokerProfile<
   if (requestedProfileId) {
     const selected = profiles.find(profile => profile.id === requestedProfileId)
     if (!selected) {
-      throw new Error(`[vitehub] Unknown Agent Invoker Profile "${requestedProfileId}" selected for this agent.`)
+      throw agentDiagnostics.AGENT_R0643({ message: `[vitehub] Unknown Agent Invoker Profile "${requestedProfileId}" selected for this agent.` })
     }
     return selected
   }
@@ -278,11 +279,11 @@ export async function resolveAgentInvoker<
   const resolved = await normalizedOptions?.resolve?.(resolveContext)
   if (requireMatchingRequestedInvoker && normalizedOptions?.resolve) {
     if (!requestedInvoker || resolved === undefined || resolved === null) {
-      throw new Error("[vitehub] Scheduled Agent turns require matching invoker reauthorization.")
+      throw agentDiagnostics.AGENT_R0644({ message: "[vitehub] Scheduled Agent turns require matching invoker reauthorization." })
     }
     const reauthorizedInvoker = normalizeAgentInvoker(resolved, "defineAgent({ invoker.resolve })")
     if (reauthorizedInvoker.id !== requestedInvoker.id || reauthorizedInvoker.kind !== requestedInvoker.kind) {
-      throw new Error("[vitehub] Scheduled Agent turns require matching invoker reauthorization.")
+      throw agentDiagnostics.AGENT_R0645({ message: "[vitehub] Scheduled Agent turns require matching invoker reauthorization." })
     }
     ensureAgentInvokerContext(invocationContext, reauthorizedInvoker)
     return reauthorizedInvoker

@@ -9,6 +9,7 @@ import type {
   ChannelDefinitionName,
   ChannelRegistryDefinition,
 } from "../registry-types.ts"
+import { channelsErrorDiagnostics } from "../error-diagnostics.ts"
 
 let registryOverride: ChannelDefinitionRegistry | undefined
 
@@ -36,7 +37,7 @@ async function loadChannelDefinition(name: string): Promise<ChannelDefinition | 
 async function resolveChannel<TConnectors extends ChannelConnectorMap>(name: string): Promise<ChannelClient<TConnectors>> {
   const definition = await loadChannelDefinition(name)
   if (!definition) {
-    throw new Error(`[vitehub] No Channel Definition was discovered for "${name}".`)
+    throw channelsErrorDiagnostics.CHANNELS_R0002({ message: `[vitehub] No Channel Definition was discovered for "${name}".` })
   }
   return createChannel(name, definition as unknown as ChannelDefinition<TConnectors>)
 }
@@ -50,7 +51,7 @@ export function useChannel<
 >(name: string extends TName ? TName : never): ChannelClient<ChannelConnectorMap>
 export function useChannel<TConnectors extends ChannelConnectorMap = ChannelConnectorMap>(name: string): ChannelClient<TConnectors> {
   if (typeof name !== "string" || name.trim().length === 0) {
-    throw new TypeError("`useChannel()` requires a non-empty channel name.")
+    throw channelsErrorDiagnostics.CHANNELS_R0003({ message: "`useChannel()` requires a non-empty channel name." })
   }
 
   let resolved: Promise<ChannelClient<TConnectors>> | undefined

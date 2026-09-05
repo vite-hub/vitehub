@@ -13,6 +13,7 @@ import {
 import type { HTTPEvent } from "h3"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
 import type { RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
+import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareEnvCarrier {
   context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }
@@ -63,7 +64,7 @@ function getCloudflareRateLimiter(event: RateLimitRequestEvent, name: string, po
   const bindingName = getCloudflareRateLimitBindingName(name)
   const binding = getCloudflareEventEnv(event)?.[bindingName]
   if (!isCloudflareBinding(binding)) {
-    throw new Error(`[vitehub] Cloudflare Rate Limit binding "${bindingName}" was not found on the request event.`)
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0009({ message: `[vitehub] Cloudflare Rate Limit binding "${bindingName}" was not found on the request event.` })
   }
   return createRateLimiter({
     ...policy,
@@ -75,23 +76,23 @@ function getCloudflareRateLimiter(event: RateLimitRequestEvent, name: string, po
 export async function requireRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<void> {
   const id = typeof name === "string" ? name.trim() : ""
   if (!id) {
-    throw new TypeError("`requireRateLimit()` requires a non-empty stable ID.")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0010({ message: "`requireRateLimit()` requires a non-empty stable ID." })
   }
   const unknownKey = options && typeof options === "object" && !Array.isArray(options)
     ? Object.keys(options).find(key => !guardOptionKeys.has(key))
     : undefined
   if (unknownKey) {
-    throw new TypeError(`\`requireRateLimit()\` does not support the "${unknownKey}" option.`)
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0011({ message: `\`requireRateLimit()\` does not support the "${unknownKey}" option.` })
   }
   if (options?.key !== undefined && (typeof options.key !== "string" || options.key.length === 0)) {
-    throw new TypeError("`requireRateLimit()` key must be a non-empty string.")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0012({ message: "`requireRateLimit()` key must be a non-empty string." })
   }
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
   const { provider } = getRateLimitRuntimeConfig()
   const key = options.key ?? getRequestKey(event, provider)
   if (!key) {
-    throw new Error("[vitehub] Rate Limit could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: "[vitehub] Rate Limit could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address." })
   }
   const limiter = provider === "cloudflare"
     ? getCloudflareRateLimiter(event, id, policy)

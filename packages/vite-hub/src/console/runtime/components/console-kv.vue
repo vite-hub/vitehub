@@ -10,6 +10,7 @@ import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
   cursor?: string;
@@ -91,7 +92,7 @@ function queryString(value: LocationQueryValue | LocationQueryValue[]): string |
 function parseList(value: unknown): KVListResponse {
   const source = record(value);
   if (!source || !Array.isArray(source.keys) || !Array.isArray(source.stores)) {
-    throw new TypeError("The Console returned an invalid KV key list.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0103({ message: "The Console returned an invalid KV key list." });
   }
   return {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
@@ -116,7 +117,7 @@ function parseValue(value: unknown): KVValueResponse {
   const source = record(value);
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate required key and store identities at this boundary.
   if (!source || typeof source.key !== "string" || typeof source.store !== "string") {
-    throw new TypeError("The Console returned an invalid KV value.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0104({ message: "The Console returned an invalid KV value." });
   }
   const parsed: KVValueResponse = {
     found: source.found === true,
@@ -200,7 +201,7 @@ async function loadKeys(
     if (listRequest !== controller) return;
     stores.value = value.stores;
     if (value.error) {
-      const error = new Error(value.error);
+      const error = viteHubErrorDiagnostics.VITE_HUB_R0105({ message: value.error });
       if (value.errorCode) Object.assign(error, { code: value.errorCode });
       throw error;
     }

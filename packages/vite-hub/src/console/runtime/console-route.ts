@@ -1,3 +1,4 @@
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 export const consoleDatabaseSchemaPath = "/database/schema/diagram"
 export const consoleDatabaseTablePath = "/database/:table?"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
@@ -7,7 +8,7 @@ const agentRouteParamPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export function encodeAgentRouteParam(name: string): string {
   if (!agentRouteParamPattern.test(name)) {
-    throw new TypeError(`[vitehub] Agent name ${JSON.stringify(name)} must use lowercase letters, numbers, and single hyphens.`)
+    throw viteHubErrorDiagnostics.VITE_HUB_R0045({ message: `[vitehub] Agent name ${JSON.stringify(name)} must use lowercase letters, numbers, and single hyphens.` })
   }
   return name
 }

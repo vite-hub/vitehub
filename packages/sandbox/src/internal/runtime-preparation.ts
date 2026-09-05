@@ -25,6 +25,7 @@ import {
 import type { EmittedArtifact, FeatureRuntimePlan } from './shared/runtime-artifacts'
 import type { AgentSandboxConfig } from '../module-types'
 import type { Alias, ConfigEnv, ResolvedConfig } from 'vite'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
@@ -57,7 +58,7 @@ function normalizeSandboxOptions(options: SandboxPublicOptions): AgentSandboxCon
   if (options === false)
     return false
   if (!isPlainObject(options))
-    throw new TypeError('[vitehub] `sandbox` must be a plain object.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0042({ message: '[vitehub] `sandbox` must be a plain object.' })
   return { ...options } as AgentSandboxConfig
 }
 
@@ -278,7 +279,7 @@ async function writeSandboxArtifactsLocked(
       const dst = resolve(generationDir, relativePath)
       const contents = artifact.contents ?? await artifact.getContents?.(emitted, { dst, stableDst })
       if (typeof contents !== 'string')
-        throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
+        throw sandboxErrorDiagnostics.SANDBOX_R0043({ message: `[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.` })
 
       emitted.set(artifact.key, { ...artifact, contents, dst, stableDst })
     }
@@ -291,7 +292,7 @@ async function writeSandboxArtifactsLocked(
     const activeFacadeFile = resolveSandboxRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
-      throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
+      throw sandboxErrorDiagnostics.SANDBOX_R0044({ message: '[vitehub] Sandbox runtime plan did not emit a registry artifact.' })
     const providerLoaderArtifact = emitted.get('sandbox-provider-loader')
     await writeFileIfChanged(
       generationFacadeFile,

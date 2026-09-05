@@ -4,6 +4,7 @@ import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provi
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
 type NodeFsModule = typeof import("node:fs")
@@ -62,10 +63,10 @@ function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] 
 
 function normalizeSqlitePath(path: string): string {
   if (/^(?:libsql:|https?:\/\/)/i.test(path)) {
-    throw new Error(`OpenWorkflow SQLite storage requires a local SQLite file path, received ${JSON.stringify(path)}.`)
+    throw workflowErrorDiagnostics.WORKFLOW_R0018({ message: `OpenWorkflow SQLite storage requires a local SQLite file path, received ${JSON.stringify(path)}.` })
   }
   if (/^[a-z][a-z0-9+.-]*:/i.test(path) && !path.startsWith("file:")) {
-    throw new Error(`OpenWorkflow SQLite storage received unsupported storage URL ${JSON.stringify(path)}.`)
+    throw workflowErrorDiagnostics.WORKFLOW_R0019({ message: `OpenWorkflow SQLite storage received unsupported storage URL ${JSON.stringify(path)}.` })
   }
   return path.startsWith("file:") ? path.slice("file:".length) : path
 }
@@ -87,7 +88,7 @@ type OpenWorkflowStorageConfig =
 
 function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowStorageConfig {
   if (config.provider !== "openworkflow") {
-    throw new Error(`OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".`)
+    throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".` })
   }
 
   const sqlite = config.sqlite || {}

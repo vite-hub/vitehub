@@ -9,13 +9,14 @@ import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsole
 
 import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages"])
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
 function consoleError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -91,10 +92,10 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
       messages = deserializeMessages({ messages: body.messages, version: 1 })
       const ids = new Set<string>()
       for (const message of messages) {
-        if (message.role !== "user" && message.role !== "assistant") throw new TypeError("History requires user or assistant messages.")
+        if (message.role !== "user" && message.role !== "assistant") throw viteHubErrorDiagnostics.VITE_HUB_R0116({ message: "History requires user or assistant messages." })
         // Supplied history cannot assert tool execution or approval, even inside an assistant Message.
-        if (message.parts.some(part => part.type !== "text" && !isAttachmentPart(part))) throw new TypeError("History requires text or attachment parts.")
-        if (ids.has(message.id)) throw new TypeError("History message ids must be unique.")
+        if (message.parts.some(part => part.type !== "text" && !isAttachmentPart(part))) throw viteHubErrorDiagnostics.VITE_HUB_R0117({ message: "History requires text or attachment parts." })
+        if (ids.has(message.id)) throw viteHubErrorDiagnostics.VITE_HUB_R0118({ message: "History message ids must be unique." })
         ids.add(message.id)
       }
     }

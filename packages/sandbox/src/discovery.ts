@@ -12,6 +12,7 @@ import {
 import { existsSync } from 'node:fs'
 import { dirname, relative, resolve } from 'pathe'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
   kind: 'definition' | 'package-entry'
@@ -88,9 +89,7 @@ export function discoverServerSandboxDefinitions(scanDirs: string[]): Discovered
 
       const packageEntrypoints = entrypoints.get(packageRoot)!
       if (packageEntrypoints.length > 1) {
-        throw new Error(
-          `[vitehub] Sandbox package "${packageRoot}" has multiple entrypoints: ${packageEntrypoints.join(', ')}.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0009({ message: `[vitehub] Sandbox package "${packageRoot}" has multiple entrypoints: ${packageEntrypoints.join(', ')}.` })
       }
       if (packageEntrypoints.length === 0)
         continue
@@ -106,9 +105,7 @@ export function discoverServerSandboxDefinitions(scanDirs: string[]): Discovered
         continue
       if (selectedRoots.some(root => isNestedDirectory(packageRoot, root) || isNestedDirectory(root, packageRoot)))
         continue
-      throw new Error(
-        `[vitehub] Sandbox package "${packageRoot}" requires one ESM entrypoint: ${sandboxEntrypointFilenames.join(', ')}.`,
-      )
+      throw sandboxErrorDiagnostics.SANDBOX_R0010({ message: `[vitehub] Sandbox package "${packageRoot}" requires one ESM entrypoint: ${sandboxEntrypointFilenames.join(', ')}.` })
     }
   }
 

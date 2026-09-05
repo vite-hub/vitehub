@@ -142,6 +142,7 @@ import type { UIMessage } from "ai"
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
+import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -359,7 +360,7 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof ReadableStream || isReadableStreamLike(value)) return value
   if (value instanceof Response && value.body) return value.body
   if (isResponseLike(value)) return value.body
-  throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
+  throw agentDiagnostics.AGENT_R0769({ message: "[vitehub] Agent chat trigger expected a UI message stream." })
 }
 
 function isUiMessageStreamResponse(response: Response): boolean {
@@ -790,7 +791,7 @@ async function observeHandledChannelDeliveryResponse(response: Response, deliver
         try {
           await reader.cancel(reason)
         } finally {
-          await settle("failed", reason || new Error("Channel response stream was cancelled."))
+          await settle("failed", reason || agentDiagnostics.AGENT_R0770({ message: "Channel response stream was cancelled." }))
         }
       },
     }),
@@ -870,7 +871,7 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
         try {
           await reader.cancel(reason)
         } finally {
-          await fail(reason || new Error("Channel response stream was cancelled."))
+          await fail(reason || agentDiagnostics.AGENT_R0771({ message: "Channel response stream was cancelled." }))
         }
       },
     }),
@@ -939,7 +940,7 @@ function resolveWebhookStateBackendId(state: StateAdapter): Promise<string> {
     await state.setIfNotExists(backendIdKey, globalThis.crypto.randomUUID())
     const backendId = await state.get(backendIdKey)
     if (!isRuntimeString(backendId) || !backendId) {
-      throw new Error("[vitehub] Webhook Agent state returned an invalid backend identity.")
+      throw agentDiagnostics.AGENT_R0772({ message: "[vitehub] Webhook Agent state returned an invalid backend identity." })
     }
     return backendId
   })()
@@ -984,7 +985,7 @@ const maxWebhookQueueAttempts = 3
 function positiveWebhookConcurrencyLimit(value: number | undefined): number | undefined {
   if (value === undefined) return
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError("[vitehub] Webhook delivery ownership concurrencyLimit must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0773({ message: "[vitehub] Webhook delivery ownership concurrencyLimit must be a positive integer." })
   }
   return value
 }
@@ -1119,7 +1120,7 @@ async function steerQueuedWebhookDelivery(
       let sendLockLost = false
       const stopSendHeartbeat = startWebhookLockHeartbeat(state, sendLock, delivery.leaseTtlMs, () => {
         sendLockLost = true
-        void controller.cancel(new Error("[vitehub] Webhook steering lost its serialized input lease.")).catch(() => {})
+        void controller.cancel(agentDiagnostics.AGENT_R0774({ message: "[vitehub] Webhook steering lost its serialized input lease." })).catch(() => {})
       })
       try {
         const steeringLease: AgentWebhookQueueLease = {
@@ -1143,7 +1144,7 @@ async function steerQueuedWebhookDelivery(
         let steeringLeaseLost = false
         const stopDeliveryHeartbeat = startWebhookQueueHeartbeat(state, steeringLease, () => {
           steeringLeaseLost = true
-          void controller.cancel(new Error("[vitehub] Webhook steering lost its durable delivery lease.")).catch(() => {})
+          void controller.cancel(agentDiagnostics.AGENT_R0775({ message: "[vitehub] Webhook steering lost its durable delivery lease." })).catch(() => {})
         })
         let accepted = false
         try {
@@ -1215,7 +1216,7 @@ async function steerQueuedWebhookDelivery(
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
   const duration = value ?? fallback
   if (!Number.isFinite(duration) || duration <= 0) {
-    throw new TypeError(`[vitehub] Webhook delivery ownership ${name} must be a positive finite number.`)
+    throw agentDiagnostics.AGENT_R0776({ message: `[vitehub] Webhook delivery ownership ${name} must be a positive finite number.` })
   }
   return duration
 }
@@ -1359,7 +1360,7 @@ async function executeQueuedWebhookDelivery(
   }
   const ownershipAbort = new AbortController()
   const stopHeartbeat = startWebhookQueueHeartbeat(state, delivery, () => {
-    ownershipAbort.abort(new Error("[vitehub] Webhook queue lease was lost during Agent execution."))
+    ownershipAbort.abort(agentDiagnostics.AGENT_R0777({ message: "[vitehub] Webhook queue lease was lost during Agent execution." }))
   })
   if (channelDelivery) {
     if (delivery.attempts > 0)
@@ -1384,7 +1385,7 @@ async function executeQueuedWebhookDelivery(
   else lifecycleSignal.addEventListener("abort", stopForLifecycle, { once: true })
   try {
     if (await hasActiveWorkflowRuntime(agent, context)) {
-      throw new Error("[vitehub] Persisted webhook concurrency requires inline Agent execution.")
+      throw agentDiagnostics.AGENT_R0778({ message: "[vitehub] Persisted webhook concurrency requires inline Agent execution." })
     }
     type PersistedInvocation = {
       input: AgentRunInput
@@ -1395,7 +1396,7 @@ async function executeQueuedWebhookDelivery(
     if (!invocation) {
       const resolved = await runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-        if (!match) throw new Error(`[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.`)
+        if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
         const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
@@ -1408,10 +1409,10 @@ async function executeQueuedWebhookDelivery(
           { verifyWebhook: false },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
-          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request.")
+          throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
         }
         if (!isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && !replayed.webhook?.rehydrate) {
-          throw new Error("[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback.")
+          throw agentDiagnostics.AGENT_R0781({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger no longer provides a rehydrate callback." })
         }
         const resolved =
           !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
@@ -1422,7 +1423,7 @@ async function executeQueuedWebhookDelivery(
       })
       if (!isResolvedAgentTriggerHandledInvocation(resolved)) {
         if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
-          throw new Error("[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId.")
+          throw agentDiagnostics.AGENT_R0782({ message: "[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId." })
         }
         invocation = { input: resolved.input, run: resolved.run }
       }
@@ -1479,7 +1480,7 @@ async function executeQueuedWebhookDelivery(
       })
     }
     if (!(await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken))) {
-      throw new Error("[vitehub] Webhook queue completion lost its lease.")
+      throw agentDiagnostics.AGENT_R0783({ message: "[vitehub] Webhook queue completion lost its lease." })
     }
     if (channelDelivery)
       await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", {
@@ -1654,7 +1655,7 @@ async function collectAgentOutput(
       })
     }
     if (event.type === "error") {
-      throw new Error(event.error)
+      throw agentDiagnostics.AGENT_R0784({ message: event.error })
     }
   }
   return (explicitPhaseSeen ? finalText : unphasedText).trim()
@@ -1930,7 +1931,7 @@ function streamAgentOutputToChatText(result: Promise<unknown>, onToolResult?: (r
           yield event.text
         }
         if (event.type === "error") {
-          throw new Error(event.error)
+          throw agentDiagnostics.AGENT_R0785({ message: event.error })
         }
       }
     },
@@ -1979,7 +1980,7 @@ function streamAgentOutputToChatReplies(
             toolName: event.name,
           })
         }
-        if (event.type === "error") throw new Error(event.error)
+        if (event.type === "error") throw agentDiagnostics.AGENT_R0786({ message: event.error })
         if (event.type !== "text-delta" || !event.text) continue
         if (event.phase === undefined) {
           if (!explicitPhaseSeen) unphasedText.push(event.text)
@@ -2483,7 +2484,7 @@ class ViteHubInMemoryChatStateAdapter implements StateAdapter {
 
   private ensureConnected(): void {
     if (!this.connected) {
-      throw new Error("[vitehub] In-memory Chat State is not connected. Call connect() before using state.")
+      throw agentDiagnostics.AGENT_R0787({ message: "[vitehub] In-memory Chat State is not connected. Call connect() before using state." })
     }
   }
 }
@@ -2646,7 +2647,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
     const executionAbort = new AbortController()
     const loseOwnership = () => {
       ownershipLost = true
-      if (!executionAbort.signal.aborted) executionAbort.abort(new Error("[vitehub] Durable steered Channel delivery lost execution ownership."))
+      if (!executionAbort.signal.aborted) executionAbort.abort(agentDiagnostics.AGENT_R0788({ message: "[vitehub] Durable steered Channel delivery lost execution ownership." }))
     }
     const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, loseOwnership)
     let pending: DurableSteerQueueEntry | null
@@ -2667,7 +2668,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 queue,
                 ownedPendingQueue,
                 pending,
-                new Error(pending.message.settlementError),
+                agentDiagnostics.AGENT_R0789({ message: pending.message.settlementError }),
                 async (delivery, failure) =>
                   await postDurableSteerErrorFallback(
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -2681,7 +2682,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                     Date.now(),
                     async () => {
                       if (recoveryOwnershipLost || !(await resolved.state.extendLock(recoveryLock, ttlMs))) {
-                        throw new Error("[vitehub] Durable steered Channel delivery lost fallback ownership.")
+                        throw agentDiagnostics.AGENT_R0790({ message: "[vitehub] Durable steered Channel delivery lost fallback ownership." })
                       }
                     },
                   ),
@@ -2741,14 +2742,14 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, pending as never, [recoveredPending] as never, 1))) {
                 stopRecoveredHeartbeat()
                 await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+                throw agentDiagnostics.AGENT_R0791({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during recovery." })
               }
               // SAFETY: restored was read from this atomic queue and retains its internal entry representation.
               if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
                 stopRecoveredHeartbeat()
                 await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
                 await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                throw new Error("[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed.")
+                throw agentDiagnostics.AGENT_R0792({ message: "[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed." })
               }
               let recoveredWorkflowInput = recoveredInput
               if (restored.message.parsedMessageMeta !== undefined) {
@@ -2770,7 +2771,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
               let recoveredWorkflowRetryRegistered = false
               try {
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
+                  throw agentDiagnostics.AGENT_R0793({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
                 }
                 // SAFETY: The owning route supplies normalized Agent and runtime values to the internal startup boundary.
                 await startAgentInvocation(
@@ -2785,7 +2786,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 if (!recoveryOwnershipLost && !(await resolved.state.extendLock(recoveryLock, ttlMs))) recoveryOwnershipLost = true
                 if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) recoveredOwnershipLost = true
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  throw new Error("[vitehub] Durable steered Channel delivery lost recovered startup ownership.")
+                  throw agentDiagnostics.AGENT_R0794({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
                 }
               } catch (error) {
                 if (!recoveredWorkflowAccepted && isAmbiguousAgentWorkflowStartFailure(error)) {
@@ -2794,7 +2795,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                     context,
                     new Promise<void>((resolve) => setTimeout(resolve, 10)).then(async () => {
                       if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                        throw new Error("[vitehub] Durable steered Channel delivery lost recovered retry ownership.")
+                        throw agentDiagnostics.AGENT_R0795({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
                       }
                       await startAgentInvocation(
                         // SAFETY: The route resolver receives the internal Agent representation expected by startup.
@@ -2808,7 +2809,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                         recoveredOwnershipLost = true
                       }
                       if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                        throw new Error("[vitehub] Durable steered Channel delivery lost recovered retry ownership.")
+                        throw agentDiagnostics.AGENT_R0796({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
                       }
                     }).finally(stopRecoveredHeartbeat),
                   )
@@ -2819,7 +2820,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: Both entries came from this queue's normalized durable delivery payloads.
                   if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, recoveredPending as never, [pending] as never, 1))) {
                     stopRecoveredHeartbeat()
-                    throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration.")
+                    throw agentDiagnostics.AGENT_R0797({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration." })
                   }
                 }
                 if (recoveryOwnershipLost || recoveredOwnershipLost) {
@@ -2846,12 +2847,12 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           stopRecoveryHeartbeat()
           await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
         }
-        throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
+        throw agentDiagnostics.AGENT_R0798({ message: "[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started." })
       }
       lock.expiresAt = ownerExtensionStartedAt + ttlMs
       pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
       if (!pending?.message?.input) {
-        throw new Error("[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input.")
+        throw agentDiagnostics.AGENT_R0799({ message: "[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input." })
       }
     } catch (error) {
       stopExecutionHeartbeat()
@@ -2935,7 +2936,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
             queue,
             ownedPendingQueue,
             activePending,
-            new Error(activePending.message.settlementError),
+            agentDiagnostics.AGENT_R0800({ message: activePending.message.settlementError }),
             async (delivery, failure) =>
               await postDurableSteerErrorFallback(
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -3020,13 +3021,13 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         }
         // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
         if (!(await atomicQueue.queueReplaceHead(pendingQueue, activePending as never, [successorPending as never], 1))) {
-          throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during successor handoff.")
+          throw agentDiagnostics.AGENT_R0801({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during successor handoff." })
         }
         pendingPersisted = true
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         if (!(await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum))) {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          throw new Error("[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed.")
+          throw agentDiagnostics.AGENT_R0802({ message: "[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed." })
         }
         queuedAcknowledged = true
         successorStartAttempted = true
@@ -3081,7 +3082,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
           if (!pendingQueue || !successorPending?.message?.input) return
           successorPending = await recordDurableSteerTerminalFailure(resolved.state, pendingQueue, successorPending, error)
           if (!successorPending?.message?.input) {
-            throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+            throw agentDiagnostics.AGENT_R0803({ message: "[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", cause: error })
           }
           try {
             await failDurableSteerQueue(
@@ -3138,7 +3139,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
         if (pendingQueue && successorPending) {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           if (!(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(pendingQueue, successorPending as never, [activePending as never], 1))) {
-            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during settlement retry.")
+            throw agentDiagnostics.AGENT_R0804({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during settlement retry." })
           }
         }
         if (queuedAcknowledged && queued?.message?.input) {
@@ -3365,7 +3366,7 @@ async function postDurableSteerErrorFallback(
   const adapterName = resolveChatAdapterName(adapters, registration)
   const adapter = adapterName ? adapters[adapterName] : undefined
   if (!adapterName || !adapter) {
-    throw new Error("[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter.")
+    throw agentDiagnostics.AGENT_R0805({ message: "[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter." })
   }
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
   // Fence the external effect itself. An earlier heartbeat or verification can
@@ -3385,7 +3386,7 @@ async function postDurableSteerErrorFallback(
     undefined,
     maximumInvocationDeadline,
   )
-  if (!delivered) throw new Error("[vitehub] Durable steered Channel error fallback was not delivered before its deadline.")
+  if (!delivered) throw agentDiagnostics.AGENT_R0806({ message: "[vitehub] Durable steered Channel error fallback was not delivered before its deadline." })
 }
 
 async function recordDurableSteerFallbackStatus(
@@ -3454,7 +3455,7 @@ export async function deliverDurableSteerErrorFallbacks(
     if (delivery.fallbackStatus !== "reserved") {
       const reserved = await recordDurableSteerFallbackStatus(state, queue, active, index, "reserved")
       if (!reserved) {
-        throw new Error("[vitehub] Durable steered Channel error fallback reservation could not be persisted.")
+        throw agentDiagnostics.AGENT_R0807({ message: "[vitehub] Durable steered Channel error fallback reservation could not be persisted." })
       }
       active = reserved
       delivery = active.message?.errorDeliveries?.[index]
@@ -3477,7 +3478,7 @@ export async function deliverDurableSteerErrorFallbacks(
     // reserved delivery because adapters do not expose a transactional idempotency key.
     const delivered = await recordDurableSteerFallbackStatus(state, queue, active, index, "delivered")
     if (!delivered) {
-      throw new Error("[vitehub] Durable steered Channel error fallback delivery could not be checkpointed.")
+      throw agentDiagnostics.AGENT_R0808({ message: "[vitehub] Durable steered Channel error fallback delivery could not be checkpointed." })
     }
     active = delivered
   }
@@ -3495,7 +3496,7 @@ async function failDurableSteerEntry(
   for (const deliveryId of durableSteerDeliveryIds(failed.message)) {
     if (failed.message?.settledDeliveryIds?.includes(deliveryId)) continue
     const delivery = await resumeAgentChannelDelivery(state, deliveryId)
-    if (!delivery) throw new Error(`[vitehub] Durable steered Channel delivery ${JSON.stringify(deliveryId)} could not be resumed for terminal settlement.`)
+    if (!delivery) throw agentDiagnostics.AGENT_R0809({ message: `[vitehub] Durable steered Channel delivery ${JSON.stringify(deliveryId)} could not be resumed for terminal settlement.` })
     const input = { error: channelDeliveryError(error) }
     await delivery.event({ ...input, type: "invocation.failed" })
     await delivery.event({ ...input, type: "failed" })
@@ -3508,7 +3509,7 @@ async function failDurableSteerEntry(
     }
     // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
     if (!(await requireAtomicAgentStateQueue(state).queueReplaceHead(queue, failed as never, [settled as never], durableSteerQueueMaximum))) {
-      throw new Error("[vitehub] Durable steered Channel delivery queue changed while terminal settlement progress was being recorded.")
+      throw agentDiagnostics.AGENT_R0810({ message: "[vitehub] Durable steered Channel delivery queue changed while terminal settlement progress was being recorded." })
     }
     failed = settled
   }
@@ -3533,12 +3534,12 @@ async function failDurableSteerQueue(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     if (!(await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum))) {
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      throw new Error("[vitehub] Durable steered Channel delivery queue changed during terminal settlement.")
+      throw agentDiagnostics.AGENT_R0811({ message: "[vitehub] Durable steered Channel delivery queue changed during terminal settlement." })
     }
   }
   failed = await failDurableSteerEntry(state, pendingQueue, failed, error, deliverErrorFallback)
   if (!(await acknowledgeDurableSteerPending(state, pendingQueue, failed))) {
-    throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during terminal settlement.")
+    throw agentDiagnostics.AGENT_R0812({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during terminal settlement." })
   }
 }
 
@@ -3580,7 +3581,7 @@ async function restoreDurableSteerQueue(state: StateAdapter, queue: string, prev
   const replacement = sameInvoker ? [restored] : [restored, ...(newer ? [newer] : [])]
   // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
   if (!(await atomicQueue.queueReplaceHead(queue, newer as never, replacement as never, durableSteerQueueMaximum))) {
-    throw new Error("[vitehub] Durable steered Channel delivery queue changed while its Agent Workflow input was being restored.")
+    throw agentDiagnostics.AGENT_R0813({ message: "[vitehub] Durable steered Channel delivery queue changed while its Agent Workflow input was being restored." })
   }
 }
 
@@ -3763,7 +3764,7 @@ function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOpti
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
-    throw new Error(chatTextAttachmentOversizeMessage)
+    throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
   }
   return bytes
 }
@@ -3775,7 +3776,7 @@ function isTextAttachmentOversizeError(error: unknown): boolean {
 async function textAttachmentBytes(attachment: Attachment, options: ChatMessagePartOptions = {}): Promise<Uint8Array | undefined> {
   if (isRuntimeNumber(attachment.size) && attachment.size > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
-    throw new Error(chatTextAttachmentOversizeMessage)
+    throw agentDiagnostics.AGENT_R0815({ message: chatTextAttachmentOversizeMessage })
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
@@ -3823,12 +3824,12 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
           const value = await attachment.fetchData?.()
           const resolved = isAttachmentData(value) ? value : undefined
           if (!resolved) {
-            throw new Error("[vitehub] Chat attachment fetchData() did not return supported attachment data.")
+            throw agentDiagnostics.AGENT_R0816({ message: "[vitehub] Chat attachment fetchData() did not return supported attachment data." })
           }
           return resolved
         } catch (cause) {
           if (cause instanceof Error && cause.message.startsWith("[vitehub] Chat attachment fetchData()")) throw cause
-          throw new Error("[vitehub] Chat attachment fetchData() failed.", { cause })
+          throw agentDiagnostics.AGENT_R0817({ message: "[vitehub] Chat attachment fetchData() failed.", ...{ cause } })
         }
       }
     : undefined
@@ -4265,14 +4266,14 @@ async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: A
 async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<void> {
   const message = "Manual chat delivery could not remove its placeholder."
   if (!placeholder || !isRuntimeObject(placeholder) || !("delete" in placeholder) || !isRuntimeFunction(placeholder.delete)) {
-    throw new Error(message)
+    throw agentDiagnostics.AGENT_R0818({ message: message })
   }
   try {
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     await (placeholder as { delete: () => Promise<unknown> }).delete()
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   } catch (cause) {
-    throw new Error(message, { cause })
+    throw agentDiagnostics.AGENT_R0819({ message: message, ...{ cause } })
   }
 }
 
@@ -4681,7 +4682,7 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
       task,
       new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
-          const error = new Error(`Chat invocation timed out after ${timeout}ms.`)
+          const error = agentDiagnostics.AGENT_R0820({ message: `Chat invocation timed out after ${timeout}ms.` })
           abortController?.abort(error)
           reject(error)
         }, timeout)
@@ -4826,9 +4827,7 @@ async function handleChatSdkMessage(
     const resolvedInvocationInput = invocation.input as AgentRunInput
     if (durableDelivery) {
       if (state.workflowCustodySupported === false) {
-        throw new Error(
-          "[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider.",
-        )
+        throw agentDiagnostics.AGENT_R0821({ message: "[vitehub] Durable Channel delivery requires reconstructable State across Agent Workflow custody. Configure Channel state or a generated host State provider." })
       }
       const steerTtlMs = 5 * 60 * 1000
       const steerKey = durableSteerScope === undefined ? undefined : `${state.keyPrefix}durable-steer:${durableSteerScope}`
@@ -4931,7 +4930,7 @@ async function handleChatSdkMessage(
           if (coalesceHead) {
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             if (!(await atomicQueue.queueReplaceHead(steerQueue, previous as never, [queued as never], durableSteerQueueMaximum))) {
-              throw new Error("[vitehub] Durable steered Channel delivery queue changed while its matching invocation was being coalesced.")
+              throw agentDiagnostics.AGENT_R0822({ message: "[vitehub] Durable steered Channel delivery queue changed while its matching invocation was being coalesced." })
             }
           } else {
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -4955,7 +4954,7 @@ async function handleChatSdkMessage(
           if (pending?.message?.input) {
             await restoreDurableSteerQueue(state.state, steerQueue, pending.message)
             if (!(await acknowledgeDurableSteerPending(state.state, pendingQueue, pending))) {
-              throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during recovery.")
+              throw agentDiagnostics.AGENT_R0823({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during recovery." })
             }
           }
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -5052,7 +5051,7 @@ async function handleChatSdkMessage(
       try {
         if (steerStartLocks.length && !(await Promise.all(steerStartLocks.map((lock) => state.state.extendLock(lock, steerTtlMs)))).every(Boolean)) {
           steerStartOwnershipLost = true
-          throw new Error("[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started.")
+          throw agentDiagnostics.AGENT_R0824({ message: "[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started." })
         }
         if (steerLock && steerQueue) {
           const workflowDelivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
@@ -5086,12 +5085,12 @@ async function handleChatSdkMessage(
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             !(await requireAtomicAgentStateQueue(state.state).queueReplaceHead(steerQueue, reclaimedEntry as never, [], durableSteerQueueMaximum))
           ) {
-            throw new Error("[vitehub] Durable steered Channel delivery queue changed while ownership was being reclaimed.")
+            throw agentDiagnostics.AGENT_R0825({ message: "[vitehub] Durable steered Channel delivery queue changed while ownership was being reclaimed." })
           }
         }
         if (steerStartLocks.length && !(await Promise.all(steerStartLocks.map((lock) => state.state.extendLock(lock, steerTtlMs)))).every(Boolean)) {
           steerStartOwnershipLost = true
-          throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
+          throw agentDiagnostics.AGENT_R0826({ message: "[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting." })
         }
         const workflowStartInput = workflowInputHasParsedMessageMeta
           ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
@@ -5100,7 +5099,7 @@ async function handleChatSdkMessage(
         await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost && steerLock && !(await state.state.extendLock(steerLock, steerTtlMs))) {
-          throw new Error("[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting.")
+          throw agentDiagnostics.AGENT_R0827({ message: "[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting." })
         }
         steerStartOwnershipLost = false
       } catch (error) {
@@ -5114,7 +5113,7 @@ async function handleChatSdkMessage(
               const pendingQueue = durableSteerPendingQueue(steerQueue)
               const persistedPending = steerPending
               const persistedMessage = persistedPending.message
-              if (!persistedMessage) throw new Error("[vitehub] Durable steered Channel delivery lost its persisted startup input.")
+              if (!persistedMessage) throw agentDiagnostics.AGENT_R0828({ message: "[vitehub] Durable steered Channel delivery lost its persisted startup input." })
               registerAgentWorkflowRetry(
                 context,
                 (async () => {
@@ -5134,7 +5133,7 @@ async function handleChatSdkMessage(
                       if (recoveredLock) break
                       const remainingMs = recoveryDeadline - Date.now()
                       if (remainingMs <= 0) {
-                        throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                        throw agentDiagnostics.AGENT_R0829({ message: "[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt." })
                       }
                       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                     }
@@ -5194,7 +5193,7 @@ async function handleChatSdkMessage(
                         const remainingMs = recoveryDeadline - Date.now()
                         if (remainingMs <= 0) {
                           await state.state.releaseLock(recoveredLock).catch(() => undefined)
-                          throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                          throw agentDiagnostics.AGENT_R0830({ message: "[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt." })
                         }
                         await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, remainingMs)))
                         continue
@@ -5221,11 +5220,11 @@ async function handleChatSdkMessage(
                     recoveryInput = null
                     recoveryPending = null
                     if (recoveryStartAttempts >= durableSteerRecoveryStartMaximumAttempts) {
-                      throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                      throw agentDiagnostics.AGENT_R0831({ message: "[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt." })
                     }
                     const remainingMs = recoveryDeadline - Date.now()
                     if (remainingMs <= 0) {
-                      throw new Error("[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt.")
+                      throw agentDiagnostics.AGENT_R0832({ message: "[vitehub] Durable steered Channel delivery recovery exhausted its Workflow attempt." })
                     }
                     const retryDelayMs = 250 * 2 ** (recoveryStartAttempts - 1)
                     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryDelayMs, remainingMs)))
@@ -5285,7 +5284,7 @@ async function handleChatSdkMessage(
                 retainSteerStartOwnership = true
                 durableHandoff = true
                 detachAgentChannelDelivery(delivery)
-                throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+                throw agentDiagnostics.AGENT_R0833({ message: "[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", cause: error })
               }
               steerPending = failedPending
               try {
@@ -5306,7 +5305,7 @@ async function handleChatSdkMessage(
                       maximumInvocationDeadline ?? Date.now(),
                       async () => {
                         if (!(await state.state.extendLock(steerLock!, steerTtlMs))) {
-                          throw new Error("[vitehub] Durable steered Channel delivery lost fallback ownership.")
+                          throw agentDiagnostics.AGENT_R0834({ message: "[vitehub] Durable steered Channel delivery lost fallback ownership." })
                         }
                       },
                     ),
@@ -5341,7 +5340,7 @@ async function handleChatSdkMessage(
                 durableHandoff = true
                 if (!failedPending?.message?.input) {
                   detachAgentChannelDelivery(delivery)
-                  throw new Error("[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", { cause: error })
+                  throw agentDiagnostics.AGENT_R0835({ message: "[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", cause: error })
                 }
                 steerPending = failedPending
                 try {
@@ -5369,7 +5368,7 @@ async function handleChatSdkMessage(
               }
             }
           } else if (steerQueue && steerPending && !steerPendingPersisted) {
-            throw new Error("[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", { cause: error })
+            throw agentDiagnostics.AGENT_R0836({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during failed Workflow startup.", cause: error })
           }
         } finally {
           if (steerLock && !retainSteerStartOwnership) await state.state.releaseLock(steerLock).catch(() => undefined)
@@ -6044,7 +6043,7 @@ async function createChannelHistoryResponse(
     iterator = historyIterator
     while (true) {
       const next = await boundedChannelHistoryOperation(() => historyIterator.next(), request.signal)
-      if (!next || !isRuntimeObject(next) || !("done" in next)) throw new Error("Channel history provider returned an invalid result.")
+      if (!next || !isRuntimeObject(next) || !("done" in next)) throw agentDiagnostics.AGENT_R0837({ message: "Channel history provider returned an invalid result." })
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       const result = next as IteratorResult<ChatSdkMessage>
       if (result.done) {
@@ -6054,7 +6053,7 @@ async function createChannelHistoryResponse(
       const message = result.value
       const archivedMessage = await channelHistoryMessage(message, adapter, attachmentBudget, request.signal)
       const messageBytes = boundedJsonByteLength(archivedMessage, channelHistoryArchiveMaxBytes - archiveBytes)
-      if (messageBytes === undefined) throw new Error("Channel history archive exceeds the 35 MiB response limit.")
+      if (messageBytes === undefined) throw agentDiagnostics.AGENT_R0838({ message: "Channel history archive exceeds the 35 MiB response limit." })
       archiveBytes += messageBytes
       messages.push(archivedMessage)
       if (request.signal.aborted) break
@@ -6115,7 +6114,7 @@ async function createChatWebhookHandler(
   )
   const handler = chat.webhooks[adapterName]
   if (!handler) {
-    throw new Error(`[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.`)
+    throw agentDiagnostics.AGENT_R0839({ message: `[vitehub] Chat adapter "${adapterName}" did not expose a webhook handler.` })
   }
   return handler
 }
@@ -6253,7 +6252,7 @@ function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefini
       ...channel.route,
     } as AgentChannelChatRouteHandlerOptions
   }
-  throw new TypeError(`[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.`)
+  throw agentDiagnostics.AGENT_R0840({ message: `[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.` })
 }
 
 export function hasChannelChatRoute(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
@@ -6273,9 +6272,7 @@ function resolveAgentChannelChatRouteHandlerOptions(
     .filter((entry): entry is readonly [string, AgentChannelChatRouteHandlerOptions] => entry[1] !== undefined)
 
   if (routeEntries.length > 1) {
-    throw new TypeError(
-      "[vitehub] createChannelChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.",
-    )
+    throw agentDiagnostics.AGENT_R0841({ message: "[vitehub] createChannelChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route." })
   }
 
   const channelOptions = routeEntries[0]?.[1]
@@ -6345,7 +6342,7 @@ function agentChatSessionBoundaryKey(invokerId: string, sessionId: string, manua
 function agentChatFetchErrorResponse(error: unknown): Response {
   const response = toHttpErrorResponse(error)
   if (response) return response
-  return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
+  return toHttpErrorResponse(error, isAgentTypeDiagnostic(error) ? 400 : 500)!
 }
 
 export function createChannelChatRouteHandler(
@@ -6733,7 +6730,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
+      if (!deliveryState) throw agentDiagnostics.AGENT_R0842({ message: "[vitehub] Agent Channel delivery state did not resolve." })
       await deliveryState.state.connect()
       const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
@@ -6965,7 +6962,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           let stopHeartbeat: (() => void) | undefined
           if (webhookLock && webhookState && ownershipAbort) {
             stopHeartbeat = startWebhookLockHeartbeat(webhookState.state, webhookLock, concurrencyTtlMs, () => {
-              ownershipAbort.abort(new Error("[vitehub] Webhook concurrency ownership was lost during Agent execution."))
+              ownershipAbort.abort(agentDiagnostics.AGENT_R0843({ message: "[vitehub] Webhook concurrency ownership was lost during Agent execution." }))
             })
           }
           let dispatch!: (accepted: boolean) => void
@@ -7014,7 +7011,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                     })
                     detachAgentChannelDelivery(channelDelivery)
                   } else {
-                    throw new Error(isRuntimeString(result.metadata) ? result.metadata : `Agent Workflow returned ${result.status}.`)
+                    throw agentDiagnostics.AGENT_R0844({ message: isRuntimeString(result.metadata) ? result.metadata : `Agent Workflow returned ${result.status}.` })
                   }
                 } finally {
                   stopHeartbeat?.()
@@ -7211,7 +7208,7 @@ const telegramPollingChats = new WeakMap<object, Map<string, Promise<Chat>>>()
 async function startChannelChat(chat: Chat): Promise<void> {
   const initialize = Reflect.get(chat, "initialize")
   if (!isRuntimeFunction(initialize)) {
-    throw new TypeError("[vitehub] The installed Chat SDK does not support starting listener-based Channels.")
+    throw agentDiagnostics.AGENT_R0845({ message: "[vitehub] The installed Chat SDK does not support starting listener-based Channels." })
   }
   await Reflect.apply(initialize, chat, [])
 }
@@ -7265,7 +7262,7 @@ export function createTelegramPollingRouteHandler(
               try {
                 const adapter = await resolveMaybe(channel.adapter, context)
                 if (!adapter) {
-                  throw new Error(`[vitehub] Telegram polling Channel "${channelId}" did not resolve a chat adapter.`)
+                  throw agentDiagnostics.AGENT_R0846({ message: `[vitehub] Telegram polling Channel "${channelId}" did not resolve a chat adapter.` })
                 }
                 const registration = {
                   adapter: channelId,

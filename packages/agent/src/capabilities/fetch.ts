@@ -12,6 +12,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type FetchCapabilityMethod = "GET" | "HEAD" | "POST"
 export type FetchCapabilityResponseType = "json" | "text"
@@ -53,14 +54,14 @@ export interface FetchCapabilityOptions<TTools extends Record<string, FetchCapab
 function normalizeFetchResponseType(responseType: string | undefined): FetchCapabilityResponseType {
   const normalized = responseType || "json"
   if (normalized !== "json" && normalized !== "text") {
-    throw new TypeError(`[vitehub] fetch() responseType "${normalized}" is not supported in v1. Use json or text.`)
+    throw agentDiagnostics.AGENT_R0049({ message: `[vitehub] fetch() responseType "${normalized}" is not supported in v1. Use json or text.` })
   }
   return normalized
 }
 
 export function fetch<const TTools extends Record<string, FetchCapabilityToolOptions<any, any, any>>>(options: FetchCapabilityOptions<TTools>): AgentCapabilityDefinition {
   if (!options?.tools || typeof options.tools !== "object" || !Object.keys(options.tools).length) {
-    throw new TypeError("[vitehub] fetch({ tools }) requires at least one fetch tool.")
+    throw agentDiagnostics.AGENT_R0050({ message: "[vitehub] fetch({ tools }) requires at least one fetch tool." })
   }
   return defineCapability({
     id: "fetch",
@@ -98,7 +99,7 @@ async function resolveFetchToolRequest(options: FetchCapabilityToolOptions, inpu
     ? await options.request(input as never)
     : options.request
   const url = request?.url ?? options.url
-  if (!url) throw new TypeError("[vitehub] fetch() tool requires a url or request returning a url.")
+  if (!url) throw agentDiagnostics.AGENT_R0051({ message: "[vitehub] fetch() tool requires a url or request returning a url." })
   return {
     ...request,
     method: request?.method ?? options.method,

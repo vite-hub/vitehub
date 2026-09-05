@@ -83,6 +83,7 @@
     "h3": "catalog:unjs",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "rollup": "catalog:tooling",
     "scule": "catalog:unjs",

@@ -1,3 +1,4 @@
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 const defaultModelGlobPatternLimits = {
   maxBytes: 2_048,
   maxComplexity: 1_024,
@@ -138,7 +139,7 @@ export function assertModelWorkspaceGlobPattern(
 ): void {
   const patterns = Array.isArray(pattern) ? pattern : [pattern]
   if (patterns.length > limits.maxPatterns) {
-    throw new TypeError(`[vitehub] Workspace glob accepts at most ${limits.maxPatterns} model-facing patterns.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0018({ message: `[vitehub] Workspace glob accepts at most ${limits.maxPatterns} model-facing patterns.` })
   }
 
   let bytes = 0
@@ -147,7 +148,7 @@ export function assertModelWorkspaceGlobPattern(
     if (bytes > limits.maxBytes) break
   }
   if (bytes > limits.maxBytes) {
-    throw new TypeError(`[vitehub] Workspace glob pattern input exceeds the model-facing limit of ${limits.maxBytes} bytes.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0019({ message: `[vitehub] Workspace glob pattern input exceeds the model-facing limit of ${limits.maxBytes} bytes.` })
   }
 
   let complexity = 0
@@ -155,7 +156,7 @@ export function assertModelWorkspaceGlobPattern(
     const normalized = item.replace(/\\/g, "/")
     complexity = boundedAdd(complexity, patternComplexity(normalized, limits.maxComplexity), limits.maxComplexity)
     if (complexity > limits.maxComplexity) {
-      throw new TypeError(`[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of ${limits.maxComplexity} expansions.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0020({ message: `[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of ${limits.maxComplexity} expansions.` })
     }
   }
 }

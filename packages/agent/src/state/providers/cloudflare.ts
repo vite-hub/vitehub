@@ -1,6 +1,7 @@
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
 import { parseAgentStateQueueEntry } from "../../internal/state-queue.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface ViteHubAgentStateDurableObjectStub {
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> | Lock | null
@@ -44,7 +45,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   constructor(options: CloudflareAgentStateOptions) {
     if (!options.namespace) {
-      throw new Error("[vitehub] Cloudflare Agent State requires the CHAT_STATE Durable Object binding.")
+      throw agentDiagnostics.AGENT_R0847({ message: "[vitehub] Cloudflare Agent State requires the CHAT_STATE Durable Object binding." })
     }
     this.namespace = options.namespace
     this.defaultName = options.name || "default"
@@ -159,7 +160,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   private ensureConnected(): void {
     if (!this.connected) {
-      throw new Error("[vitehub] Cloudflare Agent State is not connected. Call connect() before using state.")
+      throw agentDiagnostics.AGENT_R0848({ message: "[vitehub] Cloudflare Agent State is not connected. Call connect() before using state." })
     }
   }
 

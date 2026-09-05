@@ -84,7 +84,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         })
       }
       if (decision === "retryable-failure") {
-        throw agentDiagnostics.AGENT_TOOL_POLICY_RETRYABLE({ name: tool.name })
+        throw agentDiagnostics.AGENT_R0003({ name: tool.name })
       }
 
       context?.abortSignal?.throwIfAborted()

@@ -54,6 +54,7 @@
     "h3": "catalog:unjs",
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",

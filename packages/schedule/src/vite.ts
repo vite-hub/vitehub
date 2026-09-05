@@ -20,6 +20,7 @@ import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
+import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverScheduleDefinitions } from "./discovery.ts"
 
@@ -120,16 +121,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOptions | undefined {
   if (value === undefined) return
   if (!isRecord(value) || value.driver !== "process") {
-    throw new TypeError("Schedule Process Runtime driver must be \"process\".")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0001({ message: "Schedule Process Runtime driver must be \"process\"." })
   }
   if (value.prefix !== undefined && typeof value.prefix !== "string") {
-    throw new TypeError("Schedule Process Runtime prefix must be a string.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0002({ message: "Schedule Process Runtime prefix must be a string." })
   }
   if (value.intervalMs !== undefined && (typeof value.intervalMs !== "number" || !Number.isFinite(value.intervalMs) || value.intervalMs <= 0 || value.intervalMs > 60_000)) {
-    throw new TypeError("Schedule Process Runtime intervalMs must be a positive number no greater than 60000.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0003({ message: "Schedule Process Runtime intervalMs must be a positive number no greater than 60000." })
   }
   if (value.concurrency !== undefined && (typeof value.concurrency !== "number" || !Number.isInteger(value.concurrency) || value.concurrency < 1)) {
-    throw new TypeError("Schedule Process Runtime concurrency must be a positive integer.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0004({ message: "Schedule Process Runtime concurrency must be a positive integer." })
   }
   return {
     ...(value.concurrency !== undefined ? { concurrency: value.concurrency } : {}),
@@ -262,6 +263,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
+          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
           `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(importBase)}`,
           `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
           `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
@@ -290,7 +292,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "  function captureRuntimeError(error: unknown) {",
           "    let runtimeError: Error",
           "    try {",
-          "      runtimeError = error instanceof Error ? error : new Error(String(error))",
+          "      runtimeError = normalizeScheduleRuntimeError(error)",
           "    }",
           "    catch {",
           "      return",

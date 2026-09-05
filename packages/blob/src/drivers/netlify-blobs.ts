@@ -3,6 +3,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, NetlifyBlobsStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 type StoredMetadata = {
   __contentType?: string
@@ -202,7 +203,7 @@ function resolveNetlifyConnection(options: NetlifyBlobsStoreConfig): ResolvedNet
   const siteID = options.siteID ?? context.siteID
   const token = options.token ?? context.token
   if (!siteID || !token) {
-    throw new Error("The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store.")
+    throw blobErrorDiagnostics.BLOB_R0006({ message: "The environment has not been configured to use Netlify Blobs. Supply siteID and token when creating the store." })
   }
   return { context, siteID, token }
 }
@@ -216,16 +217,16 @@ function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: Res
     ? options.consistency === "strong" ? context.uncachedEdgeURL : context.edgeURL
     : undefined
   if (options.consistency === "strong" && context.edgeURL && !edgeURL) {
-    throw new Error("Netlify Blobs strong consistency requires an uncached edge URL.")
+    throw blobErrorDiagnostics.BLOB_R0007({ message: "Netlify Blobs strong consistency requires an uncached edge URL." })
   }
 
   return async (parameters: Record<string, string>) => {
     const region = options.deployScoped && edgeURL ? context.primaryRegion : undefined
     if (options.deployScoped && !context.deployID) {
-      throw new Error("The environment has not been configured with a Netlify deploy ID.")
+      throw blobErrorDiagnostics.BLOB_R0008({ message: "The environment has not been configured with a Netlify deploy ID." })
     }
     if (options.deployScoped && edgeURL && !region) {
-      throw new Error("Netlify Blobs deploy stores require a primary region when using the edge endpoint.")
+      throw blobErrorDiagnostics.BLOB_R0009({ message: "Netlify Blobs deploy stores require a primary region when using the edge endpoint." })
     }
     const storePath = `${region ? `region:${region}/` : ""}${siteID}/${storeName}`
     const url = edgeURL
@@ -250,7 +251,7 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
   }
   if (response.status !== 200) {
     await response.body?.cancel()
-    throw new Error(`Netlify Blobs list failed with status ${response.status}.`)
+    throw blobErrorDiagnostics.BLOB_R0010({ message: `Netlify Blobs list failed with status ${response.status}.` })
   }
   const body: unknown = await response.json()
   const blobs = readProperty(body, "blobs")

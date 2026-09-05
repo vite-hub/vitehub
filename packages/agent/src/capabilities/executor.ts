@@ -9,6 +9,7 @@ import type {
 } from "../types.ts"
 import type { McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type ExecutorCredential = string | { unseal: () => string }
 
@@ -33,20 +34,20 @@ const defaultExecutorConnectionTimeout = 30_000
 
 function executorUrl(value: unknown): URL {
   if (!hasRuntimeType(value, "string") && !(value instanceof URL)) {
-    throw new TypeError("[vitehub] executor({ url }) requires an HTTP MCP endpoint URL.")
+    throw agentDiagnostics.AGENT_R0038({ message: "[vitehub] executor({ url }) requires an HTTP MCP endpoint URL." })
   }
   let url: URL
   try {
     url = new URL(value)
   }
   catch {
-    throw new TypeError("[vitehub] executor({ url }) requires a valid HTTP MCP endpoint URL.")
+    throw agentDiagnostics.AGENT_R0039({ message: "[vitehub] executor({ url }) requires a valid HTTP MCP endpoint URL." })
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new TypeError("[vitehub] executor({ url }) supports only HTTP and HTTPS MCP endpoint URLs.")
+    throw agentDiagnostics.AGENT_R0040({ message: "[vitehub] executor({ url }) supports only HTTP and HTTPS MCP endpoint URLs." })
   }
   if (url.username || url.password) {
-    throw new TypeError("[vitehub] executor({ url }) does not accept credentials embedded in the MCP endpoint URL. Use apiKey instead.")
+    throw agentDiagnostics.AGENT_R0041({ message: "[vitehub] executor({ url }) does not accept credentials embedded in the MCP endpoint URL. Use apiKey instead." })
   }
   return url
 }
@@ -54,32 +55,32 @@ function executorUrl(value: unknown): URL {
 function assertExecutorIntegrity(value: unknown): asserts value is McpToolFingerprints | undefined {
   if (value === undefined) return
   if (!isRuntimeRecord(value) || Object.values(value).some(fingerprint => !hasRuntimeType(fingerprint, "string"))) {
-    throw new TypeError("[vitehub] executor({ integrity }) requires a tool fingerprint map.")
+    throw agentDiagnostics.AGENT_R0042({ message: "[vitehub] executor({ integrity }) requires a tool fingerprint map." })
   }
 }
 
 function assertExecutorCredential(value: unknown): asserts value is ExecutorCredential {
   if (hasRuntimeType(value, "string")) {
     if (value.trim()) return
-    throw new TypeError("[vitehub] executor({ apiKey }) must not be empty when provided.")
+    throw agentDiagnostics.AGENT_R0043({ message: "[vitehub] executor({ apiKey }) must not be empty when provided." })
   }
   if (isRuntimeRecord(value) && hasRuntimeType(value.unseal, "function")) return
-  throw new TypeError("[vitehub] executor({ apiKey }) requires a string or sealed Server Env value when provided.")
+  throw agentDiagnostics.AGENT_R0044({ message: "[vitehub] executor({ apiKey }) requires a string or sealed Server Env value when provided." })
 }
 
 function assertExecutorConnectionOptions(value: unknown): asserts value is ExecutorConnectionOptions {
   if (!isRuntimeRecord(value)) {
-    throw new TypeError("[vitehub] executor() requires connection options or a connection resolver.")
+    throw agentDiagnostics.AGENT_R0045({ message: "[vitehub] executor() requires connection options or a connection resolver." })
   }
   const url = executorUrl(value.url)
   assertExecutorIntegrity(value.integrity)
   if (value.timeout !== undefined && (!hasRuntimeType(value.timeout, "number") || !Number.isFinite(value.timeout) || value.timeout <= 0)) {
-    throw new TypeError("[vitehub] executor({ timeout }) requires a positive number of milliseconds.")
+    throw agentDiagnostics.AGENT_R0046({ message: "[vitehub] executor({ timeout }) requires a positive number of milliseconds." })
   }
   if (Object.hasOwn(value, "apiKey")) {
     assertExecutorCredential(value.apiKey)
     if (url.protocol !== "https:") {
-      throw new TypeError("[vitehub] executor({ apiKey }) requires an HTTPS MCP endpoint URL.")
+      throw agentDiagnostics.AGENT_R0047({ message: "[vitehub] executor({ apiKey }) requires an HTTPS MCP endpoint URL." })
     }
   }
 }
@@ -87,7 +88,7 @@ function assertExecutorConnectionOptions(value: unknown): asserts value is Execu
 function resolveExecutorCredential(value: ExecutorCredential): string {
   const credential = hasRuntimeType(value, "string") ? value : value.unseal()
   if (!hasRuntimeType(credential, "string") || !credential.trim()) {
-    throw new TypeError("[vitehub] executor({ apiKey }) must resolve to a non-empty string.")
+    throw agentDiagnostics.AGENT_R0048({ message: "[vitehub] executor({ apiKey }) must resolve to a non-empty string." })
   }
   return credential
 }

@@ -28,6 +28,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceSessionWriteFileOptions,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
 const defaultHostInspectionConcurrency = 16
@@ -303,7 +304,7 @@ async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, p
     const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root, signal: abortSignal })
     if (result.code !== 0)
       throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
-        cause: new Error(result.stderr || "readlink failed"),
+        cause: workspaceErrorDiagnostics.WORKSPACE_R0044({ message: result.stderr || "readlink failed" }),
       })
     return result.stdout.replace(/\n$/, "")
   }, abortSignal, batch)
@@ -862,7 +863,7 @@ export async function createHostedWorkspaceSession(
     executionAuthority = normalizeExecutionAuthority(host.executionAuthority)
   }
   catch {
-    throw new TypeError("[vitehub] Workspace session host must declare executionAuthority.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0045({ message: "[vitehub] Workspace session host must declare executionAuthority." })
   }
   resolveHostInspectionConcurrency(host)
   const root = normalizeTarget(options.target)

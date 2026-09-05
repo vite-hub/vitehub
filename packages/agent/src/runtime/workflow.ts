@@ -40,6 +40,7 @@ import type {
 } from "../types.ts"
 
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
 export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameters<typeof decodeColocatedAgentSkills>[0]): Agent {
@@ -158,9 +159,10 @@ function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowV
 }
 
 function unsupportedWorkflowResult(): never {
-  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-  const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
-  error.isRetryable = false
+  const error = Object.assign(
+    agentDiagnostics.AGENT_R0744({ message: "Agent Workflow results must contain only JSON-compatible values." }),
+    { isRetryable: false as const },
+  )
   throw error
 }
 
@@ -182,12 +184,12 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID" || name === "AI_NoObjectGeneratedError"
   if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
 
-  const value = error instanceof Error ? error : new Error(String(error), { cause: error })
+  const value = error instanceof Error ? error : agentDiagnostics.AGENT_R0745({ message: String(error), cause: error })
   try {
     Object.defineProperty(value, "isRetryable", { configurable: true, value: false })
     return value
   } catch {
-    return Object.assign(new Error(value.message, { cause: value }), {
+    return Object.assign(agentDiagnostics.AGENT_R0746({ message: value.message, cause: value }), {
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       isRetryable: false as const,
     })
@@ -348,7 +350,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       await resumeWorkflowAgentChannelDelivery(agent as never, runtimeContext as never, channelDeliveryBinding)
     : undefined
   if (isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) && !channelDelivery) {
-    throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
+    throw agentDiagnostics.AGENT_R0747({ message: `[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.` })
   }
   if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
   const channelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)

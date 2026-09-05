@@ -81,6 +81,8 @@ print their message. Error output is bounded by Runtime's diagnostic limits.
 
 ## Limits and safety
 
+CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. Contributing packages keep their own diagnostic codes.
+
 - Root and namespace help is human-readable text, not a structured output contract.
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.

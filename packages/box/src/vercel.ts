@@ -13,6 +13,7 @@ import {
 } from "./internal/remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
 import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
+import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const vercelSandboxPackage = "@vercel/sandbox";
 
@@ -192,9 +193,7 @@ async function loadVercelSandbox() {
     return async (options: VercelSandboxCreateOptions) =>
       await Sandbox.create(options);
   } catch (error) {
-    throw new Error(
-      `[vitehub] The vercel Box runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}`,
-    );
+    throw boxErrorDiagnostics.BOX_R0142({ message: `[vitehub] The vercel Box runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}` });
   }
 }
 
@@ -267,7 +266,7 @@ function createVercelSession(
     ...(ports?.length
       ? {
           async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
-            if (!ports.includes(port)) throw new Error(`[vitehub] Vercel Box port ${port} was not declared in runtime.ports.`);
+            if (!ports.includes(port)) throw boxErrorDiagnostics.BOX_R0143({ message: `[vitehub] Vercel Box port ${port} was not declared in runtime.ports.` });
             const url = new URL(instance.domain(port));
             url.protocol = protocol === "ws"
               ? url.protocol === "https:" ? "wss:" : "ws:"
@@ -275,7 +274,7 @@ function createVercelSession(
             return String(url);
           },
         }
-      : {}),
+      : undefined),
     async listFiles({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
       if (!fs?.readdir) return await listWithFind(run, path, recursive, abortSignal);
@@ -345,7 +344,7 @@ function createVercelSession(
           ? `rm -rf -- ${shellQuote(path)}`
           : `if test -d ${shellQuote(path)}; then rmdir -- ${shellQuote(path)}; else rm -f -- ${shellQuote(path)}; fi`,
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0144({ message: result.stderr });
     },
     run,
     async spawn(options) {
@@ -396,7 +395,7 @@ async function listWithFind(
     abortSignal,
     command: `find ${shellQuote(path)} -mindepth 1 ${recursive ? "" : "-maxdepth 1 "}-printf '%y\\t%s\\t%p\\0'`,
   });
-  if (result.exitCode !== 0) throw new Error(result.stderr);
+  if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0145({ message: result.stderr });
   return result.stdout
     .split("\0")
     .filter(Boolean)

@@ -10,6 +10,7 @@ import type {
   AgentChannelDeliveryStatus,
   AgentRuntimeContext,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
@@ -242,7 +243,7 @@ async function acquireDeliveryLock(state: StateAdapter, deliveryId: string) {
     if (lock) return lock
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
-  throw new Error("Timed out waiting for the Agent Channel delivery journal lock.")
+  throw agentDiagnostics.AGENT_R0519({ message: "Timed out waiting for the Agent Channel delivery journal lock." })
 }
 
 async function appendEvent(
@@ -274,7 +275,7 @@ async function appendEvent(
     const renew = async () => {
       if (ownershipLost || !(await state.extendLock(lock, 30_000))) {
         ownershipLost = true
-        throw new Error("Lost ownership of the Agent Channel delivery journal lock.")
+        throw agentDiagnostics.AGENT_R0520({ message: "Lost ownership of the Agent Channel delivery journal lock." })
       }
     }
     try {

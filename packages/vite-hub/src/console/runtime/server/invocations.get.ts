@@ -11,6 +11,7 @@ import type {
   AgentInvocationSummary,
   AgentInvocations,
 } from "@vite-hub/agent"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 type ConsoleInvocationSummary = AgentInvocationSummary & {
   usage?: ReturnType<typeof invocationUsage>
@@ -30,20 +31,20 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   if (!value) return {}
   try {
     const parsed: unknown = JSON.parse(value)
-    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw new TypeError()
+    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw viteHubErrorDiagnostics.VITE_HUB_R0055()
     const keys = ["working", "queued", "done", "history"] as const
-    if (!keys.some(key => Reflect.has(parsed, key))) throw new TypeError()
+    if (!keys.some(key => Reflect.has(parsed, key))) throw viteHubErrorDiagnostics.VITE_HUB_R0056()
     const cursor: ConsoleInvocationCursor = {}
     for (const key of keys) {
       if (!Reflect.has(parsed, key)) continue
       const value = Reflect.get(parsed, key)
-      if (value !== null && String(value) !== value) throw new TypeError()
+      if (value !== null && String(value) !== value) throw viteHubErrorDiagnostics.VITE_HUB_R0057()
       cursor[key] = value === null ? null : String(value)
     }
     return cursor
   }
   catch {
-    throw Object.assign(new Error("Invalid invocation cursor"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }), {
       statusCode: 400,
       statusMessage: "Invalid invocation cursor",
     })
@@ -89,7 +90,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const query = consoleRequestURL(event).searchParams
   const ids = query.getAll("id")
   if (ids.length > 100) {
-    throw Object.assign(new Error("Too many invocation ids"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0059({ message: "Too many invocation ids" }), {
       statusCode: 400,
       statusMessage: "Too many invocation ids",
     })
@@ -113,14 +114,14 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const cursor = decodeCursor(query.get("cursor") || undefined)
   const agentName = query.get("agent")?.trim() || undefined
   if (agentName && agentName.length > 512) {
-    throw Object.assign(new Error("Invalid Agent name"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0060({ message: "Invalid Agent name" }), {
       statusCode: 400,
       statusMessage: "Invalid Agent name",
     })
   }
   const capabilityId = query.get("capability")?.trim() || undefined
   if (capabilityId && capabilityId.length > 512) {
-    throw Object.assign(new Error("Invalid Capability id"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid Capability id" }), {
       statusCode: 400,
       statusMessage: "Invalid Capability id",
     })
@@ -128,7 +129,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   const limitValue = query.get("limit")
   const limit = limitValue === null ? undefined : Number(limitValue)
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-    throw Object.assign(new Error("Invalid invocation limit"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0062({ message: "Invalid invocation limit" }), {
       statusCode: 400,
       statusMessage: "Invalid invocation limit",
     })

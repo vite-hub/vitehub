@@ -1,3 +1,4 @@
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 interface RetryOptions {
   factor?: number
   maxTimeout?: number
@@ -38,8 +39,8 @@ export default async function retry<T>(
     let bailError: unknown
     try {
       const result = await new Promise<T>((resolve, reject) => {
-        const value = operation((error = new Error("Aborted")) => {
-          bailError = error || new Error("Aborted")
+        const value = operation((error = blobErrorDiagnostics.BLOB_R0013({ message: "Aborted" })) => {
+          bailError = error || blobErrorDiagnostics.BLOB_R0014({ message: "Aborted" })
           reject(bailError)
         }, attempt)
         Promise.resolve(value).then(resolve, reject)

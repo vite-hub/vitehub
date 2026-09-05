@@ -6,6 +6,7 @@ import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
 import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, RegisteredScheduleTargetName, ScheduleTargetInput } from "../types.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cronRange = {
   dayOfMonth: { max: 31, min: 1 },
@@ -28,11 +29,11 @@ const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "input", "tar
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
-    throw new Error("not a number")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0007({ message: "not a number" })
   }
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < range.min || parsed > range.max) {
-    throw new Error("out of range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0008({ message: "out of range" })
   }
   return parsed
 }
@@ -40,12 +41,12 @@ function parseCronNumber(value: string, range: { min: number, max: number }): nu
 function validateCronPart(part: string, range: { min: number, max: number }): void {
   const [value, step, extra] = part.split("/")
   if (extra !== undefined || value === undefined || value.length === 0) {
-    throw new Error("invalid step")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0009({ message: "invalid step" })
   }
   if (step !== undefined) {
     const parsedStep = parseCronNumber(step, { max: range.max, min: 1 })
     if (parsedStep < 1) {
-      throw new Error("invalid step")
+      throw scheduleErrorDiagnostics.SCHEDULE_R0010({ message: "invalid step" })
     }
   }
   if (value === "*") {
@@ -54,7 +55,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
   const [start, end, extraRange] = value.split("-")
   if (extraRange !== undefined || start === undefined || start.length === 0) {
-    throw new Error("invalid range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0011({ message: "invalid range" })
   }
   const parsedStart = parseCronNumber(start, range)
   if (end === undefined) {
@@ -63,7 +64,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
   const parsedEnd = parseCronNumber(end, range)
   if (parsedEnd < parsedStart) {
-    throw new Error("invalid range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0012({ message: "invalid range" })
   }
 }
 
@@ -84,7 +85,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
   try {
     fields.forEach((field, index) => {
       if (field.length === 0) {
-        throw new Error("empty field")
+        throw scheduleErrorDiagnostics.SCHEDULE_R0013({ message: "empty field" })
       }
       for (const part of field.split(",")) {
         validateCronPart(part, cronFieldRanges[index]!)

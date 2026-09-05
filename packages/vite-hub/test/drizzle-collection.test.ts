@@ -92,12 +92,14 @@ describe("table Collection source", () => {
 
     const wrongCursorTypes = btoa(JSON.stringify(["3000", "c"])).replaceAll("=", "")
     await expect(meals.page({ cursor: wrongCursorTypes, query: {} })).rejects.toMatchObject({
-      name: "TypeError",
+      code: "SOURCE_R0023",
+      name: "CollectionCursorError",
     })
 
     const nullableCursor = btoa(JSON.stringify([3_000, null])).replaceAll("=", "")
     await expect(meals.page({ cursor: nullableCursor, query: {} })).rejects.toMatchObject({
-      name: "TypeError",
+      code: "SOURCE_R0023",
+      name: "CollectionCursorError",
     })
 
     const publishedMeals = defineCollection({
@@ -113,7 +115,8 @@ describe("table Collection source", () => {
     })
     const nonCanonicalBoolean = btoa(JSON.stringify([2, "c"])).replaceAll("=", "")
     await expect(publishedMeals.page({ cursor: nonCanonicalBoolean, query: {} })).rejects.toMatchObject({
-      name: "TypeError",
+      code: "SOURCE_R0023",
+      name: "CollectionCursorError",
     })
 
     const controller = new AbortController()

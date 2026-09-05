@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 interface ResumableChatProcessConfig<TContext> {
   owner: (context: TContext) => string | Promise<string>
   scope: "process"
@@ -211,7 +212,7 @@ export function createResumableChatProcessCustody<TContext>(
     return {
       kind: "claimed",
       complete(response, completion) {
-        if (run.setupSettled) throw new Error("[vitehub] Resumable Chat claim was already settled.")
+        if (run.setupSettled) throw agentDiagnostics.AGENT_R0568({ message: "[vitehub] Resumable Chat claim was already settled." })
         const headers = new Headers(response.headers)
         headers.set("x-vitehub-message-id", completion.messageId || "")
         headers.set("x-vitehub-run-id", completion.runId || "")
@@ -259,17 +260,15 @@ export function createResumableChatProcessCustody<TContext>(
     async session(context, identity) {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
       if (!config || typeof config !== "object" || typeof config.owner !== "function") {
-        throw new TypeError("[vitehub] Resumable web chat requires route.resumable.owner().")
+        throw agentDiagnostics.AGENT_R0569({ message: "[vitehub] Resumable web chat requires route.resumable.owner()." })
       }
       if (config.scope !== "process") {
-        throw new TypeError(
-          '[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.',
-        )
+        throw agentDiagnostics.AGENT_R0570({ message: '[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.' })
       }
       const owner = await config.owner(context)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
       if (typeof owner !== "string" || !owner.trim()) {
-        throw new TypeError("[vitehub] Resumable web chat owner must be a non-empty string.")
+        throw agentDiagnostics.AGENT_R0571({ message: "[vitehub] Resumable web chat owner must be a non-empty string." })
       }
       const latestKey = resumableChatKey(
         identity.agentName,

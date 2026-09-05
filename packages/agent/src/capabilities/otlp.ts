@@ -8,6 +8,7 @@ import type {
   AgentTelemetryContentOptions,
 } from "../types.ts"
 import type { OtlpHttpJsonOptions } from "../telemetry.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface OtlpCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends OtlpHttpJsonOptions<TRuntimeConfig> {
@@ -20,14 +21,14 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const input = asUnknownBoundary(options)
   if (!isRuntimeRecord(input) || !hasRuntimeType(input.endpoint, "string") || !input.endpoint.trim()) {
-    throw new TypeError("[vitehub] otlp({ endpoint }) requires a non-empty OTLP base endpoint.")
+    throw agentDiagnostics.AGENT_R0150({ message: "[vitehub] otlp({ endpoint }) requires a non-empty OTLP base endpoint." })
   }
   try {
     const endpoint = new URL(options.endpoint)
-    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error()
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw agentDiagnostics.AGENT_R0151()
   }
   catch {
-    throw new TypeError("[vitehub] otlp({ endpoint }) requires an absolute HTTP(S) OTLP base endpoint.")
+    throw agentDiagnostics.AGENT_R0152({ message: "[vitehub] otlp({ endpoint }) requires an absolute HTTP(S) OTLP base endpoint." })
   }
   return defineCapability({
     id: "otlp",

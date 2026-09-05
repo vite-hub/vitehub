@@ -1,3 +1,4 @@
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 export interface ConsoleDatabaseCell {
   kind: "bigint" | "boolean" | "bytes" | "date" | "json" | "null" | "number" | "text";
   truncated?: true;
@@ -164,7 +165,7 @@ export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
     !Array.isArray(source.relationships) ||
     !Array.isArray(source.rows)
   ) {
-    throw new TypeError("The Console returned an invalid database inspection.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0042({ message: "The Console returned an invalid database inspection." });
   }
   const databases = source.databases.filter(
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
@@ -195,11 +196,11 @@ export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
     return cells.length === Object.keys(row).length ? [Object.fromEntries(cells)] : [];
   });
   if (!databases.includes(database)) {
-    throw new TypeError("The Console returned an invalid database inspection.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0043({ message: "The Console returned an invalid database inspection." });
   }
   const table = string(source.table);
   if (table && !tableEntries.some((entry) => entry.name === table)) {
-    throw new TypeError("The Console returned an invalid database inspection.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0044({ message: "The Console returned an invalid database inspection." });
   }
   const sort = string(source.sort);
   return {

@@ -2,6 +2,7 @@ import { destr } from "destr"
 import { createStorage, normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
+import { Diagnostic } from "nostics"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 
 export interface RuntimeStorage {
@@ -18,11 +19,17 @@ export interface RuntimeStorage {
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
 }
 
-export class KVStoreConfigurationError extends Error {}
+export class KVStoreConfigurationError extends Diagnostic {
+  constructor(message: string, options?: ErrorOptions, code = "KV_R0013") {
+    super({ cause: options?.cause, code, docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, KVStoreConfigurationError)
+    this.name = "KVStoreConfigurationError"
+  }
+}
 
 export class KVAtomicOperationUnsupportedError extends KVStoreConfigurationError {
   constructor(store: string) {
-    super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash.`)
+    super(`[vitehub] KV store "${store}" does not support atomic operations. Use Upstash.`, undefined, "KV_R0014")
+    this.name = "KVAtomicOperationUnsupportedError"
   }
 }
 

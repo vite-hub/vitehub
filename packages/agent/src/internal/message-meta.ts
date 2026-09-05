@@ -6,6 +6,7 @@ import { normalizeAgentInvoker, withoutResolvedAgentInvokerInput } from "../invo
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { AgentDefinition, AgentInvocationContextStore, AgentInvoker, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const parsedAgentMessageMetaContextKey = "vitehub.agent.messageMetaParsed"
 interface ParsedAgentMessageMetaReceipt {
@@ -136,7 +137,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
   const receipt = parsedAgentMessageMetaReceipt(definition, invocationContext, run)
   if (receipt && invocationContext.get(parsedAgentMessageMetaContextKey) === receipt) return
   if (!schema["~standard"] || !hasRuntimeType(schema["~standard"].validate, "function")) {
-    throw new TypeError("[vitehub] defineAgent({ messages: { meta } }) requires a Standard Schema.")
+    throw agentDiagnostics.AGENT_R0564({ message: "[vitehub] defineAgent({ messages: { meta } }) requires a Standard Schema." })
   }
   const channel = invocationContext.get("channel")
   const chat = invocationContext.get("chat")
@@ -148,7 +149,7 @@ export async function parseAgentMessageMeta<TRuntimeConfig extends AgentRuntimeC
       : {}
   const meta = await parseStandardSchema(schema, rawMeta, "agent channel metadata")
   if (!isRuntimeObject(meta) || Array.isArray(meta)) {
-    throw new TypeError("[vitehub] Agent channel metadata schema must return an object.")
+    throw agentDiagnostics.AGENT_R0565({ message: "[vitehub] Agent channel metadata schema must return an object." })
   }
   if (isRuntimeObject(channel)) invocationContext.set("channel", { ...channel, meta }, { overwrite: true })
   if (isRuntimeObject(chat)) invocationContext.set("chat", { ...chat, meta }, { overwrite: true })

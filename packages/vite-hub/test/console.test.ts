@@ -3453,6 +3453,19 @@ describe("Agent invocation console", () => {
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({ statusCode: 400 })
   })
 
+  it("reports the diagnostic code for an invalid usage cursor", async () => {
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/usage?cursor=invalid"
+    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
+    requestEvent.node.req.url = url
+    requestEvent.req.url = url
+
+    await expect(usageHandler(requestEvent)).rejects.toMatchObject({
+      code: "VITE_HUB_R0115",
+      statusCode: 400,
+    })
+  })
+
   it("keeps the all-Agent usage cache separate from an Agent named star", async () => {
     const store = createMemoryAgentInvocationStore()
     const timestamp = new Date(Date.now() - 1_000).toISOString()

@@ -1,6 +1,7 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type { ViteHubErrorOptions } from "@vite-hub/runtime"
+import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 const envErrorMessages = {
   ENV_DECLARATION_INVALID: "[vitehub] Env declaration is invalid.",
@@ -43,7 +44,7 @@ interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
 function invalidOptions(): never {
-  throw new TypeError("[vitehub] Invalid Env error options.")
+  throw envErrorDiagnostics.ENV_R0007({ message: "[vitehub] Invalid Env error options." })
 }
 
 function own(value: unknown, key: PropertyKey): unknown {
@@ -72,7 +73,7 @@ function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCo
 
 export function invalidEnvDeclaration(path: string, diagnostic: string): ViteHubError<"ENV_DECLARATION_INVALID", EnvErrorDetails<"ENV_DECLARATION_INVALID">> {
   return createEnvError({
-    cause: new TypeError(diagnostic),
+    cause: envErrorDiagnostics.ENV_R0008({ message: diagnostic }),
     code: "ENV_DECLARATION_INVALID",
     details: optionalPath(path),
   })
@@ -80,7 +81,7 @@ export function invalidEnvDeclaration(path: string, diagnostic: string): ViteHub
 
 export function asyncServerEnvRequired(path: string): ViteHubError<"ENV_ASYNC_REQUIRED", EnvErrorDetails<"ENV_ASYNC_REQUIRED">> {
   return createEnvError({
-    cause: new TypeError(`Server Env at ${path} uses env.provider(). Use loadServerEnv() or runWithServerEnv().`),
+    cause: envErrorDiagnostics.ENV_R0009({ message: `Server Env at ${path} uses env.provider(). Use loadServerEnv() or runWithServerEnv().` }),
     code: "ENV_ASYNC_REQUIRED",
     details: optionalPath(path),
   })
@@ -89,7 +90,7 @@ export function asyncServerEnvRequired(path: string): ViteHubError<"ENV_ASYNC_RE
 export function missingRequiredEnv(source: string, diagnostic: string, path?: string): ViteHubError<"ENV_REQUIRED_MISSING", EnvErrorDetails<"ENV_REQUIRED_MISSING">> {
   const pathDetails = optionalPath(path)
   return createEnvError({
-    cause: new Error(diagnostic),
+    cause: envErrorDiagnostics.ENV_R0010({ message: diagnostic }),
     code: "ENV_REQUIRED_MISSING",
     details: {
       ...pathDetails,
@@ -100,7 +101,7 @@ export function missingRequiredEnv(source: string, diagnostic: string, path?: st
 
 export function invalidRuntimeEnvValue(source: string, diagnostic: string): ViteHubError<"ENV_RUNTIME_VALUE_INVALID", EnvErrorDetails<"ENV_RUNTIME_VALUE_INVALID">> {
   return createEnvError({
-    cause: new TypeError(diagnostic),
+    cause: envErrorDiagnostics.ENV_R0011({ message: diagnostic }),
     code: "ENV_RUNTIME_VALUE_INVALID",
     details: { source: publicSourceIdentifier(source) },
   })

@@ -12,6 +12,7 @@ import type {
   AgentRuntimeConfig,
 } from "./types.ts"
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -429,7 +430,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
 ): ChatMessageTriggerInputResult<TRuntimeConfig> {
   const messages = Array.isArray(triggerInput?.messages) ? triggerInput.messages : []
   if (!messages.length) {
-    throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
+    throw agentDiagnostics.AGENT_R0375({ message: "[vitehub] chat.message trigger requires at least one UI message." })
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)

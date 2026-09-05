@@ -3,6 +3,7 @@ import { getConsoleBlob } from "./blob.ts"
 
 import type { BlobObject, BlobResult, BlobStorage } from "@vite-hub/blob"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const defaultLimit = 100
 const maximumLimit = 250
@@ -30,7 +31,7 @@ interface ConsoleBlobPage {
 }
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0048({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 function optionalParameter(value: string | null, name: string): string | undefined {

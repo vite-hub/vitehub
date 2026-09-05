@@ -12,6 +12,7 @@ import { findExportNames } from "mlly"
 
 import type { Plugin } from "vite"
 import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
+import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
@@ -155,9 +156,7 @@ function generatedRouteGuard(generatedHandlers: GeneratedSourceHandler[]) {
             candidate.route === generatedHandler.route
             && methodsOverlap(candidate.method, generatedHandler.method))
           if (duplicate) {
-            throw new TypeError(
-              `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.`,
-            )
+            throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
           }
         }
       })
@@ -183,9 +182,7 @@ export function mergeGeneratedSourceNitroConfig(
     const duplicate = handlers.some(candidate =>
       candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
-      throw new TypeError(
-        `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.`,
-      )
+      throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
     handlers.push(handler)
   }
@@ -234,11 +231,11 @@ async function discoverCollections(options: SourceGenerationOptions): Promise<Di
       const extension = extname(file)
       const exportName = basename(file, extension)
       if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
-        throw new TypeError(`[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must use a valid JavaScript identifier as its filename.`)
+        throw sourceErrorDiagnostics.SOURCE_B0003({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must use a valid JavaScript identifier as its filename.` })
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       if (!findExportNames(await readFile(file, "utf8")).includes(exportName)) {
-        throw new TypeError(`[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.`)
+        throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       return { exportName, file, name }
     }))
@@ -249,11 +246,11 @@ async function discoverCollections(options: SourceGenerationOptions): Promise<Di
     const generatedPath = `${collection.name}.mjs`.toLowerCase()
     const previous = generatedPaths.get(generatedPath)
     if (previous?.name === collection.name) {
-      throw new TypeError(`[vitehub] Collection name ${JSON.stringify(collection.name)} is defined in more than one server directory.`)
+      throw sourceErrorDiagnostics.SOURCE_B0005({ message: `[vitehub] Collection name ${JSON.stringify(collection.name)} is defined in more than one server directory.` })
     }
     if (previous) {
       const [firstName, secondName] = [previous.name, collection.name].sort()
-      throw new TypeError(`[vitehub] Collection names ${JSON.stringify(firstName)} and ${JSON.stringify(secondName)} generate the same route module on case-insensitive filesystems.`)
+      throw sourceErrorDiagnostics.SOURCE_B0006({ message: `[vitehub] Collection names ${JSON.stringify(firstName)} and ${JSON.stringify(secondName)} generate the same route module on case-insensitive filesystems.` })
     }
     generatedPaths.set(generatedPath, collection)
   }
@@ -342,11 +339,11 @@ async function discoverContent(options: SourceGenerationOptions): Promise<string
       .map(entry => join(serverDir, entry.name)))
   }
   candidates.sort()
-  if (candidates.length > 1) throw new TypeError("[vitehub] Content is defined in more than one server directory.")
+  if (candidates.length > 1) throw sourceErrorDiagnostics.SOURCE_B0007({ message: "[vitehub] Content is defined in more than one server directory." })
   const file = candidates[0]
   if (!file) return
   if (!findExportNames(await readFile(file, "utf8")).includes("content")) {
-    throw new TypeError(`[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".`)
+    throw sourceErrorDiagnostics.SOURCE_B0008({ message: `[vitehub] Content file ${JSON.stringify(relative(options.projectRoot, file))} must export a Comark Content instance named "content".` })
   }
   return file
 }

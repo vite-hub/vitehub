@@ -1,4 +1,5 @@
 import type { AgentDriverCapacityOptions } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type AgentCapacityRelease = () => void
 
@@ -30,7 +31,7 @@ type AgentCapacityStatus = {
 type AgentCapacityInspection = Omit<AgentDriverCapacityOptions, "adaptive"> & AgentCapacityStatus
 
 function capacityError(code: string, message: string, name = "Error"): Error & { code: string } {
-  return Object.assign(new Error(message), { code, name })
+  return Object.assign(agentDiagnostics.AGENT_R0452({ message: message }), { code, name })
 }
 
 function capacityAbortError(signal: AbortSignal | undefined): Error {
@@ -201,7 +202,7 @@ class AgentCapacityScheduler {
       })
       .then((sample) => {
         if (!sample || !Number.isFinite(sample.concurrency)) {
-          throw new TypeError("[vitehub] Adaptive Agent capacity sample must contain a finite concurrency.")
+          throw agentDiagnostics.AGENT_R0453({ message: "[vitehub] Adaptive Agent capacity sample must contain a finite concurrency." })
         }
         const target = Math.max(0, Math.min(this.options.concurrency, Math.floor(sample.concurrency)))
         const rampUp = adaptive.rampUp ?? 1

@@ -1,6 +1,8 @@
 import { Data, Effect } from "effect"
+import { Diagnostic } from "nostics"
 
 import { createEffectBoundary, EffectBoundaryFailure } from "./effect.ts"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type HttpRequestMethod = "GET" | "HEAD" | "POST"
 export type HttpResponseType = "json" | "text"
@@ -82,9 +84,10 @@ const httpEffectBoundary = createEffectBoundary({
   interruptionMessage: "[vitehub] HTTP request was interrupted.",
 })
 
-class HttpStatusError extends Error {
+class HttpStatusError extends Diagnostic {
   constructor(readonly status: number) {
-    super(`[vitehub] HTTP request failed with status ${status}.`)
+    super({ code: "INTERNAL_R0012", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: `[vitehub] HTTP request failed with status ${status}.` }, HttpStatusError)
+    this.name = "HttpStatusError"
   }
 }
 
@@ -315,24 +318,24 @@ async function readResponseBytes(response: Response, maxResponseBytes: number, s
   return bytes
 }
 
-function responseSizeError(maxResponseBytes: number): RangeError {
-  return new RangeError(`[vitehub] HTTP response exceeds the configured ${maxResponseBytes}-byte limit.`)
+function responseSizeError(maxResponseBytes: number): Error {
+  return internalErrorDiagnostics.INTERNAL_R0004({ message: `[vitehub] HTTP response exceeds the configured ${maxResponseBytes}-byte limit.` })
 }
 
 export function normalizeHttpRequest(definition: HttpRequestDefinition): NormalizedHttpRequest {
   const method = (definition.method || "GET").toUpperCase()
   if (method !== "GET" && method !== "HEAD" && method !== "POST") {
-    throw new TypeError(`[vitehub] HTTP request method "${method}" is not supported. Use GET, HEAD, or POST.`)
+    throw internalErrorDiagnostics.INTERNAL_R0005({ message: `[vitehub] HTTP request method "${method}" is not supported. Use GET, HEAD, or POST.` })
   }
   if (definition.timeout !== undefined
     && (!Number.isFinite(definition.timeout) || definition.timeout <= 0 || definition.timeout > 2_147_483_647)) {
-    throw new TypeError("[vitehub] HTTP request timeout must be a positive finite number no greater than 2147483647.")
+    throw internalErrorDiagnostics.INTERNAL_R0006({ message: "[vitehub] HTTP request timeout must be a positive finite number no greater than 2147483647." })
   }
   if (definition.maxResponseBytes !== undefined
     && (!Number.isSafeInteger(definition.maxResponseBytes)
       || definition.maxResponseBytes <= 0
       || definition.maxResponseBytes > maximumHttpMaxResponseBytes)) {
-    throw new TypeError(`[vitehub] HTTP request maxResponseBytes must be a positive safe integer no greater than ${maximumHttpMaxResponseBytes}.`)
+    throw internalErrorDiagnostics.INTERNAL_R0007({ message: `[vitehub] HTTP request maxResponseBytes must be a positive safe integer no greater than ${maximumHttpMaxResponseBytes}.` })
   }
   return {
     ...definition,
@@ -346,10 +349,10 @@ export function normalizeHttpRequest(definition: HttpRequestDefinition): Normali
 export async function parseStandardSchema<TOutput>(schema: StandardSchemaV1<TOutput>, value: unknown, label: string): Promise<TOutput> {
   const result = await schema["~standard"].validate(value)
   if ("issues" in result && result.issues && result.issues.length > 0) {
-    throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
+    throw internalErrorDiagnostics.INTERNAL_R0008({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
   }
   if (!("value" in result)) {
-    throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
+    throw internalErrorDiagnostics.INTERNAL_R0009({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
   }
   return result.value
 }

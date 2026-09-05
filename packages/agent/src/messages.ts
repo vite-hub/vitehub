@@ -1,5 +1,6 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import type { AgentUsageRecord } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type MessageRole = "assistant" | "system" | "tool" | "user"
 
@@ -203,7 +204,7 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
       if (!hasFetchData && !hasData) return resolved
       const data = await resolveAttachmentData(part)
       if (hasFetchData && data === undefined) {
-        throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
+        throw agentDiagnostics.AGENT_R0646({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
       }
       return { ...resolved, data }
     }))
@@ -447,25 +448,25 @@ export function getToolInvocations(message: Message): ToolInvocation[] {
 
 function assertString(value: unknown, field: string): void {
   if (!hasRuntimeType(value, "string") || !value) {
-    throw new TypeError(`[vitehub:messages] ${field} must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_R0647({ message: `[vitehub:messages] ${field} must be a non-empty string.` })
   }
 }
 
 function assertSerializable(value: unknown, field: string): void {
   if (value === undefined) {
-    throw new TypeError(`[vitehub:messages] ${field} must not be undefined.`)
+    throw agentDiagnostics.AGENT_R0648({ message: `[vitehub:messages] ${field} must not be undefined.` })
   }
   if (hasRuntimeType(value, "function") || hasRuntimeType(value, "symbol") || hasRuntimeType(value, "bigint")) {
-    throw new TypeError(`[vitehub:messages] ${field} must be JSON serializable.`)
+    throw agentDiagnostics.AGENT_R0649({ message: `[vitehub:messages] ${field} must be JSON serializable.` })
   }
   if (hasRuntimeType(value, "number") && !Number.isFinite(value)) {
-    throw new TypeError(`[vitehub:messages] ${field} must be a finite number.`)
+    throw agentDiagnostics.AGENT_R0650({ message: `[vitehub:messages] ${field} must be a finite number.` })
   }
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
   if (value instanceof Date) {
-    throw new TypeError(`[vitehub:messages] ${field} must be serialized before storing.`)
+    throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
     value.forEach((item, index) => assertSerializable(item, `${field}[${index}]`))
@@ -482,10 +483,10 @@ export function validateMessage(message: Message): void {
   if (message.createdAt !== undefined) assertSerializable(message.createdAt, "message.createdAt")
   if (message.metadata !== undefined) assertSerializable(message.metadata, "message.metadata")
   if (!["assistant", "system", "tool", "user"].includes(message.role)) {
-    throw new TypeError(`[vitehub:messages] Unsupported message role: ${String(message.role)}.`)
+    throw agentDiagnostics.AGENT_R0652({ message: `[vitehub:messages] Unsupported message role: ${String(message.role)}.` })
   }
   if (!Array.isArray(message.parts)) {
-    throw new TypeError("[vitehub:messages] message.parts must be an array.")
+    throw agentDiagnostics.AGENT_R0653({ message: "[vitehub:messages] message.parts must be an array." })
   }
 
   const openToolCalls = new Map<string, ToolCallPart | ApprovalRequestPart>()
@@ -495,7 +496,7 @@ export function validateMessage(message: Message): void {
     }
     switch (part.type) {
       case "text":
-        if (!hasRuntimeType(part.text, "string")) throw new TypeError("[vitehub:messages] text part requires text.")
+        if (!hasRuntimeType(part.text, "string")) throw agentDiagnostics.AGENT_R0654({ message: "[vitehub:messages] text part requires text." })
         break
       case "tool-call":
         assertString(part.id, "tool-call.id")
@@ -510,21 +511,21 @@ export function validateMessage(message: Message): void {
         break
       case "approval-decision":
         assertString(part.id, "approval-decision.id")
-        if (!hasRuntimeType(part.approved, "boolean")) throw new TypeError("[vitehub:messages] approval-decision.approved must be a boolean.")
+        if (!hasRuntimeType(part.approved, "boolean")) throw agentDiagnostics.AGENT_R0655({ message: "[vitehub:messages] approval-decision.approved must be a boolean." })
         if (!openToolCalls.has(part.id)) {
-          throw new TypeError(`[vitehub:messages] approval-decision "${part.id}" must follow a matching approval-request.`)
+          throw agentDiagnostics.AGENT_R0656({ message: `[vitehub:messages] approval-decision "${part.id}" must follow a matching approval-request.` })
         }
         break
       case "tool-result":
         assertString(part.id, "tool-result.id")
         assertString(part.name, "tool-result.name")
         if (!openToolCalls.has(part.id)) {
-          throw new TypeError(`[vitehub:messages] tool-result "${part.id}" must follow a matching tool-call or approval-request.`)
+          throw agentDiagnostics.AGENT_R0657({ message: `[vitehub:messages] tool-result "${part.id}" must follow a matching tool-call or approval-request.` })
         }
         openToolCalls.delete(part.id)
         break
       case "data":
-        if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
+        if (!("data" in part)) throw agentDiagnostics.AGENT_R0658({ message: "[vitehub:messages] data part requires data." })
         break
       case "audio":
       case "file":
@@ -532,19 +533,19 @@ export function validateMessage(message: Message): void {
         const { fetchData: _fetchData, ...serializablePart } = part
         assertSerializable(serializablePart, `message.parts[${index}]`)
         if (!hasRuntimeType(part.mediaType, "string") || !part.mediaType) {
-          throw new TypeError(`[vitehub:messages] ${part.type} part requires a mediaType.`)
+          throw agentDiagnostics.AGENT_R0659({ message: `[vitehub:messages] ${part.type} part requires a mediaType.` })
         }
         if (part.type === "audio" && !part.mediaType.startsWith("audio/")) {
-          throw new TypeError("[vitehub:messages] audio part requires an audio/* mediaType.")
+          throw agentDiagnostics.AGENT_R0660({ message: "[vitehub:messages] audio part requires an audio/* mediaType." })
         }
         if (part.type === "image" && !part.mediaType.startsWith("image/")) {
-          throw new TypeError("[vitehub:messages] image part requires an image/* mediaType.")
+          throw agentDiagnostics.AGENT_R0661({ message: "[vitehub:messages] image part requires an image/* mediaType." })
         }
         const hasData = isAttachmentData(part.data)
         const hasFetchData = hasRuntimeType(part.fetchData, "function")
         const hasUrl = hasRuntimeType(part.url, "string") && part.url.length > 0
         if (!hasData && !hasFetchData && !hasUrl) {
-          throw new TypeError(`[vitehub:messages] ${part.type} part requires data, fetchData, or url.`)
+          throw agentDiagnostics.AGENT_R0662({ message: `[vitehub:messages] ${part.type} part requires data, fetchData, or url.` })
         }
         if (part.id !== undefined) assertString(part.id, `${part.type}.id`)
         break
@@ -554,11 +555,11 @@ export function validateMessage(message: Message): void {
         break
       default:
         if (hasRuntimeType(part.type, "string") && part.type.startsWith("data-")) {
-          if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
+          if (!("data" in part)) throw agentDiagnostics.AGENT_R0663({ message: "[vitehub:messages] data part requires data." })
           break
         }
         // SAFETY: Message parsing establishes the asserted serialized message contract.
-        throw new TypeError(`[vitehub:messages] Unsupported message part type: ${String((part as { type?: unknown }).type)}.`)
+        throw agentDiagnostics.AGENT_R0664({ message: `[vitehub:messages] Unsupported message part type: ${String((part as { type?: unknown }).type)}.` })
     }
   }
 }
@@ -645,10 +646,10 @@ export function serializeMessages(messages: Message[]): string {
     validateMessage(message)
     for (const [partIndex, part] of message.parts.entries()) {
       if (isAttachmentPart(part) && hasRuntimeType(part.fetchData, "function")) {
-        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.`)
+        throw agentDiagnostics.AGENT_R0665({ message: `[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.` })
       }
       if (isAttachmentPart(part) && part.data !== undefined && !hasRuntimeType(part.data, "string")) {
-        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.`)
+        throw agentDiagnostics.AGENT_R0666({ message: `[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.` })
       }
     }
   }
@@ -658,10 +659,10 @@ export function serializeMessages(messages: Message[]): string {
 export function deserializeMessages(input: string | SerializedMessages): Message[] {
   const parsed: unknown = hasRuntimeType(input, "string") ? JSON.parse(input) : input
   if (!isRuntimeRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.messages)) {
-    throw new TypeError("[vitehub:messages] Unsupported serialized messages payload.")
+    throw agentDiagnostics.AGENT_R0667({ message: "[vitehub:messages] Unsupported serialized messages payload." })
   }
   return parsed.messages.map((value) => {
-    if (!isRuntimeRecord(value)) throw new TypeError("[vitehub:messages] Serialized messages must contain message records.")
+    if (!isRuntimeRecord(value)) throw agentDiagnostics.AGENT_R0668({ message: "[vitehub:messages] Serialized messages must contain message records." })
     // SAFETY: The record guard permits property inspection, and validateMessage verifies the complete Message contract before return.
     const message = asUnknownBoundary(value) as Message
     validateMessage(message)

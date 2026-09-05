@@ -32,6 +32,7 @@ import type {
   EnvViteUserConfig,
 } from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
+import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
@@ -194,7 +195,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const projectRoot = resolveProjectRoot(config.root)
       const configStateId = String(Object.getOwnPropertyDescriptor(config, configStateKey)?.value ?? "")
       const state = pendingConfigStates.get(configStateId) ?? resolvedStates.get(projectRoot)
-      if (!state) throw new Error(`Missing resolved Env state for ${projectRoot}`)
+      if (!state) throw envErrorDiagnostics.ENV_B0001({ message: `Missing resolved Env state for ${projectRoot}` })
       pendingConfigStates.delete(configStateId)
       resolvedConfigStates.set(config, state)
       for (const environmentConfig of Object.values(config.environments || {})) {
@@ -302,14 +303,14 @@ function resolveProviderModules(providers: Record<string, string> | undefined, r
   const output: Record<string, string> = {}
   for (const [name, specifier] of Object.entries(providers || {})) {
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) {
-      throw new TypeError("[vitehub] Env provider names must start with a letter and contain only letters, numbers, underscores, or hyphens.")
+      throw envErrorDiagnostics.ENV_B0002({ message: "[vitehub] Env provider names must start with a letter and contain only letters, numbers, underscores, or hyphens." })
     }
     if (typeof specifier !== "string" || !specifier.trim()) {
-      throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.`)
+      throw envErrorDiagnostics.ENV_B0003({ message: `[vitehub] Env provider ${JSON.stringify(name)} requires a non-empty module specifier.` })
     }
     const normalized = specifier.trim()
     if (/^(?:\\\\[?.]\\|\/\/[?.]\/)/.test(normalized)) {
-      throw new TypeError(`[vitehub] Env provider ${JSON.stringify(name)} uses an unsupported namespaced Windows module path.`)
+      throw envErrorDiagnostics.ENV_B0004({ message: `[vitehub] Env provider ${JSON.stringify(name)} uses an unsupported namespaced Windows module path.` })
     }
     output[name] = normalized.startsWith(".") ? resolve(root, normalized) : normalized
   }
@@ -321,7 +322,7 @@ function assertConfiguredProviders(registry: EnvRuntimeRegistry, providers: Reco
     if (!isRecord(value)) return
     if (isProviderEntry(value)) {
       if (!Object.hasOwn(providers, value.source.provider)) {
-        throw new TypeError(`[vitehub] ${path} references Env provider ${JSON.stringify(value.source.provider)}, but hubEnv({ providers }) does not configure it.`)
+        throw envErrorDiagnostics.ENV_B0005({ message: `[vitehub] ${path} references Env provider ${JSON.stringify(value.source.provider)}, but hubEnv({ providers }) does not configure it.` })
       }
       return
     }

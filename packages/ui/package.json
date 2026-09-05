@@ -57,7 +57,8 @@
     "@comark/vue": "0.6.2",
     "@iconify-json/ph": "catalog:ui",
     "@nuxt/kit": "4.5.2",
-    "@types/node": "catalog:tooling"
+    "@types/node": "catalog:tooling",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",

@@ -1,3 +1,4 @@
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { createExecutionContext } from "@vite-hub/runtime"
 
 import type { AgentInput, AgentProviderStatus, AgentRuntimeContext } from "@vite-hub/agent"
@@ -17,7 +18,7 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
     let timer: ReturnType<typeof setTimeout>
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        controller.abort(new Error("Provider inspection timed out."))
+        controller.abort(viteHubErrorDiagnostics.VITE_HUB_R0112({ message: "Provider inspection timed out." }))
         reject(controller.signal.reason)
       }, options.timeoutMs ?? 15_000)
     })

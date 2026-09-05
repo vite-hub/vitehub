@@ -9,6 +9,7 @@ import { isRuntimeBigInt, isRuntimeObject, isRuntimeString } from "../internal/r
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
 import type { Lock, QueueEntry } from "chat"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -69,7 +70,7 @@ function randomToken(): string {
 function tableName(prefix: string, name: string): string {
   const candidate = `${prefix}${name}`
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(candidate)) {
-    throw new Error(`[vitehub] Invalid SQLite Agent State table name "${candidate}". Use an alphanumeric tablePrefix.`)
+    throw agentDiagnostics.AGENT_R0849({ message: `[vitehub] Invalid SQLite Agent State table name "${candidate}". Use an alphanumeric tablePrefix.` })
   }
   return candidate
 }
@@ -132,7 +133,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   constructor(options: SqliteAgentStateOptions) {
     if (!options.driver) {
-      throw new Error("[vitehub] SQLite Agent State requires a driver.")
+      throw agentDiagnostics.AGENT_R0850({ message: "[vitehub] SQLite Agent State requires a driver." })
     }
     this.driver = options.driver
     this.tables = createTables(options.tablePrefix)
@@ -608,7 +609,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   private ensureConnected(): void {
     if (!this.connected) {
-      throw new Error("[vitehub] SQLite Agent State is not connected. Call connect() before using state.")
+      throw agentDiagnostics.AGENT_R0851({ message: "[vitehub] SQLite Agent State is not connected. Call connect() before using state." })
     }
   }
 
@@ -784,7 +785,7 @@ function libsqlExecute(client: Pick<LibsqlAgentStateClient, "execute">): SqliteA
 
 export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHubSqliteAgentStateAdapter {
   if (!options.client && !options.url) {
-    throw new Error("[vitehub] libSQL Agent State requires `url` or `client`.")
+    throw agentDiagnostics.AGENT_R0852({ message: "[vitehub] libSQL Agent State requires `url` or `client`." })
   }
   const ownsClient = !options.client
   let client: LibsqlAgentStateClient | undefined
@@ -811,13 +812,13 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
         client = undefined
       },
       async execute(statement, args) {
-        if (!client) throw new Error("[vitehub] libSQL Agent State is not connected.")
+        if (!client) throw agentDiagnostics.AGENT_R0853({ message: "[vitehub] libSQL Agent State is not connected." })
         return await libsqlExecute(client)(statement, args)
       },
       async transaction(run) {
-        if (!client) throw new Error("[vitehub] libSQL Agent State is not connected.")
+        if (!client) throw agentDiagnostics.AGENT_R0854({ message: "[vitehub] libSQL Agent State is not connected." })
         if (!client.transaction) {
-          throw new Error("[vitehub] libSQL Agent State clients must support transactions.")
+          throw agentDiagnostics.AGENT_R0855({ message: "[vitehub] libSQL Agent State clients must support transactions." })
         }
         const transaction = await client.transaction("write")
         try {

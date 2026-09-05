@@ -10,6 +10,7 @@ import { writeRateLimitManifest } from "./manifest.ts"
 import type { ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { ProviderOutputConfigOwnership } from "@vite-hub/internal/build/provider-output-config"
 import type { RateLimitDeclaration } from "../types.ts"
+import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface CloudflareRateLimitBindingConfig {
   [key: string]: unknown
@@ -34,7 +35,7 @@ async function readOutputState(rootDir: string): Promise<CloudflareRateLimitOutp
   try {
     const parsed: unknown = JSON.parse(await readFile(outputStateFile(rootDir), "utf8"))
     if (parsed === null || Object(parsed) !== parsed || Array.isArray(parsed)) {
-      throw new TypeError("[vitehub] Cloudflare Rate Limit output state must be a JSON object.")
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0014({ message: "[vitehub] Cloudflare Rate Limit output state must be a JSON object." })
     }
     // SAFETY: The object boundary above establishes that property reads are safe; each property is validated below before use.
     const state = parsed as Record<string, unknown>
@@ -78,11 +79,11 @@ export function createCloudflareRateLimitBindings(
   return declarations.map((declaration) => {
     const policy = normalizeRateLimitPolicy(declaration.policy)
     if (policy.enforcement === "strict") {
-      throw new Error(`Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.`)
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0015({ message: `Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.` })
     }
     const period = policy.windowMs / 1_000
     if (period !== 10 && period !== 60) {
-      throw new Error(`Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.`)
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0016({ message: `Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.` })
     }
     return {
       name: getCloudflareRateLimitBindingName(declaration.name),
@@ -122,7 +123,7 @@ export async function writeRateLimitProviderOutput(options: {
 
   if (options.cloudflareOwnedByNitro) {
     if (options.provider === "cloudflare" && options.declarations.length > 0 && !options.namespace) {
-      throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0017({ message: "[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments." })
     }
     if (state.standalone && state.bindings.length > 0) {
       await write({
@@ -152,7 +153,7 @@ export async function writeRateLimitProviderOutput(options: {
 
   if (options.provider === "cloudflare" && options.declarations.length > 0) {
     if (!options.namespace) {
-      throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0018({ message: "[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments." })
     }
     await write({
       clientOutDir: options.clientOutDir,

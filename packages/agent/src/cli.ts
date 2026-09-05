@@ -18,6 +18,7 @@ import type { AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
   cacheEnabled?: boolean
@@ -491,7 +492,7 @@ function writeProgress(context: AgentCliContext, event: { data?: Record<string, 
 function readOptionValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1]
   if (!value || value.startsWith("-")) {
-    throw new Error(`Missing value for ${flag}.`)
+    throw agentDiagnostics.AGENT_R0385({ message: `Missing value for ${flag}.` })
   }
   return value
 }
@@ -524,7 +525,7 @@ function parseEvalArgs(args: string[]): ParsedEvalArgs {
       const value = readOptionValue(args, index, arg)
       const threshold = Number.parseFloat(value)
       if (!Number.isFinite(threshold)) {
-        throw new Error("--threshold must be a number.")
+        throw agentDiagnostics.AGENT_R0386({ message: "--threshold must be a number." })
       }
       parsed.threshold = threshold
       index++
@@ -533,7 +534,7 @@ function parseEvalArgs(args: string[]): ParsedEvalArgs {
     if (arg.startsWith("--threshold=")) {
       const threshold = Number.parseFloat(arg.slice("--threshold=".length))
       if (!Number.isFinite(threshold)) {
-        throw new Error("--threshold must be a number.")
+        throw agentDiagnostics.AGENT_R0387({ message: "--threshold must be a number." })
       }
       parsed.threshold = threshold
       continue
@@ -552,13 +553,13 @@ function parseEvalArgs(args: string[]): ParsedEvalArgs {
       continue
     }
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown option: ${arg}.`)
+      throw agentDiagnostics.AGENT_R0388({ message: `Unknown option: ${arg}.` })
     }
     if (!parsed.path) {
       parsed.path = arg
       continue
     }
-    throw new Error(`Unexpected argument: ${arg}.`)
+    throw agentDiagnostics.AGENT_R0389({ message: `Unexpected argument: ${arg}.` })
   }
 
   return parsed
@@ -641,13 +642,13 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
     }
     if (arg === "-p" || arg === "--prompt") {
       parsed.message = readOptionValue(args, index, arg).trim()
-      if (!parsed.message) throw new Error(`${arg} cannot be empty.`)
+      if (!parsed.message) throw agentDiagnostics.AGENT_R0390({ message: `${arg} cannot be empty.` })
       index++
       continue
     }
     if (arg.startsWith("--prompt=")) {
       parsed.message = arg.slice("--prompt=".length).trim()
-      if (!parsed.message) throw new Error("--prompt cannot be empty.")
+      if (!parsed.message) throw agentDiagnostics.AGENT_R0391({ message: "--prompt cannot be empty." })
       continue
     }
     if (arg === "--trigger") {
@@ -669,7 +670,7 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       continue
     }
     if (arg === "--") {
-      if (!parsed.cli) throw new Error("-- separates Capability CLI arguments and requires --cli.")
+      if (!parsed.cli) throw agentDiagnostics.AGENT_R0392({ message: "-- separates Capability CLI arguments and requires --cli." })
       parsed.cliArgv = args.slice(index + 1)
       break
     }
@@ -693,19 +694,19 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
     }
     if (arg === "--timeout") {
       const timeout = Number.parseInt(readOptionValue(args, index, arg), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("--timeout must be a positive number.")
+      if (!Number.isFinite(timeout) || timeout <= 0) throw agentDiagnostics.AGENT_R0393({ message: "--timeout must be a positive number." })
       parsed.timeout = timeout
       index++
       continue
     }
     if (arg.startsWith("--timeout=")) {
       const timeout = Number.parseInt(arg.slice("--timeout=".length), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("--timeout must be a positive number.")
+      if (!Number.isFinite(timeout) || timeout <= 0) throw agentDiagnostics.AGENT_R0394({ message: "--timeout must be a positive number." })
       parsed.timeout = timeout
       continue
     }
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown option: ${arg}.`)
+      throw agentDiagnostics.AGENT_R0395({ message: `Unknown option: ${arg}.` })
     }
     if (!parsed.agent && !parsed.message && message.length === 0 && args[index + 1]?.startsWith("!")) {
       parsed.agent = arg
@@ -720,9 +721,9 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   }
 
   const text = message.join(" ").trim()
-  if (text && parsed.message) throw new Error("Pass either --prompt or message text, not both.")
+  if (text && parsed.message) throw agentDiagnostics.AGENT_R0396({ message: "Pass either --prompt or message text, not both." })
   if (parsed.cli && (text || parsed.message || parsed.trigger)) {
-    throw new Error("Pass either --cli or Agent message/trigger input, not both.")
+    throw agentDiagnostics.AGENT_R0397({ message: "Pass either --cli or Agent message/trigger input, not both." })
   }
   if (text) parsed.message = text
   return parsed
@@ -736,7 +737,7 @@ async function readDevPayloadFile(path: string): Promise<{ path: string, value: 
   // SAFETY: CLI option parsing establishes the asserted command contract.
   const value = JSON.parse(await readFile(path, "utf8")) as unknown
   if (!isRecord(value)) {
-    throw new Error("Agent Dev Loop payload file must contain a JSON object.")
+    throw agentDiagnostics.AGENT_R0398({ message: "Agent Dev Loop payload file must contain a JSON object." })
   }
   return { path, value }
 }

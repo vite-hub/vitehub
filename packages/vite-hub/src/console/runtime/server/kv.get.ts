@@ -3,6 +3,7 @@ import { getConsoleKV } from "./kv.ts"
 
 import type { KVResult, KVStorage } from "@vite-hub/kv"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const defaultLimit = 200
 const maximumLimit = 500
@@ -20,7 +21,7 @@ interface ConsoleKVValue {
 }
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0065({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; store: string | null }> {
@@ -128,7 +129,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      throw new TypeError("Cannot serialize bigint as JSON.")
+      throw viteHubErrorDiagnostics.VITE_HUB_R0066({ message: "Cannot serialize bigint as JSON." })
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
@@ -143,7 +144,7 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
       ? Reflect.apply(object.valueOf, input, [])
       : input
     if (boxed !== input) return serialize(boxed, depth, arrayValue, key)
-    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    if (ancestors.has(object)) throw viteHubErrorDiagnostics.VITE_HUB_R0067({ message: "Cannot serialize a circular value as JSON." })
     ancestors.add(object)
 
     if (Array.isArray(object)) {

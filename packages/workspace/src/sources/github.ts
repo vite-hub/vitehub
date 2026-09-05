@@ -8,6 +8,7 @@ import { resolveWorkspaceEnv } from "../env.ts"
 import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
@@ -100,7 +101,7 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
       return []
     },
     async getItem(key) {
-      throw new Error(`[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0060({ message: `[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.` })
     },
     async getItems() {
       return []
@@ -115,7 +116,7 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
 function githubResolutionDefaults(options: GitHubResolvedSourceOptions, ctx: WorkspaceSourceResolutionContext): GitHubSourceOptions {
   const source = pullRequestSource(ctx.invocation.context.get("pullRequest"))
   const repo = options.repo || source?.repo
-  if (!repo) throw new Error("[vitehub] github() resolver requires repo or typed pullRequest source context.")
+  if (!repo) throw workspaceErrorDiagnostics.WORKSPACE_R0061({ message: "[vitehub] github() resolver requires repo or typed pullRequest source context." })
   return {
     ...options,
     mount: options.mount ?? ctx.source.mountPath,

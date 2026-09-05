@@ -2,6 +2,7 @@ import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-ty
 import type { AgentInvocationListResult, AgentInvocationRecord } from "../invocations.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -45,13 +46,13 @@ function usage(context: AgentInvocationsCliContext): void {
 
 function optionValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1]
-  if (!value || value.startsWith("-")) throw new Error(`Missing value for ${flag}.`)
+  if (!value || value.startsWith("-")) throw agentDiagnostics.AGENT_R0502({ message: `Missing value for ${flag}.` })
   return value
 }
 
 function positiveInteger(value: string, flag: string): number {
   const result = Number(value)
-  if (!Number.isSafeInteger(result) || result <= 0) throw new Error(`${flag} requires a positive integer.`)
+  if (!Number.isSafeInteger(result) || result <= 0) throw agentDiagnostics.AGENT_R0503({ message: `${flag} requires a positive integer.` })
   return result
 }
 
@@ -86,13 +87,13 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
       index += 1
     }
     else if (argument.startsWith("--interval=")) parsed.interval = positiveInteger(argument.slice(11), "--interval")
-    else if (argument.startsWith("-")) throw new Error(`Unknown option: ${argument}.`)
+    else if (argument.startsWith("-")) throw agentDiagnostics.AGENT_R0504({ message: `Unknown option: ${argument}.` })
     else if (!parsed.action && (argument === "list" || argument === "show" || argument === "tail")) parsed.action = argument
     else if (!parsed.id) parsed.id = argument
-    else throw new Error(`Unexpected argument: ${argument}.`)
+    else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${argument}.` })
   }
-  if (!parsed.help && !parsed.action) throw new Error("Choose list, show, or tail.")
-  if (!parsed.help && parsed.action !== "list" && !parsed.id) throw new Error(`${parsed.action} requires an invocation id.`)
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, or tail." })
+  if (!parsed.help && parsed.action !== "list" && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   return parsed
 }
 
@@ -119,7 +120,7 @@ function isInvocationSummary(value: unknown): boolean {
 
 function parseInvocationList(value: unknown): AgentInvocationListResult {
   if (!isRuntimeRecord(value) || !Array.isArray(value.invocations) || value.invocations.some(record => !isInvocationSummary(record)) || value.cursor !== undefined && !hasRuntimeType(value.cursor, "string")) {
-    throw new TypeError("Invocation inspection returned an invalid list response.")
+    throw agentDiagnostics.AGENT_R0508({ message: "Invocation inspection returned an invalid list response." })
   }
   // SAFETY: The list parser validates its cursor and every summary field consumed by the CLI.
   return asUnknownBoundary(value) as AgentInvocationListResult
@@ -127,11 +128,11 @@ function parseInvocationList(value: unknown): AgentInvocationListResult {
 
 function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
   if (!isRuntimeRecord(value) || !isInvocationSummary(value.invocation) || !Array.isArray(value.observations)) {
-    throw new TypeError("Invocation inspection returned an invalid detail response.")
+    throw agentDiagnostics.AGENT_R0509({ message: "Invocation inspection returned an invalid detail response." })
   }
   for (const observation of value.observations) {
     if (!isRuntimeRecord(observation) || !hasRuntimeType(observation.name, "string") || !hasRuntimeType(observation.sequence, "number") || !hasRuntimeType(observation.timestamp, "string")) {
-      throw new TypeError("Invocation inspection returned an invalid observation.")
+      throw agentDiagnostics.AGENT_R0510({ message: "Invocation inspection returned an invalid observation." })
     }
   }
   // SAFETY: The detail parser validates the invocation summary and each observation field consumed by the CLI.
@@ -140,7 +141,7 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 
 async function request<T>(url: URL, fetchImpl: typeof fetch, timeout: number, parseResponse: ResponseParser<T>): Promise<T> {
   const response = await fetchImpl(url.href, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(timeout) })
-  if (!response.ok) throw new Error((await response.text()).trim() || `Invocation inspection failed with status ${response.status}.`)
+  if (!response.ok) throw agentDiagnostics.AGENT_R0511({ message: (await response.text()).trim() || `Invocation inspection failed with status ${response.status}.` })
   const value: unknown = await response.json()
   return parseResponse(value)
 }

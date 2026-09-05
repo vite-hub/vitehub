@@ -28,6 +28,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type ScheduleCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -120,7 +121,7 @@ function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMo
     : ["get", "list"] as const
   // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
   if (!client || !hasRuntimeType(client, "object") || methods.some(method => !hasRuntimeType((client as Record<string, unknown>)[method], "function"))) {
-    throw new Error(`[vitehub] schedule primitive must expose the Runtime Schedule ${mode} client methods.`)
+    throw agentDiagnostics.AGENT_R0169({ message: `[vitehub] schedule primitive must expose the Runtime Schedule ${mode} client methods.` })
   }
   // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
   return client as RuntimeScheduleClientLike
@@ -133,11 +134,11 @@ function isRuntimeScheduleOptions(options: unknown): options is RuntimeScheduleC
 
 function normalizeScheduleCron(cron: unknown): string {
   if (!hasRuntimeType(cron, "string") || !cron.trim()) {
-    throw new TypeError("[vitehub] schedule({ schedules }) entries require a cron string.")
+    throw agentDiagnostics.AGENT_R0170({ message: "[vitehub] schedule({ schedules }) entries require a cron string." })
   }
   const normalized = cron.trim().replace(/\s+/g, " ")
   if (normalized.split(" ").length !== 5) {
-    throw new TypeError("[vitehub] schedule({ schedules }) cron entries must be five-field UTC cron expressions.")
+    throw agentDiagnostics.AGENT_R0171({ message: "[vitehub] schedule({ schedules }) cron entries must be five-field UTC cron expressions." })
   }
   return normalized
 }
@@ -149,7 +150,7 @@ export function agentScheduleIdFromCron(cron: string): string {
 
 function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilityMetadata["schedules"] {
   if (!Array.isArray(entries) || !entries.length) {
-    throw new TypeError("[vitehub] schedule({ schedules }) requires at least one schedule entry.")
+    throw agentDiagnostics.AGENT_R0172({ message: "[vitehub] schedule({ schedules }) requires at least one schedule entry." })
   }
   const seen = new Set<string>()
   return entries.map((entry) => {
@@ -164,10 +165,10 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
       ? (entry as { id?: unknown }).id
       : agentScheduleIdFromCron(cron)
     if (!hasRuntimeType(id, "string") || !id.trim()) {
-      throw new TypeError("[vitehub] schedule({ schedules }) entry ids must be non-empty strings.")
+      throw agentDiagnostics.AGENT_R0173({ message: "[vitehub] schedule({ schedules }) entry ids must be non-empty strings." })
     }
     if (seen.has(id)) {
-      throw new Error(`[vitehub] Duplicate Agent Schedule id "${id}" in one schedule() capability.`)
+      throw agentDiagnostics.AGENT_R0174({ message: `[vitehub] Duplicate Agent Schedule id "${id}" in one schedule() capability.` })
     }
     seen.add(id)
     return { cron, id }
@@ -177,7 +178,7 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
 function normalizeRuntimeScheduleTargets(targets: unknown): readonly string[] | undefined {
   if (targets === undefined) return undefined
   if (!Array.isArray(targets) || targets.some(target => !hasRuntimeType(target, "string") || !target.trim())) {
-    throw new TypeError("[vitehub] schedule({ targets }) must be an array of non-empty Runtime Schedule target names.")
+    throw agentDiagnostics.AGENT_R0175({ message: "[vitehub] schedule({ targets }) must be an array of non-empty Runtime Schedule target names." })
   }
   return [...new Set(targets)]
 }
@@ -187,13 +188,13 @@ function normalizeRuntimeScheduleOptions<TTarget extends string>(options: Runtim
   const mode = normalizeMode(options.mode, "Schedule")
   const targets = normalizeRuntimeScheduleTargets(options.targets)
   if (options.allowSelfTarget !== undefined && !hasRuntimeType(options.allowSelfTarget, "boolean")) {
-    throw new TypeError("[vitehub] schedule({ allowSelfTarget }) must be a boolean.")
+    throw agentDiagnostics.AGENT_R0176({ message: "[vitehub] schedule({ allowSelfTarget }) must be a boolean." })
   }
   if (options.delivery !== undefined && options.delivery !== "origin") {
-    throw new TypeError('[vitehub] schedule({ delivery }) must be "origin" when provided.')
+    throw agentDiagnostics.AGENT_R0177({ message: '[vitehub] schedule({ delivery }) must be "origin" when provided.' })
   }
   if (options.delivery === "origin" && options.allowSelfTarget !== true) {
-    throw new TypeError('[vitehub] schedule({ delivery: "origin" }) requires allowSelfTarget: true.')
+    throw agentDiagnostics.AGENT_R0178({ message: '[vitehub] schedule({ delivery: "origin" }) requires allowSelfTarget: true.' })
   }
   const timeZone = assertOptionalRuntimeScheduleTimeZone(options.timeZone, "schedule()")
   return {
@@ -207,23 +208,23 @@ function normalizeRuntimeScheduleOptions<TTarget extends string>(options: Runtim
 
 function assertAllowedRuntimeScheduleTarget(target: string | undefined, options: RuntimeScheduleScope, label: string): string {
   if (!hasRuntimeType(target, "string") || !target.trim()) {
-    throw new TypeError(`[vitehub] ${label} target must be a non-empty Runtime Schedule target name.`)
+    throw agentDiagnostics.AGENT_R0179({ message: `[vitehub] ${label} target must be a non-empty Runtime Schedule target name.` })
   }
   if (options.selfTarget && target === options.selfTarget) {
     if (options.allowSelfTarget !== true) {
-      throw new Error(`[vitehub] ${label} cannot target the owning Agent without explicit Self Schedule Permission.`)
+      throw agentDiagnostics.AGENT_R0180({ message: `[vitehub] ${label} cannot target the owning Agent without explicit Self Schedule Permission.` })
     }
     return target
   }
   if (options.targets && !options.targets.includes(target)) {
-    throw new Error(`[vitehub] ${label} target is outside this Schedule Capability allowlist: ${target}`)
+    throw agentDiagnostics.AGENT_R0181({ message: `[vitehub] ${label} target is outside this Schedule Capability allowlist: ${target}` })
   }
   return target
 }
 
 function assertRuntimeScheduleId(id: unknown, label: string): string {
   if (!hasRuntimeType(id, "string") || !id.trim()) {
-    throw new TypeError(`[vitehub] ${label} id must be a non-empty Runtime Schedule id.`)
+    throw agentDiagnostics.AGENT_R0182({ message: `[vitehub] ${label} id must be a non-empty Runtime Schedule id.` })
   }
   return id
 }
@@ -235,18 +236,18 @@ function assertOptionalRuntimeScheduleId(id: unknown, label: string): string | u
 
 function assertRuntimeScheduleCron(cron: unknown, label: string): string {
   if (!hasRuntimeType(cron, "string") || !cron.trim()) {
-    throw new TypeError(`[vitehub] ${label} cron must be a five-field cron expression.`)
+    throw agentDiagnostics.AGENT_R0183({ message: `[vitehub] ${label} cron must be a five-field cron expression.` })
   }
   const normalized = cron.trim().replace(/\s+/g, " ")
   if (normalized.split(" ").length !== 5) {
-    throw new TypeError(`[vitehub] ${label} cron must be a five-field cron expression.`)
+    throw agentDiagnostics.AGENT_R0184({ message: `[vitehub] ${label} cron must be a five-field cron expression.` })
   }
   return normalized
 }
 
 function assertRuntimeSchedulePrompt(prompt: unknown, label: string): string {
   if (!hasRuntimeType(prompt, "string") || !prompt.trim()) {
-    throw new TypeError(`[vitehub] ${label} prompt must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_R0185({ message: `[vitehub] ${label} prompt must be a non-empty string.` })
   }
   return prompt.trim()
 }
@@ -254,7 +255,7 @@ function assertRuntimeSchedulePrompt(prompt: unknown, label: string): string {
 function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): boolean | undefined {
   if (enabled === undefined) return undefined
   if (!hasRuntimeType(enabled, "boolean")) {
-    throw new TypeError(`[vitehub] ${label} enabled must be a boolean.`)
+    throw agentDiagnostics.AGENT_R0186({ message: `[vitehub] ${label} enabled must be a boolean.` })
   }
   return enabled
 }
@@ -262,7 +263,7 @@ function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): 
 function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string): string | undefined {
   if (timeZone === undefined) return undefined
   if (!isIanaTimeZone(timeZone)) {
-    throw new TypeError(`[vitehub] ${label} timeZone must be a valid IANA time zone.`)
+    throw agentDiagnostics.AGENT_R0187({ message: `[vitehub] ${label} timeZone must be a valid IANA time zone.` })
   }
   return timeZone
 }
@@ -271,7 +272,7 @@ function assertAllowedKeys(input: unknown, allowed: string[], label: string): vo
   if (!isRuntimeRecord(input)) return
   for (const key of Object.keys(input)) {
     if (!allowed.includes(key)) {
-      throw new TypeError(`[vitehub] ${label} does not support "${key}".`)
+      throw agentDiagnostics.AGENT_R0188({ message: `[vitehub] ${label} does not support "${key}".` })
     }
   }
 }
@@ -321,12 +322,12 @@ function assertScopedRuntimeSchedule(record: RuntimeScheduleRecordLike, options:
     owner = undefined
   }
   if (owner?.id === options.invoker.id && owner.kind === options.invoker.kind) return
-  throw new Error(`[vitehub] ${label} is outside the current invoker scope.`)
+  throw agentDiagnostics.AGENT_R0189({ message: `[vitehub] ${label} is outside the current invoker scope.` })
 }
 
 async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: RuntimeScheduleScope): Promise<RuntimeScheduleRecordLike> {
   const record = await client.get(id)
-  if (!record) throw new Error(`[vitehub] Runtime Schedule not found: ${id}`)
+  if (!record) throw agentDiagnostics.AGENT_R0190({ message: `[vitehub] Runtime Schedule not found: ${id}` })
   assertScopedRuntimeSchedule(record, options, "cronjob")
   return record
 }
@@ -415,7 +416,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
         async execute(input: RuntimeScheduleToolInput = {}) {
           const operation = input.operation || "list"
           if (writeOperations.has(operation) && options.mode !== "write") {
-            throw new Error(`[vitehub] cronjob ${operation} requires Schedule Capability write mode.`)
+            throw agentDiagnostics.AGENT_R0191({ message: `[vitehub] cronjob ${operation} requires Schedule Capability write mode.` })
           }
           const agentTurn = input.prompt !== undefined
           // SAFETY: Schedule Capability parsing establishes the asserted schedule contract.
@@ -436,7 +437,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
               : assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob create")
             if (agentTurn) {
               if (!scope.allowSelfTarget || !scope.selfTarget) {
-                throw new Error("[vitehub] cronjob create requires Self Schedule Permission and a discovered Agent name.")
+                throw agentDiagnostics.AGENT_R0192({ message: "[vitehub] cronjob create requires Self Schedule Permission and a discovered Agent name." })
               }
               return publicRuntimeSchedule(await client.create({
                 cron: assertRuntimeScheduleCron(input.cron, "cronjob create"),
@@ -455,7 +456,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             }
             const target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob create")
             if (target === scope.selfTarget) {
-              throw new Error("[vitehub] cronjob create requires a prompt when targeting the owning Agent.")
+              throw agentDiagnostics.AGENT_R0193({ message: "[vitehub] cronjob create requires a prompt when targeting the owning Agent." })
             }
             return publicRuntimeSchedule(await client.create({
               cron: assertRuntimeScheduleCron(input.cron, "cronjob create"),
@@ -470,10 +471,10 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             const record = await requireScopedRuntimeSchedule(client, id, scope)
             const scheduledTurn = scheduledAgentTurnPrompt(record.input) !== undefined
             if (agentTurn && !scheduledTurn) {
-              throw new Error("[vitehub] cronjob edit prompt is only supported for scheduled Agent turns.")
+              throw agentDiagnostics.AGENT_R0194({ message: "[vitehub] cronjob edit prompt is only supported for scheduled Agent turns." })
             }
             if (scheduledTurn && input.target !== undefined) {
-              throw new Error("[vitehub] cronjob edit cannot retarget a scheduled Agent turn.")
+              throw agentDiagnostics.AGENT_R0195({ message: "[vitehub] cronjob edit cannot retarget a scheduled Agent turn." })
             }
             const update: { cron?: string, enabled?: boolean, input?: unknown, target?: string, timeZone?: string } = {}
             if (input.cron !== undefined) update.cron = assertRuntimeScheduleCron(input.cron, "cronjob edit")
@@ -485,7 +486,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             if (input.target !== undefined) {
               update.target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob edit")
               if (!scheduledTurn && update.target === scope.selfTarget) {
-                throw new Error("[vitehub] cronjob edit requires a prompt when targeting the owning Agent.")
+                throw agentDiagnostics.AGENT_R0196({ message: "[vitehub] cronjob edit requires a prompt when targeting the owning Agent." })
               }
             }
             if (input.timeZone !== undefined) update.timeZone = assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob edit")
@@ -511,7 +512,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             await requireScopedRuntimeSchedule(client, id, scope)
             return await client.delete(id)
           }
-          throw new Error(`[vitehub] Unsupported cronjob operation: ${String(operation)}`)
+          throw agentDiagnostics.AGENT_R0197({ message: `[vitehub] Unsupported cronjob operation: ${String(operation)}` })
         },
         inputSchema: runtimeScheduleInputSchema(options.mode, options.allowSelfTarget),
         name: "cronjob",

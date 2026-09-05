@@ -28,6 +28,7 @@ import type {
 import type { AgentChatMessageTriggerInput } from "./chat-message-input.ts"
 import type { Message } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type {
   AgentChatMessageTriggerInput,
@@ -132,7 +133,7 @@ export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends Agent
       return await Promise.race([
         resolution,
         new Promise<never>((_resolve, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(`Durable chat error fallback timed out after ${timeout}ms.`)), timeout)
+          timeoutId = setTimeout(() => reject(agentDiagnostics.AGENT_R0376({ message: `Durable chat error fallback timed out after ${timeout}ms.` })), timeout)
         }),
       ])
     }
@@ -154,7 +155,7 @@ export async function resolveDurableChatErrorFallbackIntents<TRuntimeConfig exte
     ...args,
     thread: {
       post: async (message: unknown) => {
-        if (!acceptingIntents) throw new Error("Durable chat error fallback resolution has already completed.")
+        if (!acceptingIntents) throw agentDiagnostics.AGENT_R0377({ message: "Durable chat error fallback resolution has already completed." })
         // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
         intents.push(createReplyDeliveryEffectIntent(message as never, { intent: "chat.error-fallback" }))
       },
@@ -417,25 +418,25 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
 export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   const manualDelivery = options.loading !== undefined || options.delivery === "manual"
   if (manualDelivery && (options.stream === true || options.commentary !== undefined)) {
-    throw new TypeError("[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary.")
+    throw agentDiagnostics.AGENT_R0378({ message: "[vitehub] messages.delivery \"manual\" cannot be combined with messages.stream or messages.commentary." })
   }
   if (options.loading?.updates !== undefined && options.loading.updates !== "commentary") {
-    throw new TypeError('[vitehub] messages.loading.updates must be "commentary".')
+    throw agentDiagnostics.AGENT_R0379({ message: '[vitehub] messages.loading.updates must be "commentary".' })
   }
   if (options.loading?.intervalMs !== undefined && (!Number.isFinite(options.loading.intervalMs) || options.loading.intervalMs <= 0)) {
-    throw new TypeError("[vitehub] messages.loading.intervalMs must be a positive finite number.")
+    throw agentDiagnostics.AGENT_R0380({ message: "[vitehub] messages.loading.intervalMs must be a positive finite number." })
   }
   if (options.final?.delivery !== undefined && options.final.delivery !== "new-message") {
-    throw new TypeError('[vitehub] messages.final.delivery must be "new-message".')
+    throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message".' })
   }
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
-    throw new TypeError("[vitehub] messages.timeout must be a positive finite number.")
+    throw agentDiagnostics.AGENT_R0382({ message: "[vitehub] messages.timeout must be a positive finite number." })
   }
   if (options.durable && !manualDelivery) {
-    throw new TypeError("[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply.")
+    throw agentDiagnostics.AGENT_R0383({ message: "[vitehub] messages.durable requires delivery: \"manual\" so Agent finish effects own the deferred reply." })
   }
   if (options.durable && options.concurrency !== undefined && options.concurrency !== "parallel" && options.concurrency !== "steer") {
-    throw new TypeError(`[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.`)
+    throw agentDiagnostics.AGENT_R0384({ message: `[vitehub] messages.durable cannot be combined with concurrency: ${JSON.stringify(options.concurrency)} because Workflow handoff releases the webhook lease before the Agent Invocation settles.` })
   }
 }
 

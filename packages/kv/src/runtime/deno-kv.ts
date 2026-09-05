@@ -1,5 +1,6 @@
 import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 type DenoKVKey = [unknown, ...unknown[]]
 type ViteHubDenoKVKey = [string]
@@ -43,7 +44,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   const open = () => kvPromise ||= (async () => {
     const openKv = getDenoRuntime()?.openKv
     if (!openKv) {
-      throw new Error("[vitehub] Deno KV requires Deno.openKv(). The runtime must be Deno with KV enabled, or the KV Store needs another driver.")
+      throw kvErrorDiagnostics.KV_R0001({ message: "[vitehub] Deno KV requires Deno.openKv(). The runtime must be Deno with KV enabled, or the KV Store needs another driver." })
     }
     return openKv(options.path)
   })()

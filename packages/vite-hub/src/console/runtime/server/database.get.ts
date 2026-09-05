@@ -6,6 +6,7 @@ import { getConsoleDatabase } from "./database.ts"
 
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const defaultLimit = 50
 const maximumLimit = 100
@@ -61,7 +62,7 @@ interface DatabaseTableEntry {
 }
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0050({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 function integerParameter(value: string | null, name: string, fallback: number, maximum: number): number {

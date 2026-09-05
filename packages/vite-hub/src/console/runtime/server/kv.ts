@@ -4,6 +4,7 @@ import { installConsoleKVScope, resolveConsoleKV } from "../../internal.ts"
 
 import type { KVStorage } from "@vite-hub/kv"
 import type { ConsoleKVInspection } from "../../internal.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export function installConsoleKV(
   projectRoot: string,
@@ -20,7 +21,7 @@ export function installConsoleKV(
 export function getConsoleKV(): ConsoleKVInspection {
   const inspection = resolveConsoleKV()
   if (!inspection) {
-    throw new TypeError("[vitehub] KV inspection has not been installed for this runtime.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0068({ message: "[vitehub] KV inspection has not been installed for this runtime." })
   }
   return inspection
 }

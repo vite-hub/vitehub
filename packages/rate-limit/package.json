@@ -40,7 +40,8 @@
     "test": "vp run -t @vite-hub/rate-limit#build && vp test"
   },
   "dependencies": {
-    "h3": "catalog:unjs"
+    "h3": "catalog:unjs",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

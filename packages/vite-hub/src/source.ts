@@ -11,6 +11,7 @@ import type {
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export * from "@vite-hub/source"
 
@@ -94,7 +95,7 @@ function isCursorScalar(value: unknown): value is boolean | null | number | stri
 function driverType(column: AnySQLiteColumn): "number" | "string" {
   if (["boolean", "date", "number"].includes(column.dataType)) return "number"
   if (column.dataType === "string") return "string"
-  throw new TypeError("[vitehub] Collection orderBy columns must encode as number or string values.")
+  throw viteHubErrorDiagnostics.VITE_HUB_R0090({ message: "[vitehub] Collection orderBy columns must encode as number or string values." })
 }
 
 function isColumnDriverValue(column: AnySQLiteColumn, type: "number" | "string", value: unknown): boolean {
@@ -135,7 +136,7 @@ function keysetCursorSchema(columns: readonly AnySQLiteColumn[]): StandardSchema
 function columnKey(table: SQLiteTable, column: AnySQLiteColumn): string {
   const entry = Object.entries(getTableColumns(table)).find(([, candidate]) => candidate === column)
   if (!entry) {
-    throw new TypeError("[vitehub] Collection orderBy columns must belong to its table.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0091({ message: "[vitehub] Collection orderBy columns must belong to its table." })
   }
   return entry[0]
 }
@@ -143,7 +144,7 @@ function columnKey(table: SQLiteTable, column: AnySQLiteColumn): string {
 function driverValue(column: AnySQLiteColumn, value: unknown): boolean | null | number | string {
   const encoded = column.mapToDriverValue(value)
   if (!isCursorScalar(encoded)) {
-    throw new TypeError("[vitehub] Collection orderBy columns must encode as scalar values.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0092({ message: "[vitehub] Collection orderBy columns must encode as scalar values." })
   }
   return encoded
 }
@@ -196,12 +197,12 @@ export function table(input: unknown): CollectionSource<any, any, KeysetCursor> 
 
   for (const column of columns) {
     if (!column.notNull) {
-      throw new TypeError("[vitehub] Collection orderBy columns must be non-null.")
+      throw viteHubErrorDiagnostics.VITE_HUB_R0093({ message: "[vitehub] Collection orderBy columns must be non-null." })
     }
   }
   const tieBreaker = columns[1]!
   if (!tieBreaker.primary && !tieBreaker.isUnique) {
-    throw new TypeError("[vitehub] Collection orderBy tieBreaker must be unique.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0094({ message: "[vitehub] Collection orderBy tieBreaker must be unique." })
   }
 
   const direction = options.orderBy.direction

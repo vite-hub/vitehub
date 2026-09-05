@@ -35,6 +35,7 @@ import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } f
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
@@ -290,7 +291,7 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   for (const name of names) {
     const existing = imports.find(entry => (entry.as ?? entry.name) === name)
     if (existing && existing.from !== from) {
-      throw new TypeError(`[vitehub] Cannot auto-import ${name} from ${from} because it is already configured from ${existing.from}.`)
+      throw viteHubErrorDiagnostics.VITE_HUB_B0008({ message: `[vitehub] Cannot auto-import ${name} from ${from} because it is already configured from ${existing.from}.` })
     }
     if (!existing) imports.push({ from, name })
   }
@@ -796,7 +797,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ? "cloudflare-durable"
     : plan.nitroPreset
   if (typeof nitro.preset === "string" && normalizeNitroPreset(nitro.preset) !== nitroPreset) {
-    throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + ".")
+    throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
   nitro.preset = nitroPreset
   if (plan.preset === "cloudflare") {
@@ -865,7 +866,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const fixture = nuxt.options.vitehubCliDiscovery
       ? undefined
       : process.env[consoleFixtureEnvironmentVariable]
-    if (fixture && !nuxt.options.dev) throw new Error("[vitehub] Console fixture mode is development-only.")
+    if (fixture && !nuxt.options.dev) throw viteHubErrorDiagnostics.VITE_HUB_B0010({ message: "[vitehub] Console fixture mode is development-only." })
     resolvedConsoleFixture = fixture ? resolve(projectRoot, fixture) : undefined
     if (resolvedConsoleFixture) readConsoleFixture(resolvedConsoleFixture)
   }
@@ -1078,7 +1079,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envProjectRoot = envPlugin?.api?.resolveProjectRoot?.(viteRoot) ?? configuredEnvProjectRoot ?? projectRoot
   if (envPlugin?.api?.resolveProjectRoot && configuredEnvProjectRoot) {
     if (configuredEnvProjectRoot !== envProjectRoot) {
-      throw new TypeError(`[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.`)
+      throw viteHubErrorDiagnostics.VITE_HUB_B0011({ message: `[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.` })
     }
   }
   const generatedAliases = {

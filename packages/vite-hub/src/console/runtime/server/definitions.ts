@@ -4,6 +4,7 @@ import { installConsoleDefinitionScope, resolveConsoleDefinitions } from "../../
 import { consoleDefinitionSectionIds } from "../definitions.ts"
 
 import type { ConsoleDefinitionCatalog } from "../definitions.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export function installConsoleDefinitions(
   projectRoot: string,
@@ -25,7 +26,7 @@ export function installConsoleDefinitions(
 export function getConsoleDefinitions(): ConsoleDefinitionCatalog {
   const catalog = resolveConsoleDefinitions()
   if (!catalog) {
-    throw new TypeError("[vitehub] Definition inspection has not been installed for this runtime.")
+    throw viteHubErrorDiagnostics.VITE_HUB_C0002({ message: "[vitehub] Definition inspection has not been installed for this runtime." })
   }
   return catalog
 }

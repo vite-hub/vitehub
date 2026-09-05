@@ -6,6 +6,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 type OpenWorkflowWorker = ReturnType<Awaited<ReturnType<typeof getOpenWorkflowRuntime>>["client"]["newWorker"]>
 
@@ -56,7 +57,7 @@ function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
   for (const [name, definition] of getInlineWorkflowDefinitions()) {
     const existing = definitions.get(name)
     if (existing && existing !== definition) {
-      throw new Error(`Duplicate workflow name "${name}" from inline and discovered definitions.`)
+      throw workflowErrorDiagnostics.WORKFLOW_R0016({ message: `Duplicate workflow name "${name}" from inline and discovered definitions.` })
     }
     definitions.set(name, definition)
   }
@@ -65,7 +66,7 @@ function mergeInlineDefinitions(definitions: Map<string, WorkflowDefinition>) {
 export async function createOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions = {}): Promise<OpenWorkflowWorker> {
   const config = options.config ?? getWorkflowRuntimeConfig()
   if (!config || config.provider !== "openworkflow") {
-    throw new Error("OpenWorkflow worker requires workflow.provider \"openworkflow\".")
+    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.provider \"openworkflow\"." })
   }
 
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}

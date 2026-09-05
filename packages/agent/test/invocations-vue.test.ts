@@ -470,9 +470,10 @@ describe("Agent Invocation Vue composables", () => {
     const interruptedPage = resource.loadMore();
     const refresh = resource.refresh();
     await interruptedPage;
-    expect(resource.loadMoreError.value).toEqual(
-      new Error("Loading older Agent Invocations was interrupted."),
-    );
+    expect(resource.loadMoreError.value).toMatchObject({
+      code: "AGENT_R0617",
+      message: "Loading older Agent Invocations was interrupted.",
+    });
 
     calls[2]!.resolve({ cursor: "page-2", invocations: [record("inv-3"), record("inv-2")] });
     await refresh;

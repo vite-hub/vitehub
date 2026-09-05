@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url'
 
 import type { AgentSandboxConfig } from '../module-types'
 import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../module-types'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type SandboxRegistryEntry = {
   bundle: SandboxDefinitionBundle
@@ -38,7 +39,7 @@ async function loadActiveGeneratedSandboxDefinition(scope: string, name: string)
   const activeModule = await import(/* @vite-ignore */ createGeneratedSandboxModuleSpecifier(scope, true))
   const activeEntry = activeModule.default?.[name] as SandboxRuntimeRegistry[string] | undefined
   if (!activeEntry)
-    throw new Error(`[vitehub] Sandbox definition "${name}" is no longer generated.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0074({ message: `[vitehub] Sandbox definition "${name}" is no longer generated.` })
   return typeof activeEntry === 'function' ? await activeEntry() : { default: activeEntry }
 }
 
@@ -50,7 +51,7 @@ export function createGeneratedSandboxRuntimeRegistry(
     const activeRegistry = generatedRegistries.get(scope)
     const entry = activeRegistry === undefined ? registry[name] : activeRegistry[name]
     if (!entry)
-      throw new Error(`[vitehub] Sandbox definition "${name}" is no longer generated.`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0075({ message: `[vitehub] Sandbox definition "${name}" is no longer generated.` })
     try {
       return await entry.load()
     }

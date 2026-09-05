@@ -20,6 +20,7 @@ import { getVercelSchedulePath } from "../integrations/vercel.ts"
 
 import type { Plugin } from "esbuild"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const schedulePackageName = "@vite-hub/schedule"
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
@@ -161,7 +162,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
   if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field)) || hasVercelDayConflict) {
-    throw new Error(`Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare, Vercel, and Netlify.`)
+    throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare, Vercel, and Netlify.` })
   }
 }
 
@@ -170,7 +171,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   const definition = findDefaultExportCall(source, ["defineSchedule"])
   const cron = definition && readStaticString(readObjectProperty(definition.argument, "cron"))
   if (!cron) {
-    throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
+    throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
   return cron
 }
@@ -191,7 +192,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -218,7 +219,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "async function runSchedule(name, cron, scheduledAt) {",
     "  const definition = await loadScheduleDefinition(name)",
     "  if (!definition) {",
-    "    throw new Error(`Missing schedule definition: ${name}`)",
+    "    throw missingScheduleDefinitionError(name)",
     "  }",
     "  return await executeStaticSchedule({ cron, definition, name, scheduledAt })",
     "}",
@@ -316,7 +317,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
     "",
@@ -331,7 +332,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
     "  Deno.cron(cronName, cron, async () => {",
     "    const definition = await loadScheduleDefinition(name)",
     "    if (!definition) {",
-    "      throw new Error(`Missing schedule definition: ${name}`)",
+    "      throw missingScheduleDefinitionError(name)",
     "    }",
     "    await executeStaticSchedule({ cron, definition, name, scheduledAt: new Date() })",
     "  })",
@@ -415,7 +416,7 @@ export async function writeVercelScheduleFunctions(options: {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_").split("/").filter(Boolean).join("/")
     const existingName = emittedFunctionNames.get(safeName)
     if (existingName) {
-      throw new Error(`Schedule "${definition.name}" and "${existingName}" both emit the same Vercel function path: ${safeName}`)
+      throw scheduleErrorDiagnostics.SCHEDULE_R0005({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Vercel function path: ${safeName}` })
     }
     emittedFunctionNames.set(safeName, definition.name)
 
@@ -575,7 +576,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
     const fileName = sanitizeNetlifyScheduleFunctionName(definition.name)
     const existingName = emitted.get(fileName)
     if (existingName) {
-      throw new Error(`Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${fileName}`)
+      throw scheduleErrorDiagnostics.SCHEDULE_R0006({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${fileName}` })
     }
     emitted.set(fileName, definition.name)
     const file = resolve(options.functionRoot, fileName)

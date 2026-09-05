@@ -129,8 +129,8 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/box": "workspace:*",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -140,9 +140,10 @@
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
-    "mountx": "catalog:workspace",
     "minimatch": "catalog:workspace",
+    "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
+    "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {

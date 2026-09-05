@@ -5,6 +5,7 @@ import { invocationUsage } from "./usage.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocationSummary } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 interface ConsoleInvocationDetail {
   appendObservations?: boolean
@@ -33,7 +34,7 @@ const invocationHandler: (event: ConsoleRequestEvent) => Promise<ConsoleInvocati
   const id = event.context?.params?.id ?? (pathId ? decodeURIComponent(pathId) : "")
   const invocation = await getConsoleInvocations().get(id)
   if (!invocation) {
-    throw Object.assign(new Error("Invocation not found"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }), {
       statusCode: 404,
       statusMessage: "Invocation not found",
     })

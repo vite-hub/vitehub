@@ -2,6 +2,7 @@ import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hu
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type OtlpResourceAttributes = Record<string, boolean | number | string>
 
@@ -29,7 +30,7 @@ interface OtlpEncodingBudget {
 
 function consumeOtlpBinaryBudget(budget: OtlpEncodingBudget, byteLength: number): void {
   if (byteLength > budget.binaryBytesRemaining) {
-    throw new Error("OTLP/HTTP JSON telemetry batch exceeds the bounded binary budget.")
+    throw agentDiagnostics.AGENT_R0859({ message: "OTLP/HTTP JSON telemetry batch exceeds the bounded binary budget." })
   }
   budget.binaryBytesRemaining -= byteLength
 }
@@ -106,7 +107,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
     const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get?.call(value)
     const mediaType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get?.call(value)
     if (!hasRuntimeType(size, "number") || !hasRuntimeType(mediaType, "string")) {
-      throw new Error("OTLP/HTTP JSON Blob payload is invalid.")
+      throw agentDiagnostics.AGENT_R0860({ message: "OTLP/HTTP JSON Blob payload is invalid." })
     }
     consumeOtlpBinaryBudget(budget, size)
     const FileConstructor = globalThis.File
@@ -118,7 +119,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
       const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
       const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
       if (!hasRuntimeType(name, "string") || !hasRuntimeType(lastModified, "number")) {
-        throw new Error("OTLP/HTTP JSON File payload is invalid.")
+        throw agentDiagnostics.AGENT_R0861({ message: "OTLP/HTTP JSON File payload is invalid." })
       }
       return {
         kvlistValue: {
@@ -326,7 +327,7 @@ async function postOtlp(
   rejectedField: "rejectedLogRecords" | "rejectedSpans",
 ): Promise<void> {
   if (new TextEncoder().encode(body).byteLength > 4 * 1024 * 1024) {
-    throw new Error("OTLP/HTTP JSON telemetry payload exceeds 4 MiB.")
+    throw agentDiagnostics.AGENT_R0862({ message: "OTLP/HTTP JSON telemetry payload exceeds 4 MiB." })
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response
@@ -343,7 +344,7 @@ async function postOtlp(
         await wait(100 * 2 ** attempt * (0.5 + Math.random()))
         continue
       }
-      throw new Error("OTLP/HTTP JSON telemetry export failed.", { cause: error })
+      throw agentDiagnostics.AGENT_R0863({ message: "OTLP/HTTP JSON telemetry export failed.", cause: error })
     }
     if (response.ok) {
       const responseBody = await response.text()
@@ -353,10 +354,10 @@ async function postOtlp(
         payload = JSON.parse(responseBody)
       }
       catch (error) {
-        throw new Error("OTLP/HTTP JSON telemetry export returned an invalid response.", { cause: error })
+        throw agentDiagnostics.AGENT_R0864({ message: "OTLP/HTTP JSON telemetry export returned an invalid response.", cause: error })
       }
       if (otlpResponseRejected(payload, rejectedField)) {
-        throw new Error("OTLP/HTTP JSON telemetry export was partially rejected.")
+        throw agentDiagnostics.AGENT_R0865({ message: "OTLP/HTTP JSON telemetry export was partially rejected." })
       }
       return
     }
@@ -364,7 +365,7 @@ async function postOtlp(
       await wait(retryAfterMs(response, attempt))
       continue
     }
-    throw new Error(`OTLP/HTTP JSON telemetry export failed with status ${response.status}.`)
+    throw agentDiagnostics.AGENT_R0866({ message: `OTLP/HTTP JSON telemetry export failed with status ${response.status}.` })
   }
 }
 

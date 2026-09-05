@@ -19,6 +19,7 @@ import type {
   WorkspaceStat,
   WorkspaceStore,
 } from "../../core/types.ts"
+import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type BlobListItem = {
   key: string
@@ -76,7 +77,7 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
     },
     async download(key: string): Promise<Blob> {
       const result = await blob.get(key, { access, ...auth(options) })
-      if (!result || result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
+      if (!result || result.statusCode !== 200 || !result.stream) throw Object.assign(workspaceErrorDiagnostics.WORKSPACE_R0033({ message: "not found" }), { code: "NotFound" })
       return await new Response(result.stream, {
         headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
       }).blob()

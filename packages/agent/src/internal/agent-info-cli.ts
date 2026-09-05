@@ -6,6 +6,7 @@ import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface AgentInfoCliContext {
   env: NodeJS.ProcessEnv
@@ -48,7 +49,7 @@ function writeInfoUsage(context: AgentInfoCliContext): void {
 
 function readOptionValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1]
-  if (!value || value.startsWith("-")) throw new Error(`Missing value for ${flag}.`)
+  if (!value || value.startsWith("-")) throw agentDiagnostics.AGENT_R0498({ message: `Missing value for ${flag}.` })
   return value
 }
 
@@ -87,8 +88,8 @@ function parseInfoArgs(args: string[], env: NodeJS.ProcessEnv): ParsedInfoArgs {
       parsed.url = arg.slice("--url=".length)
       continue
     }
-    if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}.`)
-    throw new Error(`Unexpected argument: ${arg}.`)
+    if (arg.startsWith("-")) throw agentDiagnostics.AGENT_R0499({ message: `Unknown option: ${arg}.` })
+    throw agentDiagnostics.AGENT_R0500({ message: `Unexpected argument: ${arg}.` })
   }
 
   return parsed
@@ -254,7 +255,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
   let result: Record<PropertyKey, unknown>
   try {
     const value: unknown = await response.json()
-    if (!isRuntimeRecord(value)) throw new TypeError("Invalid Agent discovery response")
+    if (!isRuntimeRecord(value)) throw agentDiagnostics.AGENT_R0501({ message: "Invalid Agent discovery response" })
     result = value
   }
   catch {

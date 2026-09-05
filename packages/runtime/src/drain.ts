@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 const pidInput: string | undefined = process.argv[2]
 const statusUrl: string = process.argv[3] || "http://127.0.0.1:3000/api/drain"
@@ -46,7 +47,7 @@ try {
   let signaled = false
   while (running()) {
     const status = await readStatus()
-    if (status === "failed" || status === "invalid") throw new Error(`Process drain reported ${status}.`)
+    if (status === "failed" || status === "invalid") throw runtimeErrorDiagnostics.RUNTIME_R0004({ message: `Process drain reported ${status}.` })
     if (status === "drained") process.exit(0)
     if (status === "accepting" && !signaled) {
       process.kill(pid, "SIGUSR2")
@@ -54,7 +55,7 @@ try {
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }
-  throw new Error(`Process ${pid} exited before drain completed.`)
+  throw runtimeErrorDiagnostics.RUNTIME_R0005({ message: `Process ${pid} exited before drain completed.` })
 }
 catch (error) {
   console.error(error instanceof Error ? error.message : error)

@@ -28,6 +28,7 @@ import {
 } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { TraceRunView } from "@vite-hub/runtime"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface AgentScore {
   metadata?: unknown
@@ -157,7 +158,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function providerVariantModel(model: AgentModelInput): string {
   if (typeof model !== "string" || !model.trim()) {
-    throw new TypeError("[vitehub] Provider Agent Evaluation model variants require a string model id; gateway descriptors and LanguageModel instances are only supported by model-backed Drivers.")
+    throw agentDiagnostics.AGENT_R0402({ message: "[vitehub] Provider Agent Evaluation model variants require a string model id; gateway descriptors and LanguageModel instances are only supported by model-backed Drivers." })
   }
   return model
 }
@@ -174,7 +175,7 @@ function applyVariantToExplicitDriver(
     }
   }
   if (!isRecord(driver)) {
-    throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+    throw agentDiagnostics.AGENT_R0403({ message: "[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver." })
   }
   if ("model" in driver || driver.kind === "codex" || driver.kind === "claude-code") {
     const provider = driver.kind === "codex" || driver.kind === "claude-code"
@@ -184,7 +185,7 @@ function applyVariantToExplicitDriver(
       ...(variant.model !== undefined ? { model: provider ? providerVariantModel(variant.model) : variant.model } : {}),
     }
   }
-  throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+  throw agentDiagnostics.AGENT_R0404({ message: "[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver." })
 }
 
 function resolveEvalNameFromFile(caller: string): string {
@@ -194,7 +195,7 @@ function resolveEvalNameFromFile(caller: string): string {
 }
 
 function getCallerFile(): string | undefined {
-  const stack = new Error().stack
+  const stack = agentDiagnostics.AGENT_R0405().stack
   if (!stack) return
   const current = fileURLToPath(import.meta.url)
   const sourceMappedCurrent = sourceMappedEvalFile(current)
@@ -221,7 +222,7 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   caller: string | undefined,
 ): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!caller) {
-    throw new Error("[vitehub] defineEval() could not infer the sibling Agent Definition. The sibling Agent Definition must be passed explicitly.")
+    throw agentDiagnostics.AGENT_R0406({ message: "[vitehub] defineEval() could not infer the sibling Agent Definition. The sibling Agent Definition must be passed explicitly." })
   }
 
   const extension = extname(caller)
@@ -231,7 +232,7 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
     : caller.slice(0, -extension.length).replace(/\.eval$/, "") + extension
   const module = await import(pathToFileURL(sibling).href) as { default?: AgentEvalAgent<TRuntimeConfig> }
   if (!module.default) {
-    throw new Error(`[vitehub] defineEval() expected ${sibling} to default export an Agent Definition.`)
+    throw agentDiagnostics.AGENT_R0407({ message: `[vitehub] defineEval() expected ${sibling} to default export an Agent Definition.` })
   }
   return withSiblingWorkspaceSourceRoot(module.default, sibling)
 }
@@ -293,7 +294,7 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
     } as never)
   }
   if (!isWorkspaceAgentDefinition(agent)) {
-    throw new Error("[vitehub] Agent Evaluation variants with model or instructions require an Agent Definition created with defineAgent(...).")
+    throw agentDiagnostics.AGENT_R0408({ message: "[vitehub] Agent Evaluation variants with model or instructions require an Agent Definition created with defineAgent(...)." })
   }
 
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
@@ -309,7 +310,7 @@ function normalizeScenarios<CALL_OPTIONS>(
   scorers: AgentScorer[] | undefined,
 ): Array<NormalizedEvalScenario<CALL_OPTIONS>> {
   if (!scenarios.length) {
-    throw new Error("[vitehub] defineEval({ scenarios }) requires at least one scenario.")
+    throw agentDiagnostics.AGENT_R0409({ message: "[vitehub] defineEval({ scenarios }) requires at least one scenario." })
   }
   const globalScorers = scorers || []
   return scenarios.map(scenario => ({
@@ -337,7 +338,7 @@ function normalizeEvalCases<
       test: definition.test,
     }]
   }
-  throw new Error("[vitehub] defineEval() requires scenarios or test.")
+  throw agentDiagnostics.AGENT_R0410({ message: "[vitehub] defineEval() requires scenarios or test." })
 }
 
 function normalizeVariants(variants: AgentEvalVariant[] | undefined): AgentEvalVariant[] {
@@ -487,7 +488,7 @@ async function runEvalTest<CALL_OPTIONS>(
 
   await testCase.test(context)
   if (!observation) {
-    throw new Error("[vitehub] Agent Eval test() must call t.send(...).")
+    throw agentDiagnostics.AGENT_R0411({ message: "[vitehub] Agent Eval test() must call t.send(...)." })
   }
   return {
     ...observation,

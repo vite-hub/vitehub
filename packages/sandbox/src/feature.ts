@@ -22,6 +22,7 @@ import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-type
 import { getSandboxProjectSourceFiles, resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
 import type { DiscoveredSandboxDefinition } from './discovery'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const sandboxRuntimeDependencies = [
   '@cloudflare/sandbox',
@@ -111,9 +112,9 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
     return JSON.parse(JSON.stringify(options)) as SandboxDefinitionOptions
   }
   catch (error) {
-    throw new Error(`[vitehub] Sandbox definition "${name}" options must be JSON-serializable.`, {
+    throw sandboxErrorDiagnostics.SANDBOX_R0011({ message: `[vitehub] Sandbox definition "${name}" options must be JSON-serializable.`, ...{
       cause: error,
-    })
+    } })
   }
 }
 
@@ -168,10 +169,11 @@ export function createSandboxProviderLoaderContents(
   const providerLoaderPath = sandboxRuntimeProviderSpecifiers[provider]
   return [
     `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
+    `import { unsupportedHostedSandboxProviderError } from ${JSON.stringify(sandboxRuntimeSpecifier)}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
-    '    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)',
+    '    throw unsupportedHostedSandboxProviderError(selectedProvider)',
     '  return {',
     '    resolveSandboxBox,',
     '  }',
@@ -201,7 +203,7 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
 
   const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
   if (unsupportedHostedProvider) {
-    throw new TypeError('[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.' })
   }
 
   return config
@@ -229,7 +231,7 @@ export async function createSandboxFeaturePlan(
   for (const definition of sandboxDefinitions) {
     const existing = definitionFileByName.get(definition.definitionFilename)
     if (existing) {
-      throw new Error(`[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0013({ message: `[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".` })
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }
@@ -302,7 +304,7 @@ export async function createSandboxFeaturePlan(
           return createSandboxRegistryContents(location.dst, sandboxDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
             if (!artifact)
-              throw new Error(`[vitehub] Missing generated sandbox definition module for "${definition.name}".`)
+              throw sandboxErrorDiagnostics.SANDBOX_R0014({ message: `[vitehub] Missing generated sandbox definition module for "${definition.name}".` })
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,

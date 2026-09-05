@@ -79,6 +79,7 @@
     "effect": "catalog:effect",
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {

@@ -29,6 +29,7 @@ import type {
 } from "./types.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const agentTriggerContextKey = "agent.trigger"
 
@@ -82,10 +83,10 @@ function agentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig>(
 
 function assertTriggerName(name: unknown, owner: string): asserts name is string {
   if (typeof name !== "string" || !name.trim()) {
-    throw new TypeError(`[vitehub] ${owner} trigger names must be non-empty strings.`)
+    throw agentDiagnostics.AGENT_R0868({ message: `[vitehub] ${owner} trigger names must be non-empty strings.` })
   }
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
-    throw new TypeError(`[vitehub] ${owner} trigger "${name}" must be a stable local identifier.`)
+    throw agentDiagnostics.AGENT_R0869({ message: `[vitehub] ${owner} trigger "${name}" must be a stable local identifier.` })
   }
 }
 
@@ -163,7 +164,7 @@ export async function resolveAgentTriggers<
       assertTriggerName(name, `Channel "${channelId}"`)
       const id = `${channelId}.${name}` as const
       if (triggers[id]) {
-        throw new Error(`[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".`)
+        throw agentDiagnostics.AGENT_R0870({ message: `[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".` })
       }
       triggers[id] = {
         channelId,
@@ -429,7 +430,7 @@ export async function resolveAgentTriggerInvocation<
   const triggers = await resolveAgentTriggers(agent, context)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
-    throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
+    throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })
   }
   if (options?.verifyWebhook !== false && trigger.webhooks?.length && context.request) {
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {

@@ -330,14 +330,16 @@ describe("authenticated", () => {
     await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
 
     serverMocks.getSession.mockResolvedValueOnce({ session: {}, user: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
-      new TypeError("Better Auth returned an invalid session response."),
-    )
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
+      code: "AUTH_R0012",
+      message: "Better Auth returned an invalid session response.",
+    })
 
     serverMocks.getAuthForRequest.mockReturnValueOnce({ api: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
-      new TypeError("Better Auth did not expose api.getSession()."),
-    )
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
+      code: "AUTH_R0011",
+      message: "Better Auth did not expose api.getSession().",
+    })
   })
 
   it("preserves the exact Better Auth session objects for custom mapping", async () => {

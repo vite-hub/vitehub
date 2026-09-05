@@ -4,6 +4,7 @@ import { createUnstorageDriver } from "mountx/drivers/unstorage"
 
 import type { WorkspaceEntry, WorkspaceSession, WorkspaceSessionWriteFileOptions } from "./core/types.ts"
 import type { FsDriver } from "mountx"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface WorkspaceMountXDriverOptions {
   readOnly?: boolean
@@ -36,7 +37,7 @@ function assertProjectablePath(path: string) {
   )
   if (invalidName) {
     throw Object.assign(
-      new Error(`Workspace filename is not representable as an unstorage key: ${invalidName}`),
+      workspaceErrorDiagnostics.WORKSPACE_R0031({ message: `Workspace filename is not representable as an unstorage key: ${invalidName}` }),
       { code: "EINVAL", path },
     )
   }
@@ -46,7 +47,7 @@ function assertProjectableEntry(entry: WorkspaceEntry | undefined) {
   if (entry) assertProjectablePath(entry.path)
   if (entry?.metadata?.gitMode !== "120000") return entry
   throw Object.assign(
-    new Error(`MountX cannot project Workspace symlink semantics: ${entry.path}`),
+    workspaceErrorDiagnostics.WORKSPACE_R0032({ message: `MountX cannot project Workspace symlink semantics: ${entry.path}` }),
     { code: "ENOTSUP", path: entry.path },
   )
 }

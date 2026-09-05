@@ -9,6 +9,7 @@ import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
@@ -104,10 +105,10 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     const createOptions = nameOrOptions
     const { handler, name } = createOptions
     if (!name || !hasRuntimeType(name, "string")) {
-      throw new TypeError("`createWorkflow()` requires a workflow name.")
+      throw workflowErrorDiagnostics.WORKFLOW_R0009({ message: "`createWorkflow()` requires a workflow name." })
     }
     if (!hasRuntimeType(handler, "function")) {
-      throw new TypeError("`createWorkflow()` requires a workflow handler.")
+      throw workflowErrorDiagnostics.WORKFLOW_R0010({ message: "`createWorkflow()` requires a workflow handler." })
     }
     registerInlineWorkflowDefinition(name, {
       // SAFETY: Workflow definition registration establishes the asserted typed handle contract.
@@ -133,7 +134,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
 
   const name = nameOrOptions
   if (!name || !hasRuntimeType(name, "string")) {
-    throw new TypeError("`createWorkflow()` requires a workflow name.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
   }
 
   const handler = hasRuntimeType(handlerOrOptions, "function")
@@ -145,7 +146,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
 
   if (handler !== undefined) {
     if (!hasRuntimeType(handler, "function")) {
-      throw new TypeError("`createWorkflow()` requires a workflow handler.")
+      throw workflowErrorDiagnostics.WORKFLOW_R0012({ message: "`createWorkflow()` requires a workflow handler." })
     }
     registerInlineWorkflowDefinition(name, {
       // SAFETY: Workflow definition registration establishes the asserted typed handle contract.
@@ -154,7 +155,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     })
   }
   else if (handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
-    throw new TypeError("`createWorkflow()` options must be an object.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
   }
 
   return {
@@ -232,7 +233,7 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
 
 export async function resumeWorkflowSignal<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
   if (!token || !hasRuntimeType(token, "string")) {
-    throw new TypeError("`resumeWorkflowSignal()` requires an opaque signal token.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflowSignal()` requires an opaque signal token." })
   }
   const config = getActiveWorkflowConfig()
   if (config === false) {

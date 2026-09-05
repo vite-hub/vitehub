@@ -3,6 +3,7 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import runtimeRegistry from "#vitehub-workspace-registry"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type WorkspaceRegistryModule = {
   default?: WorkspaceDefinitionInput
@@ -80,7 +81,7 @@ export function normalizeWorkspaceDefinition(name: string, definition: Workspace
     return normalizedWorkspace
   }
   if ("name" in definition) {
-    throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0021({ message: `[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.` })
   }
   return { ...pickWorkspaceFields(definition), name }
 }
@@ -95,7 +96,7 @@ function mergeWorkspaceSources(
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): WorkspaceDefinition {
   if (!name || !hasRuntimeType(name, "string")) {
-    throw new TypeError("[vitehub] registerWorkspace requires a string name.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0022({ message: "[vitehub] registerWorkspace requires a string name." })
   }
   const registered = normalizeWorkspaceDefinition(name, definition)
   workspaceRegistryState().registeredDefinitions.set(name, registered)

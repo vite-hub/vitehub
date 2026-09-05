@@ -20,6 +20,7 @@ import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/dat
 
 import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
 import type { RuntimeHostContext } from "@vite-hub/runtime"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string
 
@@ -46,10 +47,10 @@ export const console = {
       invocations: getConsoleInvocationsDatabase(),
       invocationUrl(invocation) {
         const request = context.request
-        if (!request) throw new TypeError("[vitehub] Console invocation URLs require a request context.")
+        if (!request) throw viteHubErrorDiagnostics.VITE_HUB_R0073({ message: "[vitehub] Console invocation URLs require a request context." })
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation links accept records from external database adapters, so validate both required identities at this boundary.
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
-          throw new TypeError("[vitehub] Console invocation URLs require an invocation with agentName and id.")
+          throw viteHubErrorDiagnostics.VITE_HUB_R0074({ message: "[vitehub] Console invocation URLs require an invocation with agentName and id." })
         }
         const agent = encodeURIComponent(encodeAgentRouteParam(invocation.agentName))
         const id = encodeURIComponent(invocation.id)

@@ -1,3 +1,4 @@
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 interface ConsoleHeaders {
   get(name: string): string | null
 }
@@ -95,7 +96,7 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<un
 }
 
 function consoleRequestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0069({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {

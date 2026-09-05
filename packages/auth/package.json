@@ -52,7 +52,8 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
-    "bun-types": "^1.4.0"
+    "bun-types": "^1.4.0",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",

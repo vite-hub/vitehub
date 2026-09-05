@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
+import { Diagnostic } from "nostics";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 type InspectorTab = "details" | "trace" | "workspace";
 type WorkspaceDescriptor = {
@@ -359,7 +361,7 @@ async function loadFile(path: string) {
       ),
     );
     if (loadedFile.path !== path || loadedFile.revision !== workspace.value?.revision)
-      throw new Error("The host returned a Workspace file for a different path or revision.");
+      throw viteHubErrorDiagnostics.VITE_HUB_R0107({ message: "The host returned a Workspace file for a different path or revision." });
     if (fileRequest !== controller || selectedPath.value !== path) return;
     file.value = loadedFile;
   } catch (error) {
@@ -386,12 +388,13 @@ async function requestJson(path: string, signal: AbortSignal): Promise<unknown> 
   return response.json();
 }
 
-class RequestError extends Error {
+class RequestError extends Diagnostic {
   constructor(
     message: string,
     readonly status: number,
   ) {
-    super(message);
+    super({ code: "VITE_HUB_R0111", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, RequestError);
+    this.name = "RequestError";
   }
 }
 
@@ -410,7 +413,7 @@ function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
     !repository ||
     !revision
   )
-    throw new Error("The host returned an invalid Workspace descriptor.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace descriptor." });
   const validatedPaths = paths.filter((path): path is string => path !== undefined);
   const result: WorkspaceDescriptor = {
     paths: validatedPaths,
@@ -428,7 +431,7 @@ function parseWorkspaceFile(value: unknown): WorkspaceFile {
   const revision = stringValue(file?.revision);
   const size = numericValue(file?.size);
   if (content === undefined || !path || !revision || size === undefined)
-    throw new Error("The host returned an invalid Workspace file.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0109({ message: "The host returned an invalid Workspace file." });
   return { content, path, revision, size };
 }
 

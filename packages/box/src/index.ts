@@ -24,6 +24,7 @@ import type {
   VercelSandboxInstance,
 } from "./vercel.ts";
 import { isBuiltInBoxRuntime } from "./internal/runtime.ts";
+import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type {
   AsciiBoxOptions,
@@ -299,7 +300,7 @@ const reservedRuntimeNames = new Set([
 async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
   if (isBoxRuntime(value)) {
     if (reservedRuntimeNames.has(value.name) && !isBuiltInBoxRuntime(value)) {
-      throw new Error(`[vitehub] Custom Box runtimes cannot use the reserved name "${value.name}". Select the built-in runtime by value instead.`);
+      throw boxErrorDiagnostics.BOX_R0030({ message: `[vitehub] Custom Box runtimes cannot use the reserved name "${value.name}". Select the built-in runtime by value instead.` });
     }
     return value;
   }
@@ -320,10 +321,10 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
       const { createVercelRuntime } = await import("./vercel.ts");
       return createVercelRuntime();
     }
-    throw new Error(`[vitehub] Unknown Box runtime "${value}". Expected "ascii", "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.`);
+    throw boxErrorDiagnostics.BOX_R0031({ message: `[vitehub] Unknown Box runtime "${value}". Expected "ascii", "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.` });
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("[vitehub] Box requires an explicit built-in runtime value or custom runtime object.");
+    throw boxErrorDiagnostics.BOX_R0032({ message: "[vitehub] Box requires an explicit built-in runtime value or custom runtime object." });
   }
 
   const { kind, ...options } = value as Record<string, unknown>;
@@ -351,7 +352,7 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     const { createVercelRuntime } = await import("./vercel.ts");
     return createVercelRuntime(options as VercelBoxOptions);
   }
-  throw new Error(`[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", "cloudflare-computer", or "vercel".`);
+  throw boxErrorDiagnostics.BOX_R0033({ message: `[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", "cloudflare-computer", or "vercel".` });
 }
 
 function isBoxRuntime(value: unknown): value is BoxRuntime {
@@ -379,10 +380,10 @@ export async function resolveBox<Context>(
   options: ResolveBoxOptions = {},
 ): Promise<Box> {
   if (!definition || typeof definition !== "object")
-    throw new TypeError("[vitehub] Box requires a definition.");
+    throw boxErrorDiagnostics.BOX_R0034({ message: "[vitehub] Box requires a definition." });
   const runtime = await resolveBoxRuntime(definition.runtime);
   if (definition.cwd !== undefined && definition.checkout !== undefined) {
-    throw new TypeError("[vitehub] Box checkout cannot be combined with cwd.");
+    throw boxErrorDiagnostics.BOX_R0035({ message: "[vitehub] Box checkout cannot be combined with cwd." });
   }
   const cwdValue = await resolveValue(definition.cwd, context);
   const cwd = cwdValue === undefined ? undefined : resolve(resolveString(cwdValue, "cwd"));
@@ -414,16 +415,12 @@ export async function resolveBox<Context>(
   try {
     executionAuthority = normalizeExecutionAuthority(prepared.executionAuthority);
   } catch {
-    throw new TypeError(
-      `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.`,
-    );
+    throw boxErrorDiagnostics.BOX_R0036({ message: `[vitehub] Box runtime ${runtime.name} must declare executionAuthority.` });
   }
   const homeState = plan.state.map((state) => {
     const preparedState = prepared.home?.state.find(target => target.path === state.path);
     if (typeof preparedState?.identity !== "string" || !preparedState.identity) {
-      throw new TypeError(
-        `[vitehub] Box runtime ${runtime.name} must declare an opaque Home state identity for ${state.path}.`,
-      );
+      throw boxErrorDiagnostics.BOX_R0037({ message: `[vitehub] Box runtime ${runtime.name} must declare an opaque Home state identity for ${state.path}.` });
     }
     return Object.freeze({ identity: preparedState.identity, path: state.path });
   });
@@ -477,20 +474,20 @@ function resolvePlan<Context>(
     definition.home !== undefined &&
     (!definition.home || typeof definition.home !== "object" || Array.isArray(definition.home))
   ) {
-    throw new TypeError("[vitehub] Box home must be a declarative object.");
+    throw boxErrorDiagnostics.BOX_R0038({ message: "[vitehub] Box home must be a declarative object." });
   }
   const env = Object.fromEntries(
     Object.entries(optionalRecord(definition.env, "env")).map(([name, value]) => {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-        throw new TypeError(`[vitehub] Invalid Box environment variable: ${name}`);
+        throw boxErrorDiagnostics.BOX_R0039({ message: `[vitehub] Invalid Box environment variable: ${name}` });
       if (reservedEnvironment.has(name))
-        throw new TypeError(`[vitehub] ${name} is managed by the Box runtime.`);
+        throw boxErrorDiagnostics.BOX_R0040({ message: `[vitehub] ${name} is managed by the Box runtime.` });
       return [
         name,
         async () => {
           const resolved = await resolveValue(value, context);
           if (resolved === undefined)
-            throw new Error(`[vitehub] Box environment value ${name} is required.`);
+            throw boxErrorDiagnostics.BOX_R0041({ message: `[vitehub] Box environment value ${name} is required.` });
           return resolveString(resolved, `environment value ${name}`);
         },
       ];
@@ -506,7 +503,7 @@ function resolvePlan<Context>(
         typeof value.key !== "string" ||
         !value.key.trim()
       ) {
-        throw new TypeError(`[vitehub] Box state ${path} requires a non-empty key.`);
+        throw boxErrorDiagnostics.BOX_R0042({ message: `[vitehub] Box state ${path} requires a non-empty key.` });
       }
       return {
         key: value.key.trim(),
@@ -519,7 +516,7 @@ function resolvePlan<Context>(
   const stateKeys = new Set<string>();
   for (const value of state) {
     if (stateKeys.has(value.key))
-      throw new TypeError(`[vitehub] Box state keys must be unique: ${value.key}`);
+      throw boxErrorDiagnostics.BOX_R0043({ message: `[vitehub] Box state keys must be unique: ${value.key}` });
     stateKeys.add(value.key);
   }
   validateTargets(
@@ -553,26 +550,24 @@ function normalizeFiles<Context>(
     Object.entries(optionalRecord(input, label)).map(([path, value]) => {
       const target = relativePath(path, `${label} target`);
       if (!value || typeof value !== "object")
-        throw new TypeError(`[vitehub] Box file ${path} requires from or contents.`);
+        throw boxErrorDiagnostics.BOX_R0044({ message: `[vitehub] Box file ${path} requires from or contents.` });
       if ("from" in value) {
         if (Object.keys(value).length !== 1 || typeof value.from !== "string")
-          throw new TypeError(
-            `[vitehub] Box file ${path} requires exactly one of from or contents.`,
-          );
+          throw boxErrorDiagnostics.BOX_R0045({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
         const source = relativePath(value.from, `${label} source`);
         return [target, { resolve: async () => await readProjectFile(source) }];
       }
       if (!("contents" in value) || Object.keys(value).length !== 1)
-        throw new TypeError(`[vitehub] Box file ${path} requires exactly one of from or contents.`);
+        throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
       return [
         target,
         {
           resolve: async () => {
             const resolved = await resolveValue(value.contents, context);
-            if (resolved === undefined) throw new Error(`[vitehub] Box file ${path} is required.`);
+            if (resolved === undefined) throw boxErrorDiagnostics.BOX_R0047({ message: `[vitehub] Box file ${path} is required.` });
             if (typeof resolved === "string") return new TextEncoder().encode(resolved);
             if (resolved instanceof Uint8Array) return resolved;
-            throw new TypeError(`[vitehub] Box file ${path} must resolve to text or bytes.`);
+            throw boxErrorDiagnostics.BOX_R0048({ message: `[vitehub] Box file ${path} must resolve to text or bytes.` });
           },
         },
       ];
@@ -586,7 +581,7 @@ function normalizeFiles<Context>(
     const source = await realpath(resolve(root, path)).catch(() => undefined);
     const sourcePath = source ? relative(root, source) : undefined;
     if (!source || !sourcePath || sourcePath.startsWith("..") || isAbsolute(sourcePath)) {
-      throw new Error(`[vitehub] Box project file is unavailable: ${path}`);
+      throw boxErrorDiagnostics.BOX_R0049({ message: `[vitehub] Box project file is unavailable: ${path}` });
     }
     return new Uint8Array(await readFile(source));
   }
@@ -600,9 +595,7 @@ function validateFileTargets(files: readonly string[], label: string) {
         isDescendant(files[index], files[other]) ||
         isDescendant(files[other], files[index])
       ) {
-        throw new TypeError(
-          `[vitehub] Box ${label} targets conflict: ${files[index]} and ${files[other]}`,
-        );
+        throw boxErrorDiagnostics.BOX_R0050({ message: `[vitehub] Box ${label} targets conflict: ${files[index]} and ${files[other]}` });
       }
     }
   }
@@ -612,18 +605,14 @@ function validateTargets(files: readonly string[], state: readonly string[]) {
   for (let index = 0; index < state.length; index++) {
     for (let other = index + 1; other < state.length; other++) {
       if (isDescendant(state[index], state[other]) || isDescendant(state[other], state[index])) {
-        throw new TypeError(
-          `[vitehub] Box state targets overlap: ${state[index]} and ${state[other]}`,
-        );
+        throw boxErrorDiagnostics.BOX_R0051({ message: `[vitehub] Box state targets overlap: ${state[index]} and ${state[other]}` });
       }
     }
   }
   for (const file of files) {
     for (const directory of state) {
       if (file === directory || isDescendant(directory, file)) {
-        throw new TypeError(
-          `[vitehub] Box file and state targets conflict: ${file} and ${directory}`,
-        );
+        throw boxErrorDiagnostics.BOX_R0052({ message: `[vitehub] Box file and state targets conflict: ${file} and ${directory}` });
       }
     }
   }
@@ -639,7 +628,7 @@ function optionalRecord<T>(
 ): Readonly<Record<string, T>> {
   if (value === undefined) return {};
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new TypeError(`[vitehub] Box ${label} must be an object.`);
+    throw boxErrorDiagnostics.BOX_R0053({ message: `[vitehub] Box ${label} must be an object.` });
   return value;
 }
 
@@ -651,7 +640,7 @@ function relativePath(value: string, label: string) {
     value.includes("\\") ||
     isAbsolute(value)
   ) {
-    throw new TypeError(`[vitehub] Box ${label} must be a non-empty relative POSIX path.`);
+    throw boxErrorDiagnostics.BOX_R0054({ message: `[vitehub] Box ${label} must be a non-empty relative POSIX path.` });
   }
   const normalized = posix.normalize(value);
   if (
@@ -660,7 +649,7 @@ function relativePath(value: string, label: string) {
     normalized.startsWith("../") ||
     normalized !== value
   ) {
-    throw new TypeError(`[vitehub] Box ${label} must be a non-empty relative POSIX path.`);
+    throw boxErrorDiagnostics.BOX_R0055({ message: `[vitehub] Box ${label} must be a non-empty relative POSIX path.` });
   }
   return normalized;
 }
@@ -671,10 +660,10 @@ function normalizeRequirements(
   const requirements = input.map((value): ResolvedBoxRequirementInput => {
     if (typeof value === "string") {
       if (!value.trim())
-        throw new TypeError("[vitehub] Box requirements must be non-empty commands.");
+        throw boxErrorDiagnostics.BOX_R0056({ message: "[vitehub] Box requirements must be non-empty commands." });
       const command = value.trim();
       if (command.includes("\0"))
-        throw new TypeError("[vitehub] Box requirement commands and arguments cannot contain NUL.");
+        throw boxErrorDiagnostics.BOX_R0057({ message: "[vitehub] Box requirement commands and arguments cannot contain NUL." });
       return { args: [], command, name: command };
     }
     if (
@@ -683,23 +672,21 @@ function normalizeRequirements(
       typeof value.command !== "string" ||
       !value.command.trim()
     ) {
-      throw new TypeError("[vitehub] Box requirements must be commands or direct command checks.");
+      throw boxErrorDiagnostics.BOX_R0058({ message: "[vitehub] Box requirements must be commands or direct command checks." });
     }
     const args = value.args === undefined ? [] : [...value.args];
     if (args.some((argument) => typeof argument !== "string"))
-      throw new TypeError("[vitehub] Box requirement arguments must be strings.");
+      throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be strings." });
     const command = value.command.trim();
     if (command.includes("\0") || args.some((argument) => argument.includes("\0")))
-      throw new TypeError("[vitehub] Box requirement commands and arguments cannot contain NUL.");
+      throw boxErrorDiagnostics.BOX_R0060({ message: "[vitehub] Box requirement commands and arguments cannot contain NUL." });
     const name = value.name?.trim() || [command, ...args].join(" ");
     const timeout = value.timeout;
     if (
       timeout !== undefined
       && (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2 ** 31 - 1)
     ) {
-      throw new TypeError(
-        "[vitehub] Box requirement timeout must be a positive integer no greater than 2147483647ms.",
-      );
+      throw boxErrorDiagnostics.BOX_R0061({ message: "[vitehub] Box requirement timeout must be a positive integer no greater than 2147483647ms." });
     }
     return { args, command, name, ...(timeout === undefined ? {} : { timeout }) };
   });
@@ -708,15 +695,15 @@ function normalizeRequirements(
 
 function resolveString(value: unknown, label: string) {
   if (typeof value !== "string" || !value)
-    throw new TypeError(`[vitehub] Box ${label} must resolve to a non-empty string.`);
-  if (value.includes("\0")) throw new TypeError(`[vitehub] Box ${label} cannot contain NUL.`);
+    throw boxErrorDiagnostics.BOX_R0062({ message: `[vitehub] Box ${label} must resolve to a non-empty string.` });
+  if (value.includes("\0")) throw boxErrorDiagnostics.BOX_R0063({ message: `[vitehub] Box ${label} cannot contain NUL.` });
   return value;
 }
 
 function resolveSha(value: unknown) {
   const sha = resolveString(value, "checkout sha").toLowerCase();
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
-    throw new TypeError("[vitehub] Box checkout sha must be a full Git object id.");
+    throw boxErrorDiagnostics.BOX_R0064({ message: "[vitehub] Box checkout sha must be a full Git object id." });
   }
   return sha;
 }

@@ -54,6 +54,7 @@ import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { ConsoleOptions } from "./console/vite.ts"
 
@@ -220,7 +221,7 @@ function frameworkDependencyResolver(
     },
     resolveId(id, importer) {
       if (!blobEnabled && id === "@vite-hub/blob") {
-        throw new Error("[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities.")
+        throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
       }
       for (const specifier in providerImportAliases) {
         const frameworkFacade = frameworkProviderImportAliases[specifier]
@@ -310,14 +311,14 @@ function resolveDeploymentIdentity(
 ): DeploymentIdentity {
   const configured = normalizeDeploymentName(configuredName)
   if (configuredName !== undefined && !configured) {
-    throw new Error("[vitehub] vitehub name must contain at least one letter or number.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0076({ message: "[vitehub] vitehub name must contain at least one letter or number." })
   }
   const workersBuilds = normalizeDeploymentName(workersBuildsName)
   if (workersBuildsName?.trim() && !workersBuilds) {
-    throw new Error("[vitehub] WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0077({ message: "[vitehub] WRANGLER_CI_OVERRIDE_NAME must contain at least one letter or number." })
   }
   if (configured && workersBuilds && configured !== workersBuilds) {
-    throw new Error(`[vitehub] deployment identity ${JSON.stringify(configured)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.`)
+    throw viteHubErrorDiagnostics.VITE_HUB_R0078({ message: `[vitehub] deployment identity ${JSON.stringify(configured)} conflicts with WRANGLER_CI_OVERRIDE_NAME=${JSON.stringify(workersBuildsName)}.` })
   }
   if (configured) return { name: configured, source: "vitehub.name" }
   if (workersBuilds) return { name: workersBuilds, source: "WRANGLER_CI_OVERRIDE_NAME" }
@@ -478,7 +479,7 @@ function deploymentPlugins(
       resolveId(source) {
         if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
           if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
-          throw new Error("[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + ".")
+          throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
         }
       },
       config(config, environment) {
@@ -561,16 +562,16 @@ function deploymentPlugins(
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
         const configuredHosting = process.env.VITEHUB_HOSTING
         if (configuredHosting && deploymentPresetFromNitro(configuredHosting) !== plan.preset) {
-          throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + ".")
+          throw viteHubErrorDiagnostics.VITE_HUB_R0080({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + "." })
         }
         if (building) {
           if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
-            throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
+            throw viteHubErrorDiagnostics.VITE_HUB_R0081({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + "." })
           }
           for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
             const value = process.env[name]
             if (value && normalizeNitroPreset(value) !== nitroPreset) {
-              throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
+              throw viteHubErrorDiagnostics.VITE_HUB_R0082({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + "." })
             }
           }
           nitro.modules = [
@@ -649,7 +650,7 @@ function deploymentPlugins(
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         deployCommandOwned = typeof cloneRecord(nitro.commands).deploy === "string"
         if (config.command === "build" && nitro.preset !== nitroPreset) {
-          throw new Error("[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + ".")
+          throw viteHubErrorDiagnostics.VITE_HUB_R0083({ message: "[vitehub] The " + JSON.stringify(plan.preset) + " deployment plan requires Nitro preset " + JSON.stringify(nitroPreset) + "." })
         }
       },
       buildStart() {
@@ -692,24 +693,24 @@ function presetBlobOptions(
     case "fs": return { ...configured, driver: "fs" }
     case "netlify-blobs": return { name: "vitehub-blob", ...configured, driver: "netlify-blobs" }
     case "vercel-blob": return { ...configured, driver: "vercel-blob" }
-    default: throw new Error("[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + ".")
+    default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + "." })
   }
 }
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
-  if (!options || typeof options !== "object") throw new TypeError("vitehub() requires a built-in deployment preset.")
+  if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   const plan = resolveDeploymentPlan(options.preset)
   if (options.schedule && plan.preset === "deno") {
-    throw new Error("[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
   }
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
-    throw new Error("[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
   if (options.browser && plan.preset !== "cloudflare") {
-    throw new Error("[vitehub] Browser currently requires the Cloudflare deployment preset.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare deployment preset." })
   }
   if (options.email === true && plan.preset !== "cloudflare") {
-    throw new Error("[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets." })
   }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))

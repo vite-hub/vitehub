@@ -16,6 +16,7 @@ import type {
   WorkspaceWriteOperation,
   WorkspaceWriteValidator,
 } from "./types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceWritePolicy {
   after(input: WorkspaceWriteInput): Promise<void>
@@ -32,7 +33,7 @@ function normalizeMaxBytes(value: WorkspaceRule["maxBytes"]): number | undefined
   if (value === undefined) return undefined
   if (typeof value === "number") return value
   const match = /^(\d+)(kb|mb)$/.exec(value.toLowerCase())
-  if (!match) throw new TypeError(`[vitehub] Invalid workspace rule maxBytes value "${value}".`)
+  if (!match) throw workspaceErrorDiagnostics.WORKSPACE_R0023({ message: `[vitehub] Invalid workspace rule maxBytes value "${value}".` })
   const count = Number(match[1])
   return match[2] === "kb" ? count * 1024 : count * 1024 * 1024
 }
@@ -69,7 +70,7 @@ function normalizePolicy(definition: WorkspaceDefinition): NormalizedWorkspacePo
   let rules: WorkspaceRules = {}
 
   for (const plugin of definition.plugins || []) {
-    if (!plugin?.id) throw new TypeError("[vitehub] Workspace plugins require an id.")
+    if (!plugin?.id) throw workspaceErrorDiagnostics.WORKSPACE_R0024({ message: "[vitehub] Workspace plugins require an id." })
     rules = { ...rules, ...plugin.rules }
     hooks = mergeHooks(hooks, plugin.hooks)
   }

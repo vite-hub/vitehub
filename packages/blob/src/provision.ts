@@ -11,6 +11,7 @@ import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { BlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareR2Bucket {
   name?: string
@@ -67,7 +68,7 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
     const nextCursor = listed.result_info?.cursor?.trim()
     if (!nextCursor) return names
     if (cursors.has(nextCursor)) {
-      throw new Error("Cloudflare R2 bucket listing returned a repeated pagination cursor.")
+      throw blobErrorDiagnostics.BLOB_R0017({ message: "Cloudflare R2 bucket listing returned a repeated pagination cursor." })
     }
     cursors.add(nextCursor)
     cursor = nextCursor
@@ -90,7 +91,7 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, buc
 }
 
 function parseObject(value: unknown): Record<string, unknown> {
-  if (!value || Object(value) !== value) throw new Error("Provisioning returned an invalid response.")
+  if (!value || Object(value) !== value) throw blobErrorDiagnostics.BLOB_R0018({ message: "Provisioning returned an invalid response." })
   // SAFETY: The object check establishes the string-keyed JSON object representation.
   return value as Record<string, unknown>
 }
@@ -129,7 +130,7 @@ async function readVercelBlobStore(
 ): Promise<VercelBlobStore> {
   const response = await request(`/storage/stores/${storeId}`, { parse: parseVercelBlobStoreResponse })
   if (!response.store) {
-    throw new Error("Vercel Blob provisioning did not return store metadata.")
+    throw blobErrorDiagnostics.BLOB_R0019({ message: "Vercel Blob provisioning did not return store metadata." })
   }
   return response.store
 }
@@ -142,7 +143,7 @@ async function ensureVercelBlobConnection(
   const state = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
   if (state === "equivalent") return
   if (state === "mismatched") {
-    throw new Error("Vercel Blob is connected to the project without all required environments.")
+    throw blobErrorDiagnostics.BLOB_R0020({ message: "Vercel Blob is connected to the project without all required environments." })
   }
 
   try {
@@ -160,7 +161,7 @@ async function ensureVercelBlobConnection(
     const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
     if (current === "equivalent") return
     if (current === "mismatched") {
-      throw new Error("Vercel Blob is connected to the project without all required environments.")
+      throw blobErrorDiagnostics.BLOB_R0021({ message: "Vercel Blob is connected to the project without all required environments." })
     }
     throw error
   }
@@ -242,7 +243,7 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
             },
           })).store
           if (!store?.id) {
-            throw new Error("Vercel Blob provisioning did not return a store id.")
+            throw blobErrorDiagnostics.BLOB_R0022({ message: "Vercel Blob provisioning did not return a store id." })
           }
           await ensureVercelBlobConnection(request, store.id, projectId)
           return {}

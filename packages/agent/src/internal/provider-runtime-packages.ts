@@ -2,6 +2,7 @@ import { createRequire, findPackageJSON } from "node:module"
 import { dirname, join } from "node:path"
 
 import type { NodeRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type ProviderRuntimeKind = "claude-code" | "codex"
 type RuntimeLibc = "glibc" | "musl"
@@ -79,13 +80,13 @@ function resolveRuntimePackages(options: {
   const packageJsonPath = resolvePackageJson(options.packageName, options.resolveFrom)
   if (!packageJsonPath) return []
   if (!options.target) {
-    throw new Error(`[vitehub] Cannot package ${options.packageName} for this host. Self-hosted ${options.displayName} builds support macOS and Linux on arm64 or x64.`)
+    throw agentDiagnostics.AGENT_R0566({ message: `[vitehub] Cannot package ${options.packageName} for this host. Self-hosted ${options.displayName} builds support macOS and Linux on arm64 or x64.` })
   }
   if (!resolvePackageJson(options.target.packageName, packageJsonPath)) {
     if (options.allowMissingTarget) {
       return [{ ...(options.includePeerDependencies && { includePeerDependencies: true }), name: options.packageName, resolveFrom: options.resolveFrom }]
     }
-    throw new Error(`[vitehub] ${options.packageName} is installed, but its ${options.target.packageName} optional dependency is missing. Reinstall dependencies on the deployment host before building.`)
+    throw agentDiagnostics.AGENT_R0567({ message: `[vitehub] ${options.packageName} is installed, but its ${options.target.packageName} optional dependency is missing. Reinstall dependencies on the deployment host before building.` })
   }
   return [
     { ...(options.includePeerDependencies && { includePeerDependencies: true }), name: options.packageName, resolveFrom: options.resolveFrom },

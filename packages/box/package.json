@@ -36,7 +36,8 @@
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@asciidev/box-sdk": "^0.0.34",

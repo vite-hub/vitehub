@@ -17,6 +17,7 @@ import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "
 import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin, ResolvedConfig } from "vite"
+import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
 
@@ -108,7 +109,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   }
 
   async function prepareScheduleRuntime(artifactDir?: string) {
-    if (!resolved) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
+    if (!resolved) throw workflowErrorDiagnostics.WORKFLOW_B0001({ message: "[vitehub] Workflow runtime preparation requires resolved Vite config." })
     if (normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(resolved.root)
     const aliases = await providerImportAliases()

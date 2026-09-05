@@ -12,6 +12,7 @@ import type {
   RuntimeResourceSupport,
   RuntimeResourceUnit,
 } from "./diagnostics.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 type ReadText = (path: string, options?: { signal?: AbortSignal }) => Promise<string>
 
@@ -227,11 +228,11 @@ export interface ProcessReconciler extends ProcessReconcilerRunContext {
 
 export function createProcessReconciler(options: ProcessReconcilerOptions): ProcessReconciler {
   if (!Number.isFinite(options.intervalMs) || options.intervalMs < 1 || options.intervalMs > 2_147_483_647) {
-    throw new TypeError("Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds.")
+    throw runtimeErrorDiagnostics.RUNTIME_R0009({ message: "Process reconciler intervalMs must be between 1 and 2,147,483,647 milliseconds." })
   }
   const configuredSignal: string | false | undefined = options.signal
   if (configuredSignal === "SIGKILL" || configuredSignal === "SIGSTOP") {
-    throw new TypeError(`Process reconciler signal ${configuredSignal} cannot be handled.`)
+    throw runtimeErrorDiagnostics.RUNTIME_R0010({ message: `Process reconciler signal ${configuredSignal} cannot be handled.` })
   }
 
   let closed = false
@@ -356,7 +357,7 @@ export function createProcessReconciler(options: ProcessReconcilerOptions): Proc
   const drain = (): Promise<void> => {
     const caller = callbackContext.getStore()
     if (caller && activeCallbacks.has(caller)) {
-      return Promise.reject(new TypeError("Process reconciler callbacks cannot call drain() while active."))
+      return Promise.reject(runtimeErrorDiagnostics.RUNTIME_R0011({ message: "Process reconciler callbacks cannot call drain() while active." }))
     }
     if (drainPromise) return drainPromise
     drainPromise = (async () => {

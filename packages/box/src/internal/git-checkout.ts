@@ -1,4 +1,5 @@
 import type { ResolvedBoxCheckout } from "../index.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface GitCheckoutCommandResult {
   readonly stdout: string;
@@ -38,9 +39,7 @@ export async function materializeGitCheckout(
     .trim()
     .toLowerCase();
   if (revision !== checkout.sha) {
-    throw new Error(
-      `[vitehub] Box checkout revision mismatch: expected ${checkout.sha}, received ${revision || "<empty>"}.`,
-    );
+    throw boxErrorDiagnostics.BOX_R0119({ message: `[vitehub] Box checkout revision mismatch: expected ${checkout.sha}, received ${revision || "<empty>"}.` });
   }
   await run("check out revision", [
     "-C",
@@ -59,7 +58,7 @@ export async function materializeGitCheckout(
       return result;
     } catch {
       runner.abortSignal?.throwIfAborted();
-      throw new Error(`[vitehub] Box checkout failed to ${operation}.`);
+      throw boxErrorDiagnostics.BOX_R0120({ message: `[vitehub] Box checkout failed to ${operation}.` });
     }
   }
 }

@@ -1,3 +1,4 @@
+import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 import { lookup } from "mrmime"
 
 import { sourceError, sourcePathError } from "../core/errors.ts"
@@ -32,7 +33,7 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) return normalizeSourcePath(options.workspacePath) as TKey
   if ("path" in options && options.path) return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
-  throw new TypeError("[vitehub] file requires a path or workspacePath.")
+  throw sourceErrorDiagnostics.SOURCE_R0017({ message: "[vitehub] file requires a path or workspacePath." })
 }
 
 function resolveSourceRoot(ctx: SourceContext) {
@@ -41,7 +42,7 @@ function resolveSourceRoot(ctx: SourceContext) {
 
 async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext) {
   if (!("path" in options) || !options.path) {
-    throw new TypeError("[vitehub] file requires path when content is not provided.")
+    throw sourceErrorDiagnostics.SOURCE_R0018({ message: "[vitehub] file requires path when content is not provided." })
   }
   const { readFile } = await import("node:fs/promises")
   return new Uint8Array(await readFile(await resolveSafeSourceFilePath(options.path, ctx)))

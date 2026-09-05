@@ -4,13 +4,14 @@ import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
+import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareQueue {
   queue_name?: string
 }
 
 function parseQueues(value: unknown): CloudflareQueue[] {
-  if (!Array.isArray(value)) throw new Error("Cloudflare provisioning returned an invalid queue list.")
+  if (!Array.isArray(value)) throw queueErrorDiagnostics.QUEUE_R0011({ message: "Cloudflare provisioning returned an invalid queue list." })
   // SAFETY: Queue fields are optional and consumers narrow queue_name before use.
   return value as CloudflareQueue[]
 }

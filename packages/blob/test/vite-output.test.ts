@@ -990,6 +990,11 @@ describe("Vite provider outputs", () => {
       expect.objectContaining({ method: "PUT" }),
     )
 
+    await expect(runtimeModule.blob.store("missing").put("notes/missing.txt", "hello")).rejects.toMatchObject({
+      code: "BLOB_R0028",
+      message: "Unknown Blob store \"missing\".",
+    })
+
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")

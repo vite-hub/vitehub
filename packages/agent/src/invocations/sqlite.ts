@@ -13,6 +13,7 @@ import type {
   AgentInvocationStoreCreateInput,
 } from "../invocations.ts"
 import type { Client } from "@libsql/client"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface LibsqlAgentInvocationStoreOptions {
   authToken?: string
@@ -35,7 +36,7 @@ const terminalStatuses = ["completed", "failed", "cancelled"] as const
 function tableName(prefix = "vitehub_agent_"): string {
   const name = `${prefix}invocations`
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-    throw new Error(`[vitehub] Invalid SQLite Agent Invocation table name "${name}". Use an alphanumeric tablePrefix.`)
+    throw agentDiagnostics.AGENT_R0628({ message: `[vitehub] Invalid SQLite Agent Invocation table name "${name}". Use an alphanumeric tablePrefix.` })
   }
   return name
 }
@@ -103,16 +104,16 @@ function escapeLike(value: string): string {
 function listLimit(limit: number | undefined): number {
   if (limit === undefined) return 50
   if (!Number.isInteger(limit) || limit < 1) {
-    throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0629({ message: "[vitehub] Agent Invocation list limit must be a positive integer." })
   }
   return Math.min(limit, 100)
 }
 
 function searchValue(search: string | undefined): string | undefined {
   if (search === undefined) return
-  if (typeof search !== "string") throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+  if (typeof search !== "string") throw agentDiagnostics.AGENT_R0630({ message: "[vitehub] Agent Invocation search must be a string." })
   const value = search.trim()
-  if (value.length > 256) throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+  if (value.length > 256) throw agentDiagnostics.AGENT_R0631({ message: "[vitehub] Agent Invocation search must be at most 256 characters." })
   return value || undefined
 }
 
@@ -120,7 +121,7 @@ function retentionValue(value: false | number | undefined, fallback: number, nam
   if (value === false) return false
   if (value === undefined) return fallback
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
-    throw new TypeError(`[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.`)
+    throw agentDiagnostics.AGENT_R0632({ message: `[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.` })
   }
   return value
 }
@@ -150,7 +151,7 @@ async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
 
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
   if (!options.client && !options.url) {
-    throw new TypeError("[vitehub] SQLite Agent Invocations require url or client.")
+    throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
   }
   const client = options.client || createClient({
     ...(options.authToken ? { authToken: options.authToken } : {}),
@@ -507,7 +508,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const results = await client.batch(statements, "write")
           const row = results.at(-1)?.rows[0]
           const record = row ? deserialize(row.record, row.sequence) : undefined
-          if (!record) throw new Error(`[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.`)
+          if (!record) throw agentDiagnostics.AGENT_R0634({ message: `[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.` })
           return { created: results[insertIndex]!.rowsAffected > 0, record }
         })
       })
@@ -533,7 +534,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (Array.isArray(listOptions.status) && listOptions.status.length === 0) return { invocations: [] }
       const before = listOptions.cursor === undefined ? undefined : numberValue(listOptions.cursor)
       if (before !== undefined && (!Number.isSafeInteger(before) || before < 1 || String(before) !== listOptions.cursor)) {
-        throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
+        throw agentDiagnostics.AGENT_R0635({ message: "[vitehub] Agent Invocation cursor is invalid." })
       }
       const filters: string[] = []
       const args: Array<number | string> = []

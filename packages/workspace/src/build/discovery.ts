@@ -14,6 +14,7 @@ import {
 import { workspaceAgentPattern, workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
 
 import type { DefinitionCatalogSource } from "@vite-hub/internal/definition-catalog"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface DiscoveredWorkspaceDefinition {
   handler: string
@@ -115,7 +116,7 @@ function serverWorkspaceSource(rootDir: string, serverDir = resolve(rootDir, "se
       normalizeName: normalizeDirectoryName,
       createDefinition: ({ file, name }) => {
         if (isAgentConfig(file)) {
-          throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/agent.ts.`)
+          throw workspaceErrorDiagnostics.WORKSPACE_B0002({ message: `[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/agent.ts.` })
         }
         return createWorkspaceDefinition("server-workspaces-directory-config", file, name)
       },

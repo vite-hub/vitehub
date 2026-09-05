@@ -13,6 +13,7 @@ import {
 import { findDefaultExportCall, findIdentifierCalls, readObjectProperty, splitTopLevel, stripBoundaryComments } from "@vite-hub/internal/source-scanner"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
+import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
@@ -22,7 +23,7 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
   const definition = findDefaultExportCall(source, names)
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
-    throw new TypeError(`[vitehub] ${file}:${line}: ${message}`)
+    throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
   }
   if (!definition) {
     const call = names.flatMap(name => findIdentifierCalls(source, name))[0]

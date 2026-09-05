@@ -9,6 +9,7 @@ import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
   agentsBase: string;
@@ -76,7 +77,7 @@ function parseDefinitions(
 ): ConsoleDefinitionSummary[] {
   const source = record(value);
   if (source?.section !== section || !Array.isArray(source.definitions)) {
-    throw new TypeError("The Console returned an invalid definition catalog.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0098({ message: "The Console returned an invalid definition catalog." });
   }
   return source.definitions.flatMap((entry) => {
     const definition = record(entry);

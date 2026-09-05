@@ -544,7 +544,10 @@ describe("blob runtime", () => {
       },
     })
 
-    await expect(blob.store("missing").get("notes/missing.txt")).rejects.toThrow("Unknown Blob store \"missing\".")
+    await expect(blob.store("missing").get("notes/missing.txt")).rejects.toMatchObject({
+      code: "BLOB_R0027",
+      message: "Unknown Blob store \"missing\".",
+    })
   })
 
   it("uses the active Cloudflare binding", async () => {

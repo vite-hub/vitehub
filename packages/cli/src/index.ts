@@ -12,6 +12,7 @@ import { runProvision } from "./provision.ts"
 
 import type { InlineConfig } from "vite"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
   exitCode: number | null
@@ -77,7 +78,7 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
     ({ loadNuxt } = await import("nuxt/kit"))
   }
   catch {
-    throw new TypeError("[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery.")
+    throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery." })
   }
   // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
   const nuxt = await loadNuxt({
@@ -183,7 +184,7 @@ function readPackageVersion(): string {
   const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8")
   const version = /"version"\s*:\s*"([^"\\]+)"/u.exec(manifest)?.[1]
   if (!version) {
-    throw new TypeError("[vitehub] The installed @vite-hub/cli package manifest has no valid version.")
+    throw cliErrorDiagnostics.CLI_R0002({ message: "[vitehub] The installed @vite-hub/cli package manifest has no valid version." })
   }
   return version
 }

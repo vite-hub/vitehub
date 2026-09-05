@@ -1,5 +1,6 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
 import { createLocalWaitUntil } from "./wait-until.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -36,6 +37,15 @@ type LoadedScheduleModule = ScheduleRegistryDefinition | { default?: ScheduleReg
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
+}
+
+export function missingScheduleDefinitionError(name: string): Error {
+  return scheduleErrorDiagnostics.SCHEDULE_R0034({ message: `Missing schedule definition: ${name}` })
+}
+
+export function normalizeScheduleRuntimeError(error: unknown): Error {
+  if (error instanceof Error) return error
+  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
 }
 
 export function createStaticScheduleRun(
@@ -104,7 +114,7 @@ export async function executeCloudflareStaticSchedules(
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
   const cron = event.controller?.cron ?? event.cron
   if (!cron) {
-    throw new TypeError("[vitehub:schedule] Cloudflare scheduled event is missing a cron string.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
   const scheduledAt = scheduledTime instanceof Date
@@ -113,7 +123,7 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
       ? new Date()
       : new Date(scheduledTime)
   if (Number.isNaN(scheduledAt.getTime())) {
-    throw new TypeError("[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0028({ message: "[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime." })
   }
   return { cron, scheduledAt }
 }

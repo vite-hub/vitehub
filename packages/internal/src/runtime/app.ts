@@ -1,3 +1,4 @@
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 type AppHandler = (request: Request, context?: Record<string, unknown>) => Response | Promise<Response>
 
 export type VitehubApp =
@@ -24,5 +25,5 @@ export function resolveAppFetch(label: string, app: VitehubApp | undefined): App
     return app.fetch.bind(app)
   }
 
-  throw new TypeError(`Invalid ${label} app. Expected an h3 app or a fetch-compatible handler.`)
+  throw internalErrorDiagnostics.INTERNAL_R0011({ message: `Invalid ${label} app. Expected an h3 app or a fetch-compatible handler.` })
 }

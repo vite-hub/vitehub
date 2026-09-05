@@ -31,6 +31,7 @@ import type {
   WorkspaceSourceSyncPolicy,
   WorkspaceValidateMode,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
@@ -156,7 +157,7 @@ export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInp
   const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(key)
   if (source.requestOnly) {
     if (!descriptorPath) {
-      throw new Error(`[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_C0003({ message: `[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.` })
     }
     return [descriptorPath]
   }
@@ -164,7 +165,7 @@ export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInp
   const probePaths = source.probeKeys?.map(sourcePath => joinSourcePath(source.mountPath, sourcePath)).filter(Boolean) || []
   const paths = probePaths.length ? probePaths : source.mountPath ? [source.mountPath] : []
   if (!paths.length) {
-    throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_C0004({ message: `[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.` })
   }
   return descriptorPath ? [...paths, descriptorPath] : paths
 }
@@ -270,8 +271,8 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
   return input
 }
 
-function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
-  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.`)
+function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): Error {
+  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.` })
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
@@ -404,7 +405,7 @@ function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   const options = input as Record<string, unknown>
   if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
   if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
-  throw new TypeError("[vitehub] file requires a path or workspacePath.")
+  throw workspaceErrorDiagnostics.WORKSPACE_C0006({ message: "[vitehub] file requires a path or workspacePath." })
 }
 
 function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
@@ -430,7 +431,7 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))
   if (url.search) {
-    throw new Error("[vitehub] fetch() requires an explicit path when the URL includes query parameters.")
+    throw workspaceErrorDiagnostics.WORKSPACE_C0007({ message: "[vitehub] fetch() requires an explicit path when the URL includes query parameters." })
   }
 
   let path = normalizeSafeWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })

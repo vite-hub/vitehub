@@ -1,4 +1,5 @@
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface TelegramApiResponse<T> {
   description?: string
@@ -55,16 +56,14 @@ async function telegramApi<T>(
     })
   }
   catch (error) {
-    throw new Error(`Telegram ${method} request failed.`, { cause: error })
+    throw agentDiagnostics.AGENT_R0584({ message: `Telegram ${method} request failed.`, cause: error })
   }
   const result = (await response.json().catch(() => undefined)) as
     | TelegramApiResponse<T>
     | undefined
   if (!response.ok || !result?.ok || result.result === undefined) {
     const description = redactTelegramDescription(result?.description, options)
-    throw new Error(
-      `Telegram ${method} failed with HTTP ${response.status}${description ? `: ${description}` : ""}.`,
-    )
+    throw agentDiagnostics.AGENT_R0585({ message: `Telegram ${method} failed with HTTP ${response.status}${description ? `: ${description}` : ""}.` })
   }
   return result.result as T
 }
@@ -99,9 +98,7 @@ export function createTelegramChannelSyncProvider(
   options: TelegramChannelSyncOptions,
 ): AgentChannelSyncProvider {
   if (options.secretToken && !/^[A-Za-z0-9_-]{1,256}$/.test(options.secretToken)) {
-    throw new TypeError(
-      "Telegram webhookSecret must be 1-256 letters, numbers, underscores, or hyphens.",
-    )
+    throw agentDiagnostics.AGENT_R0586({ message: "Telegram webhookSecret must be 1-256 letters, numbers, underscores, or hyphens." })
   }
   return {
     mode: options.mode,
@@ -115,7 +112,7 @@ export function createTelegramChannelSyncProvider(
       } else {
         const url = plan.desired.url
         if (typeof url !== "string" || !url)
-          throw new TypeError("Telegram webhook synchronization requires a desired URL.")
+          throw agentDiagnostics.AGENT_R0587({ message: "Telegram webhook synchronization requires a desired URL." })
         await telegramApi<boolean>(options, fetchImpl, "setWebhook", {
           allowed_updates: ["message"],
           drop_pending_updates: false,
@@ -137,12 +134,12 @@ export function createTelegramChannelSyncProvider(
         }
       }
       if (!desiredUrl)
-        throw new TypeError("Telegram webhook synchronization requires a desired URL.")
+        throw agentDiagnostics.AGENT_R0588({ message: "Telegram webhook synchronization requires a desired URL." })
       const target = new URL(desiredUrl)
       if (target.protocol !== "https:")
-        throw new TypeError("Telegram webhooks require an HTTPS URL.")
+        throw agentDiagnostics.AGENT_R0589({ message: "Telegram webhooks require an HTTPS URL." })
       if (target.port && !["80", "88", "443", "8443"].includes(target.port)) {
-        throw new TypeError("Telegram webhook URLs support ports 443, 80, 88, and 8443.")
+        throw agentDiagnostics.AGENT_R0590({ message: "Telegram webhook URLs support ports 443, 80, 88, and 8443." })
       }
       return {
         action: force || currentUrl !== desiredUrl ? (currentUrl ? "update" : "create") : "none",

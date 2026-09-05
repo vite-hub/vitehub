@@ -260,7 +260,7 @@ const error = new ViteHubError('AUTHENTICATION_REQUIRED', 'Sign in to use this A
 console.log(error.toJSON())
 ```
 
-When a default Better Auth request or session operation fails, the boundary throws the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results are programmer or provider-contract errors, so they continue to throw `TypeError` rather than authentication failures.
+When a default Better Auth request or session operation fails, the boundary throws the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
 
 ## Next steps
 

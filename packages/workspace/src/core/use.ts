@@ -52,6 +52,7 @@ import type {
   WriteFileOptions,
   SnapshotOptions,
 } from "./types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
@@ -382,7 +383,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     async executeSourceRequest(input) {
       const resolved = await resolveSyncedWorkspace()
       const executor = getWorkspaceSourceRequestExecution(resolved)
-      if (!executor) throw new Error("[vitehub] No API-backed Source request executor is available for this workspace.")
+      if (!executor) throw workspaceErrorDiagnostics.WORKSPACE_R0025({ message: "[vitehub] No API-backed Source request executor is available for this workspace." })
       return await executor.executeSourceRequest(input)
     },
   })

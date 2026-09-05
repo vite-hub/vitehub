@@ -14,6 +14,7 @@ import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
   agentsBase: string;
@@ -51,7 +52,7 @@ async function loadSections(): Promise<void> {
   loading.value = true;
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
-    if (!navigation) throw new Error("The console could not load its configuration.");
+    if (!navigation) throw viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
     if (request !== currentRequest) return;
     sections.value = [...new Set(navigation.sections)];
     error.value = undefined;

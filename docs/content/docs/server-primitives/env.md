@@ -264,7 +264,7 @@ catch (error) {
 }
 ```
 
-Each code owns a fixed public message and bounded details. Source details use identifiers such as `git:branch`, `package.json`, `env`, `provider`, or `custom`; raw variable names, provider keys, package paths, labels, and provider diagnostics remain behind `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid calls to declaration helpers remain `TypeError`, while `parseSchema()` continues to throw ordinary schema errors.
+Each code owns a fixed public message and bounded details. Source details use identifiers such as `git:branch`, `package.json`, `env`, `provider`, or `custom`; raw variable names, provider keys, package paths, labels, and provider diagnostics remain behind `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid declaration helper calls and schema results use package-owned `ENV_R####` Nostics codes. Build integration defects use `ENV_B####` codes.
 
 ## Provider output
 

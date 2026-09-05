@@ -1,5 +1,6 @@
 import { isRuntimeBoolean, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "./runtime-value.ts"
 import { isPortableAgentWorkflowCapability } from "./final-channel-output.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export function workflowBytesToBase64(data: Uint8Array): string {
   let binary = ""
@@ -24,25 +25,25 @@ export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedO
   const clone = (input: unknown, objectProperty = false): unknown | typeof omittedWorkflowValue => {
     if (input === undefined && objectProperty) {
       if (options.omitUndefinedObjectProperties !== false) return omittedWorkflowValue
-      throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+      throw agentDiagnostics.AGENT_R0595({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
     }
     if (input === null || isRuntimeString(input) || isRuntimeBoolean(input)) return input
     if (isRuntimeNumber(input) && Number.isFinite(input) && !Object.is(input, -0)) return input
-    if (!input || !isRuntimeObject(input) || seen.has(input)) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+    if (!input || !isRuntimeObject(input) || seen.has(input)) throw agentDiagnostics.AGENT_R0596({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
     seen.add(input)
     try {
-      if (Reflect.ownKeys(input).some((key) => isRuntimeSymbol(key))) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+      if (Reflect.ownKeys(input).some((key) => isRuntimeSymbol(key))) throw agentDiagnostics.AGENT_R0597({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
       if (Array.isArray(input)) {
-        if (input.length !== Object.keys(input).length) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+        if (input.length !== Object.keys(input).length) throw agentDiagnostics.AGENT_R0598({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
         return Array.from({ length: input.length }, (_, index) => {
-          if (!Object.hasOwn(input, index)) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+          if (!Object.hasOwn(input, index)) throw agentDiagnostics.AGENT_R0599({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
           const item = clone(input[index])
-          if (item === omittedWorkflowValue) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+          if (item === omittedWorkflowValue) throw agentDiagnostics.AGENT_R0600({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
           return item
         })
       }
       const prototype = Object.getPrototypeOf(input)
-      if (prototype !== Object.prototype && prototype !== null) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+      if (prototype !== Object.prototype && prototype !== null) throw agentDiagnostics.AGENT_R0601({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
       const output: Record<string, unknown> = {}
       for (const key of Object.keys(input)) {
         // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
@@ -57,6 +58,6 @@ export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedO
     }
   }
   const cloned = clone(value)
-  if (cloned === omittedWorkflowValue) throw new TypeError("Agent Workflow inputs must contain only JSON-compatible values.")
+  if (cloned === omittedWorkflowValue) throw agentDiagnostics.AGENT_R0602({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
   return cloned
 }

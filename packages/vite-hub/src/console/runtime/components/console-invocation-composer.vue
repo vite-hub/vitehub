@@ -5,6 +5,7 @@ import { computed, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
 import type { ConsoleAgentInvocationInput } from "../rpc";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -67,7 +68,7 @@ async function submit(message: { text: string }): Promise<void> {
     );
     const result = v.safeParse(invocationResultSchema, response);
     if (!result.success || !result.output.id) {
-      throw new Error("The Agent invocation response did not include an id.");
+      throw viteHubErrorDiagnostics.VITE_HUB_R0102({ message: "The Agent invocation response did not include an id." });
     }
     draft.value = "";
     emit("started", { agent: props.agent, id: result.output.id });

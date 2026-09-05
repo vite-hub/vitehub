@@ -5,6 +5,7 @@ import createDriver from "unstorage/drivers/fs-lite"
 
 import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
@@ -50,7 +51,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     const continuation = cursor ? continuations.get(cursor) : undefined
     const iterator = continuation?.iterator ?? (cursor ? undefined : walk())
     if (!iterator) {
-      throw Object.assign(new TypeError("Invalid or expired fs-lite KV cursor."), { code: "KV_CURSOR_EXPIRED" })
+      throw Object.assign(kvErrorDiagnostics.KV_R0003({ message: "Invalid or expired fs-lite KV cursor." }), { code: "KV_CURSOR_EXPIRED" })
     }
     if (cursor && continuation) {
       clearTimeout(continuation.timeout)

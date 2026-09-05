@@ -11,6 +11,7 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
@@ -55,7 +56,7 @@ export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
 function normalizeDiscoveredAgentName(name: string): string {
   const normalized = name.trim()
   if (normalized.length > maxAgentNameLength) {
-    throw new TypeError("[vitehub] Agent names cannot exceed 512 characters.")
+    throw agentDiagnostics.AGENT_R0401({ message: "[vitehub] Agent names cannot exceed 512 characters." })
   }
   return normalized
 }

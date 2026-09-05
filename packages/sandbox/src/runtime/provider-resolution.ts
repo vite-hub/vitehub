@@ -8,6 +8,7 @@ import type {
   SandboxDefinitionProviderOptions,
 } from '../module-types'
 import type { SandboxProvider } from '../module-types'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 type SandboxEvent = {
   context?: {
@@ -104,12 +105,10 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
 export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw new TypeError(`[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0069({ message: `[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
-    throw new TypeError(
-      `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0070({ message: `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.` })
   }
 }
 

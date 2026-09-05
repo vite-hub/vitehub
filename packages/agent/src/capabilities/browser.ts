@@ -6,6 +6,7 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface BrowserCapabilityOptions {
   command?: string
@@ -37,7 +38,7 @@ function normalizeSkillPath(path: string): string {
 
 function assertCommand(command: string): string {
   if (!command || /[\s\x00-\x1F\x7F/]/.test(command) || command === "." || command === "..") {
-    throw new TypeError("[vitehub] browser({ command }) must be a single executable name.")
+    throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser({ command }) must be a single executable name." })
   }
   return command
 }
@@ -133,7 +134,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     },
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     prepare(context) {
-      if (context.driver?.kind !== "provider") throw new Error("[vitehub] browser() requires a Provider Agent Driver.")
+      if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
     },
     workspace: {
       rules: {
