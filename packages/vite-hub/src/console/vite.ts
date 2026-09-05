@@ -45,7 +45,7 @@ export function resolveGeneratedConsolePlugin(
 }
 
 type ConsoleNitroConfig = {
-  handlers?: Array<{ handler: string, route: string }>
+  handlers?: Array<{ handler: string, route: string, method?: string }>
   plugins?: string[]
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean }>
   [key: string]: unknown
@@ -335,6 +335,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           )
         : []
       handlers.push(
+        { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
