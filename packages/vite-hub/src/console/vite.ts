@@ -343,6 +343,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         : []
       handlers.push(
         { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
+        { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
       )
