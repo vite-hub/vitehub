@@ -30,6 +30,14 @@ export interface ContentSourceOptions {
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
+type ContentSourceFactory = {
+  create(options?: ContentSourceOptions): ComarkContentSource
+}
+type ContentSourceState = {
+  latestItems?: Map<string, ContentSourceItem>
+  latestSequence: number
+  nextSequence: number
+}
 type NodeContentRequest = {
   aborted: boolean
   headers: Record<string, string | string[] | undefined>
@@ -39,6 +47,8 @@ type NodeContentRequest = {
   once(event: "aborted", listener: () => void): unknown
 }
 export type ContentSourceInput = SourceName | SourceReader | (() => SourceReader) | ComarkContentSource
+
+const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 
 function normalizeContentSourcePath(path = ""): string {
   const raw = path.replace(/\\/g, "/")
@@ -132,83 +142,142 @@ function configuredContentSource(input: ComarkContentSource, options: ContentSou
   return source
 }
 
+function getContentSourceFactory(source: ComarkContentSource): ContentSourceFactory | undefined {
+  // SAFETY: Only adapters created below define this private symbol, and they store a ContentSourceFactory.
+  return (source as ComarkContentSource & { [contentSourceFactory]?: ContentSourceFactory })[contentSourceFactory]
+}
+
+function contentSourceOptions(
+  defaults: ContentSourceOptions,
+  overrides: ContentSourceOptions,
+): ContentSourceOptions {
+  return {
+    prefix: overrides.prefix ?? defaults.prefix,
+    schema: overrides.schema ?? defaults.schema,
+  }
+}
+
+function createContentSourceFactory(
+  sourceInput: SourceName | SourceReader | (() => SourceReader),
+  defaults: ContentSourceOptions,
+): ContentSourceFactory {
+  const state: ContentSourceState = { latestSequence: 0, nextSequence: 0 }
+  const factory: ContentSourceFactory = {
+    create(overrides = {}) {
+      const options = contentSourceOptions(defaults, overrides)
+      let itemsPromise: Promise<Map<string, ContentSourceItem>> | undefined
+
+      function loadItems() {
+        if (!itemsPromise) {
+          const sequence = ++state.nextSequence
+          itemsPromise = (async () => {
+            const nextItems = new Map<string, ContentSourceItem>()
+            const currentReader = isSourceName(sourceInput)
+              ? useSource(sourceInput)
+              : isSourceReaderFactory(sourceInput)
+                ? sourceInput()
+                : sourceInput
+            for (const item of await currentReader.items()) {
+              const path = contentPath(item)
+              if (nextItems.has(path)) {
+                throw new TypeError(`[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.`)
+              }
+              nextItems.set(path, item)
+            }
+            if (sequence >= state.latestSequence) {
+              state.latestItems = nextItems
+              state.latestSequence = sequence
+            }
+            return nextItems
+          })()
+        }
+        return itemsPromise
+      }
+
+      const source: ComarkContentSource = {
+        async keys() {
+          itemsPromise = undefined
+          return [...(await loadItems()).keys()]
+        },
+        async getItem(key) {
+          const path = normalizeContentSourcePath(key)
+          const item = (await loadItems()).get(path)
+          if (!item) throw new TypeError(`[vitehub] contentSource() could not find ${JSON.stringify(key)}.`)
+          return textContent(item)
+        },
+        async getItemRaw(key) {
+          const path = normalizeContentSourcePath(key)
+          let items = state.latestItems
+          if (itemsPromise) {
+            try {
+              items = await itemsPromise
+            } catch (error) {
+              if (!items) throw error
+            }
+          } else if (!items) {
+            items = await loadItems()
+          }
+          const item = items.get(path)
+          if (!item) return
+          return item.data ?? item.content
+        },
+      }
+      if (options.prefix !== undefined) source.prefix = options.prefix
+      if (options.schema !== undefined) source.schema = options.schema
+      Object.defineProperty(source, contentSourceFactory, {
+        value: {
+          create: (overrides = {}) => factory.create(contentSourceOptions(options, overrides)),
+        } satisfies ContentSourceFactory,
+      })
+      return source
+    },
+  }
+  return factory
+}
+
+// Comark reads each enumerable entry once per load, so getters isolate adapted Source snapshots.
+function configuredContentSources(inputs: Record<string, ContentSourceInput>): Record<string, ComarkContentSource> {
+  const sources: Record<string, ComarkContentSource> = {}
+  for (const [name, input] of Object.entries(inputs)) {
+    const source = contentSource(input)
+    const factory = getContentSourceFactory(source)
+    if (factory) {
+      Object.defineProperty(sources, name, {
+        enumerable: true,
+        get: () => factory.create(),
+      })
+    } else {
+      Object.defineProperty(sources, name, {
+        enumerable: true,
+        value: source,
+      })
+    }
+  }
+  return sources
+}
+
 /** Adapt a registered ViteHub Source or Source Reader to the interface consumed by Comark Content. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
   if (isComarkContentSource(input)) {
+    const factory = getContentSourceFactory(input)
+    if (factory) return factory.create(options)
     return options.prefix === undefined && options.schema === undefined ? input : configuredContentSource(input, options)
   }
   // SAFETY: The native Comark Source branch returned above, leaving only ViteHub Source inputs.
   const sourceInput = input as SourceName | SourceReader | (() => SourceReader)
-  const pendingLoads: Map<string, ContentSourceItem>[] = []
-  let latestItems: Map<string, ContentSourceItem> | undefined
-
-  async function loadItems() {
-    const nextItems = new Map<string, ContentSourceItem>()
-    const currentReader = isSourceName(sourceInput)
-      ? useSource(sourceInput)
-      : isSourceReaderFactory(sourceInput)
-        ? sourceInput()
-        : sourceInput
-    for (const item of await currentReader.items()) {
-      const path = contentPath(item)
-      if (nextItems.has(path)) {
-        throw new TypeError(`[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.`)
-      }
-      nextItems.set(path, item)
-    }
-    return nextItems
-  }
-
-  async function findItem(key: string) {
-    const path = normalizeContentSourcePath(key)
-    const loadIndex = pendingLoads.findIndex(items => items.has(path))
-    if (loadIndex !== -1) {
-      const items = pendingLoads[loadIndex]!
-      const item = items.get(path)
-      items.delete(path)
-      if (items.size === 0) pendingLoads.splice(loadIndex, 1)
-      return item
-    }
-    return (await loadItems()).get(path)
-  }
-
-  const source: ComarkContentSource = {
-    async keys() {
-      const items = await loadItems()
-      latestItems = items
-      const pendingItems = new Map(items)
-      pendingLoads.push(pendingItems)
-      setTimeout(() => {
-        const loadIndex = pendingLoads.indexOf(pendingItems)
-        if (loadIndex !== -1) pendingLoads.splice(loadIndex, 1)
-      }, 0)
-      return [...items.keys()]
-    },
-    async getItem(key) {
-      const item = await findItem(key)
-      if (!item) throw new TypeError(`[vitehub] contentSource() could not find ${JSON.stringify(key)}.`)
-      return textContent(item)
-    },
-    async getItemRaw(key) {
-      const path = normalizeContentSourcePath(key)
-      const item = (latestItems ?? await loadItems()).get(path)
-      if (!item) return
-      return item.data ?? item.content
-    },
-  }
-  if (options.prefix !== undefined) source.prefix = options.prefix
-  if (options.schema !== undefined) source.schema = options.schema
-  return source
+  return createContentSourceFactory(sourceInput, options).create()
 }
 
 /** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
 export function defineContent<
   const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
 >(options: DefineContentOptions<TPlugins> = {}): ComarkContent & ContentMethods<TPlugins> {
-  const source = options.source ? contentSource(options.source) : undefined
-  const sources = options.sources
-    ? Object.fromEntries(Object.entries(options.sources).map(([name, input]) => [name, contentSource(input)]))
-    : undefined
+  let source = options.source ? contentSource(options.source) : undefined
+  let sources = options.sources ? configuredContentSources(options.sources) : undefined
+  if (source && getContentSourceFactory(source) && !sources) {
+    sources = configuredContentSources({ default: source })
+    source = undefined
+  }
 
   // SAFETY: Comark plugins add their declared methods to the returned runtime object.
   return comarkContent({
