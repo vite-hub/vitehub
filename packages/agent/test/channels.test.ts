@@ -105,7 +105,7 @@ describe("agent channels", () => {
       const context = (runId: string, status: "completed" | "running", agentName = "reviewer") => ({
         activity: {
           agentName,
-          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }, { label: "Logs | Raw\n[report]", url: "https://console.test/logs|raw" }],
+          links: [{ label: "Session", url: `https://console.test/invocations/${runId}` }, { label: "Logs | Raw\n[report]", url: "https://console.test/logs|raw" }, { label: "[".repeat(100), url: "https://console.test/boundary" }],
           runId,
           startedAt: "2026-09-05T12:00:00.000Z",
           updatedAt: "2026-09-05T12:02:35.000Z",
@@ -129,6 +129,7 @@ describe("agent channels", () => {
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-1", "completed") as never)
       expect(stored?.body).toContain("[Logs \\| Raw \\[report\\]](<https://console.test/logs%7Craw>)")
+      expect(stored?.body).toContain(`[${"\\[".repeat(80)}](<https://console.test/boundary>)`)
       expect(stored?.body).not.toContain("Raw\n")
       expect(stored?.body).toContain("2m 35s")
       expect(stored?.body).toContain("Review complete.")
