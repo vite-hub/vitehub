@@ -64,7 +64,7 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
     const costConfigured = (agentName ? [agentName] : getConsoleAgents()).some((name) => {
       const capabilities = getConsoleAgentDefinition(name, "inspect")?.capabilities;
       return (
-        Array.isArray(capabilities) && capabilities.some((capability) => capability?.id === "usage")
+        Array.isArray(capabilities) && capabilities.some((capability) => capability?.id === "usage" && capability.metadata?.costSupported === true)
       );
     });
     const index = getConsoleUsageIndex(invocations);
