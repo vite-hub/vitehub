@@ -1,4 +1,4 @@
-import { consoleAttachmentRequestBytes, consoleInputMessage, storeConsoleInputMessage } from "./attachments.ts"
+import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
@@ -127,20 +127,22 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  if (body.files !== undefined) {
-    messages = [...(messages || []), await storeConsoleInputMessage(prompt, { files: body.files })]
-  }
-  else if (body.attachments !== undefined) {
-    messages = [...(messages || []), await consoleInputMessage(prompt, body.attachments)]
-  }
-  else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
-
-  // After handoff, a failed start may already have durable work. Console cannot roll it back.
-  const controller = await startAgentInvocation(agent, context, {
+  const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
     context: profileId ? { invokerProfileId: profileId } : {},
-    ...messages ? { messages } : {},
+    ...inputMessages ? { messages: inputMessages } : {},
     prompt,
-  })
+  }, { onInputHandoff })
+  let controller: Awaited<ReturnType<typeof start>>
+  if (body.files !== undefined) {
+    controller = await withConsoleInputMessage(prompt, { files: body.files }, (message, handoff) => start([...(messages || []), message], handoff))
+  }
+  else {
+    if (body.attachments !== undefined) {
+      messages = [...(messages || []), await consoleInputMessage(prompt, body.attachments)]
+    }
+    else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
+    controller = await start(messages)
+  }
   tasks.waitUntil(waitForInvocation(controller))
   const id = await agentInvocationId(controller.id, name)
   setConsoleResponseStatus(event, 202)

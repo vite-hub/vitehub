@@ -20,7 +20,12 @@ export async function storeConsoleInputMessage(prompt: string, body: unknown): P
   return withStoredConsoleAttachments(body, attachments => consoleInputMessage(prompt, attachments))
 }
 
-async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachments: ImagePart[]) => Promise<T>): Promise<T> {
+/** Keep rollback available until the Agent signals runtime handoff. */
+export async function withConsoleInputMessage<T>(prompt: string, body: unknown, consume: (message: ReturnType<typeof createMessage>, handoff: () => void) => Promise<T>): Promise<T> {
+  return withStoredConsoleAttachments(body, async (attachments, handoff) => consume(await consoleInputMessage(prompt, attachments), handoff))
+}
+
+async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachments: ImagePart[], handoff: () => void) => Promise<T>): Promise<T> {
   const parsed = v.safeParse(uploadSchema, body)
   if (!parsed.success) throw error(400, "Provide between 1 and 10 image data URLs.")
   let totalBytes = 0
@@ -37,6 +42,7 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
   catch { throw error(503, "Configure ViteHub Blob storage to send and retain Console attachments.") }
   const paths: string[] = []
   const attachments: ImagePart[] = []
+  let handedOff = false
   try {
     for (const file of files) {
       const id = crypto.randomUUID()
@@ -48,9 +54,10 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
       if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
       attachments.push({ id, mediaType: file.mediaType, name: file.name, size: file.bytes.length, type: "image", url: stored.url })
     }
-    return await consume(attachments)
+    return await consume(attachments, () => { handedOff = true })
   }
   catch (failure) {
+    if (handedOff) throw failure
     const cleanupErrors: Error[] = []
     for (const path of paths) {
       try {

@@ -935,7 +935,7 @@ async function runAgentAsWorkflow<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: { fresh?: boolean } = {},
+  options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
@@ -1100,6 +1100,7 @@ async function runAgentAsWorkflow<
     }
   }
   let run: AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+  options.onInputHandoff?.()
   try {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(
@@ -6951,7 +6952,11 @@ export async function startAgentInvocation<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-  options: { runId?: string } = {},
+  options: {
+    runId?: string
+    /** Called before a runtime can retain input. A later rejection does not prove the input is unowned. */
+    onInputHandoff?: () => void
+  } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
@@ -6967,11 +6972,12 @@ export async function startAgentInvocation<
     agent,
     workflowContext,
     input,
-    { fresh: true },
+    { fresh: true, onInputHandoff: options.onInputHandoff },
   )
   if (workflow) {
     return createWorkflowAgentInvocationController(workflow, input.abortSignal)
   }
+  options.onInputHandoff?.()
   return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 

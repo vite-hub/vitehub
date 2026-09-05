@@ -134,3 +134,34 @@ describe("Workflow delivery lock portability", () => {
     await expect(portableAgentWorkflowInput({ context: { userLock: new Date() } })).rejects.toThrow("JSON-compatible")
   })
 })
+
+it.each(["preparation", "provider"] as const)("signals input handoff only when reaching the runtime: %s", async (stage) => {
+  const failure = new Error("Startup failed")
+  const onInputHandoff = vi.fn()
+  const providerRun = vi.fn(async () => {
+    expect(onInputHandoff).toHaveBeenCalledOnce()
+    throw failure
+  })
+  setAgentWorkflowRuntimeLoaders({
+    state: stage === "preparation" ? async () => { throw failure } : workflowState,
+    workflow: async () => ({
+      ...await import("@vite-hub/workflow"),
+      // SAFETY: The provider fails before returning a run; no other handle operations are used.
+      createWorkflow: () => ({ run: providerRun }) as never,
+    }),
+  })
+  const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: workflow("handoff") })
+  await expect(startAgentInvocation(agent, runtime(), {}, { onInputHandoff })).rejects.toBe(failure)
+  expect(onInputHandoff).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
+  expect(providerRun).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
+})
+
+it("signals inline input handoff before executing the Driver", async () => {
+  const onInputHandoff = vi.fn()
+  const agent = defineAgent({ driver: { run: () => {
+    expect(onInputHandoff).toHaveBeenCalledOnce()
+    return "done"
+  } } })
+  await startAgentInvocation(agent, runtime(), {}, { onInputHandoff })
+  expect(onInputHandoff).toHaveBeenCalledOnce()
+})

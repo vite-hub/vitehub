@@ -6,7 +6,7 @@ import { blob } from "../../blob/src/runtime/storage.ts"
 import { blobError } from "../../blob/src/errors.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
-import { consoleInputMessage, storeConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
+import { consoleInputMessage, storeConsoleInputMessage, withConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -187,5 +187,21 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
   const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
   expect(listError).toBeNull()
   expect(result?.blobs).toHaveLength(failCleanup ? 2 : 1)
+  expect(result?.blobs.map(item => item.pathname)).toContain(`vitehub-console-attachments/${retained.id}`)
+})
+
+it.each([false, true])("only rolls back startup failures before runtime handoff: %s", async (handedOff) => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, blob)
+  const retained = await upload(`data:image/png;base64,${png}`)
+  const failure = new Error("Agent startup failed")
+  await expect(withConsoleInputMessage("test", { files: [{ url: `data:image/png;base64,${png}` }] }, async (_message, handoff) => {
+    if (handedOff) handoff()
+    throw failure
+  })).rejects.toBe(failure)
+  const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  expect(listError).toBeNull()
+  expect(result?.blobs).toHaveLength(handedOff ? 2 : 1)
   expect(result?.blobs.map(item => item.pathname)).toContain(`vitehub-console-attachments/${retained.id}`)
 })
