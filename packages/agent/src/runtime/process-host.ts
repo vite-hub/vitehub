@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { join } from "node:path";
@@ -61,6 +62,7 @@ export async function createProcessAgentHost(
   options: ProcessAgentHostOptions,
 ): Promise<ProcessAgentHost> {
   const dataDir = options.dataDir ?? ".vitehub";
+  await mkdir(dataDir, { recursive: true });
   const startedAt = Date.now();
   const capacity = createProcessAgentCapacity(options.capacity);
   const invocations = await createProcessAgentInvocations({

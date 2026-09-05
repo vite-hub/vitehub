@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { otlp } from "../capabilities/otlp.ts";
 import type { AgentCapabilityDefinition } from "../types.ts";
 
@@ -20,7 +21,7 @@ export function createAgentConsoleDelivery(options: {
     throw new Error("Console delivery requires an HTTP(S) URL without embedded credentials.");
   const token = options.token;
   const headers = () => ({
-    authorization: `Bearer ${typeof token === "string" ? token : token.unseal()}`,
+    authorization: `Bearer ${hasRuntimeType(token, "string") ? token : token.unseal()}`,
   });
   const endpoint = (path: string) => new URL(path, base).href;
   return {

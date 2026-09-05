@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import type { GitHubHost } from "./github-host.ts";
 
@@ -52,6 +53,67 @@ type FeedbackNode = {
   reviewThreads: Connection<FeedbackThread>;
 };
 
+function record(value: unknown): Record<string, unknown> {
+  if (!isRuntimeRecord(value)) throw new Error("Incomplete GitHub response.")
+  return value
+}
+function text(value: unknown): string {
+  if (!hasRuntimeType(value, "string")) throw new Error("GitHub returned an invalid string field.")
+  return value
+}
+function number(value: unknown): number {
+  if (!hasRuntimeType(value, "number") || !Number.isInteger(value) || value <= 0) throw new Error("GitHub returned an invalid PR number.")
+  return value
+}
+function boolean(value: unknown): boolean {
+  if (!hasRuntimeType(value, "boolean")) throw new Error("GitHub returned an invalid boolean field.")
+  return value
+}
+function graphQL(stdout: string, ...path: string[]): unknown {
+  let value: unknown = JSON.parse(stdout)
+  for (const key of path) value = record(value)[key]
+  return value
+}
+function parsePullRequest(value: unknown): PullRequest {
+  const pr = record(value)
+  return {
+    baseRefOid: text(pr.baseRefOid), baseRefName: text(pr.baseRefName), body: text(pr.body),
+    headRefName: text(pr.headRefName), headRefOid: text(pr.headRefOid),
+    headRepository: pr.headRepository === null ? null : { nameWithOwner: text(record(pr.headRepository).nameWithOwner) },
+    isDraft: boolean(pr.isDraft), labels: pr.labels, mergeStateStatus: text(pr.mergeStateStatus),
+    number: number(pr.number), reviewDecision: pr.reviewDecision === null ? null : text(pr.reviewDecision),
+    state: text(pr.state), statusCheckRollup: pr.statusCheckRollup,
+    title: text(pr.title), updatedAt: text(pr.updatedAt), url: text(pr.url),
+  }
+}
+function parseConnection<T>(value: unknown, parse: (item: unknown) => T): Connection<T> {
+  const connection = record(value)
+  if (!Array.isArray(connection.nodes)) throw new Error("Incomplete GitHub connection.")
+  const page = record(connection.pageInfo)
+  const hasNextPage = boolean(page.hasNextPage)
+  const endCursor = page.endCursor === null ? "" : text(page.endCursor)
+  if (hasNextPage && !endCursor) throw new Error("GitHub omitted a pagination cursor.")
+  return { nodes: connection.nodes.map(parse), pageInfo: { hasNextPage, endCursor } }
+}
+function parseComment(value: unknown): GitHubPullRequestComment {
+  const item = record(value)
+  return { id: text(item.id), body: text(item.body), updatedAt: text(item.updatedAt), author: item.author == null ? null : { login: text(record(item.author).login) } }
+}
+function parseFeedback(value: unknown): FeedbackNode {
+  const node = record(value)
+  return {
+    comments: parseConnection(node.comments, parseComment),
+    reviews: parseConnection(node.reviews, value => {
+      const item = record(value)
+      return { id: text(item.id), body: text(item.body), updatedAt: text(item.updatedAt), state: text(item.state), commit: item.commit === null ? null : { oid: text(record(item.commit).oid) } }
+    }),
+    reviewThreads: parseConnection(node.reviewThreads, value => {
+      const item = record(value)
+      return { id: text(item.id), isResolved: boolean(item.isResolved), comments: parseConnection(item.comments, parseComment) }
+    }),
+  }
+}
+
 /** Read PR state and fully paginated feedback through the host's credentials and budget. */
 export function createGitHubPullRequests(
   github: Pick<GitHubHost, "command" | "ensureGraphQLBudget">,
@@ -82,7 +144,9 @@ export function createGitHubPullRequests(
         ),
         readOpenPullRequestFeedback(repository),
       ]);
-      const pullRequests = JSON.parse(result.stdout) as PullRequest[];
+      const payload: unknown = JSON.parse(result.stdout);
+      if (!Array.isArray(payload)) throw new Error("GitHub did not return a PR list.");
+      const pullRequests = payload.map(parsePullRequest);
       return await Promise.all(
         pullRequests.map((pullRequest) =>
           readRequiredCheckState(repository, {
@@ -106,8 +170,8 @@ export function createGitHubPullRequests(
         readPullRequestFeedback(repository, number),
       ]);
       return await readRequiredCheckState(repository, {
-        ...(JSON.parse(result.stdout) as PullRequest),
-        ...(feedback ? { feedback } : {}),
+        ...parsePullRequest(JSON.parse(result.stdout)),
+        feedback,
       });
     });
   }
@@ -127,31 +191,23 @@ export function createGitHubPullRequests(
 
   async function readOpenPullRequestFeedback(repository: string) {
     // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
-    const [owner, name] = repository.split("/") as [string, string];
+    const [owner, name] = repository.split("/");
     const query = `query($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number ${feedbackFields}}}}}`;
     const result = await github.command(
       ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `query=${query}`],
       { repository },
     );
-    const nodes: (FeedbackNode & { number: number })[] = JSON.parse(result.stdout)?.data?.repository
-      ?.pullRequests?.nodes;
+    const nodes = graphQL(result.stdout, "data", "repository", "pullRequests", "nodes");
     if (!Array.isArray(nodes)) throw new Error("GitHub did not return pull request feedback.");
     return new Map<number, PullRequestFeedback>(
       await Promise.all(
-        nodes.map(
-          async (node) =>
-            [
-              node.number,
-              Object.values(feedbackConnections(node)).some(
-                (connection) => connection.pageInfo.hasNextPage,
-              ) ||
-              node.reviewThreads.nodes.some(
-                (thread: FeedbackThread) => thread.comments.pageInfo.hasNextPage,
-              )
-                ? await readPullRequestFeedback(repository, node.number)
-                : digestFeedback(node),
-            ] as [number, PullRequestFeedback],
-        ),
+        nodes.map(async (value): Promise<[number, PullRequestFeedback]> => {
+          const node = parseFeedback(value)
+          const prNumber = number(record(value).number)
+          const more = Object.values(feedbackConnections(node)).some(connection => connection.pageInfo.hasNextPage)
+            || node.reviewThreads.nodes.some(thread => thread.comments.pageInfo.hasNextPage)
+          return [prNumber, more ? await readPullRequestFeedback(repository, prNumber) : digestFeedback(node)]
+        }),
       ),
     );
   }
@@ -189,7 +245,7 @@ export function createGitHubPullRequests(
     repository: string,
     number: number,
   ): Promise<PullRequestFeedback> {
-    const [owner, name] = repository.split("/") as [string, string];
+    const [owner, name] = repository.split("/");
     const query = `query($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`;
     const cursors = new Map<string, string>();
     const collected = {
@@ -214,20 +270,19 @@ export function createGitHubPullRequests(
         ],
         { repository },
       );
-      const node: FeedbackNode = JSON.parse(result.stdout)?.data?.repository?.pullRequest;
+      const node = parseFeedback(graphQL(result.stdout, "data", "repository", "pullRequest"));
       let more = false;
-      for (const [key, connection] of Object.entries(feedbackConnections(node))) {
-        const items = collected[key as keyof typeof collected];
-        for (const item of connection.nodes)
-          (items as Map<string, GitHubPullRequestComment | FeedbackReview | FeedbackThread>).set(
-            item.id,
-            item,
-          );
+      function collect<T extends { id: string }>(key: string, items: Map<string, T>, connection: Connection<T>) {
+        for (const item of connection.nodes) items.set(item.id, item)
         if (connection.pageInfo.hasNextPage) {
-          cursors.set(key, connection.pageInfo.endCursor);
-          more = true;
+          if (cursors.get(key) === connection.pageInfo.endCursor) throw new Error("GitHub pagination did not advance.")
+          cursors.set(key, connection.pageInfo.endCursor)
+          more = true
         }
       }
+      collect("comments", collected.comments, node.comments)
+      collect("reviews", collected.reviews, node.reviews)
+      collect("threads", collected.threads, node.reviewThreads)
       if (!more) break;
     } while (true);
     for (const thread of collected.threads.values()) {
@@ -247,9 +302,8 @@ export function createGitHubPullRequests(
           ],
           { repository },
         );
-        const page = JSON.parse(result.stdout)?.data?.node?.comments;
-        if (!page?.nodes || !page.pageInfo)
-          throw new Error("Incomplete GitHub review thread response.");
+        const page = parseConnection(graphQL(result.stdout, "data", "node", "comments"), parseComment);
+        if (page.pageInfo.hasNextPage && page.pageInfo.endCursor === thread.comments.pageInfo.endCursor) throw new Error("GitHub thread pagination did not advance.");
         thread.comments.nodes.push(...page.nodes);
         thread.comments.pageInfo = page.pageInfo;
       }
@@ -284,10 +338,10 @@ export function createGitHubPullRequests(
       const result = await github.command(args, { repository });
       return parseRequiredChecks(result.stdout, result.stderr);
     } catch (error) {
-      const result = error as Error & { stderr?: unknown; stdout?: unknown };
+      const result = isRuntimeRecord(error) ? error : {};
       const checks = parseRequiredChecks(
-        typeof result.stdout === "string" ? result.stdout : "",
-        typeof result.stderr === "string" ? result.stderr : "",
+        hasRuntimeType(result.stdout, "string") ? result.stdout : "",
+        hasRuntimeType(result.stderr, "string") ? result.stderr : "",
       );
       if (checks !== undefined) return checks;
       throw new Error(`Failed to read required checks for ${repository}#${number}.`, {
@@ -314,11 +368,11 @@ export function pullRequestCheckState(
   ]);
   let pending = false;
   for (const value of statusCheckRollup) {
-    if (!value || typeof value !== "object") {
+    if (!isRuntimeRecord(value)) {
       pending = true;
       continue;
     }
-    const { bucket, conclusion, state, status } = value as Record<string, unknown>;
+    const { bucket, conclusion, state, status } = value;
     if (bucket === "fail" || bucket === "cancel") return "failed";
     if (bucket === "pending") {
       pending = true;
@@ -329,12 +383,12 @@ export function pullRequestCheckState(
       state === "ERROR" ||
       state === "FAILURE" ||
       (status === "COMPLETED" &&
-        typeof conclusion === "string" &&
+        hasRuntimeType(conclusion, "string") &&
         failedConclusions.has(conclusion))
     )
       return "failed";
     if (status === "COMPLETED") {
-      if (typeof conclusion !== "string" || !conclusion) pending = true;
+      if (!hasRuntimeType(conclusion, "string") || !conclusion) pending = true;
     } else if (status !== undefined || state !== "SUCCESS") pending = true;
   }
   return pending ? "pending" : "passed";

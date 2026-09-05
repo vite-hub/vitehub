@@ -9,6 +9,8 @@ import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface SkillsCapabilityOptions {
+  /** Distinguish multiple skill sources in the same Agent Definition. */
+  id?: string
   path?: string
   shellExecution?: AgentCapabilityMode
   source?: WorkspaceSourceInput
@@ -104,7 +106,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     : undefined
 
   const capability = defineCapability({
-    id: "skills",
+    id: options.id ?? "skills",
     metadata: {
       path: normalizedPath,
       skillPath,

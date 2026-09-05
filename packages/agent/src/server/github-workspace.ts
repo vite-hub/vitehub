@@ -70,7 +70,7 @@ export function createGitHubInvocationWorkspaceHandler(options: {
     const invocation = await options.invocations.get(id)
     const repository = invocation?.annotations?.['github.repository']
     const revision = invocation?.annotations?.['github.head']
-    if (typeof repository !== 'string' || typeof revision !== 'string') return new Response('Workspace snapshot not found', { status: 404 })
+    if (!hasRuntimeType(repository, "string") || !hasRuntimeType(revision, "string")) return new Response('Workspace snapshot not found', { status: 404 })
     const workspace = { repository, revision }
     try {
       return Response.json(path === undefined ? { ...workspace, paths: await inspector.list(workspace) } : await inspector.read(workspace, path))

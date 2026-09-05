@@ -15,6 +15,7 @@ export function processAgentHost(options: { entry: string; drainRoute?: string }
         throw new Error(
           "Process host drainRoute must be an absolute route without query, hash, or wildcard.",
         );
+      // SAFETY: Nitro adds an optional handlers configuration to Vite UserConfig.
       const nitro = (config as typeof config & { nitro?: { handlers?: { route?: string }[] } })
         .nitro;
       if (nitro?.handlers?.some((handler) => handler.route === drainRoute))

@@ -21,7 +21,7 @@ function host(node = feedback()) {
     stderr: "",
     stdout: JSON.stringify(
       args[0] === "pr"
-        ? { number: 1, statusCheckRollup: [{ state: "SUCCESS" }] }
+        ? { number: 1, baseRefOid: "base", baseRefName: "main", body: "", headRefName: "feature", headRefOid: "head", headRepository: null, isDraft: false, mergeStateStatus: "CLEAN", reviewDecision: null, state: "OPEN", title: "Title", updatedAt: "now", url: "https://github.com/acme/app/pull/1", statusCheckRollup: [{ state: "SUCCESS" }] }
         : { data: { repository: { pullRequest: node } } },
     ),
   }));

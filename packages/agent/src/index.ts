@@ -7116,6 +7116,7 @@ export async function publishAgentActivity(
     capabilities: {},
     memo<T>(key: string, create: () => T): T {
       if (!memoized.has(key)) memoized.set(key, create())
+      // SAFETY: Each memo key is populated by its caller-supplied factory of T.
       return memoized.get(key) as T
     },
     waitUntil: work => { pending.push(Promise.resolve(work)) },
