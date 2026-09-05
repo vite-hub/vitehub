@@ -275,7 +275,8 @@ async function resolveEvalAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   caller: string | undefined,
 ): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!agent) return await resolveSiblingAgent(caller)
-  return typeof agent === "function" ? await agent() : agent
+  const resolved = typeof agent === "function" ? await agent() : agent
+  return caller ? withSiblingWorkspaceSourceRoot(resolved, caller) : resolved
 }
 
 function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(

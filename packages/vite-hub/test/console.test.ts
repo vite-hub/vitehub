@@ -1273,20 +1273,45 @@ describe("Agent invocation console", () => {
     }])).rejects.toThrow("console: true is development-only")
   })
 
-  it("rejects invocation through host-managed Console exposure", async () => {
-    const plugin = consoleVitePlugin({
-      // SAFETY: This deliberately bypasses the public type to cover the runtime configuration boundary.
-      console: { exposure: "host-managed", invoke: true } as never,
-      preset: "node",
-    })
-    const configHook = plugin.config
-    if (!configHook) throw new TypeError("Expected a console config hook.")
-    const configHandler = "handler" in configHook ? configHook.handler : configHook
+  it.each([undefined, false, true])("uses explicit host-managed invocation setting %s", async (invoke) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-invoke-"))
+    try {
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed", invoke },
+        preset: "node",
+        sections: ["agents"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      await Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated.includes("invoke: true")).toBe(invoke === true)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 
-    await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
-      command: "build",
-      mode: "production",
-    }])).rejects.toThrow('console.invoke requires console: { access: "auth" }')
+  it("passes Console observation limits into generated journal installation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-observations-"))
+    const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
+    try {
+      const plugin = consoleVitePlugin({
+        console: { exposure: "host-managed", observations },
+        preset: "node",
+        sections: ["agents"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      await Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("requires a ViteHub Auth authorize policy for the production Console route", async () => {
@@ -4022,6 +4047,53 @@ describe("Agent invocation console", () => {
       authToken: "console-token",
       url: "libsql://console.example.com",
     })
+  })
+
+  it("validates changed observation limits before reusing the Console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-invalid-retention-"))
+    try {
+      const installed = installConsoleInvocations(projectRoot)
+      expect(() => installConsoleInvocations(projectRoot, undefined, { maxCount: Number.NaN }))
+        .toThrow("observations.maxCount")
+      expect(installConsoleInvocations(projectRoot)).toBe(installed)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("retains configured observation sizes and public titles in the Console journal", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-retention-"))
+    const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
+    try {
+      const invocations = installConsoleInvocations(projectRoot, undefined, observations)
+      expect(installConsoleInvocations(projectRoot, undefined, { ...observations })).toBe(invocations)
+      const text = "x".repeat(120000)
+      const agent = defineAgent({
+        driver: { run: async (context) => {
+          await context.traceLog?.append({
+            attributes: { "vitehub.session.title": "Receipt date lookup" },
+            name: "agent.title.recorded",
+            type: "run",
+          })
+          return text
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
+      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-retention")
+      expect(invocation?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({ "vitehub.session.title": "Receipt date lookup" }),
+        name: "agent.title.recorded",
+      }))
+      const result = invocation?.observations.find(observation => observation.name === "agent.invocation.finish")?.attributes?.["result.text"]
+      expect(String(result).length).toBe(text.length)
+      expect(result).toBe(text)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
   })
 
   it("preserves progress summaries in the console journal", async () => {

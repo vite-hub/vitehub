@@ -19,6 +19,7 @@ import {
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
 import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
+import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
@@ -32,6 +33,7 @@ const consoleMetadataContent = [
   "tool.input",
   "tool.output",
   "vitehub.activity.progress",
+  "vitehub.session.title",
 ] as const
 
 type ConsoleInvocationColumn<Data, NotNull extends boolean> = AnySQLiteColumn<{
@@ -81,6 +83,11 @@ export interface ConsoleInvocationsDatabase {
 }
 
 const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocationsDatabase>()
+const consoleObservationConfigurations = new WeakMap<AgentInvocations, string>()
+
+function observationConfiguration(observations: AgentInvocationsOptions["observations"]): string {
+  return JSON.stringify(observations, ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"]) ?? "undefined"
+}
 
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
@@ -131,16 +138,25 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   return { url: `${pathToFileURL(filePath).href}${query}` }
 }
 
-export function createConsoleInvocations(projectRoot: string): AgentInvocations {
+export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"]): AgentInvocations {
   const client = createClient(resolveConsoleDatabaseOptions(projectRoot))
-  const invocations = defineAgentInvocations({
-    metadataContent: consoleMetadataContent,
-    store: createLibsqlAgentInvocationStore({
-      client,
-      maxAgeMs: false,
-      maxRecords: false,
-    }),
-  })
+  let invocations: AgentInvocations
+  try {
+    invocations = defineAgentInvocations({
+      metadataContent: consoleMetadataContent,
+      observations,
+      store: createLibsqlAgentInvocationStore({
+        client,
+        maxAgeMs: false,
+        maxRecords: false,
+      }),
+    })
+  }
+  catch (error) {
+    client.close()
+    throw error
+  }
+  consoleObservationConfigurations.set(invocations, observationConfiguration(observations))
   consoleInvocationDatabases.set(invocations, {
     db: drizzle(client, { schema: consoleInvocationSchema }),
     schema: consoleInvocationSchema,
@@ -164,12 +180,17 @@ export function createConsoleFixtureInvocations(file: string): AgentInvocations 
 export function installConsoleInvocations(
   projectRoot: string,
   configuredInvocations?: AgentInvocations,
+  observations?: AgentInvocationsOptions["observations"],
 ): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const identity = createConsoleInvocationsIdentity(resolvedRoot)
   const installed = resolveConsoleInvocations()
-  if (installed && resolveConsoleInvocationsIdentity() === identity && (!configuredInvocations || installed === configuredInvocations)) return installed
-  const invocations = configuredInvocations ?? createConsoleInvocations(resolvedRoot)
+  const installedConfiguration = installed && consoleObservationConfigurations.get(installed)
+  const sameConfiguration = installedConfiguration === undefined
+    ? observations === undefined
+    : installedConfiguration === observationConfiguration(observations)
+  if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration)) return installed
+  const invocations = configuredInvocations ?? createConsoleInvocations(resolvedRoot, observations)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }

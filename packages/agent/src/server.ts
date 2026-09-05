@@ -21,6 +21,7 @@ export type {
   AgentInvocationAnnotationValue,
   AgentInvocationListOptions,
   AgentInvocationListResult,
+  AgentInvocationObservationOptions,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,

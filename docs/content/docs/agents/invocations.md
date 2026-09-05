@@ -14,29 +14,35 @@ Use `runAgent()` when the caller needs to invoke the Agent directly. Inline runt
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
-import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
   const user = await requireAuthenticatedUser(event)
 
-  return runAgent(support, getRuntimeContext(event), {
-    prompt,
-    context: {
-      invoker: {
-        id: user.id,
-        kind: 'customer',
-        label: user.email,
+  const runtime = getRuntimeContext(event)
+  try {
+    return await runAgent(support, runtime, {
+      prompt,
+      context: {
+        invoker: {
+          id: user.id,
+          kind: 'customer',
+          label: user.email,
+        },
       },
-    },
-  })
+    })
+  }
+  finally {
+    await runtime.flushWaitUntil().catch(console.error)
+  }
 })
 ```
 
 Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
 
-The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The application-owned `getRuntimeContext()` helper supplies the host's required `runtime`, `memo`, and `waitUntil` values. Keeping them separate prevents host resources from becoming user-controlled task data.
+The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 
 ## Stream an Agent
 
@@ -44,8 +50,8 @@ Use `streamAgent()` when a chat UI or internal consumer needs incremental output
 
 ```ts [server/api/support-stream.post.ts]
 import { streamAgent } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
-import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
@@ -61,6 +67,8 @@ export default defineEventHandler(async (event) => {
 
 Use `output: 'ui-message-stream'` for an AI SDK-compatible chat response. Use `output: 'events'` when server code needs ViteHub stream events.
 
+Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup).
+
 The stream becomes terminal when the caller consumes it, cancels it, or receives an error. A caller that abandons the stream also abandons completion observation.
 
 ## Invoke a Trigger
@@ -69,8 +77,8 @@ Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the eve
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from 'vite-hub/agent'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
-import { getRuntimeContext } from '../runtime-context'
 
 export default defineEventHandler(async (event) => {
   const { text } = await readBody<{ text: string }>(event)
@@ -200,6 +208,25 @@ Invocation journals are metadata-only by default. Set `content: 'content'` only 
 
 The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
 
+Use `observations` to set limits for long traces:
+
+```ts
+const invocations = defineAgentInvocations({
+  content: 'content',
+  observations: {
+    maxCount: 512,
+    maxStringLength: 256 * 1024,
+    maxBytes: 2 * 1024 * 1024,
+    flushTimeoutMs: 10_000,
+  },
+  store: createLibsqlAgentInvocationStore({ url: 'file:./.data/invocations.db' }),
+})
+```
+
+Defaults are 256 observations, 65,536 UTF-16 code units of content strings per observation value budget, 16 MiB of serialized observation data, and a 1-second finish drain. Maximum values are 8,192 observations, 1,048,576 code units, 64 MiB, and 60 seconds. The byte limit counts the UTF-8 encoded observations array after privacy filtering. It does not limit provider output, the live trace log, or total process memory. A record keeps its resolved limits when another process resumes it.
+
+When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations; each individual store operation remains bounded to one second. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+
 When an application exposes the standard invocation journal route, inspect it without a dashboard:
 
 ```sh
@@ -210,9 +237,45 @@ vitehub agent invocations tail INVOCATION_ID
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output.
 
+Configured journals also retain failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct invocation IDs. Durable Channel deliveries keep their delivery run ID across preparation attempts.
+
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch and reconcile failures after the generated Agent module loads but before the Agent handler starts. If that module cannot be evaluated, use Workflow inspection because the Agent-owned invocation store is unavailable.
 
 Vercel Agent Definitions currently run through the inline Workflow adapter because arbitrary Agent handlers cannot be embedded in Vercel's deterministic native Workflow bundle. An accepted run starts its journal in that Agent worker, and ViteHub keeps bounded journal recovery work inside the active execution. Vercel does not expose a lifecycle hook that can guarantee arbitrary Agent recovery after that execution settles, so treat its journal as best-effort and use Workflow inspection as the authority for accepted runs. A synchronous Vercel start rejection is still recorded as a failed Agent Invocation. The run inspection metadata reports `mode: "inline"` for this path.
+
+### Store invocations in Cloudflare D1
+
+Use the D1 adapter when the application already has a D1 database. The binding can be resolved for each operation, so an Agent Definition does not need access to request bindings at module load:
+
+```ts [server/invocations.ts]
+import { env } from 'cloudflare:workers'
+import { createD1AgentInvocationStore } from 'vite-hub/agent/invocations/d1'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
+export const invocations = defineAgentInvocations({
+  store: createD1AgentInvocationStore({
+    database: () => env.DB,
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxRecords: 10_000,
+  }),
+})
+```
+
+Create the tables before the first request. Generate a SQL migration with `d1AgentInvocationSchema()` and apply it with your D1 migration tool:
+
+```ts [scripts/invocation-schema.ts]
+import { d1AgentInvocationSchema } from '@vite-hub/agent/invocations/d1'
+
+console.log(d1AgentInvocationSchema().join(';\n') + ';')
+```
+
+The adapter does not run schema changes during requests. `tablePrefix` defaults to `vitehub_agent_`; pass the same prefix to the schema function and store to use another table name. These statements create a new ViteHub-owned schema. They do not convert a custom application journal or the libSQL adapter's tables. Keep an existing journal until its records have been migrated explicitly.
+
+D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It supports Agent, Capability, status, and text filters, and reads summaries without observation payloads.
+
+[D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/). The adapter caps retained observations at 1,000,000 UTF-8 bytes, even when the journal requests a larger limit. Each record exposes this resolved limit in `observationLimits`. It also checks the full row, including repeated summary and search text. If that row is too large, it removes observations and marks `observationsTruncated` while keeping the lifecycle state. Metadata that cannot fit on its own rejects before a database write. Use another store when the complete long trace must be retained.
+
+The adapter targets D1. It does not provide transactions for other Database providers. The database binding stays owned by the host; the store does not open or close it. Application redaction and route authorization remain application policy. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Inspect invocations in the console
 

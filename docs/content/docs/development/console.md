@@ -1,14 +1,14 @@
 ---
 title: Console
-description: Enable the read-only Console, navigate configured primitives, and protect its routes.
+description: Enable the Console, inspect configured primitives, and protect its routes.
 navigation.order: 32
 navigation.group: Local tools
 icon: i-lucide-monitor-dot
 ---
 
-The ViteHub Console is a read-only app for inspecting the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
+The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-ViteHub renders the Console UI and serves its static assets. One embedded Devframe instance carries all Console reads over SSE, so the same interface works in development and production hosts without exposing separate resource routes.
+ViteHub renders the Console UI and serves its static assets. One embedded Devframe instance carries Console operations over SSE, so the same interface works in development and production hosts without exposing separate resource routes.
 
 The Console currently exposes Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow, Queue, and Schedule list discovered Definitions and their source metadata without loading the Definition modules. Static Schedule Definitions also show their cron expression and UTC time zone; runtime targets show whether runtime Schedules are allowed.
 
@@ -175,6 +175,36 @@ export default defineConfig({
 
 `host-managed` is an acknowledgement, not middleware. ViteHub does not inspect or enforce the host's access policy in this mode.
 
+### Start Agent Invocations
+
+Explicit `access` and `exposure` configurations keep invocation disabled unless you set `invoke: true`. This applies to both Vite and Nuxt:
+
+```ts
+console: { exposure: 'host-managed', invoke: true }
+// Or use ViteHub Auth:
+console: { access: 'auth', invoke: true }
+```
+
+For `host-managed`, your middleware must authenticate and authorize all `/_vitehub/**` routes, including the RPC transport, before it allows a request through. The build cannot verify this policy. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. The development shorthand `console: true` enables invocation; fixture mode always disables it.
+
+The `vitehub:console:agent-invocations` RPC operation accepts an Agent name, `method: 'POST'`, and a body typed as `ConsoleAgentInvocationInput` from `vite-hub/console`. The body requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
+
+```ts
+import { createMessage } from 'vite-hub/agent'
+import type { ConsoleAgentInvocationInput } from 'vite-hub/console'
+
+const body = {
+  messages: [
+    createMessage({ role: 'user', text: 'Which receipt date?' }),
+    createMessage({ role: 'assistant', text: 'The promised date.' }),
+  ],
+  prompt: 'And if that is blank?',
+} satisfies ConsoleAgentInvocationInput
+```
+
+History must contain valid ViteHub Messages with `user` or `assistant` roles and unique IDs. The Console preserves message metadata and appends the new prompt as a user Message. It rejects malformed Messages and `system` or `tool` roles before starting the Agent. Omit `messages` for a prompt-only invocation. Each request creates a new invocation; history does not resume a previous runtime session.
+
+
 Nuxt does not need an SEO module for the `X-Robots-Tag` default. If the app already uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route metadata so its robots and sitemap modules also know that Console pages are not indexable:
 
 ```ts [nuxt.config.ts]
@@ -192,7 +222,23 @@ Read [Auth](/docs/server-primitives/auth#authorize-access-routes) for sign-in re
 
 ## Know what the Console stores
 
-When Agents are configured, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, and progress updates. A KV-only Console does not install the Agent journal or Agent read endpoints.
+When Agents are configured, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
+
+Set `observations` on the Console configuration when the fallback journal needs larger records or more time to drain pending writes:
+
+```ts
+console: {
+  exposure: 'host-managed',
+  observations: {
+    maxCount: 1024,
+    maxStringLength: 131072,
+    maxBytes: 16777216,
+    flushTimeoutMs: 10000,
+  },
+}
+```
+
+These limits apply only to the Console fallback journal. If discovered Agent Definitions configure a shared journal, set its limits in `defineAgentInvocations()` instead. See [Agent Invocations](/docs/agents/invocations) for defaults and supported bounds. Larger limits increase record storage and memory use.
 
 Set `VITEHUB_CONSOLE_DATABASE_URL` when the journal belongs on another volume or libSQL endpoint. Relative `file:` paths resolve from the ViteHub project root:
 

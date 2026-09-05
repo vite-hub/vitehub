@@ -1615,7 +1615,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   return {
     type: "usage",
     usageRecord: {
-      latency: usage.durationMs === undefined ? undefined : { durationMs: usage.durationMs },
+      ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
         details: {
@@ -1707,10 +1707,18 @@ function providerToolActivity(
   return name && tools?.[name]?.activity ? tools[name].activity : { kind: "tool" as const }
 }
 
-function providerEvent(event: ProviderRuntimeEvent, tools?: AgentToolSet): StreamEvent[] {
+function providerMessagePhase(event: Extract<ProviderRuntimeEvent, { type: "item.started" }>) {
+  const data = record(event.payload.data)
+  const item = record(data?.item)
+  const phase = item?.phase ?? data?.phase
+  if (phase === "commentary") return "commentary"
+  if (phase === "final" || phase === "final_answer") return "final"
+}
+
+function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "assistant_text") return [{ phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
       return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
@@ -2207,6 +2215,7 @@ async function* runProvider<
       void activeRuntime.interruptTurn(threadId, turn.turnId).catch(() => undefined)
       rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
+    const messagePhases = new Map<string, "commentary" | "final">()
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
     for (;;) {
@@ -2234,7 +2243,12 @@ async function* runProvider<
         // SAFETY: A request.opened event always carries the provider approval request identifier expected by respondToRequest.
         await activeRuntime.respondToRequest(threadId, current.value.requestId as never, "decline")
       }
-      const normalized = providerEvent(current.value, context.tools)
+      if (current.value.type === "item.started" && current.value.itemId) {
+        const phase = providerMessagePhase(current.value)
+        if (phase) messagePhases.set(current.value.itemId, phase)
+      }
+      const normalized = providerEvent(current.value, context.tools, messagePhases)
+      if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") caught = new Error(failure.error)
       if (current.value.type === "session.exited") {

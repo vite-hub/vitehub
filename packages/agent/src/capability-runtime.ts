@@ -53,6 +53,7 @@ import type {
   AgentRuntimeConfig,
   AgentStaticCapabilitiesList,
   AgentToolSet,
+  AgentToolStandardSchema,
   AgentToolTransform,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
@@ -83,6 +84,25 @@ type AgentCapabilityDefinitionInput<
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>
+// Only portable validators own a handler input type. Raw JSON Schema needs an explicit handler type.
+type ToolSchemaOutput<TSchema> = TSchema extends AgentToolStandardSchema<infer TOutput> ? TOutput : never
+type SchemaOwnedTools<TSchemas extends Record<string, unknown>> = {
+  [Key in keyof TSchemas]: unknown extends TSchemas[Key] ? unknown : {
+    inputSchema?: TSchemas[Key]
+    execute?: [ToolSchemaOutput<TSchemas[Key]>] extends [never]
+      ? unknown
+      : (input: ToolSchemaOutput<TSchemas[Key]>, ...context: never[]) => unknown
+  }
+}
+type CheckedResolvedTools<TTools> = TTools extends object ? {
+  [Key in keyof TTools]: TTools[Key] extends { inputSchema: infer TSchema }
+    ? SchemaOwnedTools<{ tool: TSchema }>["tool"]
+    : unknown
+} : TTools
+type CheckedCapabilityTools<TCapability, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName> = TCapability extends { tools: (...args: never[]) => infer TTools }
+  ? { tools: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<CheckedResolvedTools<Awaited<TTools>>> }
+  : TCapability extends { tools: infer TTools } ? { tools: CheckedResolvedTools<TTools> } : unknown
+
 // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
@@ -174,14 +194,53 @@ function assertTriggerName(name: unknown, capabilityId: string): asserts name is
   }
 }
 
+// Fix runtime config first, then infer the complete Capability and each tool schema.
+interface CapabilityDefiner<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract,
+> {
+  <const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>, TSchemas extends Record<string, unknown> = Record<string, unknown>>(
+    capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & { tools?: SchemaOwnedTools<TSchemas> },
+  ): TCapability
+  <const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>>(
+    capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & NoInfer<CheckedCapabilityTools<TCapability, TRuntimeConfig, Name>>,
+  ): TCapability
+}
+
+export function defineCapability<
+  const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+  TSchemas extends Record<string, unknown> = Record<string, unknown>,
+>(
+  capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & {
+    tools?: SchemaOwnedTools<TSchemas>
+  },
+): TCapability
+export function defineCapability<
+  const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+>(
+  capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & NoInfer<CheckedCapabilityTools<TCapability, TRuntimeConfig, Name>>,
+): TCapability
+export function defineCapability<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+>(): CapabilityDefiner<TRuntimeConfig, Name, TTypeContract>
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
   const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
 >(
-  capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
-): TCapability {
+  capability?: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
+): TCapability | CapabilityDefiner<TRuntimeConfig, Name, TTypeContract> {
+  if (arguments.length === 0) return defineCapability
   if (!capability || !hasRuntimeType(capability, "object")) {
     throw agentDiagnostics.AGENT_CAPABILITY_DEFINITION_INVALID()
   }

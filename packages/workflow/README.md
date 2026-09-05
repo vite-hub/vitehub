@@ -221,3 +221,18 @@ async function transcribe(recordingId: string) {
 - [OpenWorkflow](https://openworkflow.dev/docs/overview)
 - [Cloudflare Workflows](https://developers.cloudflare.com/workflows/)
 - [Vercel Workflow](https://vercel.com/docs/workflow)
+
+
+## Required handle input
+
+A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
+
+```ts
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+  await sendWelcomeEmail(payload.email)
+})
+await welcome.run({ email: "ada@example.com" })
+// welcome.run() is a type error.
+```
+
+This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.

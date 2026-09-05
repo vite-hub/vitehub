@@ -5,7 +5,7 @@ import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleErr
 import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, RegisteredScheduleTargetName, ScheduleTargetInput } from "../types.ts"
 
 const cronRange = {
   dayOfMonth: { max: 31, min: 1 },
@@ -177,7 +177,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
   }
 }
 
-async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+async function updateRuntimeSchedule(id: string, input: RuntimeScheduleUpdateInput): Promise<RuntimeScheduleRecord> {
   assertRuntimeScheduleId(id)
   await validateUpdateInput(input)
   const updated = await getRuntimeScheduleStore().update(id, {
@@ -187,11 +187,11 @@ async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>
   if (!updated) {
     throw createScheduleError("SCHEDULE_NOT_FOUND")
   }
-  return updated as RuntimeScheduleRecord<TInput>
+  return updated
 }
 
-export const schedules = {
-  async create<TTarget extends ScheduleTargetName, TInput = unknown>(input: RuntimeScheduleCreateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+const dynamicSchedules = {
+  async create(input: RuntimeScheduleCreateInput): Promise<RuntimeScheduleRecord> {
     await validateCreateInput(input)
     const now = new Date()
     return await getRuntimeScheduleStore().create({
@@ -203,7 +203,7 @@ export const schedules = {
       target: input.target,
       ...(input.timeZone ? { timeZone: input.timeZone } : {}),
       updatedAt: now,
-    }) as RuntimeScheduleRecord<TInput>
+    })
   },
   async delete(id: string): Promise<boolean> {
     return await getRuntimeScheduleStore().delete(id)
@@ -232,7 +232,34 @@ export const schedules = {
   async run(id: string, options: { scheduledAt?: Date } = {}): Promise<ScheduleRunRecord> {
     return await executeRuntimeSchedule({ id, scheduledAt: options.scheduledAt })
   },
-  async update<TTarget extends ScheduleTargetName, TInput = unknown>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+  async update(id: string, input: RuntimeScheduleUpdateInput): Promise<RuntimeScheduleRecord> {
     return await updateRuntimeSchedule(id, input)
+  },
+}
+
+type TypedScheduleCreate<TTarget extends RegisteredScheduleTargetName> = RuntimeScheduleCreateInput<TTarget, NoInfer<ScheduleTargetInput<TTarget>>>
+type TypedScheduleUpdate<TTarget extends RegisteredScheduleTargetName> = RuntimeScheduleUpdateInput<TTarget, NoInfer<ScheduleTargetInput<TTarget>>> & { target: TTarget, input: NoInfer<ScheduleTargetInput<TTarget>> | undefined }
+type ScheduleSettingsUpdate = Omit<RuntimeScheduleUpdateInput, "input" | "target"> & { input?: never, target?: never }
+
+type ScheduleClient = Omit<typeof dynamicSchedules, "create" | "update"> & {
+  create: <TTarget extends RegisteredScheduleTargetName>(input: TypedScheduleCreate<TTarget>) => Promise<RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>>
+  update: <TTarget extends RegisteredScheduleTargetName>(id: string, input: TypedScheduleUpdate<TTarget> | ScheduleSettingsUpdate) => Promise<RuntimeScheduleRecord>
+  dynamic: Pick<typeof dynamicSchedules, "create" | "update">
+}
+
+export const schedules: ScheduleClient = {
+  ...dynamicSchedules,
+  /** Operations on names or stored records that this build cannot type-check. */
+  dynamic: {
+    create: dynamicSchedules.create,
+    update: dynamicSchedules.update,
+  },
+  async create<TTarget extends RegisteredScheduleTargetName>(input: TypedScheduleCreate<TTarget>): Promise<RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>> {
+    // The selected generated definition owns the input supplied to this new record.
+    return await dynamicSchedules.create(input) as RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>
+  },
+  async update<TTarget extends RegisteredScheduleTargetName>(id: string, input: TypedScheduleUpdate<TTarget> | ScheduleSettingsUpdate): Promise<RuntimeScheduleRecord> {
+    // Existing records may contain input from an older definition. Keep reads unknown.
+    return await dynamicSchedules.update(id, input)
   },
 }

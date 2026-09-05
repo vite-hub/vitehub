@@ -20,6 +20,7 @@ const MAX_CAPABILITY_IDS = 256
 const MAX_METADATA_STRING_LENGTH = 512
 const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
 const MAX_OBSERVATIONS = 256
+const DEFAULT_OBSERVATION_BYTES = 16 * 1024 * 1024
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
@@ -59,12 +60,18 @@ export interface AgentInvocationRecord {
   failedAt?: string
   id: string
   observations: readonly TraceEventLogEntry[]
+  /** Resolved retention limits for this durable Invocation. */
+  observationLimits?: Required<AgentInvocationObservationOptions>
   /** True when the journal dropped one or more observations. */
   observationsTruncated?: boolean
   origin?: string
   startedAt?: string
   status: AgentInvocationRecordStatus
   threadId?: string
+  /** A bounded title projected from retained public title observations. */
+  title?: string
+  /** Sequence of the projected title, preserved when its observation is evicted. */
+  titleSequence?: number
   traceId: string
   updatedAt: string
 }
@@ -121,9 +128,43 @@ export interface AgentInvocationStore {
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
 }
 
+export interface AgentInvocationObservationOptions {
+  /** Retained observations, including lifecycle outcomes. Default 256; maximum 8192. */
+  maxCount?: number
+  /** Maximum content string length in UTF-16 code units. Default 65536; maximum 1048576. */
+  maxStringLength?: number
+  /** Maximum UTF-8 bytes of the serialized observations array. Default 16 MiB; maximum 64 MiB. */
+  maxBytes?: number
+  /** Time to drain queued observations before terminal recovery. Default 1000 ms; maximum 60000 ms. */
+  flushTimeoutMs?: number
+}
+
+const defaultObservationLimits = {
+  maxCount: MAX_OBSERVATIONS,
+  maxStringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+  maxBytes: DEFAULT_OBSERVATION_BYTES,
+  flushTimeoutMs: STORE_OPERATION_TIMEOUT_MS,
+} satisfies Required<AgentInvocationObservationOptions>
+
+export function observationLimits(options: AgentInvocationObservationOptions = {}): Required<AgentInvocationObservationOptions> {
+  const limits = { ...defaultObservationLimits }
+  const maximum = { maxCount: 8192, maxStringLength: 1024 * 1024, maxBytes: 64 * 1024 * 1024, flushTimeoutMs: 60_000 }
+  for (const key of Object.keys(limits) as Array<keyof typeof limits>) {
+    const value = options[key]
+    if (value === undefined) continue
+    const minimum = key === "maxBytes" ? 2 : 1
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum[key]) {
+      throw new TypeError(`[vitehub] Agent Invocation observations.${key} must be an integer between ${minimum} and ${maximum[key]}.`)
+    }
+    limits[key] = value
+  }
+  return limits
+}
+
 export interface AgentInvocationsOptions {
   content?: TraceEventContentPolicy
   metadataContent?: readonly string[]
+  observations?: AgentInvocationObservationOptions
   store: AgentInvocationStore
 }
 
@@ -183,6 +224,7 @@ function cloneRecord(record: AgentInvocationRecord): AgentInvocationRecord {
     ...record,
     ...(record.annotations ? { annotations: { ...record.annotations } } : {}),
     ...(record.capabilityIds ? { capabilityIds: [...record.capabilityIds] } : {}),
+    ...(record.observationLimits ? { observationLimits: { ...record.observationLimits } } : {}),
     ...(record.error ? { error: structuredClone(record.error) } : {}),
     observations: record.observations.map(cloneObservation),
   }
@@ -613,7 +655,7 @@ function boundedObservationPayload(
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): TraceEventPayload | undefined {
   if (payload?.visibility === "public") {
-    return { value: boundedObservationValue(payload.value, budget, 0, MAX_OBSERVATION_CONTENT_STRING_LENGTH, builtIns), visibility: "public" }
+    return { value: boundedObservationValue(payload.value, budget, 0, budget.stringLength, builtIns), visibility: "public" }
   }
   if (payload?.visibility === "summary") {
     if (payload.summary.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
@@ -643,16 +685,17 @@ function boundedObservationAttributeValue(
 function boundedObservation(
   observation: TraceEventLogEntry,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+  limits = defaultObservationLimits,
 ): TraceEventLogEntry {
   const budget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
-    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    stringLength: limits.maxStringLength,
     truncated: false,
   }
   const identity = observationIdentity(observation)
   const payloadBudget: ObservationBudget = {
     items: MAX_OBSERVATION_VALUE_ITEMS,
-    stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+    stringLength: limits.maxStringLength,
     truncated: false,
   }
   const payload = boundedObservationPayload(observation.payload, payloadBudget, builtIns)
@@ -683,7 +726,7 @@ function boundedObservation(
             key,
             value,
             budget,
-            isTraceContentAttributeKey(key) ? MAX_OBSERVATION_CONTENT_STRING_LENGTH : MAX_METADATA_STRING_LENGTH,
+            isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
             builtIns,
           )]]
         })),
@@ -722,11 +765,11 @@ function boundedObservation(
   }
 }
 
-async function boundedJournalObservation(observation: TraceEventLogEntry): Promise<TraceEventLogEntry> {
+async function boundedJournalObservation(observation: TraceEventLogEntry, limits = defaultObservationLimits): Promise<TraceEventLogEntry> {
   const builtIns = new Map<object, BoundedObservationBuiltIn>()
   await collectBoundedObservationBuiltIns(observation.attributes, builtIns, { items: MAX_OBSERVATION_VALUE_ITEMS })
   await collectBoundedObservationBuiltIns(observation.payload, builtIns, { items: MAX_OBSERVATION_VALUE_ITEMS })
-  return boundedObservation(observation, builtIns)
+  return boundedObservation(observation, builtIns, limits)
 }
 
 async function boundedIdentity(value: string): Promise<string> {
@@ -788,14 +831,23 @@ function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
   return observation.name === "agent.channel.delivery.effect"
 }
 
+function observationTitle(observation: TraceEventLogEntry | undefined): string | undefined {
+  if (observation?.name !== "agent.title.recorded") return
+  const value = observation.attributes?.["vitehub.session.title"]
+  if (typeof value !== "string") return
+  return value.trim().slice(0, MAX_METADATA_STRING_LENGTH) || undefined
+}
+
 function outcomeObservationPriority(observation: TraceEventLogEntry): number | undefined {
   if (failureEvidenceObservation(observation)) return 0
   if (terminalObservation(observation)) return 1
   if (deliveryOutcomeObservation(observation)) return 2
+  if (observationTitle(observation)) return 3
 }
 
 function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
   return deliveryOutcomeObservation(observation)
+    || observationTitle(observation) !== undefined
     || (observationIdentity(observation) !== undefined && outcomeObservationPriority(observation) !== undefined)
 }
 
@@ -824,7 +876,7 @@ function retainedPriorityOutcomes(
   })
   const hasLifecycleTerminal = candidates.some(observation => outcomeObservationPriority(observation) === 1)
   const retained: TraceEventLogEntry[] = []
-  for (const priority of [0, 1, 2]) {
+  for (const priority of [0, 1, 2, 3]) {
     const remaining = limit - retained.length
     if (remaining === 0) break
     const available = priority === 0 && hasLifecycleTerminal ? Math.max(0, remaining - 1) : remaining
@@ -840,8 +892,9 @@ function prioritizePendingOutcomes(
   pending: TraceEventLogEntry[],
   incoming: TraceEventLogEntry,
   active: TraceEventLogEntry | undefined,
+  maxCount: number,
 ): void {
-  const limit = MAX_OBSERVATIONS - (active ? 1 : 0)
+  const limit = maxCount - (active ? 1 : 0)
   const outcomes = retainedPriorityOutcomes([...pending, incoming], limit)
   const ordinary = pending.filter(observation => outcomeObservationPriority(observation) === undefined)
   const ordinaryLimit = Math.max(0, limit - outcomes.length)
@@ -854,12 +907,61 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   if (unref) unref.call(timer)
 }
 
+// Bound encoded storage size after privacy filtering and value normalization.
+export function byteBoundedObservations(values: readonly TraceEventLogEntry[], limits: Required<AgentInvocationObservationOptions>): { observations: readonly TraceEventLogEntry[], truncated: boolean } {
+  const maxBytes = limits.maxBytes
+  const encoder = new TextEncoder()
+  let observations = values
+  let serialized: string
+  try {
+    serialized = JSON.stringify(observations)
+  }
+  catch {
+    // Custom stores can contain cloneable values such as BigInt and cycles.
+    observations = values.map((observation) => {
+      try { JSON.stringify(observation); return observation }
+      catch { return boundedObservation(observation, undefined, limits) }
+    })
+    serialized = JSON.stringify(observations)
+  }
+  if (encoder.encode(serialized).byteLength <= maxBytes) return { observations, truncated: false }
+  const sizes = new Map(observations.map(observation => [observation, encoder.encode(JSON.stringify(observation)).byteLength]))
+
+  const priority = [...retainedPriorityOutcomes(observations, observations.length)]
+    .sort((left, right) => outcomeObservationPriority(left)! - outcomeObservationPriority(right)! || right.sequence - left.sequence)
+  const outcomes = new Set(priority)
+  const candidates = [...priority, ...observations.filter(observation => !outcomes.has(observation))]
+  const retained: TraceEventLogEntry[] = []
+  let bytes = 2
+  for (const observation of candidates) {
+    let candidate = observation
+    let size = sizes.get(observation)!
+    if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
+      candidate = {
+        ...observation,
+        attributes: {
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.payload.value")),
+          [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+          ...(observation.payload?.visibility === "public" ? { "vitehub.payload.visibility": "redacted" } : {}),
+        },
+        ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
+      }
+      size = encoder.encode(JSON.stringify(candidate)).byteLength
+    }
+    if (bytes + size + (retained.length ? 1 : 0) > maxBytes) continue
+    bytes += size + (retained.length ? 1 : 0)
+    retained.push(candidate)
+  }
+  return { observations: retained.sort((left, right) => left.sequence - right.sequence), truncated: true }
+}
+
 export function applyAgentInvocationStoreUpdate(
   record: AgentInvocationRecord,
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
   if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
+  const limits = observationLimits(record.observationLimits)
   const incomingObservation = input.observation
   const duplicateObservation = incomingObservation !== undefined
     && record.observations.some(observation => sameObservation(observation, incomingObservation))
@@ -869,6 +971,13 @@ export function applyAgentInvocationStoreUpdate(
   const configuredAnnotations = input.observation
     ? configurationAnnotations(input.observation)
     : undefined
+  const incomingTitle = observationTitle(input.observation)
+  const latestTitleSequence = record.titleSequence ?? record.observations.reduce((latest, observation) =>
+    observationTitle(observation) ? Math.max(latest, observation.sequence) : latest, -1)
+  const titleUpdated = incomingTitle && input.observation && !duplicateObservation && input.observation.sequence > latestTitleSequence
+  const title = titleUpdated
+    ? incomingTitle
+    : record.title
   const capabilityIds = invocationCapabilityIds(record)
   for (const value of [...(input.capabilityIds || []), observationCapabilityId(input.observation)]) {
     const incomingCapabilityId = normalizedCapabilityId(value)
@@ -877,9 +986,9 @@ export function applyAgentInvocationStoreUpdate(
     }
   }
   const observations = input.observation && !duplicateObservation
-    ? record.observations.length < MAX_OBSERVATIONS
+    ? record.observations.length < limits.maxCount
       ? (() => {
-          const observation = cloneObservation(boundedObservation(input.observation))
+          const observation = cloneObservation(boundedObservation(input.observation, undefined, limits))
           const insertAt = record.observations.findIndex(candidate => candidate.sequence > observation.sequence)
           return insertAt < 0
             ? [...record.observations, observation]
@@ -888,7 +997,7 @@ export function applyAgentInvocationStoreUpdate(
       : (() => {
           const outcomes = retainedPriorityOutcomes(
             [...record.observations, input.observation],
-            MAX_OBSERVATIONS,
+            limits.maxCount,
           )
           if (outcomes.length === 0) outcomes.push(record.observations.at(-1)!)
           const retainedOutcomeIdentities = new Set(outcomes.map(observationIdentity).filter(identity => identity !== undefined))
@@ -897,11 +1006,12 @@ export function applyAgentInvocationStoreUpdate(
             return identity === undefined ? !outcomes.includes(observation) : !retainedOutcomeIdentities.has(identity)
           })
           return [
-            ...retained.slice(0, MAX_OBSERVATIONS - outcomes.length),
-            ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation)))),
+            ...retained.slice(0, limits.maxCount - outcomes.length),
+            ...outcomes.map(observation => cloneObservation(boundedObservation(truncatedObservation(observation), undefined, limits))),
           ].sort((left, right) => left.sequence - right.sequence)
         })()
     : record.observations
+  const retained = byteBoundedObservations(observations, limits)
   const updated: AgentInvocationRecord = {
     ...record,
     ...(configuredAnnotations
@@ -909,8 +1019,10 @@ export function applyAgentInvocationStoreUpdate(
       : {}),
     ...(capabilityIds.length ? { capabilityIds } : {}),
     ...(input.error ? { error: input.error } : {}),
-    observations,
-    ...(input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= MAX_OBSERVATIONS)
+    ...(title ? { title } : {}),
+    ...(titleUpdated ? { titleSequence: input.observation!.sequence } : {}),
+    observations: retained.observations,
+    ...(retained.truncated || input.observationsTruncated || (input.observation && !duplicateObservation && record.observations.length >= limits.maxCount)
       ? { observationsTruncated: true }
       : {}),
     ...(status === "running" && !record.startedAt ? { startedAt: input.timestamp } : {}),
@@ -1172,6 +1284,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
     throw new TypeError("[vitehub] Agent Invocations metadataContent entries must name content attributes.")
   }
+  const configuredObservationLimits = observationLimits(options.observations)
   const content = options.content || "metadata"
   const metadataContent = new Set(options.metadataContent || [])
   const store = options.store
@@ -1192,6 +1305,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let boundToTerminalRecord = false
       let finishing = false
       let ownsRecord = false
+      let limits = configuredObservationLimits
       let observationCount = 0
       let observationsTruncated = false
       let truncationPersisted = false
@@ -1228,6 +1342,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (!creationTask) {
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
             if (result) {
+              limits = observationLimits(result.record.observationLimits)
               observationCount = result.record.observations.length
               observationsTruncated = result.record.observationsTruncated === true
                 || result.record.observations.some(observation => observation.attributes?.["vitehub.trace.truncated"] === true)
@@ -1285,6 +1400,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           createdAt: now,
           id: recordId,
           observations: [],
+          ...(options.observations ? { observationLimits: { ...limits } } : {}),
           ...(context.run?.origin ? { origin: boundedString(context.run.origin) } : {}),
           status: "pending",
           ...(context.run?.threadId ? { threadId: boundedString(context.run.threadId) } : {}),
@@ -1337,7 +1453,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               ...observation,
               timestamp,
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-            })
+            }, limits)
             const previousObservationCount = observationCount
             const persistence = Promise.resolve().then(() => store.update(recordId, {
               observation: persistedObservation,
@@ -1371,7 +1487,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 observationsTruncated = true
                 const retry = truncatedObservation(observation)
                 retriedObservations.add(retry)
-                prioritizePendingOutcomes(pendingObservations, retry, undefined)
+                prioritizePendingOutcomes(pendingObservations, retry, undefined, limits.maxCount)
               }
               else if (failed) {
                 terminalRetryObservations.push(observation)
@@ -1401,7 +1517,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               const persistedObservation = { ...observation, timestamp }
               if (observation.trace) persistedObservation.trace = { ...observation.trace, id: traceId }
               const update = Promise.resolve().then(() => store.update(recordId, {
-                observation: boundedObservation(persistedObservation),
+                observation: boundedObservation(persistedObservation, undefined, limits),
                 timestamp,
               }, claimId))
               const boundedUpdate = await boundedStoreOperation(() => update)
@@ -1435,7 +1551,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (recoverableOutcomeObservation(observation)) terminalRetryObservations.push(observation)
           return
         }
-        const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= MAX_OBSERVATIONS
+        const atCapacity = observationCount + pendingObservations.length + (observationWrite ? 1 : 0) >= limits.maxCount
         const priority = outcomeObservationPriority(observation)
         const queuedObservation = priority !== undefined && (atCapacity || observationsTruncated)
           ? truncatedObservation(observation)
@@ -1450,7 +1566,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
             return
           }
-          prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation)
+          prioritizePendingOutcomes(pendingObservations, queuedObservation, activeObservation, limits.maxCount)
           writeNextObservation()
           return
         }
@@ -1468,7 +1584,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (finished || finishing) return
           finishing = true
           const finishingObservations = [activeObservation, ...pendingObservations]
-          const observationDeadline = Date.now() + STORE_OPERATION_TIMEOUT_MS
+          const observationDeadline = Date.now() + limits.flushTimeoutMs
           while (observationWrite && Date.now() < observationDeadline) {
             await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
@@ -1477,12 +1593,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             .filter((observation, index, observations) => observations.findIndex(candidate => sameObservation(candidate, observation)) === index)
           const unpersistedOutcomes = outcomeObservations
             .filter(observation => !persistedObservations.has(observationPersistenceKey(observation)))
-          const pendingOutcomes = await Promise.all(retainedPriorityOutcomes(unpersistedOutcomes, MAX_OBSERVATIONS)
+          const pendingOutcomes = await Promise.all(retainedPriorityOutcomes(unpersistedOutcomes, limits.maxCount)
             .map(observation => boundedJournalObservation({
               ...observation,
               timestamp: normalizedTimestamp(observation.timestamp),
               ...(observation.trace ? { trace: { ...observation.trace, id: traceId } } : {}),
-            })))
+            }, limits)))
           const pendingOutcomeKeys = new Set(pendingOutcomes.map(observationPersistenceKey))
           const discardedObservationKeys = unpersistedOutcomes
             .filter(observation => !pendingOutcomeKeys.has(observationPersistenceKey(observation)))

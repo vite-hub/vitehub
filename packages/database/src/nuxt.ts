@@ -11,6 +11,8 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -132,7 +134,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           )
         }
         if (!nuxtOptions.dev) {
-          mergeNitroDatabaseRuntimeAlias(config, root, provider ?? (d1 ? "cloudflare" : undefined))
+          const runtimeProvider = provider ?? (d1 ? "cloudflare" : undefined)
+          if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
+            const runtime = resolveDBViteConfig(resolvedOptions, root, { serverDirs })
+            if (runtime) {
+              await writeGeneratedDatabaseArtifacts(runtime)
+              await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
+            }
+          }
+          mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
           await installNitroCloudflareEnvBridge(config, root)

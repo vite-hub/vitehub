@@ -7,6 +7,7 @@ import { join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
+import type { StreamEvent } from "../src/messages.ts"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
@@ -1969,6 +1970,47 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const cwd = (createProviderRuntime.mock.calls.at(-1)![0] as { cwd: string }).cwd
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps assistant item phases separate and forgets completed items", async () => {
+    const threadId = "thread-message-phases"
+    runtime(threadId, [
+      event("item.started", threadId, { data: { item: { phase: "commentary" } }, itemType: "assistant_message" }, { itemId: "comment" }),
+      event("item.started", threadId, { data: { phase: "final_answer" }, itemType: "assistant_message" }, { itemId: "answer" }),
+      event("content.delta", threadId, { delta: "Checking.", streamKind: "assistant_text" }, { itemId: "comment" }),
+      event("content.delta", threadId, { delta: "Found it.", streamKind: "assistant_text" }, { itemId: "answer" }),
+      event("content.delta", threadId, { delta: "One more check.", streamKind: "assistant_text" }, { itemId: "comment" }),
+      event("item.completed", threadId, { itemType: "assistant_message", status: "completed" }, { itemId: "comment" }),
+      event("item.started", threadId, { itemType: "assistant_message" }, { itemId: "comment" }),
+      event("content.delta", threadId, { delta: "Reused item.", streamKind: "assistant_text" }, { itemId: "comment" }),
+      event("content.delta", threadId, { delta: "No item.", streamKind: "assistant_text" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(value => value.type === "text-delta")).toEqual([
+      { phase: "commentary", text: "Checking.", type: "text-delta" },
+      { phase: "final", text: "Found it.", type: "text-delta" },
+      { phase: "commentary", text: "One more check.", type: "text-delta" },
+      { phase: "final", text: "Reused item.", type: "text-delta" },
+      { phase: "final", text: "No item.", type: "text-delta" },
+    ])
+  })
+
+  it.each([undefined, 0, 120])("omits absent provider latency and preserves duration %s", async (durationMs) => {
+    const threadId = "thread-optional-latency"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, ...(durationMs === undefined ? {} : { durationMs }) } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
+    const usage = events.find(value => value.type === "usage")
+    expect(usage).toBeDefined()
+    expect(usage).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
+    if (usage?.type !== "usage") throw new Error("Expected provider usage")
+    if (durationMs !== undefined) expect(usage.usageRecord.latency).toEqual({ durationMs })
+    expect(Object.hasOwn(usage.usageRecord, "latency")).toBe(durationMs !== undefined)
   })
 
   it("preserves Capability action annotations from provider-native tool items", async () => {

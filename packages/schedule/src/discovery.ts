@@ -10,19 +10,44 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vite-hub/internal/definition-catalog"
-import { findDefaultExportCall, readObjectProperty } from "@vite-hub/internal/source-scanner"
+import { findDefaultExportCall, findIdentifierCalls, readObjectProperty, splitTopLevel, stripBoundaryComments } from "@vite-hub/internal/source-scanner"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
 function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "runtimeOnly"> {
-  const definition = findDefaultExportCall(readFileSync(file, "utf8"), ["defineSchedule", "defineScheduleTarget"])
-  if (!definition) return { allowRuntimeSchedules: false }
+  const source = readFileSync(file, "utf8")
+  const names = ["defineSchedule", "defineScheduleTarget"]
+  const definition = findDefaultExportCall(source, names)
+  const unsupported = (offset: number, message: string): never => {
+    const line = source.slice(0, offset).split("\n").length
+    throw new TypeError(`[vitehub] ${file}:${line}: ${message}`)
+  }
+  if (!definition) {
+    const call = names.flatMap(name => findIdentifierCalls(source, name))[0]
+    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget() with an object literal.")
+    return { allowRuntimeSchedules: false }
+  }
   if (definition.name === "defineScheduleTarget") {
     return { allowRuntimeSchedules: true, runtimeOnly: true }
   }
-  return { allowRuntimeSchedules: readObjectProperty(definition.argument, "allowRuntimeSchedules") === "true" }
+
+  let allowRuntimeSchedules = false
+  for (const entry of splitTopLevel(definition.argument.slice(1, -1))) {
+    const property = stripBoundaryComments(entry)
+    if (property.startsWith("...") || property.startsWith("[")) {
+      unsupported(definition.start, "Schedule discovery cannot resolve spread or computed options. Declare allowRuntimeSchedules as a literal true or false in the definition object.")
+    }
+    const value = readObjectProperty(`{${property}}`, "allowRuntimeSchedules")
+    if (value === "true" || value === "false") {
+      allowRuntimeSchedules = value === "true"
+    }
+    else if (value !== undefined || /^(?:(?:get|set)\s+)?allowRuntimeSchedules\b/.test(property)) {
+      unsupported(definition.start, "Schedule discovery requires allowRuntimeSchedules to be a literal true or false; it cannot evaluate this expression.")
+    }
+  }
+  return { allowRuntimeSchedules }
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {

@@ -131,3 +131,20 @@ Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-
 - [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix)
 - [Definitions and discovery](https://vitehub.dev/docs/concepts/definitions-and-discovery)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
+
+
+## Definition-owned dispatch types
+
+The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
+
+```ts
+await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
+const queue = await getQueue("welcome-email")
+await queue.send({ email: "ada@example.com" })
+```
+
+`QueueRegistry` is the generated definition map. `QueuePayload<"welcome-email">` extracts a payload type. A missing name or wrong payload is a type error. Run Vite configuration or the Nuxt prepare step after you add a definition. For a standalone TypeScript host, you can extend `QueueRegistry` with `typeof import("./welcome.queue").default`.
+
+Use `dynamicQueue.run(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.get()` for names read from external input. These methods check that the definition exists at runtime. They do not validate payload shape. Validate external data in your application. Direct provider clients from `createQueueClient()` also accept unknown payloads because they have no Queue Definition.
+
+This is a breaking change: replace `runQueue(name, { payload, ...options })` with `runQueue(name, payload, options)`, and `client.send({ payload, ...options })` with `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.

@@ -1,3 +1,11 @@
+import type { Message } from "@vite-hub/agent"
+
+export interface ConsoleAgentInvocationInput {
+  invokerProfileId?: string
+  messages?: Array<Message & { role: "user" | "assistant" }>
+  prompt: string
+}
+
 export const consoleRpcMethods = {
   agents: "vitehub:console:agents",
   agentInvocations: "vitehub:console:agent-invocations",

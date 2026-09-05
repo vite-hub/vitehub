@@ -171,7 +171,11 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     await mkdir(join(root, "server/queues"), { recursive: true })
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "package-default" }), "utf8")
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
-    await writeFile(join(root, "server/queues/image-optimization.ts"), "export default async () => undefined\n", "utf8")
+    await writeFile(join(root, "server/queues/image-optimization.ts"), [
+      'import { defineQueue } from "vite-hub/queue"',
+      'export default defineQueue<string>(async () => undefined)',
+      '',
+    ].join("\n"), "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [
       "export default defineEventHandler(async (event) => {",
       '  const { requireRateLimit } = await import("vite-hub/rate-limit")',
@@ -183,7 +187,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     await writeFile(join(root, "server/api/queue.get.ts"), [
       "export default defineEventHandler(async () => {",
       '  const { deferQueue } = await import("vite-hub/queue")',
-      '  deferQueue("image-optimization", { payload: "queued" })',
+      '  deferQueue("image-optimization", "queued")',
       '  return "queued"',
       "})",
       "",
