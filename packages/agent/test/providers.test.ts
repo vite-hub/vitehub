@@ -1582,7 +1582,24 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("rejects a readiness route that shadows the configured Nitro root handler", async () => {
+  it("registers readiness alongside Nitro middleware", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ preparation: { route: "/health", workspace: "docs" } })
+    const middleware = { route: "/**", handler: "/app/middleware.ts", middleware: true }
+    const result = isRuntimeFunction(plugin.config)
+      ? // SAFETY: The fixture supplies the Nitro fields read by the config hook.
+        await plugin.config.call({} as never, {
+          root: hostedAgentRoot,
+          nitro: { handlers: [middleware] },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: { handlers: expect.arrayContaining([middleware, expect.objectContaining({ route: "/health" })]) },
+    })
+  })
+
+  it.each(["/", "/:page", "/**"])("rejects a readiness route that shadows the configured Nitro endpoint %s", async route => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ preparation: { route: "/", workspace: "docs" } })
     expect(() => {
@@ -1590,7 +1607,7 @@ describe("agent Vite plugin", () => {
         // SAFETY: The fixture supplies the Nitro fields read by the config hook.
         return plugin.config.call({} as never, {
           root: hostedAgentRoot,
-          nitro: { handlers: [{ route: "/", handler: "/app/index.ts" }] },
+          nitro: { handlers: [{ route: "/**", handler: "/app/middleware.ts", middleware: true }, { route, handler: "/app/index.ts" }] },
         } as never, { command: "build", mode: "production" })
       }
     }).toThrow("readiness route conflicts")
