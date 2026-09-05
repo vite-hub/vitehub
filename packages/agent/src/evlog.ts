@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
@@ -71,12 +72,11 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   function safeError(error: unknown) {
     let original = error instanceof Error ? error : new Error("Operation failed")
     for (let i = 0; i < 5 && !("code" in original) && original.cause instanceof Error; i++) original = original.cause
-    const diagnostic = original as Error & { code?: unknown, fix?: unknown, docs?: unknown }
-    const code = typeof diagnostic.code === "string" && /^[a-z0-9_.-]{1,100}$/i.test(diagnostic.code) ? diagnostic.code : undefined
+    const code = "code" in original && hasRuntimeType(original.code, "string") && /^[a-z0-9_.-]{1,100}$/i.test(original.code) ? original.code : undefined
     const safe = new Error(code && options.trustedErrorCodes?.includes(code) ? String(sanitizeAgentLog({ message: original.message }).message) : "Operation failed")
     safe.name = code || "Error"
     if (original.stack) safe.stack = `${safe.name}: ${safe.message}\n${original.stack.split("\n").filter(line => /^\s+at /.test(line)).map(line => sanitizeAgentLog({ line }).line).join("\n")}`
-    return { error: safe, properties: { diagnostic_code: code, diagnostic_fix: diagnostic.fix, diagnostic_docs: diagnostic.docs } }
+    return { error: safe, properties: { diagnostic_code: code, diagnostic_fix: "fix" in original ? original.fix : undefined, diagnostic_docs: "docs" in original ? original.docs : undefined } }
   }
 
   function emit(event: string, properties: Record<string, unknown>, error?: Error) {
@@ -84,7 +84,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     // The integration owns delivery; avoid also sending through a global Nitro drain.
     const logger = createLogger(safe, { _deferDrain: true })
     if (error) logger.error(error)
-    else if (["info", "warn", "error", "debug"].includes(String(safe.level))) logger.setLevel(safe.level as WideEvent["level"])
+    else if (safe.level === "info" || safe.level === "warn" || safe.level === "error" || safe.level === "debug") logger.setLevel(safe.level)
     const emitted = logger.emit()
     if (emitted && exporter) logs(emitted)
     return safe
@@ -160,7 +160,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
           duration_ms: durationMs, tool_steps: summary?.toolSteps,
           status: cancelled ? "cancelled" : failed ? "failed" : "completed",
         })
-        await Promise.allSettled([...pending])
+        await Promise.allSettled(pending)
       },
     },
   })
@@ -183,7 +183,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       if (closing || !exporter) return
       const safe = sanitizeAgentLog({ ...context.event, ...metadata })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
-      logs(safe as WideEvent)
+      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
     },
     status: () => ({ configured: Boolean(exporter), ...counts, pending: pending.size + logs.pending, closed: closing }),
     flush() {

@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 const secretKey = /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|prompt|messages|input|output|raw|context|headers|body|pre_context|post_context|context_line)$/i
 
 function sanitizeString(value: string): string {
@@ -23,17 +24,18 @@ function sanitizeString(value: string): string {
 export function sanitizeAgentLog(properties: Record<string, unknown>): Record<string, unknown> {
   const seen = new WeakSet<object>()
   function clean(value: unknown, depth: number): unknown {
-    if (typeof value === 'string') return sanitizeString(value).slice(0, 4000)
-    if (typeof value === 'boolean' || value === null) return value
-    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
-    if (!value || typeof value !== 'object' || depth > 8 || seen.has(value)) return undefined
+    if (hasRuntimeType(value, "string")) return sanitizeString(value).slice(0, 4000)
+    if (hasRuntimeType(value, "boolean") || value === null) return value
+    if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
+    if (!value || !hasRuntimeType(value, "object") || depth > 8 || seen.has(value)) return undefined
     seen.add(value)
     if (Array.isArray(value)) return value.slice(0, 100).map(entry => clean(entry, depth + 1))
     return Object.fromEntries(Object.entries(value)
       .filter(([key]) => !secretKey.test(key))
-      .map(([key, entry]) => [key, clean(key === 'path' && typeof entry === 'string' ? entry.split(/[?#]/)[0] : entry, depth + 1)])
+      .map(([key, entry]) => [key, clean(key === 'path' && hasRuntimeType(entry, "string") ? entry.split(/[?#]/)[0] : entry, depth + 1)])
       .filter(([, entry]) => entry !== undefined))
   }
-  return clean(properties, 0) as Record<string, unknown>
+  const result = clean(properties, 0)
+  return isRuntimeRecord(result) ? result : {}
 }
 

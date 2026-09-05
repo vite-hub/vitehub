@@ -1,3 +1,4 @@
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { sendBatchToPostHog } from "evlog/posthog"
 import { PostHog } from "posthog-node"
 import type { AgentEvlogExporter } from "../evlog.ts"
@@ -32,8 +33,8 @@ export function posthogAgentExporter(options: AgentPostHogOptions): AgentEvlogEx
           method: "POST", headers: { "content-type": "application/json" }, body, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000),
         })
         if (response.ok) {
-          const result = await response.json() as { status?: unknown }
-          if (result.status === "Ok" || result.status === 1) return
+          const result: unknown = await response.json()
+          if (isRuntimeRecord(result) && (result.status === "Ok" || result.status === 1)) return
           retryable = false
         }
         else {

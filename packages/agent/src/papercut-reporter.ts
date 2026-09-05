@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { agentInvocationId, type AgentInvocations } from "./invocations.ts"
 import { withExportDeadline } from "./internal/export-deadline.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
@@ -43,15 +44,16 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   let cursor: string | undefined
   let running = false
 
+  const envelopeSchema = v.object({
+    uuid: v.pipe(v.string(), v.uuid()),
+    timestamp: v.pipe(v.string(), v.check(value => Number.isFinite(Date.parse(value)))),
+    properties: v.looseObject({ invocation_id: v.pipe(v.string(), v.nonEmpty()), papercut_id: v.pipe(v.string(), v.nonEmpty()), message: v.pipe(v.string(), v.nonEmpty()) }),
+  })
   function parse(value: unknown): PapercutDelivery | undefined {
-    if (typeof value !== "string") return
+    if (!v.is(v.string(), value)) return
     try {
-      const parsed = JSON.parse(value) as PapercutDelivery
-      if (typeof parsed.uuid !== "string" || typeof parsed.timestamp !== "string" || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(parsed.uuid)
-        || !Number.isFinite(Date.parse(parsed.timestamp))
-        || typeof parsed.properties?.invocation_id !== "string" || typeof parsed.properties.papercut_id !== "string"
-        || typeof parsed.properties.message !== "string") return
-      return parsed
+      const result = v.safeParse(envelopeSchema, JSON.parse(value))
+      return result.success ? result.output : undefined
     }
     catch { return }
   }
