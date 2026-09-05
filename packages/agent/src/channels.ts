@@ -1516,7 +1516,7 @@ function githubActivityTask(task: AgentActivityTask): string {
 }
 
 function githubActivityLinks(links: readonly { label: string, url: string }[]): string {
-  return links.map(link => `[${link.label}](<${link.url}>)`).join(" · ")
+  return links.map(link => `[${githubActivityText(link.label, 160)}](<${link.url}>)`).join(" · ")
 }
 
 function renderGithubActivity(
