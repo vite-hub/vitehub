@@ -192,8 +192,6 @@ async function resolveRootedGlobFilePath(
 }
 
 function isUnavailablePathError(error: unknown) {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && (error.code === "ENOENT" || error.code === "ELOOP")
+  return error instanceof Error
+    && ["ENOENT", "ELOOP"].includes(String(Reflect.get(error, "code")))
 }
