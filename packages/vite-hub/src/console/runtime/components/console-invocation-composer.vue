@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AgentChatPrompt } from "@vite-hub/ui";
 import * as v from "valibot";
+import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
 import { requestConsole } from "../client/request";
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref("");
+const files = ref<FileUIPart[]>([]);
 const error = ref<unknown>();
 const loading = ref(false);
 const selectedProfileId = ref<string>();
@@ -46,18 +48,28 @@ function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "The Agent invocation could not be started.";
 }
 
-function rejectFiles(): [] {
-  return [];
+function filterFiles(selected: readonly File[]): readonly File[] {
+  const accepted = selected.filter(file => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type));
+  if (accepted.length !== selected.length) error.value = new Error("Use a PNG, JPEG, WebP, or GIF image. Other files are not supported by this Console input yet.");
+  return accepted;
 }
 
-async function submit(message: { text: string }): Promise<void> {
-  if (loading.value || !message.text.trim()) return;
+async function submit(message: { text: string; files?: readonly FileUIPart[] }): Promise<void> {
+  if (loading.value || (!message.text.trim() && !message.files?.length)) return;
   loading.value = true;
   error.value = undefined;
   try {
     const body: ConsoleAgentInvocationInput = {
       prompt: message.text,
     };
+    if (message.files?.length) {
+      body.attachments = [];
+      for (const file of message.files) {
+        const uploaded = await requestConsole(`${props.base.replace(/\/agents$/, "")}/attachments`, { method: "POST", body: file });
+        const parsed = v.parse(invocationResultSchema, uploaded);
+        body.attachments.push(parsed.id);
+      }
+    }
     if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;
     const response = await requestConsole(
       `${props.base}/${encodeURIComponent(props.agent)}/invocations`,
@@ -71,6 +83,7 @@ async function submit(message: { text: string }): Promise<void> {
       throw viteHubErrorDiagnostics.VITE_HUB_R0102({ message: "The Agent invocation response did not include an id." });
     }
     draft.value = "";
+    files.value = [];
     emit("started", { agent: props.agent, id: result.output.id });
   } catch (value) {
     error.value = value;
@@ -105,7 +118,8 @@ async function submit(message: { text: string }): Promise<void> {
           <span class="h-4 w-px shrink-0 bg-default" />
           <span class="flex min-w-0 items-center gap-1.5">
             <UIcon class="size-4 shrink-0" name="i-ph-robot-light" />
-            <span class="truncate">Agent {{ agent }}</span>
+            <span v-if="profiles.length <= 1" class="truncate">{{ profiles[0]?.label || agent }}</span>
+            <USelect v-else v-model="selectedProfileId" aria-label="Invoker profile" :items="profileItems" size="sm" variant="ghost" />
           </span>
           <span class="ml-auto shrink-0 font-mono text-[11px]">New invocation</span>
         </div>
@@ -113,10 +127,13 @@ async function submit(message: { text: string }): Promise<void> {
         <div class="console-invocation-composer__surface relative z-10 rounded-[22px] bg-default ring-1 ring-default shadow-sm transition-shadow has-[textarea:focus-visible]:ring-accented">
           <AgentChatPrompt
             v-model="draft"
+            v-model:files="files"
             aria-label="Test this Agent"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            @error="error = $event"
             class="console-invocation-composer__prompt min-h-32 gap-3 rounded-[22px] bg-default px-4 pb-3 pt-4 [&_.vh-prompt__spacer]:hidden"
             color="neutral"
-            :filter-files="rejectFiles"
+            :filter-files="filterFiles"
             :maxrows="8"
             placeholder="Test this Agent..."
             :rows="3"
@@ -128,33 +145,18 @@ async function submit(message: { text: string }): Promise<void> {
             }"
             @submit="submit"
           >
-            <template #actions>
-              <div class="mr-auto flex min-w-0 items-center gap-2 text-sm text-muted">
-                <UIcon class="size-4 shrink-0" name="i-ph-robot-light" />
-                <span v-if="profiles.length <= 1" class="truncate">{{ profiles[0]?.label || agent }}</span>
-                <USelect
-                  v-else
-                  v-model="selectedProfileId"
-                  aria-label="Invoker profile"
-                  class="max-w-52"
-                  :items="profileItems"
-                  size="sm"
-                  variant="ghost"
-                />
-              </div>
-            </template>
             <template #submit>
               <UButton
                 aria-label="Start Agent"
                 class="console-invocation-composer__submit size-8 rounded-full active:scale-[0.97]"
                 color="primary"
                 icon="i-ph-arrow-up-light"
-                :disabled="!draft.trim() || loading"
+                :disabled="(!draft.trim() && !files.length) || loading"
                 :loading="loading"
                 square
                 size="sm"
                 type="button"
-                @click="submit({ text: draft })"
+                @click="submit({ text: draft, files })"
               />
             </template>
           </AgentChatPrompt>

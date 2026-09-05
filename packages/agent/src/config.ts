@@ -15,6 +15,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
   const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
   const inspectionRoute = normalizeAgentRouteOption(options?.routes?.inspection, defaultAgentInspectionRoute)
   return {
+    ...(options?.preparation ? { preparation: options.preparation } : {}),
     execution: options?.execution || "inline",
     imports: options?.imports !== false,
     integrations: {

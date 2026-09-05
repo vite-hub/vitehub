@@ -13,6 +13,21 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("shows durable input images beside text after reloading an invocation", () => {
+    const timestamp = "2026-09-05T00:00:00.000Z";
+    const activities = invocationActivities({
+      id: "image", createdAt: timestamp, updatedAt: timestamp, status: "completed", traceId: "trace",
+      observations: [{ name: "agent.input", type: "run", timestamp, sequence: 1, attributes: {
+        "input.messages": [{ id: "input", role: "user", parts: [
+          { type: "text", text: "What is this?" },
+          { type: "image", name: "chart.png", url: "/files/retained-image" },
+        ] }],
+      } }],
+    });
+    expect(activities.some(activity => activity.body?.includes("![chart.png](</files/retained-image>)"))).toBe(true);
+    expect(activities.some(activity => activity.body?.includes("What is this?"))).toBe(true);
+  });
+
   it("groups long message streams without losing delta order", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const observationCount = 32_768;

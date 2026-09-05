@@ -1,5 +1,5 @@
 import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } from "../../capability-runtime.ts"
-import { publishWorkspaceArtifacts } from "../../delivery-artifacts.ts"
+import { publishWorkspaceArtifacts, rewriteDeliveryArtifactMarkdown } from "../../delivery-artifacts.ts"
 import { toAgentRunResult } from "../../agent-output.ts"
 import {
   clearAgentWorkspaceDiff,
@@ -162,6 +162,8 @@ function absoluteBlobArtifactUrl(value: unknown, request: Request | undefined): 
     return new URL(url).href
   }
   catch {
+    // Console RPC uses a synthetic request URL. Keep its Blob URLs relative to the UI host.
+    if (request && new URL(request.url).hostname === "vitehub.local") return url
     if (request) return new URL(url, request.url).href
     throw agentDiagnostics.AGENT_R0202({ message: "[vitehub] Blob asset publication returned a relative URL without an Agent request URL." })
   }
@@ -206,6 +208,7 @@ async function publishReferencedAgentArtifacts(
   const nextArtifacts = [...(runResult.artifacts || []), ...published]
   if (typeof result === "object" && result !== null) {
     return cloneWithPropertyDescriptors(result, {
+      text: { configurable: true, enumerable: true, value: rewriteDeliveryArtifactMarkdown(runResult.text, published), writable: true },
       artifacts: {
         configurable: true,
         enumerable: true,
@@ -216,6 +219,7 @@ async function publishReferencedAgentArtifacts(
   }
   return {
     ...runResult,
+    text: rewriteDeliveryArtifactMarkdown(runResult.text, published),
     artifacts: nextArtifacts,
   }
 }

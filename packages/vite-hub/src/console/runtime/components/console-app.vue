@@ -139,7 +139,7 @@ const selectedDetailStatus = ref<{
 }>();
 const selectedDetailError = ref<unknown>();
 const initialSessionLoading = computed(() =>
-  !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
+  !selectedInvocationId.value && !selectedAgentInvocation.value && (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;

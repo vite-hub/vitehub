@@ -1591,7 +1591,17 @@ export interface ResolvedAgentRoutesOptions {
   webhooks: string
 }
 
+export interface AgentPreparationOptions {
+  workspace: string
+  requireNonEmpty?: boolean
+  retryDelayMs?: number
+  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  route?: string
+}
+
 export interface AgentModuleOptions {
+  /** Prepare startup Workspace sources on a persistent Nitro host. */
+  preparation?: AgentPreparationOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
@@ -1603,6 +1613,7 @@ export interface AgentModuleOptions {
 }
 
 export interface ResolvedAgentModuleOptions {
+  preparation?: AgentPreparationOptions
   execution: AgentExecution
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>

@@ -29,6 +29,18 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it.each([false, true])("allows empty sources unless requireNonEmpty is %s", async (requireNonEmpty) => {
+    const preparation = createWorkspacePreparation({
+      workspace: registerPreparationWorkspace(async () => []),
+      requireNonEmpty,
+    })
+    try {
+      await expect(preparation.start()).resolves.toMatchObject({ status: requireNonEmpty ? "error" : "ready" })
+      expect(preparation.response().status).toBe(requireNonEmpty ? 503 : 200)
+    }
+    finally { await preparation.stop() }
+  })
+
   it("synchronizes distinct definitions that share a Store", async () => {
     const store = createMemoryWorkspaceStore()
     const loaded: string[] = []
@@ -50,6 +62,8 @@ describe("Workspace runtime preparation", () => {
 
     expect(preparation.getState()).toMatchObject({ status: "stopped" })
     expect(preparation.response().status).toBe(503)
+    expect(preparation.response("POST").status).toBe(405)
+    expect(await preparation.response("HEAD").text()).toBe("")
     await expect(preparation.response().json()).resolves.toEqual({ ready: false, status: "stopped" })
   })
 

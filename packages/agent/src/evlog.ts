@@ -81,8 +81,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
 
   function emit(event: string, properties: Record<string, unknown>, error?: Error) {
     const safe = sanitizeAgentLog({ ...properties, ...metadata, event })
-    // The integration owns delivery; avoid also sending through a global Nitro drain.
-    const logger = createLogger(safe, { _deferDrain: true })
+    // Reuse the configured evlog drain unless this integration owns an explicit exporter.
+    const logger = createLogger(safe, { _deferDrain: Boolean(exporter) })
     if (error) logger.error(error)
     else if (safe.level === "info" || safe.level === "warn" || safe.level === "error" || safe.level === "debug") logger.setLevel(safe.level)
     const emitted = logger.emit()
@@ -160,7 +160,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
           duration_ms: durationMs, tool_steps: summary?.toolSteps,
           status: cancelled ? "cancelled" : failed ? "failed" : "completed",
         })
-        await Promise.allSettled(pending)
+        // Keep telemetry delivery off the response path, and retain it on serverless hosts.
+        context.runtime.waitUntil?.(Promise.allSettled([...pending]))
       },
     },
   })
@@ -195,5 +196,39 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       }
       return flush
     },
+  }
+}
+
+/** Install shared telemetry on a Nitro host. Reporters stop before the exporter drains. */
+export interface AgentEvlogHost {
+  hooks: {
+    hook(name: "request", callback: (event: { req: Request & { context?: { requestId?: string } } }) => void): unknown
+    hook(name: "evlog:drain", callback: (context: DrainContext) => void): unknown
+    hook(name: "error", callback: (error: unknown, context: { event?: { req: Request & { context?: { requestId?: string } } } }) => void): unknown
+    hook(name: "close", callback: () => Promise<void>): unknown
+  }
+}
+
+export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
+  return (host) => {
+    host.hooks.hook("request", event => {
+      event.req.context ||= {}
+      event.req.context.requestId ||= crypto.randomUUID()
+    })
+    host.hooks.hook("evlog:drain", telemetry.drain)
+    host.hooks.hook("error", (error, context) => {
+      const request = context.event?.req
+      telemetry.exception(error, {
+        operation: "http.request",
+        method: request?.method,
+        path: request ? new URL(request.url).pathname : undefined,
+        request_id: request?.context?.requestId,
+      })
+    })
+    if (telemetry.status().configured) for (const reporter of reporters) reporter.start()
+    host.hooks.hook("close", async () => {
+      try { await Promise.all(reporters.map(reporter => reporter.stop())) }
+      finally { await telemetry.flush() }
+    })
   }
 }

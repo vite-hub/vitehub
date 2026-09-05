@@ -4,6 +4,7 @@ import { fromWebHandler } from "h3"
 
 import { consoleRpcMethods } from "../rpc.ts"
 import consoleAgentsHandler from "./agents.get.ts"
+import { consoleAttachmentUpload } from "./attachments.ts"
 import consoleAgentInvocationsHandler from "./agent-invocations.post.ts"
 import consoleBlobHandler from "./blob.get.ts"
 import consoleDatabaseHandler from "./database.get.ts"
@@ -103,6 +104,7 @@ async function result(resolve: () => unknown | Promise<unknown>): Promise<Consol
 }
 
 const operations = {
+  [consoleRpcMethods.attachments]: (input: ConsoleRpcInput) => consoleAttachmentUpload(requestEvent("attachments", input)),
   [consoleRpcMethods.agents]: (input: ConsoleRpcInput) => consoleAgentsHandler(requestEvent("agents", input)),
   [consoleRpcMethods.agentInvocations]: (input: ConsoleRpcInput) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input)),
   [consoleRpcMethods.blob]: (input: ConsoleRpcInput) => consoleBlobHandler(requestEvent("blob", input)),

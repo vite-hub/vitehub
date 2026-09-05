@@ -111,3 +111,28 @@ it("exports streamed usage once after the stream ends", async () => {
   expect(terminal).toHaveLength(1)
   expect(terminal[0]![1]).toMatchObject({ total_tokens: 4, model: "test-model", status: "completed" })
 })
+
+it("finishes an invocation while retaining slow delivery in the host lifetime", async () => {
+  let release!: () => void
+  const blocked = new Promise<void>(resolve => { release = resolve })
+  const { telemetry, exporter } = setup({ capture: async () => blocked })
+  const agent = defineAgent({ driver: { run: () => "answer" }, capabilities: [telemetry.capability] })
+  try {
+    await runAgent(agent, { runtime: "unknown", memo: vi.fn(), waitUntil }, { prompt: "hello" })
+    expect(telemetry.status().pending).toBeGreaterThan(0)
+    expect(exporter.capture).toHaveBeenCalled()
+  }
+  finally {
+    release()
+    await Promise.allSettled(background.splice(0))
+  }
+})
+
+it("uses the existing evlog drain when no separate exporter is configured", async () => {
+  const drain = vi.fn()
+  initLogger({ drain, pretty: false })
+  const telemetry = createAgentEvlog({ service: "configured-host", environment: "test" })
+  telemetry.event("agent.event", { invocation_id: "one" })
+  await telemetry.flush()
+  expect(drain).toHaveBeenCalledWith(expect.objectContaining({ event: expect.objectContaining({ invocation_id: "one", service: "configured-host" }) }))
+})

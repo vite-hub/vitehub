@@ -3,7 +3,7 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerLabel } from "./invoker.ts"
-import type { AgentActivity, StreamEvent } from "./messages.ts"
+import { isAttachmentPart, type AgentActivity, type Message, type StreamEvent } from "./messages.ts"
 import type {
   AgentDriverContribution,
   AgentInvocationContextStore,
@@ -60,6 +60,25 @@ export function hasAgentTraceLog(context: { runtime: ResolvedAgentRuntimeContext
   return Boolean(context.runtime.traceLog)
 }
 
+/** Attachment callbacks and bytes belong to transport/storage, not trace snapshots. */
+function traceMessages(messages: Message[]): Message[] {
+  return messages.map(message => ({
+    ...message,
+    parts: message.parts.map(part => {
+      if (!isAttachmentPart(part)) return part
+      let url: string | undefined
+      if (part.url) {
+        try {
+          const parsed = new URL(part.url, "http://vitehub.local")
+          if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password && !parsed.search && !parsed.hash) url = part.url
+        }
+        catch {}
+      }
+      return { type: part.type, id: part.id, mediaType: part.mediaType, name: part.name, size: part.size, ...(url ? { url } : {}) }
+    }),
+  }))
+}
+
 function invocationAttributes(
   context: AgentTraceContext,
   extra: Record<string, unknown> = {},
@@ -75,7 +94,7 @@ function invocationAttributes(
     "channel.delivery.source.id": context.runtime.channelDelivery?.sourceId,
     "input.hasMessages": Boolean(context.input.messages?.length),
     "input.hasPrompt": Boolean(context.input.prompt),
-    ...(includeInput && context.input.messages?.length ? { "input.messages": context.input.messages } : {}),
+    ...(includeInput && context.input.messages?.length ? { "input.messages": traceMessages(context.input.messages) } : {}),
     ...(includeInput && context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
     "runtime.name": context.runtime.runtime,
     ...extra,
