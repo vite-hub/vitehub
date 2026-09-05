@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { readColocatedAgentSkills } from "@vite-hub/agent/vite"
+
 import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -25,6 +27,14 @@ function renderConsoleNitroPlugin(
   invoke = false,
   observations?: AgentInvocationsOptions["observations"],
 ): string {
+  const definitions = agents.map((agent, index) => {
+    const skills = readColocatedAgentSkills(agent.handler)
+    const module = `vitehubConsoleAgent${index}`
+    const definition = skills
+      ? `agentWithColocatedSkills(${module}.default ?? ${module}, ${JSON.stringify(skills)})`
+      : module
+    return `{ definition: ${definition}, fallbackName: ${JSON.stringify(agent.name)} }`
+  }).join(", ")
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
@@ -41,7 +51,7 @@ function renderConsoleNitroPlugin(
         ]
       : []),
     ...(agentsEnabled
-      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`]
+      ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "@vite-hub/agent/runtime/workflow"`]
       : []),
     ...(definitionsEnabled ? [`import { installConsoleDefinitions } from "vite-hub/console/definitions"`] : []),
     ...(databaseEnabled
@@ -70,9 +80,9 @@ function renderConsoleNitroPlugin(
       ? fixture
         ? [
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { invocations: vitehubConsoleInvocations })`,
+            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations })`,
           ]
-        : [`installConsoleAgentDefinitions([${agents.map((agent, index) => `{ definition: vitehubConsoleAgent${index}, fallbackName: ${JSON.stringify(agent.name)} }`).join(", ")}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
