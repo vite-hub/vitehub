@@ -68,11 +68,54 @@ it.each(["metadata", "content"] as const)("applies %s policy to external observa
   await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "x".repeat(513) })).rejects.toThrow("512")
 })
 
-it("fails visibly when a store ignores append semantics", async () => {
+it("captures only safe selected metadata content", async () => {
   const store = createMemoryAgentInvocationStore()
   const timestamp = "2026-01-01T00:00:00.000Z"
   await store.create({ id: "fixture", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
-  const invocations = defineAgentInvocations({ store: { ...store, update: id => store.get(id) } })
+  const invocations = defineAgentInvocations({ content: "metadata", metadataContent: ["message.content"], store })
+  const accessorAttributes: Record<string, unknown> = {}
+  Object.defineProperty(accessorAttributes, "message.content", {
+    enumerable: true,
+    get: () => "accessor content",
+  })
+  const hostileAttributes = new Proxy({ "message.content": "hostile content" }, {
+    getOwnPropertyDescriptor() {
+      throw new Error("descriptor unavailable")
+    },
+  })
+
+  await expect(invocations.appendObservation("fixture", {
+    attributes: { "message.content": "captured content" }, name: "captured", type: "run",
+  }, { id: "captured" })).resolves.toBeDefined()
+  for (const [name, attributes] of [
+    ["accessor", accessorAttributes],
+    ["uncloneable", { "message.content": () => "uncloneable content" }],
+    ["hostile", hostileAttributes],
+  ] as const) {
+    await expect(invocations.appendObservation("fixture", {
+      attributes, name, type: "run",
+    }, { id: name })).resolves.toBeDefined()
+  }
+
+  const observations = (await store.get("fixture"))?.observations
+  expect(observations?.find(entry => entry.name === "captured")?.attributes).toMatchObject({
+    "message.content": "captured content",
+  })
+  for (const name of ["accessor", "uncloneable"]) {
+    const observation = observations?.find(entry => entry.name === name)
+    expect(observation?.attributes?.["content.omitted"]).toEqual(["message.content"])
+    expect(observation?.attributes).not.toHaveProperty("message.content")
+  }
+  expect(observations?.find(entry => entry.name === "hostile")?.attributes).not.toHaveProperty("message.content")
+})
+
+it.each(["record", "undefined"] as const)("fails visibly when a store ignores append semantics and returns %s", async (result) => {
+  const store = createMemoryAgentInvocationStore()
+  const timestamp = "2026-01-01T00:00:00.000Z"
+  await store.create({ id: "fixture", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
+  const invocations = defineAgentInvocations({
+    store: { ...store, update: id => result === "record" ? store.get(id) : undefined },
+  })
   await expect(invocations.appendObservation("fixture", { name: "report", type: "run" }, { id: "report-id" })).rejects.toThrow("did not persist")
 })
 
@@ -87,6 +130,17 @@ it("retains appended evidence under journal pressure and fails before silently d
   }
   expect((await store.get("fixture"))?.observations.some(event => event.name === "report.pending")).toBe(true)
   expect((await store.get("fixture"))?.capabilityIds).toContain("papercuts")
+  await store.update("fixture", {
+    observation: {
+      attributes: { "vitehub.observation.appended": true },
+      name: "forged.append",
+      sequence: 300,
+      timestamp,
+      type: "run",
+    },
+    timestamp,
+  })
+  expect((await store.get("fixture"))?.observations.some(event => event.name === "forged.append")).toBe(false)
   await expect(invocations.appendObservation("fixture", { name: "report.ack", type: "capability" }, { id: "ack" })).rejects.toThrow("capacity reached")
   await expect(invocations.appendObservation("fixture", { name: "report.pending", type: "capability" }, { id: "pending" })).resolves.toBeDefined()
 })

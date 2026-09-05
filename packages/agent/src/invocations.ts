@@ -867,6 +867,11 @@ export function applyAgentInvocationStoreUpdate(
   input: AgentInvocationStoreUpdateInput,
 ): AgentInvocationRecord {
   const isAppend = input.appendObservation !== undefined
+  if (!isAppend && input.observation?.attributes?.[APPENDED_OBSERVATION_ATTRIBUTE] === true) {
+    const attributes = { ...input.observation.attributes }
+    delete attributes[APPENDED_OBSERVATION_ATTRIBUTE]
+    input = { ...input, observation: { ...input.observation, attributes } }
+  }
   if (input.appendObservation) {
     if (input.observation) throw new TypeError("[vitehub] Append and update observations cannot be combined.")
     const identity = observationIdentity({ ...input.appendObservation, sequence: 0 })
@@ -1045,6 +1050,33 @@ function createInvocationId(): string {
   return `ainv_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`}`
 }
 
+function captureMetadataContentValues(event: TraceEvent, keys: ReadonlySet<string>): Map<string, unknown> {
+  const values = new Map<string, unknown>()
+  for (const key of keys) {
+    try {
+      const attributes = event.attributes
+      if (!attributes) continue
+      const descriptor = Object.getOwnPropertyDescriptor(attributes, key)
+      if (descriptor && "value" in descriptor) {
+        const snapshot = structuredClone(descriptor.value)
+        if (snapshot !== undefined) values.set(key, snapshot)
+      }
+    }
+    catch {}
+  }
+  return values
+}
+
+function restoreMetadataContentValues(entry: TraceEventLogEntry, values: ReadonlyMap<string, unknown>): void {
+  if (!entry.attributes) return
+  const omitted = Array.isArray(entry.attributes["content.omitted"])
+    ? entry.attributes["content.omitted"].filter(key => !values.has(String(key)))
+    : undefined
+  for (const [key, value] of values) entry.attributes[key] = value
+  if (omitted?.length) entry.attributes["content.omitted"] = omitted
+  else delete entry.attributes["content.omitted"]
+}
+
 function journalTraceLog(
   traceLog: TraceEventLog,
   observe: (entry: TraceEventLogEntry) => void,
@@ -1135,19 +1167,7 @@ function journalTraceLog(
     async append(event: TraceEvent) {
       const safeEntryPromise = Promise.resolve(createTraceEventLog({ content }).append(event))
       void safeEntryPromise.catch(() => {})
-      const metadataContentValues = new Map<string, unknown>()
-      for (const key of metadataContent) {
-        try {
-          const attributes = event.attributes
-          if (!attributes) continue
-          const descriptor = Object.getOwnPropertyDescriptor(attributes, key)
-          if (descriptor && "value" in descriptor) {
-            const snapshot = structuredClone(descriptor.value)
-            if (snapshot !== undefined) metadataContentValues.set(key, snapshot)
-          }
-        }
-        catch {}
-      }
+      const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       let entry: TraceEventLogEntry
       try {
         entry = await traceLog.append(event)
@@ -1158,16 +1178,7 @@ function journalTraceLog(
       try {
         const safeEntry = await safeEntryPromise
         safeEntry.timestamp = entry.timestamp
-        if (content === "metadata" && safeEntry.attributes) {
-          const omitted = Array.isArray(safeEntry.attributes["content.omitted"])
-            ? safeEntry.attributes["content.omitted"].filter(key => !metadataContentValues.has(String(key)))
-            : undefined
-          for (const [key, value] of metadataContentValues) {
-            safeEntry.attributes[key] = value
-          }
-          if (omitted?.length) safeEntry.attributes["content.omitted"] = omitted
-          else delete safeEntry.attributes["content.omitted"]
-        }
+        if (content === "metadata") restoreMetadataContentValues(safeEntry, metadataContentValues)
         if (safeEntry.name === "agent.message.delta") {
           queueMessageDelta(safeEntry)
         }
@@ -1635,31 +1646,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
         throw new TypeError("[vitehub] Appended observation IDs must be at most 512 characters.")
       }
+      const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       const observation = await createTraceEventLog({ content }).append(event)
-      if (content === "metadata") {
-        for (const key of metadataContent) {
-          const descriptor = event.attributes && Object.getOwnPropertyDescriptor(event.attributes, key)
-          if (descriptor && "value" in descriptor) {
-            observation.attributes = { ...observation.attributes, [key]: structuredClone(descriptor.value) }
-          }
-        }
-        const omitted = observation.attributes?.["content.omitted"]
-        if (Array.isArray(omitted)) {
-          const remaining = omitted.filter(key => !metadataContent.has(String(key)))
-          if (remaining.length) observation.attributes!["content.omitted"] = remaining
-          else delete observation.attributes!["content.omitted"]
-        }
-      }
+      if (content === "metadata") restoreMetadataContentValues(observation, metadataContentValues)
       const prepared = await boundedJournalObservation({
         ...observation,
         attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
       })
       const { sequence: _sequence, ...appendObservation } = prepared
       const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
-      if (updated && !updated.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
+      const persisted = updated || await store.get(id)
+      if (persisted && !persisted.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
         throw new Error("[vitehub] Invocation store did not persist appended observation.")
       }
-      return updated
+      return persisted
     },
     async get(id) {
       assertInvocationId(id)
