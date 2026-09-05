@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
+import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Environment, Plugin } from "vite"
@@ -51,9 +52,10 @@ type ConsoleNitroConfig = {
   [key: string]: unknown
 }
 
-export type ConsoleOptions =
+export type ConsoleOptions = (
   | { access: "auth", exposure?: never, invoke?: boolean }
-  | { access?: never, exposure: "host-managed", invoke?: never }
+  | { access?: never, exposure: "host-managed", invoke?: boolean }
+) & { observations?: AgentInvocationsOptions["observations"] }
 
 interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
@@ -143,9 +145,6 @@ export function assertConsoleProductionAccess(
     auth?: ResolvedAuthViteConfig
   },
 ): void {
-  if (configured !== true && configured.exposure === "host-managed" && Reflect.get(configured, "invoke") === true) {
-    throw new Error('[vitehub] console.invoke requires console: { access: "auth" }.')
-  }
   if (options.development) return
   if (configured === true) {
     throw new Error('[vitehub] console: true is development-only. Production Console builds require console: { access: "auth" } or console: { exposure: "host-managed" }.')
@@ -192,11 +191,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
   let fixture: string | undefined
   let cliDiscovery = false
   let invoke = false
+  let observations: AgentInvocationsOptions["observations"]
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, () => !options.invocationRootState?.closed)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -296,6 +296,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fixture = resolve(projectRoot, configuredFixture)
         readConsoleFixture(fixture)
       }
+      observations = configured === true ? undefined : configured.observations
       invoke = !fixture && (configured === true || configured.invoke === true)
       generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
@@ -316,6 +317,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
           fixture,
           options.invocationRootState?.binding,
           invoke,
+          observations,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.

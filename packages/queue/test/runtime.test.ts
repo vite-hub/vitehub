@@ -9,16 +9,17 @@ import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
-import { runQueue } from "../src/runtime/client.ts"
+import { dynamicQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/internal/runtime/cloudflare-vite.ts"
 import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/cloudflare-client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
-import { deferQueue } from "../src/runtime/client.ts"
 import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
+
+const { run: runQueue, defer: deferQueue } = dynamicQueue
 
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
@@ -75,7 +76,7 @@ describe("cloudflare queue runtime", () => {
   it("selects an explicit Queue client without generated runtime state", async () => {
     const cloudflareSend = vi.fn(async () => {})
     const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
-    await cloudflare.send({ payload: "cloudflare" })
+    await cloudflare.send("cloudflare")
     expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
 
     const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))
@@ -84,7 +85,7 @@ describe("cloudflare queue runtime", () => {
       provider: "vercel",
       topic: "topic",
     })
-    await vercel.send({ payload: "vercel" })
+    await vercel.send("vercel")
     expect(vercelSend).toHaveBeenCalledWith("topic", "vercel", expect.any(Object))
   })
 
@@ -100,12 +101,12 @@ describe("cloudflare queue runtime", () => {
       code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
       details: { provider: "cloudflare", unsupported: ["region"] },
     }
-    await expect(client.send({ payload: { id: 1 }, region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    await expect(client.send({ id: 1 }, { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
     await expect(client.sendBatch([{ body: { id: 2 } }], { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
     expect(send).not.toHaveBeenCalled()
     expect(sendBatch).not.toHaveBeenCalled()
 
-    await client.send({ contentType: "json", delaySeconds: 1, payload: { id: 3 } })
+    await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })
     expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
@@ -644,7 +645,7 @@ describe("vercel provider", () => {
     })
 
     await client.send({ email: "ava@example.com" })
-    await client.send({ payload: { email: "ava@example.com" }, region: "iad1" })
+    await client.send({ email: "ava@example.com" }, { region: "iad1" })
 
     expect(send).toHaveBeenNthCalledWith(1, "topic--77656c636f6d65", { email: "ava@example.com" }, expect.objectContaining({
       idempotencyKey: expect.any(String),

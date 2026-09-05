@@ -866,6 +866,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(hubQueue({
+      importBase: "vite-hub/queue",
       provider: plan.services.queue.adapter,
       providerImportAliases,
     } as QueueModuleOptions))
@@ -890,6 +891,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
+      typesImportBase: "vite-hub/schedule",
       providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))

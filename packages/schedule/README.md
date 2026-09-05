@@ -195,3 +195,27 @@ When a custom host installs a wake driver, call and await `controller.close()` d
 - Report package problems in the [ViteHub issue tracker](https://github.com/vite-hub/vitehub/issues).
 
 Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
+
+
+## Definition-owned target inputs
+
+The Vite Integration writes `.vitehub/schedule.d.ts`. Include it in your TypeScript project. The Nuxt Integration includes it automatically. The generated `ScheduleTargetRegistry` maps eligible names to their definitions. `schedules.create()` checks input against the selected target:
+
+```ts
+const record = await schedules.create({
+  target: "daily-report",
+  cron: "0 9 * * *",
+  input: { prompt: "Summarize yesterday" },
+})
+await schedules.update(record.id, {
+  target: "daily-report",
+  input: { prompt: "Summarize this week" },
+})
+await schedules.update(record.id, { enabled: false })
+```
+
+When an update changes `input`, also supply `target`. When an update changes `target`, supply the new input or `input: undefined` to clear it. An ID alone does not identify a definition type. Stored records can outlive a deployment, so `get()`, `list()`, and `update()` return unknown input. Handler input remains optional; targets must handle records with no input.
+
+Use `schedules.dynamic.create()` and `schedules.dynamic.update()` when names or stored input come from external data. The dynamic methods validate target eligibility and Schedule fields. They do not validate a target's business input. Validate that data in the application and again in a target that reads durable records.
+
+This is a breaking change: include the generated declarations for typed application calls, and move operational calls with unknown names to `schedules.dynamic`. There is no permissive string overload on typed creation.

@@ -225,6 +225,7 @@ export type {
   AgentInvocationAnnotationValue,
   AgentInvocationListOptions,
   AgentInvocationListResult,
+  AgentInvocationObservationOptions,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
@@ -900,6 +901,21 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
   if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
   if (workflowInput.message && !hasRuntimeType(workflowInput.message, "string")) [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
+  const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+  if (isAgentChannelDeliveryWorkflowBinding(delivery) && isRuntimeObject(delivery.steer) && isRuntimeObject(delivery.steer.lock)) {
+    const { lock } = delivery.steer
+    // State adapters may return RPC objects; only the lock fields cross runtimes.
+    workflowInput.context = {
+      ...workflowInput.context,
+      [agentChannelDeliveryWorkflowContextKey]: {
+        ...delivery,
+        steer: {
+          ...delivery.steer,
+          lock: { expiresAt: lock.expiresAt, threadId: lock.threadId, token: lock.token },
+        },
+      },
+    }
+  }
   // Validate and detach the complete payload before it crosses a durable State
   // or Workflow boundary. Materializing messages alone would still allow
   // context and call options to be silently coerced by JSON persistence.
@@ -921,13 +937,31 @@ async function runAgentAsWorkflow<
   const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
   const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, context) : undefined
+  // Preparation failures happen before a provider run can create its journal.
+  const recordPreparationFailure = async (error: unknown) => {
+    const status = input.abortSignal?.aborted ? "cancelled" : "failed"
+    await activity?.update(status, error)
+    if (!hasAgentDefinition(agent)) return
+    const preservesDeliveryRun = isAgentChannelDeliveryWorkflowBinding(input.context?.[agentChannelDeliveryWorkflowContextKey])
+    const runId = (!options.fresh || preservesDeliveryRun) && context.run?.runId ? context.run.runId : createTraceId()
+    try {
+      const journal = await bindAgentInvocations(agent.invocations, {
+        ...context,
+        run: { ...context.run, runId },
+      }, { agentName: agent.name || context.agentIdentity?.name, terminalTakeover: true })
+      await journal?.finish(status, error)
+    }
+    catch (journalError) {
+      console.error(new AggregateError([error, journalError], "[vitehub] Agent Workflow preparation and invocation journaling failed."))
+    }
+  }
   let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
   try {
     workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
   }
   catch (error) {
     await activity?.update("queued")
-    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await recordPreparationFailure(error)
     throw error
   }
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
@@ -947,7 +981,7 @@ async function runAgentAsWorkflow<
       if (!cloudflareEnv[workflowBindingName]) return undefined
     }
     catch (error) {
-      await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+      await recordPreparationFailure(error)
       throw error
     }
   }
@@ -981,7 +1015,7 @@ async function runAgentAsWorkflow<
     workflowInput = await portableAgentWorkflowInput(parsedInput)
   }
   catch (error) {
-    await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)
+    await recordPreparationFailure(error)
     throw error
   }
   const resolvedContext = createResolvedRuntimeContext(context)

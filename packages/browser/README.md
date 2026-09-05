@@ -106,7 +106,7 @@ export default defineBrowser(async (input: { url: string }, { browser }) => {
 
 ViteHub releases the controller and closes Definition-owned sessions after the handler succeeds or fails. Call `session.close()` when the operation can release the session sooner.
 
-The default Kitesurf engine uses the Browser binding and does not support live handoff. Set `browser: { engine: "chromium" }` for a persistent Cloudflare Chromium session. That path requires the optional `@cloudflare/playwright` and `playwright-core` peers.
+The default Kitesurf engine uses the Browser binding and does not support live handoff. Set `browser: { engine: "chromium" }` for a persistent Cloudflare Chromium session. That path requires the optional `@cloudflare/playwright` and `playwright-core` peers. The `playwright()` controller uses Cloudflare's adapter in Workers. Builds with the `workerd` export condition exclude the Node Playwright loader. The built-in Playwright CDP adapter requires Node.js.
 
 Browser sessions can observe authenticated pages, cookies, network responses, screenshots, and rendered private UI. Do not log provider session ids, CDP endpoints, authorization headers, cookies, or handoff references. Apply the application's access, retention, and deletion rules to screenshots and downloads.
 

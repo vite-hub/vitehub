@@ -64,7 +64,7 @@ describe("Schedule waitUntil", () => {
       runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
 
     await expect(schedules.run("schedule-1", {
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),

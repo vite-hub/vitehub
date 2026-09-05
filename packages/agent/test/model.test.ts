@@ -112,7 +112,7 @@ describe("Agent model materialization", () => {
     let resolvedModel: unknown
 
     await resolveAgentCapabilities({
-      capabilities: [defineCapability<{ gatewayKey: string }>({
+      capabilities: [defineCapability<{ gatewayKey: string }>()({
         id: "model-consumer",
         async resolve(context) {
           resolvedModel = await context.model.resolve(({ runtimeConfig }) => ({

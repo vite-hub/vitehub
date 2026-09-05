@@ -11,6 +11,8 @@ export default defineConfig({
     entry: [
       "src/actions.ts",
       "src/index.ts",
+      "src/internal/chromium.ts",
+      "src/internal/chromium.workerd.ts",
       "src/internal/runtime/empty-registry.ts",
       "src/internal/runtime/unconfigured.ts",
       "src/controllers/cdp.ts",

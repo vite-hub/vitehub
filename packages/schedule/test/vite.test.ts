@@ -34,8 +34,8 @@ async function loadScheduleTargets(plugin: ReturnType<typeof hubSchedule>) {
   return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/targets")
 }
 
-function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
-  ;(plugin.configResolved as (config: { root: string }) => void)({ root })
+async function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
+  await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 }
 
 describe("Vite schedule integration", () => {
@@ -48,7 +48,7 @@ describe("Vite schedule integration", () => {
     const getImportAliases = vi.fn(async () => ({}))
     const plugin = hubSchedule()
 
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist" },
       command: "build",
       plugins: [{ vitehub: { providerOutput: { getImportAliases } } }],
@@ -76,12 +76,12 @@ describe("Vite schedule integration", () => {
       [VITEHUB_SERVER_DIRS]: [serverDir],
       root,
     }, { command: "serve", mode: "development" })
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const registry = {}
     const targets = {}
     const invalidateModule = vi.fn()
 
-    ;(plugin.handleHotUpdate as (context: Record<string, unknown>) => unknown)({
+    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
       file: join(serverDir, "schedules", "daily.ts"),
       server: {
         config: { root },
@@ -115,7 +115,7 @@ describe("Vite schedule integration", () => {
     )
     expect(config).toBeNull()
 
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist" },
       command: "build",
       resolve: { alias: [] },
@@ -297,7 +297,7 @@ describe("Vite schedule integration", () => {
     await expect(stalledExit).resolves.toEqual([null, "SIGKILL"])
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
   })
@@ -327,7 +327,7 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("const registry = {")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("const registry = {")
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("const registry = {")
   })
@@ -367,7 +367,7 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     const generatedRuntimeRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")
     const generatedStaticRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const runtimeRegistry = await loadScheduleRegistry(plugin)
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")).rejects.toThrow()
     expect(runtimeRegistry).toContain("server/schedules/report.ts")
@@ -379,7 +379,7 @@ describe("Vite schedule integration", () => {
     expect(generatedStaticRegistry).toContain("server/schedules/report.ts")
     expect(generatedStaticRegistry).toContain("src/cleanup.schedule.ts")
     expect(generatedStaticRegistry).not.toContain("server/schedules/agent-turn.ts")
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -425,7 +425,7 @@ describe("Vite schedule integration", () => {
       { root },
       { command: "build", mode: "production" },
     )
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -451,7 +451,7 @@ describe("Vite schedule integration", () => {
       { root },
       { command: "build", mode: "production" },
     )
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -504,7 +504,7 @@ describe("Vite schedule integration", () => {
       resolve: { alias: [] },
       root,
     }
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)(config)
     const catalog = useProviderOutputCatalog(config)
     const write = vi.fn(async () => undefined)
     contributeProviderDeploymentOutput(catalog, { owner: "blob", rootDir: root, write })
@@ -532,7 +532,7 @@ describe("Vite schedule integration", () => {
       { [VITEHUB_SERVER_DIRS]: [serverDir], root },
       { command: "build", mode: "production" },
     )
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -562,7 +562,7 @@ describe("Vite schedule integration", () => {
       { root },
       { command: "build", mode: "production" },
     )
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -645,9 +645,14 @@ describe("Vite schedule integration", () => {
 
     const { default: scheduleNuxt } = await import("../src/nuxt.ts")
     let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
+    let prepareTypesHook: ((context: { references: { path: string }[] }) => void) | undefined
     const nuxt = {
-      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
+      hook(...[name, handler]:
+        | ["nitro:config", (nitroConfig: Record<string, unknown>) => void | Promise<void>]
+        | ["prepare:types", (context: { references: { path: string }[] }) => void]
+      ) {
         if (name === "nitro:config") nitroConfigHook = handler
+        else prepareTypesHook = handler
       },
       options: {
         dev: false,
@@ -658,6 +663,9 @@ describe("Vite schedule integration", () => {
     }
 
     scheduleNuxt({}, nuxt)
+    const typeContext = { references: [] as { path: string }[] }
+    prepareTypesHook?.(typeContext)
+    expect(typeContext.references).toContainEqual({ path: join(root, ".vitehub/schedule.d.ts") })
 
     expect(nuxt.options.vite.plugins).toEqual([
       expect.objectContaining({ name: "@vite-hub/schedule/vite" }),
@@ -709,7 +717,7 @@ describe("Vite schedule integration", () => {
       userConfig,
       { command: "build", mode: "production" },
     )
-    resolvePluginConfig(plugin, appRoot)
+    await resolvePluginConfig(plugin, appRoot)
     const registry = await loadScheduleRegistry(plugin)
 
     expect(config).toBeUndefined()
@@ -929,7 +937,7 @@ describe("Vite schedule integration", () => {
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)({
       root,
     }, { command: "build", mode: "production" })
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -967,7 +975,7 @@ describe("Vite schedule integration", () => {
       userConfig,
       { command: "build", mode: "production" },
     )
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
       build: { outDir: "dist/client" },
       command: "build",
       resolve: { alias: [] },
@@ -1004,7 +1012,7 @@ describe("Vite schedule integration", () => {
 
     const plugin = hubSchedule({ projectRoot })
     await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)({ root: viteRoot }, { command: "build", mode: "production" })
-    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({ build: { outDir: "dist" }, command: "build", resolve: { alias: [] }, root: viteRoot })
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist" }, command: "build", resolve: { alias: [] }, root: viteRoot })
     await runProviderOutputHooks(plugin)
 
     const registry = await readFile(join(projectRoot, ".vitehub", "schedule", "registry.mjs"), "utf8")
@@ -1019,7 +1027,7 @@ describe("Vite schedule integration", () => {
     await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
 
     const plugin = hubSchedule({ projectRoot: root })
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const registry = await loadScheduleRegistry(plugin)
 
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
@@ -1034,7 +1042,7 @@ describe("Vite schedule integration", () => {
     await writeFile(join(root, "server", "schedules", "sync.ts"), "export default defineSchedule({ cron: \"0 4 * * *\", handler: () => {} })\n", "utf8")
 
     const plugin = hubSchedule({ providerOutput: false })
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const registry = await loadScheduleRegistry(plugin)
 
     expect(registry).toContain("\"sync\": async () => import(")
@@ -1048,7 +1056,7 @@ describe("Vite schedule integration", () => {
     await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, allowRuntimeSchedules: true })\n", "utf8")
 
     const plugin = hubSchedule()
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const targets = await loadScheduleTargets(plugin)
 
     expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
@@ -1064,7 +1072,7 @@ describe("Vite schedule integration", () => {
     await writeFile(join(root, "src", "quoted.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, \"allowRuntimeSchedules\": true })\n", "utf8")
 
     const plugin = hubSchedule()
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
     const targets = await loadScheduleTargets(plugin)
 
     expect(targets).toContain("export const scheduleTargetNames = [\"quoted\"];")
@@ -1074,7 +1082,7 @@ describe("Vite schedule integration", () => {
   it("serves an empty registry without special cases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-empty-"))
     const plugin = hubSchedule()
-    resolvePluginConfig(plugin, root)
+    await resolvePluginConfig(plugin, root)
 
     expect(await loadScheduleRegistry(plugin)).toBe([
       "",

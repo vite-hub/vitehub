@@ -11,12 +11,12 @@ import {
   messageChannelTitleDeliveredContextKey,
   resetMessageChannelTitleDelivery,
 } from "../internal/channels.ts"
-import { createAgentChatData, getMessageText } from "../messages.ts"
+import { createAgentChatData, createMessage, getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
-import { agentInvocationJournalContentTraceLogSymbol, traceAgentEvent } from "../trace.ts"
+import { agentInvocationJournalTraceLogSymbol, traceAgentEvent } from "../trace.ts"
 import { agentChannelDeliveryOwnershipVerifier } from "../internal/channel-delivery.ts"
 
 import type {
@@ -159,8 +159,12 @@ function markTitleApplied<T>(value: T): T {
   return value
 }
 
-function firstUserMessage(messages: Message[]): Message | undefined {
-  return messages.find(message => message.role === "user")
+function firstUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
+  const message = messages.find(message => message.role === "user")
+  if (message) return message
+  return hasRuntimeType(input.prompt, "string") && stripChatEntityMarkup(input.prompt)
+    ? createMessage({ role: "user", text: input.prompt })
+    : undefined
 }
 
 function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string): string {
@@ -904,9 +908,13 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const capabilityId = options.id || "title"
-  const invocationStarts = new WeakMap<object, () => Promise<void>>()
+  const invocationStarts = new WeakMap<object, () => MaybePromise<void>>()
+  const pendingTitles = new WeakMap<object, Promise<void>>()
   return Object.assign(defineCapability({
     id: capabilityId,
+    async close(context) {
+      await pendingTitles.get(context.context)
+    },
     output(context) {
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
@@ -931,9 +939,10 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       let titleClaimed = false
       let titleSkipped = false
       let titleTraced = false
+      let pendingTitleStart: Promise<void> | undefined
       const invocationJournalObservesRun = Boolean(
         context.runtimeContext?.traceLog
-        && agentInvocationJournalContentTraceLogSymbol in context.runtimeContext.traceLog,
+        && agentInvocationJournalTraceLogSymbol in context.runtimeContext.traceLog,
       )
       const traceTitle = async (value: TitleResolutionValue) => {
         if (!invocationJournalObservesRun || titleTraced || !hasRuntimeType(value, "string") || !context.runtimeContext?.traceLog) return
@@ -952,18 +961,18 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
         const messages = context.input.messages()
-        const message = firstUserMessage(messages)
+        const message = firstUserMessage(messages, context.input.get())
         if (!message || !stripChatEntityMarkup(text)) return
         return {
           input: context.input.get(),
           message,
-          messages,
+          messages: messages.length ? messages : [message],
           source,
           text,
         }
       }
       const preparedTitleInput = () => {
-        const message = firstUserMessage(context.input.messages())
+        const message = firstUserMessage(context.input.messages(), context.input.get())
         return message ? titleInput("input", getMessageText(message)) : undefined
       }
       const getTitle = (responseText?: string): Promise<TitleResolutionValue> => {
@@ -996,8 +1005,8 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         return title
       }
 
-      invocationStarts.set(context.context, async () => {
-        if (!firstUserMessage(context.input.messages())) return
+      const startTitle = async () => {
+        if (!firstUserMessage(context.input.messages(), context.input.get())) return
         if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) return
         if (!preparedTitleInput()) {
           context.context.set(responseTitleFallbackContextKey, true)
@@ -1025,8 +1034,16 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           options.channelDelivery,
           await getChannelDeliveryAttempt(),
         ))
+      }
+      invocationStarts.set(context.context, () => {
+        if (supportsTitleDelivery(context)) return startTitle()
+        pendingTitleStart = startTitle()
+        pendingTitles.set(context.context, pendingTitleStart)
+        // Invocation cleanup owns this work; observe rejection while the main answer runs.
+        pendingTitleStart.catch(() => undefined)
       })
       context.finish.provide(async (finish: AgentFinishEvent) => {
+        await pendingTitleStart
         if (!shouldResolveTitleFinishExtension(context, finish)) return
         const resolvedTitle = await getTitle(finish.text)
         return hasRuntimeType(resolvedTitle, "string") ? { title: resolvedTitle } : undefined
@@ -1064,7 +1081,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
-        && Boolean(firstUserMessage(context.input.messages()))
+        && Boolean(firstUserMessage(context.input.messages(), context.input.get()))
         && finish.context.get(messageChannelTitleSupportContextKey) !== false
         && (Object.hasOwn(finish.event, "error")
           || finish.context.get(messageChannelTitleDeliveredContextKey) !== true)
@@ -1073,7 +1090,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.output.render((result) => {
         if (hasTitleApplied(result)) return result
         const messages = context.input.messages()
-        if (!firstUserMessage(messages)) return result
+        if (!firstUserMessage(messages, context.input.get())) return result
         const preparedInput = preparedTitleInput()
         const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
         const provisionalTitle = preparedInput

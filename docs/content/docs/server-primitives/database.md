@@ -284,7 +284,7 @@ export default defineNuxtConfig({
 Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. Cloudflare production builds fail before deployment when provision state, `database.databaseId`, and an existing complete matching Nitro Wrangler binding all fail to supply the id.
 
 ::note
-`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface.
+`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
 ## Connect it to Agents

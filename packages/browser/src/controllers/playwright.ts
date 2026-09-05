@@ -1,3 +1,4 @@
+import { loadChromium } from "#vitehub/browser/chromium"
 import { browserProviderError } from "../errors.ts"
 import { attachPlaywrightBrowser } from "../internal/playwright.ts"
 
@@ -21,15 +22,6 @@ export interface PlaywrightControllerOptions {
   cloudflare?: {
     connect(binding: unknown, sessionId: string): Promise<Browser>
     launch(binding: unknown, options: { browser: "kitesurf" }): Promise<Browser>
-  }
-}
-
-async function loadChromium(): Promise<Pick<BrowserType, "connectOverCDP">> {
-  try {
-    return (await import("playwright-core")).chromium
-  }
-  catch (error) {
-    throw browserProviderError("playwright", "load playwright-core", { cause: error })
   }
 }
 

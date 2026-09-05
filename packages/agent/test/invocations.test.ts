@@ -2546,57 +2546,64 @@ describe("Agent Invocations", () => {
   })
 
   it("bounds a saturated pending queue containing only outcome evidence", async () => {
-    let releaseActive!: () => void
-    let reportActiveStarted!: () => void
-    let observationWrites = 0
-    const activeGate = new Promise<void>((resolve) => { releaseActive = resolve })
-    const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
-    const memory = createMemoryAgentInvocationStore()
-    const invocations = defineAgentInvocations({
-      store: {
-        ...memory,
-        async update(id, input, claimId) {
-          if (input.observation) observationWrites++
-          if (input.observation?.name === "active") {
-            reportActiveStarted()
-            await activeGate
-          }
-          return memory.update(id, input, claimId)
+    // Admission bounds are independent of wall-clock store timeout recovery.
+    vi.useFakeTimers()
+    try {
+      let releaseActive!: () => void
+      let reportActiveStarted!: () => void
+      let observationWrites = 0
+      const activeGate = new Promise<void>((resolve) => { releaseActive = resolve })
+      const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            if (input.observation) observationWrites++
+            if (input.observation?.name === "active") {
+              reportActiveStarted()
+              await activeGate
+            }
+            return memory.update(id, input, claimId)
+          },
         },
-      },
-    })
-    const journal = await bindAgentInvocations(invocations, runtime("bounded-outcome-observations"))
-    if (!journal) throw new Error("Expected the invocation journal to be configured.")
-    await journal.running()
-    await journal.context.traceLog?.append({ name: "active", type: "run" })
-    await activeStarted
-    for (let index = 0; index < 512; index++) {
-      await journal.context.traceLog?.append({
-        attributes: { "error.message": `provider stream failed ${index}` },
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("bounded-outcome-observations"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({ name: "active", type: "run" })
+      await activeStarted
+      for (let index = 0; index < 512; index++) {
+        await journal.context.traceLog?.append({
+          attributes: { "error.message": `provider stream failed ${index}` },
+          name: "agent.stream.error",
+          type: "error",
+        })
+      }
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      const finishing = journal.finish("failed", new Error("provider stream failed"))
+      releaseActive()
+      await finishing
+
+      const record = await invocations.getByRunId("bounded-outcome-observations")
+      expect(observationWrites).toBeLessThanOrEqual(256)
+      expect(record?.observations.length).toBeLessThanOrEqual(256)
+      expect(record?.observations[1]).toMatchObject({
+        attributes: {
+          "error.message": "provider stream failed 258",
+          "vitehub.trace.truncated": true,
+        },
         name: "agent.stream.error",
-        type: "error",
+      })
+      expect(record?.observations.at(-1)).toMatchObject({
+        attributes: { "vitehub.trace.truncated": true },
+        name: "agent.invocation.finish",
       })
     }
-    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
-
-    const finishing = journal.finish("failed", new Error("provider stream failed"))
-    releaseActive()
-    await finishing
-
-    const record = await invocations.getByRunId("bounded-outcome-observations")
-    expect(observationWrites).toBeLessThanOrEqual(256)
-    expect(record?.observations.length).toBeLessThanOrEqual(256)
-    expect(record?.observations[1]).toMatchObject({
-      attributes: {
-        "error.message": "provider stream failed 258",
-        "vitehub.trace.truncated": true,
-      },
-      name: "agent.stream.error",
-    })
-    expect(record?.observations.at(-1)).toMatchObject({
-      attributes: { "vitehub.trace.truncated": true },
-      name: "agent.invocation.finish",
-    })
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps every identified priority outcome that fits before ordinary history", async () => {

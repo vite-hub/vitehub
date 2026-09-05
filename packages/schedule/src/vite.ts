@@ -1,3 +1,4 @@
+import { writeScheduleTypes } from "./registry-types.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
@@ -65,6 +66,7 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
   importBase?: string
+  typesImportBase?: string
   providerImportAliases?: Record<string, string>
   runtimeImport?: string
 }
@@ -466,6 +468,8 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
+  // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+  await writeScheduleTypes(roots.projectRoot, definitions, (options as InternalScheduleVitePluginOptions).typesImportBase)
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
@@ -588,12 +592,14 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       if (!nitro) return null
       ;(config as ViteConfigWithNitro).nitro = nitro
     },
-    configResolved(config) {
+    async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       const roots = resolveSchedulePluginRoots(config.root, options)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
+      // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+      await writeScheduleTypes(projectRoot, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -603,7 +609,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    handleHotUpdate(context) {
+    async handleHotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
       const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory, "schedules").replace(/\\/g, "/")}/`)
@@ -614,6 +620,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return
       }
 
+      // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+      await writeScheduleTypes(projectRoot ?? context.server.config.root, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
       const registryModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
       if (registryModule) {
         context.server.moduleGraph.invalidateModule(registryModule)

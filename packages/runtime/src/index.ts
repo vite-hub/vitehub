@@ -1156,6 +1156,27 @@ export function createExecutionContext<TContext extends RuntimeHostContext<any>>
   } as CreatedExecutionContext<TContext>
 }
 
+export type RuntimeContextInput = Omit<RuntimeHostContext<unknown>, "flushWaitUntil" | "memo" | "waitUntil"> & {
+  memo?: RuntimeHostContext["memo"]
+  waitUntil?: RuntimeWaitUntil
+}
+
+export type CreatedRuntimeContext<TContext extends RuntimeContextInput> = CreatedExecutionContext<
+  TContext & RuntimeWaitUntilController & { memo: RuntimeHostContext["memo"] }
+>
+
+/** Create one operation's context. Without a host waitUntil, drain work before returning. */
+export function createRuntimeContext<const TContext extends RuntimeContextInput>(input: TContext): CreatedRuntimeContext<TContext> {
+  const values = new Map<string, unknown>()
+  const memo: RuntimeHostContext["memo"] = input.memo ?? ((key, create) => {
+    if (!values.has(key)) values.set(key, create())
+    // SAFETY: The creator and returned value share the type associated with this memo key.
+    return values.get(key) as never
+  })
+  const controller = createRuntimeWaitUntilController({ forward: input.waitUntil?.bind(input) })
+  return createExecutionContext({ ...input, ...controller, memo })
+}
+
 export function defineCapability<TKind extends string, TValue>(
   kind: TKind,
   value: TValue,
