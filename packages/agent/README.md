@@ -345,3 +345,5 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 `createAgentEvlog()` from `@vite-hub/agent/evlog` exports invocation lifecycle events through evlog. Add its `capability` to your Agent, connect its `drain` to the host, and await `flush()` after invocation background tasks finish. `@vite-hub/agent/evlog/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
 
 `createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [evlog](../../docs/content/docs/agents/evlog.md) for delivery, privacy and shutdown contracts.
+
+GitHub Channels with `activity: true` keep one managed comment per pull request. A single table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. Full transcripts stay in the linked sessions.
