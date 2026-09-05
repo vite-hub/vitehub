@@ -3,6 +3,10 @@ import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../../
 // The playground serves synthetic HTTP responses instead of a live RPC host.
 export async function connectDevframe() {
   return {
+    async ensureTrusted() {
+      // Synthetic HTTP responses do not require a Devframe trust handshake.
+      return true
+    },
     async call(method: ConsoleRpcMethod, input: ConsoleRpcInput): Promise<ConsoleRpcResult> {
       let operation = method.replace("vitehub:console:", "")
       if (operation === "invocation") operation = `invocations/${encodeURIComponent(input.id ?? "")}`
