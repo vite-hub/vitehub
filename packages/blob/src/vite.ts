@@ -192,7 +192,7 @@ function renderNitroBlobMiddleware(importBase = blobPackageName): string {
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
-  const cacheControl = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === "cache-control")?.[1]
+  const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
   return [
     `import { blob } from '${importBase}'`,
     `import { createError, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,

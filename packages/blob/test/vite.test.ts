@@ -768,28 +768,38 @@ describe("hubBlob", () => {
     )
   })
 
-  it.each([
+  it.each<{ expectedCacheControl: string, headers: Record<string, string> | undefined, name: string }>([
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
-      headerName: undefined,
+      headers: undefined,
       name: "default",
     },
     {
       expectedCacheControl: "private, max-age=60",
-      headerName: "Cache-Control",
+      headers: { "Cache-Control": "private, max-age=60" },
       name: "configured",
     },
     {
       expectedCacheControl: "private, max-age=60",
-      headerName: "cache-control",
+      headers: { "cache-control": "private, max-age=60" },
       name: "lowercase configured",
     },
-  ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headerName }) => {
+    {
+      expectedCacheControl: "public, max-age=300",
+      headers: { "Cache-Control": "private, max-age=60", "cache-control": "public, max-age=300" },
+      name: "duplicate lowercase last",
+    },
+    {
+      expectedCacheControl: "private, max-age=60",
+      headers: { "cache-control": "public, max-age=300", "Cache-Control": "private, max-age=60" },
+      name: "duplicate canonical last",
+    },
+  ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cached-route-"))
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers: headerName ? { [headerName]: expectedCacheControl } : undefined },
+        serve: { headers },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
