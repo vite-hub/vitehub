@@ -376,7 +376,7 @@ Agent Definition. `host.health()` reports provider availability and stale record
 For Nitro, add `processAgentHost({ entry: './server/host.ts' })` from
 `@vite-hub/agent/vite` to the Vite plugins. The entry exports the host as default.
 The plugin starts it and closes it with Nitro, and serves drain status at
-`/api/_vitehub/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
+`/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
 Use the runtime drain CLI before replacing the process.
 
 `createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR

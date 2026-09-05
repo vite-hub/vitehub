@@ -14,7 +14,7 @@ it("starts once and drains tracked work before closing", async () => {
     expect(accepting()).toBe(true);
     track(work);
   });
-  const host = await createProcessAgentHost({ dataDir, capacity: { concurrency: 1 }, run });
+  const host = await createProcessAgentHost({ dataDir: join(dataDir, "nested"), capacity: { concurrency: 1 }, run });
   try {
     expect(host.status()).toBe("starting");
     host.start();

@@ -10,7 +10,7 @@ export function processAgentHost(options: { entry: string; drainRoute?: string }
       const root = resolve(config.root ?? process.cwd());
       const directory = resolve(root, ".vitehub/process-host");
       const entry = resolve(root, options.entry);
-      const drainRoute = options.drainRoute ?? "/api/_vitehub/drain";
+      const drainRoute = options.drainRoute ?? "/api/drain";
       if (!drainRoute.startsWith("/") || /[?#*]/.test(drainRoute))
         throw new Error(
           "Process host drainRoute must be an absolute route without query, hash, or wildcard.",

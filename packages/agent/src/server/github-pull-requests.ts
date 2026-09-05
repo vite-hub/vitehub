@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import type { GitHubHost } from "./github-host.ts";
@@ -53,6 +54,31 @@ type FeedbackNode = {
   reviewThreads: Connection<FeedbackThread>;
 };
 
+const pullRequestSchema = v.object({
+  baseRefOid: v.string(),
+  baseRefName: v.string(),
+  body: v.string(),
+  headRefName: v.string(),
+  headRefOid: v.string(),
+  headRepository: v.nullable(v.object({ nameWithOwner: v.string() })),
+  isDraft: v.boolean(),
+  labels: v.optional(v.unknown()),
+  mergeStateStatus: v.string(),
+  number: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  reviewDecision: v.nullable(v.string()),
+  state: v.string(),
+  statusCheckRollup: v.unknown(),
+  title: v.string(),
+  updatedAt: v.string(),
+  url: v.string(),
+});
+
+function repositoryParts(repository: string) {
+  const [owner, name, extra] = repository.split("/");
+  if (!owner || !name || extra !== undefined) throw new Error("Expected a GitHub owner/repository.");
+  return { owner, name };
+}
+
 function record(value: unknown): Record<string, unknown> {
   if (!isRuntimeRecord(value)) throw new Error("Incomplete GitHub response.")
   return value
@@ -75,16 +101,7 @@ function graphQL(stdout: string, ...path: string[]): unknown {
   return value
 }
 function parsePullRequest(value: unknown): PullRequest {
-  const pr = record(value)
-  return {
-    baseRefOid: text(pr.baseRefOid), baseRefName: text(pr.baseRefName), body: text(pr.body),
-    headRefName: text(pr.headRefName), headRefOid: text(pr.headRefOid),
-    headRepository: pr.headRepository === null ? null : { nameWithOwner: text(record(pr.headRepository).nameWithOwner) },
-    isDraft: boolean(pr.isDraft), labels: pr.labels, mergeStateStatus: text(pr.mergeStateStatus),
-    number: number(pr.number), reviewDecision: pr.reviewDecision === null ? null : text(pr.reviewDecision),
-    state: text(pr.state), statusCheckRollup: pr.statusCheckRollup,
-    title: text(pr.title), updatedAt: text(pr.updatedAt), url: text(pr.url),
-  }
+  return v.parse(pullRequestSchema, value)
 }
 function parseConnection<T>(value: unknown, parse: (item: unknown) => T): Connection<T> {
   const connection = record(value)
@@ -191,7 +208,7 @@ export function createGitHubPullRequests(
 
   async function readOpenPullRequestFeedback(repository: string) {
     // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
-    const [owner, name] = repository.split("/");
+    const { owner, name } = repositoryParts(repository);
     const query = `query($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number ${feedbackFields}}}}}`;
     const result = await github.command(
       ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `query=${query}`],
@@ -245,7 +262,7 @@ export function createGitHubPullRequests(
     repository: string,
     number: number,
   ): Promise<PullRequestFeedback> {
-    const [owner, name] = repository.split("/");
+    const { owner, name } = repositoryParts(repository);
     const query = `query($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`;
     const cursors = new Map<string, string>();
     const collected = {
