@@ -761,7 +761,8 @@ describe("hubBlob", () => {
     expect(handler).toContain("statusCode: 404")
     expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
     expect(handler).toContain("throw error")
-    expect(handler).toContain("}, { headersOnly: true, maxAge: 0 })")
+    expect(handler).toContain("headersOnly: true")
+    expect(handler).toContain("maxAge: 0")
     expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
       handler.indexOf("blob.store(storeName).serve(event, pathname)"),
     )
@@ -770,20 +771,25 @@ describe("hubBlob", () => {
   it.each([
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
-      headers: undefined,
+      headerName: undefined,
       name: "default",
     },
     {
       expectedCacheControl: "private, max-age=60",
-      headers: { "Cache-Control": "private, max-age=60" },
+      headerName: "Cache-Control",
       name: "configured",
     },
-  ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
+    {
+      expectedCacheControl: "private, max-age=60",
+      headerName: "cache-control",
+      name: "lowercase configured",
+    },
+  ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headerName }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cached-route-"))
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers },
+        serve: { headers: headerName ? { [headerName]: expectedCacheControl } : undefined },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -815,7 +821,7 @@ describe("hubBlob", () => {
                 "      serve(_event, pathname) {",
                 "        if (pathname !== 'binary.bin') throw new Error(`Unexpected pathname: ${pathname}`)",
                 "        return [null, new Response(new Uint8Array([0, 128, 255, 195, 40]), {",
-                "          headers: { 'Content-Type': 'application/octet-stream' },",
+                "          headers: { 'Content-Type': 'application/octet-stream', ETag: '\"binary-v1\"' },",
                 "        })]",
                 "      },",
                 "    }",
@@ -839,6 +845,16 @@ describe("hubBlob", () => {
       expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
       expect(response.headers.get("Content-Type")).toBe("application/octet-stream")
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255, 195, 40]))
+
+      const conditionalEvent = new H3Event(new Request("http://localhost/i/binary.bin", {
+        headers: { "If-None-Match": '"binary-v1"' },
+      }))
+      conditionalEvent.context.params = { _: "binary.bin" }
+      const notModified = await toResponse(await artifact.default(conditionalEvent), conditionalEvent)
+
+      expect(notModified.status).toBe(304)
+      expect(notModified.headers.get("Cache-Control")).toBe(expectedCacheControl)
+      expect(await notModified.text()).toBe("")
     }
     finally {
       await rm(root, { force: true, recursive: true })
