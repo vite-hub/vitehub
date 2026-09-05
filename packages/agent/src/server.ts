@@ -70,3 +70,7 @@ export type {
 
 export { createAgentConsoleDelivery } from './server/console-delivery.ts'
 export type { AgentConsoleDelivery } from './server/console-delivery.ts'
+
+export { createAgentStatusReader } from './server/provider-status.ts'
+export { createAgentHealth } from './server/health.ts'
+export type { AgentHealthDiagnostic, AgentHealthOptions, AgentHealthReport } from './server/health.ts'

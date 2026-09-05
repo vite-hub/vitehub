@@ -1,10 +1,9 @@
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { createExecutionContext } from "@vite-hub/runtime"
 
-import type { AgentInput, AgentProviderStatus, AgentRuntimeContext } from "@vite-hub/agent"
+import type { AgentInput, AgentProviderStatus, AgentRuntimeContext } from "../types.ts"
 
 /** A definition owns its account. Cache by definition identity, never by provider name. */
-export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutMs?: number } = {}): (agent: AgentInput, name: string) => Promise<AgentProviderStatus> {
+export function createAgentStatusReader(options: { maxAgeMs?: number, timeoutMs?: number } = {}): (agent: AgentInput, name: string) => Promise<AgentProviderStatus> {
   const states = new WeakMap<AgentInput, { value?: AgentProviderStatus, expiresAt: number, pending?: Promise<AgentProviderStatus> }>()
   return (agent: AgentInput, name: string): Promise<AgentProviderStatus> => {
     const now = Date.now()
@@ -18,7 +17,7 @@ export function createConsoleStatusReader(options: { maxAgeMs?: number, timeoutM
     let timer: ReturnType<typeof setTimeout>
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        controller.abort(viteHubErrorDiagnostics.VITE_HUB_R0112({ message: "Provider inspection timed out." }))
+        controller.abort(new Error("Provider inspection timed out."))
         reject(controller.signal.reason)
       }, options.timeoutMs ?? 15_000)
     })

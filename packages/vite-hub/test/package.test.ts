@@ -13,6 +13,7 @@ import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentEve from "@vite-hub/agent/eve";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
+import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
@@ -26,6 +27,7 @@ import * as frameworkAgentEve from "vite-hub/_internal/agent/eve";
 import * as frameworkCapabilities from "vite-hub/agent/capabilities";
 import * as frameworkAgentMcp from "vite-hub/agent/mcp";
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
+import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
@@ -177,6 +179,7 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.executor).toBe(ownerCapabilities.executor);
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell);
     expect(frameworkAgentMcp.remoteMcpServer).toBe(ownerAgentMcp.remoteMcpServer);
+    expect(frameworkAgentVite.agentHostRoutes).toBe(ownerAgentVite.agentHostRoutes);
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent);
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat);
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
@@ -228,6 +231,7 @@ describe("framework package contract", () => {
       "./console/server",
       "./database/drizzle",
       "./nuxt",
+      "./runtime/h3",
       "./source",
       "./source/server",
       "./source/vite",

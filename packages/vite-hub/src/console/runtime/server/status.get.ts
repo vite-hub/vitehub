@@ -1,12 +1,12 @@
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
-import { createConsoleStatusReader } from "./status.ts"
+import { createAgentStatusReader } from "@vite-hub/agent/server"
 
 import type { AgentProviderStatus } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 
-const readStatus = createConsoleStatusReader()
+const readStatus = createAgentStatusReader()
 
 export default async function statusHandler(event: ConsoleRequestEvent): Promise<{ agents: AgentProviderStatus[] }> {
   assertConsoleRequest(event)
