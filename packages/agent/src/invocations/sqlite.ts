@@ -88,6 +88,19 @@ function storedRecord(record: AgentInvocationRecord): Omit<AgentInvocationRecord
   return stored
 }
 
+function capabilityIdsProjection() {
+  return `(SELECT json_group_array(capability_id) FROM (
+    SELECT trim(capability.value) AS capability_id
+      FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
+      WHERE typeof(capability.value) = 'text' AND trim(capability.value) <> ''
+    UNION
+    SELECT trim(json_extract(observation.value, '$."attributes"."capability.id"')) AS capability_id
+      FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
+      WHERE json_type(observation.value, '$."attributes"."capability.id"') = 'text'
+        AND trim(json_extract(observation.value, '$."attributes"."capability.id"')) <> ''
+  ))`
+}
+
 function serializedSummary(record: Omit<AgentInvocationRecord, "cursor">): string {
   const { observations: _observations, ...summary } = record
   return JSON.stringify(summary, (_key, value) => typeof value === "bigint" ? String(value) : value)
@@ -242,6 +255,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         search TEXT,
         search_version INTEGER NOT NULL DEFAULT 0,
         summary TEXT,
+        capability_ids TEXT,
         updated_at TEXT NOT NULL DEFAULT '',
         record TEXT NOT NULL
       )`)
@@ -282,6 +296,20 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           if (!currentColumns.rows.some(row => row.name === "summary")) throw error
         }
       }
+      if (!columns.rows.some(row => row.name === "capability_ids")) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN capability_ids TEXT`)
+        }
+        catch (error) {
+          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
+          if (!currentColumns.rows.some(row => row.name === "capability_ids")) throw error
+        }
+      }
+      await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update
+        AFTER UPDATE OF record ON ${table}
+        BEGIN
+          UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
+        END`)
       if (!columns.rows.some(row => row.name === "updated_at")) {
         try {
           await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
@@ -603,20 +631,23 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       if (selectedAgent) {
         args.push(selectedAgent, selectedAgent)
       }
+      const filter = selectedAgent
+        ? "(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))"
+        : "1 = 1"
+      // Cache complete IDs only when requested. Record writes invalidate the projection,
+      // including writes from older clients that do not know about this column.
+      await write(async () => await retrySqliteBusy(async () => await client.execute({
+        args,
+        sql: `UPDATE ${table} SET capability_ids = ${capabilityIdsProjection()}
+          WHERE capability_ids IS NULL AND ${filter}`,
+      })))
       const result = await client.execute({
         args,
-        sql: `SELECT DISTINCT capability_id FROM (
-          SELECT trim(capability.value) AS capability_id, agent_name, record
-            FROM ${table}, json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
-            WHERE typeof(capability.value) = 'text' AND trim(capability.value) <> ''
-          UNION ALL
-          SELECT trim(json_extract(observation.value, '$."attributes"."capability.id"')) AS capability_id, agent_name, record
-            FROM ${table}, json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.observations') AS observation
-            WHERE json_type(observation.value, '$."attributes"."capability.id"') = 'text'
-              AND trim(json_extract(observation.value, '$."attributes"."capability.id"')) <> ''
-        ) WHERE ${selectedAgent
-          ? "(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))"
-          : "1 = 1"} ORDER BY capability_id`,
+        // A writer can invalidate the cache between these statements. Resolve those rows
+        // from their current record so an active Invocation never returns stale IDs.
+        sql: `SELECT DISTINCT capability.value AS capability_id
+          FROM ${table}, json_each(COALESCE(capability_ids, ${capabilityIdsProjection()})) AS capability
+          WHERE ${filter} ORDER BY capability_id`,
       })
       return result.rows.flatMap((row) => {
         return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
