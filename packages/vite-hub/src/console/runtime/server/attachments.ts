@@ -1,12 +1,12 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
+import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix as prefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
 import type { ImagePart } from "@vite-hub/agent"
 
 const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string(), filename: v.optional(v.string(), "image") })), v.minLength(1), v.maxLength(10)) })
 const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
 
-const prefix = "vitehub-console-attachments/"
 const maximumBytes = 10 * 1024 * 1024
 export const consoleAttachmentRequestBytes = Math.ceil(maximumBytes * 4 / 3) + 40960
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
@@ -40,6 +40,7 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
   let storage: ReturnType<typeof getConsoleBlob>["storage"]
   try { storage = getConsoleBlob().storage }
   catch { throw error(503, "Configure ViteHub Blob storage to send and retain Console attachments.") }
+  await retryConsoleAttachmentCleanup(storage)
   const paths: string[] = []
   const attachments: ImagePart[] = []
   let handedOff = false
@@ -58,16 +59,7 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
   }
   catch (failure) {
     if (handedOff) throw failure
-    const cleanupErrors: Error[] = []
-    for (const path of paths) {
-      try {
-        const [cleanupError] = await storage.del(path)
-        if (cleanupError) cleanupErrors.push(cleanupError)
-      }
-      catch (cleanupError) {
-        cleanupErrors.push(cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)))
-      }
-    }
+    const cleanupErrors = await rollbackConsoleAttachments(storage, paths)
     if (cleanupErrors.length) throw new AggregateError([failure, ...cleanupErrors], "Attachment upload failed and some uploaded objects could not be removed.")
     throw failure
   }
@@ -80,6 +72,9 @@ export async function consoleInputMessage(prompt: string, attachments: unknown):
   const parts: ImagePart[] = []
   for (const { id, name } of new Map(parsed.output.map(part => [part.id, part])).values()) {
     const storage = getConsoleBlob().storage
+    const [cleanupError, pendingCleanup] = await storage.get(`${consoleAttachmentCleanupPrefix}${id}`)
+    if (cleanupError) throw cleanupError
+    if (pendingCleanup) throw error(404, "The stored image is pending deletion.")
     const [headError, metadata] = await storage.head(`${prefix}${id}`)
     if (headError) throw headError
     if (!metadata || !metadata.contentType || !imageTypes.has(metadata.contentType)) throw error(404, "The stored image is unavailable.")

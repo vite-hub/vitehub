@@ -71,6 +71,9 @@ it("surfaces a rejected upload's cleanup failure", async () => {
   })
 
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ errors: [expect.objectContaining({ statusCode: 503 }), cleanupError] })
+  const [, pending] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  const id = pending!.blobs[0]!.pathname.split("/")[1]!
+  await expect(consoleInputMessage("retry", [{ id, name: "image" }])).rejects.toMatchObject({ statusCode: 404, message: "The stored image is pending deletion." })
 })
 
 it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
@@ -136,7 +139,7 @@ it("attempts every rollback even when one deletion fails", async () => {
     },
   })
   await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toMatchObject({ errors: [failure, cleanupError] })
-  expect(del).toHaveBeenCalledTimes(2)
+  expect(del.mock.calls.filter(([path]) => typeof path === "string" && path.startsWith("vitehub-console-attachments/"))).toHaveLength(2)
 })
 
 it("returns durable references for every file in a successful batch", async () => {
@@ -173,7 +176,7 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
       return blob.head(path)
     },
     async del(path) {
-      if (++deletions === 1 && failCleanup) return [cleanupError, undefined]
+      if (typeof path === "string" && path.startsWith("vitehub-console-attachments/") && ++deletions === 1 && failCleanup) return [cleanupError, undefined]
       return blob.del(path)
     },
   })
