@@ -692,8 +692,8 @@ function boundedObservationAttributeValue(
 ): unknown {
   if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
   const configurationBudget: ObservationBudget = {
-    items: 16_384,
-    collectionItems: MAX_CAPABILITY_IDS,
+    items: 65_536,
+    collectionItems: 65_536,
     maxDepth: MAX_AGENT_CONFIGURATION_DEPTH,
     stringLength: maxStringLength,
     truncated: false,

@@ -1333,7 +1333,7 @@ describe("Agent Invocations", () => {
     )
     const tools = Array.from({ length: 40 }, (_, index) => ({
       name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file. ".repeat(80),
-      inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path" } }, required: ["path"] },
+      inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path", enum: Array.from({ length: 600 }, (_, index) => `path_${index}`) } }, required: ["path"] },
       outputSchema: { type: "object", properties: { content: nestedSchema } },
     }))
     await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
