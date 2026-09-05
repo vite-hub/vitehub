@@ -235,6 +235,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.8",
     "h3-v1": "npm:h3@^1.15.11",
+    "miniflare": "4.20260714.0",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.4",
     "tailwindcss": "^4.3.3",
