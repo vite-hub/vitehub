@@ -90,6 +90,7 @@ describe("@vite-hub/ui package contract", () => {
       "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.5.2",
       "@types/node": "catalog:tooling",
+      "nostics": "catalog:runtime",
     });
   });
 

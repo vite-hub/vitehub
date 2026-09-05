@@ -2,11 +2,18 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 describe("Static Schedule runtime", () => {
+  it("identifies a missing generated Schedule Definition", () => {
+    expect(missingScheduleDefinitionError("cleanup")).toMatchObject({
+      code: "SCHEDULE_R0034",
+      message: "Missing schedule definition: cleanup",
+    })
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {

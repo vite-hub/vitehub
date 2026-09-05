@@ -100,7 +100,7 @@ Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and
 
 Use `createRateLimiter()` when the application selects the driver and handles the decision. A production driver must implement one atomic `consume()` operation for its backend. A generic KV `get()` followed by `set()` is not safe under concurrent requests.
 
-Drivers return `[null, result]` after consuming the counter. They return `[error, undefined]` only for an expected operational outage. The limiter then returns `reason: "unavailable"` and sets `allowed` from the failure policy, which defaults to deny. Configuration errors, malformed provider results, and implementation defects must throw normally.
+Drivers return `[null, result]` after consuming the counter. They return `[error, undefined]` only for an expected operational outage. The limiter then returns `reason: "unavailable"` and sets `allowed` from the failure policy, which defaults to deny. ViteHub-owned configuration errors, malformed provider results, and implementation defects throw Nostics diagnostics with `RATE_LIMIT_B####` or `RATE_LIMIT_R####` codes. Application driver errors keep their identity. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The limiter exposes its resolved `policy` and the driver's declared `capabilities`, including enforcement, counter scope, rejected-attempt behavior, and supported windows. Inspect them when deciding whether a driver fits a deployment.
 

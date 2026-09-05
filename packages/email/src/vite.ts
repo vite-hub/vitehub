@@ -13,6 +13,7 @@ import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-temp
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
+import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
 export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
@@ -73,10 +74,10 @@ function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret
 function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
   if (isRuntimeEnvEntry(value)) {
     if (value.source.kind === "provider") {
-      throw new TypeError(`[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.`)
+      throw emailErrorDiagnostics.EMAIL_B0001({ message: `[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.` })
     }
     if (value.secret && value.default !== undefined) {
-      throw new TypeError(`[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.`)
+      throw emailErrorDiagnostics.EMAIL_B0002({ message: `[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.` })
     }
     return
   }
@@ -96,7 +97,7 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 
 function resolveDriverImport(driver: string): string {
   if (driver !== "resend" && driver !== "cloudflare-email") {
-    throw new TypeError('[vitehub] Email driver must be "resend" or "cloudflare-email".')
+    throw emailErrorDiagnostics.EMAIL_B0003({ message: '[vitehub] Email driver must be "resend" or "cloudflare-email".' })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -199,7 +200,7 @@ function emailTemplateName(id: string): string | undefined {
   const name = id.slice(emailTemplatePrefix.length)
   const segments = name.split("/")
   if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
-    throw new TypeError(`[vitehub] Invalid Email template ${JSON.stringify(id)}.`)
+    throw emailErrorDiagnostics.EMAIL_B0004({ message: `[vitehub] Invalid Email template ${JSON.stringify(id)}.` })
   }
   return name
 }
@@ -274,7 +275,7 @@ async function discoverEmailTemplates(templatesRoots: string[]): Promise<EmailTe
     for (const file of await listEmailTemplates(root)) {
       const name = templateName(root, file)
       const existing = templates.get(name)
-      if (existing) throw new TypeError(`[vitehub] Duplicate Email template ${JSON.stringify(name)} in ${JSON.stringify(existing)} and ${JSON.stringify(file)}.`)
+      if (existing) throw emailErrorDiagnostics.EMAIL_B0005({ message: `[vitehub] Duplicate Email template ${JSON.stringify(name)} in ${JSON.stringify(existing)} and ${JSON.stringify(file)}.` })
       templates.set(name, file)
     }
   }
@@ -318,7 +319,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw new TypeError('[vitehub] Email requires driver: "resend" or driver: "cloudflare-email".')
+    throw emailErrorDiagnostics.EMAIL_B0006({ message: '[vitehub] Email requires driver: "resend" or driver: "cloudflare-email".' })
   }
   const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -399,7 +400,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw new TypeError('[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.')
+        throw emailErrorDiagnostics.EMAIL_B0007({ message: '[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.' })
       }
       vercel = hosting === "vercel"
         || internalOptions.workflowProvider === "vercel"

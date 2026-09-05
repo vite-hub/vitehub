@@ -6,6 +6,7 @@ import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
 import { shareAgentCapacityOptions } from "../internal/agent-capacity.ts"
 
 import type { AgentDriverCapacityOptions, AgentDriverCapacityQueueOptions, AgentDriverCapacitySample, AgentDriverCapacitySampleContext } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface ProcessAgentCapacityOptions {
   concurrency: number
@@ -44,23 +45,23 @@ interface ProcessResourceSample {
 
 export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions): AgentDriverCapacityOptions {
   if (!options || !Number.isInteger(options.concurrency) || options.concurrency <= 0) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ concurrency }) must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0732({ message: "[vitehub] createProcessAgentCapacity({ concurrency }) must be a positive integer." })
   }
   const fallbackConcurrency = options.fallbackConcurrency ?? 1
   const intervalMs = options.intervalMs ?? 5_000
   const rampUp = options.rampUp ?? 1
   const sampleTimeoutMs = options.sampleTimeoutMs ?? 1_000
   if (!Number.isInteger(fallbackConcurrency) || fallbackConcurrency < 0 || fallbackConcurrency > options.concurrency) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ fallbackConcurrency }) must be an integer between zero and concurrency.")
+    throw agentDiagnostics.AGENT_R0733({ message: "[vitehub] createProcessAgentCapacity({ fallbackConcurrency }) must be an integer between zero and concurrency." })
   }
   if (!Number.isFinite(intervalMs) || intervalMs < 100 || intervalMs > 2_147_483_647) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ intervalMs }) must be a finite number between 100 and 2147483647.")
+    throw agentDiagnostics.AGENT_R0734({ message: "[vitehub] createProcessAgentCapacity({ intervalMs }) must be a finite number between 100 and 2147483647." })
   }
   if (!Number.isInteger(rampUp) || rampUp <= 0) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ rampUp }) must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0735({ message: "[vitehub] createProcessAgentCapacity({ rampUp }) must be a positive integer." })
   }
   if (!Number.isFinite(sampleTimeoutMs) || sampleTimeoutMs <= 0 || sampleTimeoutMs > 2_147_483_647) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ sampleTimeoutMs }) must be a positive finite number no greater than 2147483647.")
+    throw agentDiagnostics.AGENT_R0736({ message: "[vitehub] createProcessAgentCapacity({ sampleTimeoutMs }) must be a positive finite number no greater than 2147483647." })
   }
 
   const cpu = {
@@ -76,13 +77,13 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
   assertPressurePolicy(cpu, "cpu")
   assertPressurePolicy(memory, "memory")
   if (!Number.isFinite(memory.perInvocationBytes) || memory.perInvocationBytes <= 0) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ memory.perInvocationBytes }) must be a positive finite number.")
+    throw agentDiagnostics.AGENT_R0737({ message: "[vitehub] createProcessAgentCapacity({ memory.perInvocationBytes }) must be a positive finite number." })
   }
   if (!Number.isFinite(memory.reserveBytes) || memory.reserveBytes < 0) {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ memory.reserveBytes }) must be a non-negative finite number.")
+    throw agentDiagnostics.AGENT_R0738({ message: "[vitehub] createProcessAgentCapacity({ memory.reserveBytes }) must be a non-negative finite number." })
   }
   if (options.sample !== undefined && typeof options.sample !== "function") {
-    throw new TypeError("[vitehub] createProcessAgentCapacity({ sample }) must be a function.")
+    throw agentDiagnostics.AGENT_R0739({ message: "[vitehub] createProcessAgentCapacity({ sample }) must be a function." })
   }
 
   let pressurePaused = false
@@ -130,12 +131,10 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
 
 function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): void {
   if (!Number.isFinite(value.pausePressure) || value.pausePressure < 0 || value.pausePressure > 1) {
-    throw new TypeError(`[vitehub] createProcessAgentCapacity({ ${name}.pausePressure }) must be between zero and one.`)
+    throw agentDiagnostics.AGENT_R0740({ message: `[vitehub] createProcessAgentCapacity({ ${name}.pausePressure }) must be between zero and one.` })
   }
   if (!Number.isFinite(value.resumePressure) || value.resumePressure < 0 || value.resumePressure > value.pausePressure) {
-    throw new TypeError(
-      `[vitehub] createProcessAgentCapacity({ ${name}.resumePressure }) must be between zero and pausePressure.`,
-    )
+    throw agentDiagnostics.AGENT_R0741({ message: `[vitehub] createProcessAgentCapacity({ ${name}.resumePressure }) must be between zero and pausePressure.` })
   }
 }
 
@@ -158,10 +157,10 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
 async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory">> {
   const membership = await readFile("/proc/self/cgroup", { encoding: "utf8", signal })
   const relative = membership.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
-  if (relative === undefined) throw new Error("cgroup v2 membership is unavailable")
+  if (relative === undefined) throw agentDiagnostics.AGENT_R0742({ message: "cgroup v2 membership is unavailable" })
   const mountinfo = await readFile("/proc/self/mountinfo", { encoding: "utf8", signal })
   const root = resolveLinuxCgroupV2Path(mountinfo, relative)
-  if (root === undefined) throw new Error("cgroup v2 mount is unavailable")
+  if (root === undefined) throw agentDiagnostics.AGENT_R0743({ message: "cgroup v2 mount is unavailable" })
   const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
     readFile(`${root}/memory.current`, { encoding: "utf8", signal }),
     readFile(`${root}/memory.high`, { encoding: "utf8", signal }),

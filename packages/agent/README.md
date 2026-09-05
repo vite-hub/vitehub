@@ -229,8 +229,8 @@ Capability `cli` can be a static command tree or an invocation resolver that ret
 
 ## Error diagnostics
 
-Agent lookup and basic Capability setup errors use Nostics codes and repair
-instructions. Application tools can also throw diagnostics created with
+ViteHub-owned Agent configuration, build, and runtime defects use stable
+Nostics codes. Application tools can also throw diagnostics created with
 `defineDiagnostics()` from `nostics`. Add `nostics` as a direct dependency when
 using it in your application.
 
@@ -244,8 +244,8 @@ Public HTTP errors keep the `ViteHubError` mapping. An unrecognized diagnostic
 maps to the generic `INTERNAL` response. Approval and cancellation behavior does
 not change.
 
-See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics)
-for the codes and an application catalog example.
+See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics)
+for the code format and an application catalog example.
 
 ## Chat state
 

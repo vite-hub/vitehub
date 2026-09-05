@@ -17,6 +17,7 @@ import { hubDb as hubDbVite } from "./vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
 import type { Plugin } from "vite"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
@@ -68,6 +69,7 @@ interface ResolvedDatabaseNuxtD1Options {
 }
 
 export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNuxtModule {
+  // SAFETY: Nuxt invokes this module with the options and lifecycle hooks described by DatabaseNuxtModule.
   const module = async function viteHubDatabaseNuxtModule(inlineOptions, nuxt) {
     const nuxtOptions = (nuxt as NuxtLike).options
     const resolvedOptions = resolveDatabaseNuxtOptions(options, inlineOptions, nuxtOptions)
@@ -117,9 +119,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !hasCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
-            throw new TypeError("[vitehub] Cloudflare D1 output requires database.databaseName.")
+            throw databaseErrorDiagnostics.DATABASE_B0001({ message: "[vitehub] Cloudflare D1 output requires database.databaseName." })
           }
-          throw new TypeError(`[vitehub] Cloudflare D1 database ${JSON.stringify(d1.unresolved.database)} requires database.databaseId or provision state. Set database.databaseId or run \`vitehub provision run --provider cloudflare\`.`)
+          throw databaseErrorDiagnostics.DATABASE_B0002({ message: `[vitehub] Cloudflare D1 database ${JSON.stringify(d1.unresolved.database)} requires database.databaseId or provision state. Set database.databaseId or run \`vitehub provision run --provider cloudflare\`.` })
         }
         if (!nuxtOptions.dev && (provider || d1)) mergeNitroHostedCondition(config)
         if (nuxtOptions.dev) {

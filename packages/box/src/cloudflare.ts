@@ -16,6 +16,7 @@ import {
   withCloudflareRequest,
 } from "./internal/cloudflare-transport.ts";
 import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
+import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cloudflareSandboxPackage = "@cloudflare/sandbox";
 
@@ -99,7 +100,7 @@ const cloudflareExecutionAuthority = {
 
 export function createCloudflareRuntime(options: CloudflareBoxOptions): BoxRuntime {
   if (!options?.namespace)
-    throw new TypeError("[vitehub] The cloudflare Box runtime requires a Durable Objects namespace.");
+    throw boxErrorDiagnostics.BOX_R0020({ message: "[vitehub] The cloudflare Box runtime requires a Durable Objects namespace." });
   return markBuiltInBoxRuntime({
     name: "cloudflare",
     async prepare(input) {
@@ -130,9 +131,7 @@ async function loadCloudflareSandbox() {
     // SAFETY: the optional package's public getSandbox export implements this adapter contract.
     return getSandbox as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
-    throw new Error(
-      `[vitehub] The cloudflare Box runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}`,
-    );
+    throw boxErrorDiagnostics.BOX_R0021({ message: `[vitehub] The cloudflare Box runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}` });
   }
 }
 
@@ -208,31 +207,31 @@ function createCloudflareSession(
       abortSignal?.throwIfAborted();
       if (stub.mkdir) {
         const result = await request("mkdir", async () => await stub.mkdir!(path, { recursive }));
-        if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to create ${path}.`);
+        if (result && !result.success) throw boxErrorDiagnostics.BOX_R0022({ message: `[vitehub] Cloudflare failed to create ${path}.` });
         return;
       }
       const result = await run({
         abortSignal,
         command: `mkdir ${recursive ? "-p " : ""}-- ${shellQuote(path)}`,
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0023({ message: result.stderr });
     },
     ...(stub.moveFile
       ? {
           async moveFile({ abortSignal, destination, source }: { abortSignal?: AbortSignal; destination: string; source: string }) {
             abortSignal?.throwIfAborted();
             const result = await request("moveFile", async () => await stub.moveFile!(source, destination));
-            if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to move ${source}.`);
+            if (result && !result.success) throw boxErrorDiagnostics.BOX_R0024({ message: `[vitehub] Cloudflare failed to move ${source}.` });
           },
         }
-      : {}),
+      : undefined),
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       const result = await request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout);
       if (result.success === false) {
         const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
         if (!exists) return null;
-        throw new Error(`[vitehub] Cloudflare failed to read ${path}.`);
+        throw boxErrorDiagnostics.BOX_R0025({ message: `[vitehub] Cloudflare failed to read ${path}.` });
       }
       return decodeBase64(result.content);
     },
@@ -240,7 +239,7 @@ function createCloudflareSession(
       abortSignal?.throwIfAborted();
       if (!recursive && stub.deleteFile) {
         const result = await request("deleteFile", async () => await stub.deleteFile!(path));
-        if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to remove ${path}.`);
+        if (result && !result.success) throw boxErrorDiagnostics.BOX_R0026({ message: `[vitehub] Cloudflare failed to remove ${path}.` });
         return;
       }
       const result = await run({
@@ -249,7 +248,7 @@ function createCloudflareSession(
           ? `rm -rf -- ${shellQuote(path)}`
           : `if test -d ${shellQuote(path)}; then rmdir -- ${shellQuote(path)}; else rm -f -- ${shellQuote(path)}; fi`,
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0027({ message: result.stderr });
     },
     run,
     ...(stub.startProcess
@@ -275,7 +274,7 @@ function createCloudflareSession(
       const result = await request("writeFile", async () => await stub.writeFile(path, encodeBase64(content), {
         encoding: "base64",
       }));
-      if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to write ${path}.`);
+      if (result && !result.success) throw boxErrorDiagnostics.BOX_R0028({ message: `[vitehub] Cloudflare failed to write ${path}.` });
     },
   };
 }
@@ -317,7 +316,7 @@ async function listWithFind(
     abortSignal,
     command: `find ${shellQuote(path)} -mindepth 1 ${recursive ? "" : "-maxdepth 1 "}-printf '%y\\t%s\\t%p\\0'`,
   });
-  if (result.exitCode !== 0) throw new Error(result.stderr);
+  if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0029({ message: result.stderr });
   return result.stdout
     .split("\0")
     .filter(Boolean)

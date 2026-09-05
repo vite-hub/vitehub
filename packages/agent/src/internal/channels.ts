@@ -11,6 +11,7 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 import type { Lock, StateAdapter } from "chat"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
 export const messageChannelStateContextKey = "chat.channelState"
@@ -48,7 +49,7 @@ export function defineMessageChannelInstructions<
 >(channel: TChannel, instructions: string): TChannel {
   const value = instructions.trim()
   if (!value) {
-    throw new TypeError("[vitehub] Internal Channel instructions must be a non-empty string.")
+    throw agentDiagnostics.AGENT_R0557({ message: "[vitehub] Internal Channel instructions must be a non-empty string." })
   }
   Object.defineProperty(channel, messageChannelInstructions, {
     enumerable: true,
@@ -287,14 +288,14 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
       }
     }
     else if (channelDefinition.webhooks) {
-      throw new TypeError("[vitehub] Channel webhooks require an adapter-backed Channel. Add adapter or invoke the Agent from an app-owned route.")
+      throw agentDiagnostics.AGENT_R0558({ message: "[vitehub] Channel webhooks require an adapter-backed Channel. Add adapter or invoke the Agent from an app-owned route." })
     }
   }
 
   if (!hasMessageChannel) return undefined
   if (channelIdentities.length) {
     if (messageChannelCount > 1) {
-      throw new TypeError("[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land.")
+      throw agentDiagnostics.AGENT_R0559({ message: "[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land." })
     }
     options.identity = channelIdentities[0]
   }
@@ -302,7 +303,7 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
     if (messageChannelCount > 1) {
       const unsupportedOverrides = channelMessageOverrides.some(({ commentary: _commentary, filter: _filter, meta: _meta, metaRevision: _metaRevision, stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
       if (unsupportedOverrides) {
-        throw new TypeError("[vitehub] Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
+        throw agentDiagnostics.AGENT_R0560({ message: "[vitehub] Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land." })
       }
     }
     else {

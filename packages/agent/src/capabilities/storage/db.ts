@@ -19,6 +19,7 @@ import type {
   MaybePromise,
 } from "../../types.ts"
 import type { StorageToolPolicy } from "./shared.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface DBCapabilityOptions {
   database?: string
@@ -66,20 +67,20 @@ async function resolveDatabasePrimitive(context: Parameters<typeof requirePrimit
     return await loadAgentWorkflowDatabasePrimitive()
   }
   catch (error) {
-    throw new Error(`[vitehub] Capability "db" requires the database primitive to be configured or @vite-hub/database to be installed. ${error instanceof Error ? error.message : String(error)}`)
+    throw agentDiagnostics.AGENT_R0213({ message: `[vitehub] Capability "db" requires the database primitive to be configured or @vite-hub/database to be installed. ${error instanceof Error ? error.message : String(error)}` })
   }
 }
 
 function executeSql(database: unknown, statement: string): MaybePromise<unknown> {
   const handle = asAgentDatabaseHandle(database)
   if (handle && typeof handle.exec === "function") return handle.exec.call(handle, statement)
-  throw new Error("[vitehub] db primitive must expose raw string exec() for db_exec.")
+  throw agentDiagnostics.AGENT_R0214({ message: "[vitehub] db primitive must expose raw string exec() for db_exec." })
 }
 
 function querySql(database: unknown, statement: string): MaybePromise<unknown> {
   const handle = asAgentDatabaseHandle(database)
   if (handle && typeof handle.query === "function") return handle.query.call(handle, statement)
-  throw new Error("[vitehub] db primitive must expose raw string query() for db_query.")
+  throw agentDiagnostics.AGENT_R0215({ message: "[vitehub] db primitive must expose raw string query() for db_query." })
 }
 
 async function readDatabaseSchema(database: unknown, databaseName: string): Promise<unknown> {
@@ -102,7 +103,7 @@ function selectAgentDatabase(handle: unknown, database = "default"): unknown {
   if (!primitive) return handle
   if (typeof primitive.database === "function") return primitive.database(database)
   if (database !== "default") {
-    throw new Error(`[vitehub] Database "${database}" is not available.`)
+    throw agentDiagnostics.AGENT_R0216({ message: `[vitehub] Database "${database}" is not available.` })
   }
   return handle
 }
@@ -116,7 +117,7 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
         description: "Run one read-only SQL query against the configured ViteHub database.",
         execute: async ({ statement }) => {
           const sql = normalizeReadSql(statement)
-          if (!sql) throw new Error("[vitehub] db_query only accepts one SELECT, WITH ... SELECT, or read-only introspection PRAGMA statement.")
+          if (!sql) throw agentDiagnostics.AGENT_R0217({ message: "[vitehub] db_query only accepts one SELECT, WITH ... SELECT, or read-only introspection PRAGMA statement." })
           return await querySql(database, sql)
         },
         inputSchema: dbQueryInputSchema,
@@ -132,14 +133,14 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
       tools.db_exec = createTool<DbExecInput>({
         description: "Run one SQL mutation against the configured ViteHub database. Requires rationale; DDL requires schema write mode.",
         execute: async ({ rationale, statement }) => {
-          if (!rationale?.trim()) throw new Error("[vitehub] db_exec requires a rationale.")
+          if (!rationale?.trim()) throw agentDiagnostics.AGENT_R0218({ message: "[vitehub] db_exec requires a rationale." })
           const sql = splitSingleSqlStatement(assertString(statement, "db_exec statement"))
-          if (!sql) throw new Error("[vitehub] db_exec accepts exactly one SQL statement.")
+          if (!sql) throw agentDiagnostics.AGENT_R0219({ message: "[vitehub] db_exec accepts exactly one SQL statement." })
           const kind = sqlKind(sql)
-          if (kind === "read") throw new Error("[vitehub] db_exec does not accept read-only SQL; use db_query.")
-          if (kind === "schema" && schemaMode !== "write") throw new Error("[vitehub] db_exec requires schemaMode: \"write\" for DDL statements.")
-          if (kind === "data" && mode !== "write") throw new Error("[vitehub] db_exec requires mode: \"write\" for data mutation statements.")
-          if (!kind) throw new Error("[vitehub] db_exec only accepts data mutation or DDL SQL statements.")
+          if (kind === "read") throw agentDiagnostics.AGENT_R0220({ message: "[vitehub] db_exec does not accept read-only SQL; use db_query." })
+          if (kind === "schema" && schemaMode !== "write") throw agentDiagnostics.AGENT_R0221({ message: "[vitehub] db_exec requires schemaMode: \"write\" for DDL statements." })
+          if (kind === "data" && mode !== "write") throw agentDiagnostics.AGENT_R0222({ message: "[vitehub] db_exec requires mode: \"write\" for data mutation statements." })
+          if (!kind) throw agentDiagnostics.AGENT_R0223({ message: "[vitehub] db_exec only accepts data mutation or DDL SQL statements." })
           return await executeSql(database, sql)
         },
         inputSchema: dbExecInputSchema,

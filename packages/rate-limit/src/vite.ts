@@ -23,6 +23,7 @@ import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRate
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
+import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverRateLimitDeclarations } from "./discovery.ts"
 
@@ -62,7 +63,7 @@ function mergeNitroConfig(
     return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
   }
   if (!namespace) {
-    throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_B0001({ message: "[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments." })
   }
   contributeCloudflareProviderOutput(providerOutput, {
     owner: "rate-limit",
@@ -101,10 +102,10 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
   const hosting = resolveNitroHosting(nitro)
   if (hosting === "cloudflare") return "cloudflare"
   if (hosting) {
-    throw new Error(`[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.`)
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_B0002({ message: `[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.` })
   }
   if (deferUnknown) return
-  throw new Error("[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment.")
+  throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
 }
 
 function resolveNitroHosting(nitro: unknown): string | undefined {
@@ -215,7 +216,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
           const configuredDeclarations = declarations
           collectDeclarations()
           if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
-            throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+            throw rateLimitErrorDiagnostics.RATE_LIMIT_B0004({ message: "[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves." })
           }
         }
         else {

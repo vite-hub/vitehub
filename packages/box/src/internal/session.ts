@@ -7,6 +7,7 @@ import type {
   BoxRuntimeOpenOptions,
   BoxSession,
 } from "../index.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface RuntimeProcess {
   readonly pid?: number;
@@ -148,7 +149,7 @@ export function createBoxSession(
   let closed = false;
 
   const assertOpen = () => {
-    if (closed) throw new Error("[vitehub] Box session is closed.");
+    if (closed) throw boxErrorDiagnostics.BOX_R0125({ message: "[vitehub] Box session is closed." });
   };
   const operationSignal = (signal?: AbortSignal, timeout?: number) => {
     assertOpen();
@@ -157,7 +158,7 @@ export function createBoxSession(
     );
     if (timeout !== undefined) {
       if (!Number.isFinite(timeout) || timeout <= 0)
-        throw new TypeError("[vitehub] Box command timeout must be a positive number.");
+        throw boxErrorDiagnostics.BOX_R0126({ message: "[vitehub] Box command timeout must be a positive number." });
       signals.push(AbortSignal.timeout(timeout));
     }
     const combined = signals.length === 0
@@ -294,9 +295,9 @@ function adaptProcess(process: RuntimeProcess): BoxProcess {
 
 function commandLine(command: string, args: readonly string[]) {
   if (!command || command.includes("\0"))
-    throw new TypeError("[vitehub] Box commands must be non-empty and cannot contain NUL.");
+    throw boxErrorDiagnostics.BOX_R0127({ message: "[vitehub] Box commands must be non-empty and cannot contain NUL." });
   if (args.some((argument) => argument.includes("\0")))
-    throw new TypeError("[vitehub] Box command arguments cannot contain NUL.");
+    throw boxErrorDiagnostics.BOX_R0128({ message: "[vitehub] Box command arguments cannot contain NUL." });
   return args.length === 0
     ? command
     : [shellQuote(command), ...args.map(shellQuote)].join(" ");
@@ -308,5 +309,5 @@ function shellQuote(value: string) {
 
 function assertPort(port: number) {
   if (!Number.isInteger(port) || port < 1 || port > 65_535)
-    throw new TypeError("[vitehub] Box ports must be integers between 1 and 65535.");
+    throw boxErrorDiagnostics.BOX_R0129({ message: "[vitehub] Box ports must be integers between 1 and 65535." });
 }

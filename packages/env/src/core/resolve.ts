@@ -22,6 +22,7 @@ import type {
   EnvViteConfigOptions,
   ResolvedEnvEntry,
 } from "../types.ts"
+import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 const execFileAsync = promisify(execFile)
 
@@ -463,7 +464,7 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
 async function readPackageJson(rootDir: string): Promise<Record<string, unknown>> {
   const value: unknown = JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8"))
   if (!isPlainRecord(value)) {
-    throw new TypeError("package.json must contain an object.")
+    throw envErrorDiagnostics.ENV_R0012({ message: "package.json must contain an object." })
   }
   return value
 }

@@ -1,4 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
+import { Diagnostic } from "nostics";
 
 import { workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
@@ -97,9 +98,9 @@ export async function requestGitHub(input: string | URL, init: RequestInit = {})
   }
 }
 
-class GitHubRequestError extends Error {
+class GitHubRequestError extends Diagnostic {
   constructor(message: string, readonly status: number) {
-    super(message);
+    super({ code: "WORKSPACE_R0068", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, GitHubRequestError);
     this.name = "GitHubRequestError";
   }
 }

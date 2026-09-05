@@ -47,11 +47,12 @@
     "test": "vp run -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@comark/html": "catalog:markdown",
-    "esbuild": "catalog:tooling"
+    "esbuild": "catalog:tooling",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

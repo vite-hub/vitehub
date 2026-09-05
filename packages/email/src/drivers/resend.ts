@@ -17,6 +17,7 @@ import type {
   EmailMessage,
   EmailProviderErrorCode,
 } from "../types.ts";
+import { emailErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ResendEmailDriverOptions {
   apiKey: string;
@@ -237,9 +238,9 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   try {
     const url = new URL(options.endpoint ?? "https://api.resend.com");
     if (url.protocol !== "http:" && url.protocol !== "https:")
-      throw new TypeError("Unsupported protocol");
+      throw emailErrorDiagnostics.EMAIL_R0005({ message: "Unsupported protocol" });
     if (url.username || url.password || url.search || url.hash)
-      throw new TypeError("Unsupported URL components");
+      throw emailErrorDiagnostics.EMAIL_R0006({ message: "Unsupported URL components" });
     endpoint = url.href.replace(/\/+$/, "");
   } catch (cause) {
     throw emailProviderError(

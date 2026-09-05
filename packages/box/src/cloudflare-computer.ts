@@ -3,6 +3,7 @@ import type { BoxFileEntry, BoxRuntime } from "./index.ts";
 import { openRemoteBox, remoteBoxPlan, resolveRemoteEnvironment } from "./internal/remote.ts";
 import type { RuntimeSession } from "./internal/session.ts";
 import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
+import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cloudflareComputerPackage = "@cloudflare/computer";
 
@@ -75,7 +76,7 @@ const cloudflareComputerExecutionAuthority = {
 
 export function createCloudflareComputerRuntime(options: CloudflareComputerBoxOptions): BoxRuntime {
   if (!options?.namespace)
-    throw new TypeError("[vitehub] The cloudflare-computer Box runtime requires a Durable Objects namespace.");
+    throw boxErrorDiagnostics.BOX_R0016({ message: "[vitehub] The cloudflare-computer Box runtime requires a Durable Objects namespace." });
   return markBuiltInBoxRuntime({
     name: "cloudflare-computer",
     async prepare(input) {
@@ -112,9 +113,7 @@ async function loadCloudflareComputer() {
     const { getWorkspace } = await import(/* @vite-ignore */ cloudflareComputerPackage);
     return getWorkspace as unknown as NonNullable<CloudflareComputerBoxOptions["getWorkspace"]>;
   } catch (error) {
-    throw new Error(
-      `[vitehub] The cloudflare-computer Box runtime requires @cloudflare/computer: ${error instanceof Error ? error.message : error}`,
-    );
+    throw boxErrorDiagnostics.BOX_R0017({ message: `[vitehub] The cloudflare-computer Box runtime requires @cloudflare/computer: ${error instanceof Error ? error.message : error}` });
   }
 }
 
@@ -193,7 +192,7 @@ function createCloudflareComputerSession(
       await workspace.fs.rm(path, recursive ? { force: true, recursive: true } : { force: true });
     },
     async run({ abortSignal, command, env, timeout, workingDirectory }) {
-      if (disposed) throw new Error("[vitehub] Box session is closed.");
+      if (disposed) throw boxErrorDiagnostics.BOX_R0018({ message: "[vitehub] Box session is closed." });
       const executionId = `vitehub-${crypto.randomUUID()}`;
       const pending = workspace.runtime.exec(command, {
         ...(backend ? { backend } : {}),
@@ -210,7 +209,7 @@ function createCloudflareComputerSession(
           } finally {
             execution[Symbol.dispose]?.();
           }
-          throw abortSignal?.aborted ? abortSignal.reason : new Error("[vitehub] Box session is closed.");
+          throw abortSignal?.aborted ? abortSignal.reason : boxErrorDiagnostics.BOX_R0019({ message: "[vitehub] Box session is closed." });
         }
         activeExecutions.add(execution);
         return execution;

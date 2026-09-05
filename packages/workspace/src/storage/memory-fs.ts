@@ -1,4 +1,5 @@
 import { isPlainObject } from "@vite-hub/internal/object"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type Entry =
   | { kind: "dir", children: Set<string>, mtimeMs: number }
@@ -194,5 +195,5 @@ export class MemoryFS {
 }
 
 function memoryFsError(code: string, path: string) {
-  return Object.assign(new Error(`${code}: ${path}`), { code })
+  return Object.assign(workspaceErrorDiagnostics.WORKSPACE_R0065({ message: `${code}: ${path}` }), { code })
 }

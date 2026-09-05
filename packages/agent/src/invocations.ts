@@ -7,6 +7,7 @@ import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTrac
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const bindAgentInvocationsSymbol = Symbol("vitehub.bindAgentInvocations")
 const agentInvocationsBrand: unique symbol = Symbol("vitehub.agentInvocations")
@@ -298,7 +299,7 @@ function mergeConfigurationAnnotations(
 function normalizeLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_LIST_LIMIT
   if (!Number.isInteger(limit) || limit < 1) {
-    throw new TypeError("[vitehub] Agent Invocation list limit must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0618({ message: "[vitehub] Agent Invocation list limit must be a positive integer." })
   }
   return Math.min(limit, MAX_LIST_LIMIT)
 }
@@ -306,12 +307,12 @@ function normalizeLimit(limit: number | undefined): number {
 function normalizeSearch(search: string | undefined): string | undefined {
   if (search === undefined) return
   if (!hasRuntimeType(search, "string")) {
-    throw new TypeError("[vitehub] Agent Invocation search must be a string.")
+    throw agentDiagnostics.AGENT_R0619({ message: "[vitehub] Agent Invocation search must be a string." })
   }
   const value = search.trim()
   if (!value) return
   if (value.length > 256) {
-    throw new TypeError("[vitehub] Agent Invocation search must be at most 256 characters.")
+    throw agentDiagnostics.AGENT_R0620({ message: "[vitehub] Agent Invocation search must be at most 256 characters." })
   }
   return value
 }
@@ -325,7 +326,7 @@ function normalizeBuiltInCursor(cursor: string | undefined): string | undefined 
   if (cursor === undefined) return
   const value = Number(cursor)
   if (!Number.isSafeInteger(value) || value < 1 || String(value) !== cursor) {
-    throw new TypeError("[vitehub] Agent Invocation cursor is invalid.")
+    throw agentDiagnostics.AGENT_R0621({ message: "[vitehub] Agent Invocation cursor is invalid." })
   }
   return cursor
 }
@@ -747,7 +748,7 @@ function invocationIdentity(runId: string, agentName?: string): string {
 
 function assertInvocationId(id: string): void {
   if (!hasRuntimeType(id, "string") || !id.trim()) {
-    throw new TypeError("[vitehub] Agent Invocations require a non-empty invocation id.")
+    throw agentDiagnostics.AGENT_R0622({ message: "[vitehub] Agent Invocations require a non-empty invocation id." })
   }
 }
 
@@ -765,7 +766,7 @@ function assertStore(store: AgentInvocationStore | undefined): asserts store is 
     || !hasRuntimeType(store.list, "function")
     || !hasRuntimeType(store.release, "function")
     || !hasRuntimeType(store.update, "function")) {
-    throw new TypeError("[vitehub] Agent Invocations require a store with claim(), create(), get(), getClaimToken(), list(), release(), and update().")
+    throw agentDiagnostics.AGENT_R0623({ message: "[vitehub] Agent Invocations require a store with claim(), create(), get(), getClaimToken(), list(), release(), and update()." })
   }
 }
 
@@ -873,12 +874,12 @@ export function applyAgentInvocationStoreUpdate(
     input = { ...input, observation: { ...input.observation, attributes } }
   }
   if (input.appendObservation) {
-    if (input.observation) throw new TypeError("[vitehub] Append and update observations cannot be combined.")
+    if (input.observation) throw agentDiagnostics.AGENT_R0898({ message: "[vitehub] Append and update observations cannot be combined." })
     const identity = observationIdentity({ ...input.appendObservation, sequence: 0 })
-    if (!identity) throw new TypeError("[vitehub] Appended observations require a stable identity.")
+    if (!identity) throw agentDiagnostics.AGENT_R0899({ message: "[vitehub] Appended observations require a stable identity." })
     if (record.observations.some(observation => observationIdentity(observation) === identity)) return record
     if (record.observations.length >= MAX_OBSERVATIONS) {
-      throw new Error("[vitehub] Agent Invocation observation capacity reached; evidence was not appended.")
+      throw agentDiagnostics.AGENT_R0900({ message: "[vitehub] Agent Invocation observation capacity reached; evidence was not appended." })
     }
     input = {
       observation: {
@@ -1204,13 +1205,13 @@ function journalTraceLog(
 export function defineAgentInvocations(options: AgentInvocationsOptions): AgentInvocations {
   assertStore(options?.store)
   if (options.content !== undefined && options.content !== "content" && options.content !== "metadata") {
-    throw new TypeError('[vitehub] Agent Invocations content must be "content" or "metadata".')
+    throw agentDiagnostics.AGENT_R0624({ message: '[vitehub] Agent Invocations content must be "content" or "metadata".' })
   }
   if (options.metadataContent?.some(key => CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))) {
-    throw new TypeError("[vitehub] Agent Invocations metadataContent cannot include reserved trace attributes.")
+    throw agentDiagnostics.AGENT_R0625({ message: "[vitehub] Agent Invocations metadataContent cannot include reserved trace attributes." })
   }
   if (options.metadataContent?.some(key => !isTraceContentAttributeKey(key))) {
-    throw new TypeError("[vitehub] Agent Invocations metadataContent entries must name content attributes.")
+    throw agentDiagnostics.AGENT_R0626({ message: "[vitehub] Agent Invocations metadataContent entries must name content attributes." })
   }
   const content = options.content || "metadata"
   const metadataContent = new Set(options.metadataContent || [])
@@ -1644,7 +1645,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       assertInvocationId(id)
       assertInvocationId(appendOptions.id)
       if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
-        throw new TypeError("[vitehub] Appended observation IDs must be at most 512 characters.")
+        throw agentDiagnostics.AGENT_R0901({ message: "[vitehub] Appended observation IDs must be at most 512 characters." })
       }
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       const observation = await createTraceEventLog({ content }).append(event)
@@ -1657,7 +1658,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
       const persisted = updated || await store.get(id)
       if (persisted && !persisted.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
-        throw new Error("[vitehub] Invocation store did not persist appended observation.")
+        throw agentDiagnostics.AGENT_R0902({ message: "[vitehub] Invocation store did not persist appended observation." })
       }
       return persisted
     },
@@ -1735,7 +1736,7 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const bind = (invocations as Partial<BoundAgentInvocations>)[bindAgentInvocationsSymbol]
   if (!hasRuntimeType(bind, "function")) {
-    throw new TypeError("[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations().")
+    throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>

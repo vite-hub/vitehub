@@ -14,6 +14,7 @@ import type {
   WorkspaceSession,
   WorkspaceStore,
 } from "./types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type WorkspaceWithDefinitionSync = Workspace & {
   __workspaceDefinitionSyncKey?: object
@@ -85,7 +86,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       return snapshot
     },
     async rebase(options) {
-      if (!store.rebase) throw new Error("[vitehub] Workspace Store does not support rebasing.")
+      if (!store.rebase) throw workspaceErrorDiagnostics.WORKSPACE_R0026({ message: "[vitehub] Workspace Store does not support rebasing." })
       await store.rebase(options)
     },
     async diff(options) {

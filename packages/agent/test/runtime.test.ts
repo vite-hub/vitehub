@@ -5786,7 +5786,10 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { broken: (() => undefined) as never },
       driver: { run: () => "ok" },
-    })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
+    })).toThrowError(expect.objectContaining({
+      code: "AGENT_R0425",
+      message: '[vitehub] Channel factory "broken" must return an Agent Channel definition.',
+    }))
   })
 
   it("projects invocation status, harness plans, approvals, and final text through the active Channel", async () => {

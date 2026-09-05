@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 
 import { consoleFixtureEnvironmentVariable, readConsoleFixture } from "./fixture.ts"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface ConsoleDevOptions {
   command: string
@@ -36,20 +37,20 @@ function parseConsoleDevArgs(args: string[]): ConsoleDevOptions | "help" {
     }
     if (arg === "--fixture") {
       const value = args[++index]
-      if (!value || value === "--") throw new TypeError("Option --fixture requires a value.")
+      if (!value || value === "--") throw viteHubErrorDiagnostics.VITE_HUB_R0002({ message: "Option --fixture requires a value." })
       fixture = value
       continue
     }
     if (arg.startsWith("--fixture=")) {
       fixture = arg.slice("--fixture=".length)
-      if (!fixture) throw new TypeError("Option --fixture requires a value.")
+      if (!fixture) throw viteHubErrorDiagnostics.VITE_HUB_R0003({ message: "Option --fixture requires a value." })
       continue
     }
-    throw new TypeError(`Unknown Console dev argument: ${arg}`)
+    throw viteHubErrorDiagnostics.VITE_HUB_R0004({ message: `Unknown Console dev argument: ${arg}` })
   }
-  if (!fixture) throw new TypeError("Console dev requires --fixture <file>.")
+  if (!fixture) throw viteHubErrorDiagnostics.VITE_HUB_R0005({ message: "Console dev requires --fixture <file>." })
   if (delimiter < 0 || !args[delimiter + 1]) {
-    throw new TypeError("Console dev requires a development command after --.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0006({ message: "Console dev requires a development command after --." })
   }
   return {
     command: args[delimiter + 1]!,

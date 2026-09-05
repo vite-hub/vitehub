@@ -1,5 +1,6 @@
 import type { FileUIPart } from "ai";
 import { computed, onScopeDispose, ref, type ComputedRef, type Ref } from "vue";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface PendingAttachment {
   file: File;
@@ -38,7 +39,7 @@ function matchesAccept(file: File, accept: string | undefined): boolean {
 export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}.`));
+    reader.onerror = () => reject(reader.error ?? uiErrorDiagnostics.UI_R0001({ message: `Could not read ${file.name}.` }));
     reader.onload = () => resolve(String(reader.result));
     reader.readAsDataURL(file);
   });

@@ -3,6 +3,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface FinalizedStreamOutput<T> {
   deferFinish: boolean
@@ -315,7 +316,7 @@ function uiMessageStreamError(event: unknown): Error | undefined {
   if (event.recoverable === true) return
   if (event.error instanceof Error) return event.error
   const message = event.errorText ?? event.message ?? event.error
-  return new Error(hasRuntimeType(message, "string") && message ? message : "Agent stream failed.")
+  return agentDiagnostics.AGENT_R0856({ message: hasRuntimeType(message, "string") && message ? message : "Agent stream failed." })
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
@@ -505,7 +506,7 @@ async function writeEventsToUiMessageStream(
       }
       throw event.error instanceof Error
         ? event.error
-        : new Error(hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed.")
+        : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
     }
   }
   if (textStarted) writer.write({ type: "text-end", id: messageId })
@@ -529,7 +530,7 @@ export async function finalizeUiMessageStreamOutput(
   const hasAsyncIterable = isAsyncIterable(rendered)
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
-    throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
+    throw agentDiagnostics.AGENT_R0858({ message: "[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream()." })
   }
   let streamedUsageRecord: AgentUsageRecord | undefined
   const stream = projectUiMessageStream(normalizeUiMessageStream(hasUiMessageStream

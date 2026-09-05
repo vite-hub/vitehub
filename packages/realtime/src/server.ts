@@ -6,6 +6,7 @@ import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
+import { Diagnostic } from "nostics"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
@@ -16,6 +17,7 @@ import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from ".
 import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
 import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
+import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
@@ -123,7 +125,7 @@ export function claimAwarenessClientIds(owners: Map<number, object>, peer: objec
   )
   for (const client of clients) ownedClients.add(client)
   if (ownedClients.size > maxAwarenessClients) {
-    throw new TypeError("Peer owns too many awareness clients.")
+    throw realtimeErrorDiagnostics.REALTIME_R0003({ message: "Peer owns too many awareness clients." })
   }
   const claimed = clients.filter(client => !owners.has(client))
   for (const client of clients) owners.set(client, peer)
@@ -134,16 +136,17 @@ export function realtimeRoomKey(definitionName: string, documentId: string): str
   return JSON.stringify([definitionName, documentId])
 }
 
-class AwarenessOwnershipConflict extends TypeError {
+class AwarenessOwnershipConflict extends Diagnostic {
   constructor() {
-    super("Awareness client id is already owned by another peer.")
+    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
+    this.name = "AwarenessOwnershipConflict"
   }
 }
 
 export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIdentity): Uint8Array {
   return awarenessProtocol.modifyAwarenessUpdate(update, (state: unknown) => {
     if (state === null) return null
-    if (!state || typeof state !== "object" || Array.isArray(state)) throw new TypeError("Invalid awareness state.")
+    if (!state || typeof state !== "object" || Array.isArray(state)) throw realtimeErrorDiagnostics.REALTIME_R0004({ message: "Invalid awareness state." })
     return { ...state, user: identity }
   })
 }
@@ -235,7 +238,7 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
   apply(candidate)
   const stateBytes = Y.encodeStateAsUpdate(candidate).byteLength
   candidate.destroy()
-  if (stateBytes > maxStateBytes) throw new Error("Realtime document exceeds its 8 MiB room quota.")
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
   return apply(document)
 }
 
@@ -265,7 +268,7 @@ export function applyRealtimeAwarenessUpdate(
     : 0
   candidate.destroy()
   candidateDocument.destroy()
-  if (stateBytes > maxStateBytes) throw new Error("Realtime awareness exceeds its 8 MiB room quota.")
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0006({ message: "Realtime awareness exceeds its 8 MiB room quota." })
   awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 
@@ -361,7 +364,7 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   }
   const documentId = documentParts.join("/")
   try {
-    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw new Error()
+    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw realtimeErrorDiagnostics.REALTIME_R0007()
   }
   catch {
     throw new HTTPError({ status: 400, message: "Realtime document paths must be safe Workspace paths." })
@@ -709,7 +712,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         }
         try {
           const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
-          if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
+          if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require Workspace file digests." })
           pending = { content: written.markdown, digest: written.baselineDigest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
         }
         catch (error) {

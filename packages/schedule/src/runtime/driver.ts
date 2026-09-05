@@ -13,6 +13,7 @@ import {
 import { createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type { RuntimeScheduleWake } from "../types.ts"
 
@@ -159,7 +160,7 @@ function createSerializer(): SerializeOperation {
   serialize.defer = (operation: () => Promise<void>) => {
     const activeOperation = operationStorage.getStore()
     if (!activeOperation?.active) {
-      throw new Error("Cannot defer work outside an active serialized operation.")
+      throw scheduleErrorDiagnostics.SCHEDULE_R0014({ message: "Cannot defer work outside an active serialized operation." })
     }
     activeOperation.deferred.push(operation)
     for (const release of activeOperation.wakeReleases) release()
@@ -280,7 +281,7 @@ function createReconciledStore(
         const created = await store.create(record)
         const rollback = async () => {
           if (!await store.delete(created.id)) {
-            throw new Error(`Runtime Schedule create rollback failed: ${created.id}`)
+            throw scheduleErrorDiagnostics.SCHEDULE_R0015({ message: `Runtime Schedule create rollback failed: ${created.id}` })
           }
         }
         const deferred = deferReentrantReconciliation(driver, store, rollback, reportError, serialize)
@@ -301,7 +302,7 @@ function createReconciledStore(
         if (!deleted) return false
         const rollback = async () => {
           if (!previous) {
-            throw new Error(`Runtime Schedule delete rollback failed: ${id}`)
+            throw scheduleErrorDiagnostics.SCHEDULE_R0016({ message: `Runtime Schedule delete rollback failed: ${id}` })
           }
           await store.create(previous)
         }
@@ -330,12 +331,12 @@ function createReconciledStore(
         const rollback = async () => {
           if (!previous) {
             if (!await store.delete(id)) {
-              throw new Error(`Runtime Schedule update rollback failed: ${id}`)
+              throw scheduleErrorDiagnostics.SCHEDULE_R0017({ message: `Runtime Schedule update rollback failed: ${id}` })
             }
             return
           }
           if (!await store.delete(id)) {
-            throw new Error(`Runtime Schedule update rollback failed: ${id}`)
+            throw scheduleErrorDiagnostics.SCHEDULE_R0018({ message: `Runtime Schedule update rollback failed: ${id}` })
           }
           await store.create(previous)
         }
@@ -427,7 +428,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
         async reconcile(records) {
           const conflictingId = records.find(record => staticSchedules.byId.has(record.id))?.id
           if (conflictingId) {
-            throw new Error(`Runtime Schedule id conflicts with a Static Schedule driver identity: ${JSON.stringify(conflictingId)}`)
+            throw scheduleErrorDiagnostics.SCHEDULE_R0019({ message: `Runtime Schedule id conflicts with a Static Schedule driver identity: ${JSON.stringify(conflictingId)}` })
           }
           await installedDriver.reconcile([...staticSchedules.records, ...records])
         },
@@ -441,7 +442,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   })
   const runtimeScheduleStore = createReconciledStore(options.runtimeScheduleStore, () => {
     if (!reconciledDriver || aborted) {
-      throw new Error("Runtime Schedule wake driver installation did not complete.")
+      throw scheduleErrorDiagnostics.SCHEDULE_R0020({ message: "Runtime Schedule wake driver installation did not complete." })
     }
     return reconciledDriver
   }, reportError, serialize)
@@ -464,7 +465,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   }
 
   if (!reconciledDriver) {
-    throw new Error("Runtime Schedule wake driver installation did not produce a driver.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0021({ message: "Runtime Schedule wake driver installation did not produce a driver." })
   }
   const installedDriver = reconciledDriver
 

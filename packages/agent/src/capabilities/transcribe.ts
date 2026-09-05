@@ -13,6 +13,7 @@ import type {
 } from "../types.ts"
 import type { AudioData, AudioPart, Message } from "../messages.ts"
 import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type AiSdkTranscribe = typeof import("ai")["transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
@@ -120,7 +121,7 @@ export async function streamTranscription(options: StreamTranscriptionOptions): 
     experimental_streamTranscribe?: AiSdkStreamTranscribe
   }
   if (!aiSdk.experimental_streamTranscribe) {
-    throw new TypeError("[vitehub] streamTranscription() requires ai.experimental_streamTranscribe.")
+    throw agentDiagnostics.AGENT_R0234({ message: "[vitehub] streamTranscription() requires ai.experimental_streamTranscribe." })
   }
   const result = aiSdk.experimental_streamTranscribe(options)
   void result.text.then(undefined, () => {})
@@ -143,14 +144,14 @@ function isAudioPart(part: unknown): part is AudioPart {
 function normalizeMaxBytes(maxBytes: number | undefined): number {
   if (maxBytes === undefined) return DEFAULT_TRANSCRIBE_MAX_BYTES
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
-    throw new TypeError("[vitehub] transcribe({ maxBytes }) must be a positive finite number.")
+    throw agentDiagnostics.AGENT_R0235({ message: "[vitehub] transcribe({ maxBytes }) must be a positive finite number." })
   }
   return maxBytes
 }
 
 function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, source: string): void {
   if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
-    throw new Error(`[vitehub] transcribe() ${source} is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
+    throw agentDiagnostics.AGENT_R0236({ message: `[vitehub] transcribe() ${source} is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).` })
   }
 }
 
@@ -187,7 +188,7 @@ async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Paramet
   }
   if (data) return data
   if (audio.url) return new URL(audio.url)
-  throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
+  throw agentDiagnostics.AGENT_R0237({ message: "[vitehub] transcribe() requires audio data, fetchData, or url." })
 }
 
 function normalizeAudioMediaType(mediaType = ""): string {
@@ -271,10 +272,10 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   }
   if (audio.url) {
     const response = await fetch(audio.url)
-    if (!response.ok) throw new Error(`[vitehub] Failed to download audio: ${response.status} ${response.statusText}.`)
+    if (!response.ok) throw agentDiagnostics.AGENT_R0238({ message: `[vitehub] Failed to download audio: ${response.status} ${response.statusText}.` })
     return await responseBytes(response, maxBytes)
   }
-  throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
+  throw agentDiagnostics.AGENT_R0239({ message: "[vitehub] transcribe() requires audio data, fetchData, or url." })
 }
 
 function transcriptText(result: TranscribeExecuteResult): string {
@@ -329,7 +330,7 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
     transcribe?: AiSdkTranscribe
   }
   const transcribe = Object.hasOwn(aiSdk, "transcribe") ? aiSdk.transcribe : aiSdk.experimental_transcribe
-  if (!transcribe) throw new TypeError("[vitehub] transcribe() requires ai.transcribe or ai.experimental_transcribe.")
+  if (!transcribe) throw agentDiagnostics.AGENT_R0240({ message: "[vitehub] transcribe() requires ai.transcribe or ai.experimental_transcribe." })
   const aiAudio = await toAiSdkAudio(audio, maxBytes)
   try {
     const result = await transcribe({
@@ -359,7 +360,7 @@ function normalizeTranscribeArtifactPath(path: string, option: string): string {
   const parts = normalized.split("/").filter(Boolean)
 
   if (!parts.length || raw.startsWith("/") || parts.some(part => part === "." || part === "..") || parts[0] === ".git" || parts[0] === ".vitehub")
-    throw new TypeError(`[vitehub] transcribe({ ${option} }) must be a safe workspace path.`)
+    throw agentDiagnostics.AGENT_R0241({ message: `[vitehub] transcribe({ ${option} }) must be a safe workspace path.` })
 
   return parts.join("/")
 }
@@ -473,7 +474,7 @@ async function writeTranscriptionArtifacts(
     return toTranscriptionResult(input)
   }
   if (!isWritableWorkspace(context.workspace)) {
-    throw new Error("[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\".")
+    throw agentDiagnostics.AGENT_R0242({ message: "[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\"." })
   }
 
   const audioOptions = getAudioArtifactOptions(artifacts)
@@ -556,7 +557,7 @@ function appendTranscriptionResults(store: AgentInvocationContextStore, results:
 
 function validateTranscriptionArtifactsWorkspace(context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>, artifacts: TranscribeArtifactsOptions | undefined) {
   if (artifacts && !isWritableWorkspace(context.workspace)) {
-    throw new Error("[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\".")
+    throw agentDiagnostics.AGENT_R0243({ message: "[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\"." })
   }
 }
 

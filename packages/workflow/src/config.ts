@@ -4,6 +4,7 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
+import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkflowResolutionInput {
   hosting?: string
@@ -16,7 +17,7 @@ function readString(value: unknown, label: string): string | undefined {
     return undefined
   }
   if (typeof value !== "string" || !value.trim()) {
-    throw new TypeError(`\`${label}\` must be a non-empty string when provided.`)
+    throw workflowErrorDiagnostics.WORKFLOW_C0001({ message: `\`${label}\` must be a non-empty string when provided.` })
   }
   return value.trim()
 }
@@ -29,7 +30,7 @@ function readRuntimeConfigValue(value: unknown, label: string): WorkflowRuntimeC
     return readString(value, label)
   }
   if (!isRuntimeEnvDeclaration(value)) {
-    throw new TypeError(`\`${label}\` must be a string or runtime env declaration.`)
+    throw workflowErrorDiagnostics.WORKFLOW_C0002({ message: `\`${label}\` must be a string or runtime env declaration.` })
   }
   return value
 }
@@ -39,7 +40,7 @@ function readBoolean(value: unknown, label: string): boolean | undefined {
     return undefined
   }
   if (typeof value !== "boolean") {
-    throw new TypeError(`\`${label}\` must be a boolean when provided.`)
+    throw workflowErrorDiagnostics.WORKFLOW_C0003({ message: `\`${label}\` must be a boolean when provided.` })
   }
   return value
 }
@@ -66,7 +67,7 @@ function readPositiveInteger(value: unknown, label: string): number | undefined 
     return undefined
   }
   if (!Number.isInteger(value) || (value as number) <= 0) {
-    throw new TypeError(`\`${label}\` must be a positive integer when provided.`)
+    throw workflowErrorDiagnostics.WORKFLOW_C0004({ message: `\`${label}\` must be a positive integer when provided.` })
   }
   return value as number
 }
@@ -76,7 +77,7 @@ function normalizeOpenWorkflowPostgresOptions(value: unknown): OpenWorkflowPostg
     return undefined
   }
   if (!isPlainObject(value)) {
-    throw new TypeError("`workflow.postgres` must be a plain object.")
+    throw workflowErrorDiagnostics.WORKFLOW_C0005({ message: "`workflow.postgres` must be a plain object." })
   }
 
   const namespaceId = readString(value.namespaceId, "workflow.postgres.namespaceId")
@@ -97,7 +98,7 @@ function normalizeOpenWorkflowSqliteOptions(value: unknown): OpenWorkflowSqliteO
     return undefined
   }
   if (!isPlainObject(value)) {
-    throw new TypeError("`workflow.sqlite` must be a plain object.")
+    throw workflowErrorDiagnostics.WORKFLOW_C0006({ message: "`workflow.sqlite` must be a plain object." })
   }
 
   const namespaceId = readString(value.namespaceId, "workflow.sqlite.namespaceId")
@@ -116,7 +117,7 @@ function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerO
     return undefined
   }
   if (!isPlainObject(value)) {
-    throw new TypeError("`workflow.worker` must be a plain object.")
+    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be a plain object." })
   }
 
   const concurrency = readPositiveInteger(value.concurrency, "workflow.worker.concurrency")
@@ -138,7 +139,7 @@ function inferProvider(provider: unknown, hosting: string): "cloudflare" | "open
     return provider
   }
   if (hosting.includes("netlify")) {
-    throw new TypeError("`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`.")
+    throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`." })
   }
   if (hosting.includes("cloudflare")) {
     return "cloudflare"
@@ -161,7 +162,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const provider = options.provider
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".`)
+    throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
   const resolved = inferProviderFromOptions(options, hosting)
@@ -177,13 +178,13 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     const worker = normalizeOpenWorkflowWorkerOptions(options.worker)
 
     if (database && postgres?.url) {
-      throw new TypeError("`workflow.database` and `workflow.postgres.url` cannot both configure OpenWorkflow storage.")
+      throw workflowErrorDiagnostics.WORKFLOW_C0010({ message: "`workflow.database` and `workflow.postgres.url` cannot both configure OpenWorkflow storage." })
     }
     if (database && sqlite?.path) {
-      throw new TypeError("`workflow.database` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage.")
+      throw workflowErrorDiagnostics.WORKFLOW_C0011({ message: "`workflow.database` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
     }
     if (postgres?.url && sqlite?.path) {
-      throw new TypeError("`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage.")
+      throw workflowErrorDiagnostics.WORKFLOW_C0012({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
     }
 
     return defu(
@@ -204,7 +205,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
 export function normalizeWorkflowOptions(options: WorkflowModuleOptions | undefined, input: WorkflowResolutionInput = {}): ResolvedWorkflowOptions | undefined {
   if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw new TypeError("`workflow` must be a plain object.")
+    throw workflowErrorDiagnostics.WORKFLOW_C0013({ message: "`workflow` must be a plain object." })
   }
   return resolveProvider(options || {}, normalizeHosting(input.hosting))
 }

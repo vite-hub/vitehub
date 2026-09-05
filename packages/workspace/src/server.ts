@@ -1,5 +1,6 @@
 import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
+import { Diagnostic } from "nostics"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
@@ -12,6 +13,7 @@ import type { H3Event } from "h3"
 import type { WorkspaceCollectionOptions, WorkspaceCollectionQuery, WorkspaceCollectionSort } from "./collections.ts"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
 import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const workspaceDevRoute = "/__vitehub/workspace/dev"
 export const workspaceDevHeader = "x-vitehub-workspace-dev"
@@ -187,7 +189,12 @@ function isNotFoundError(error: unknown): boolean {
     || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
 }
 
-class WorkspaceCollectionRequestError extends Error {}
+class WorkspaceCollectionRequestError extends Diagnostic {
+  constructor(message: string) {
+    super({ code: "WORKSPACE_R0067", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, WorkspaceCollectionRequestError)
+    this.name = "WorkspaceCollectionRequestError"
+  }
+}
 
 function collectionQueryValue(query: Record<string, string | string[]>, key: string): string | undefined {
   const value = query[key]
@@ -390,14 +397,14 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   input: WorkspaceDevCommandInput<Name>,
 ): Promise<ExecResult> {
   const command = input.command.trim()
-  if (!command) throw new Error("Workspace Dev command cannot be empty.")
+  if (!command) throw workspaceErrorDiagnostics.WORKSPACE_R0040({ message: "Workspace Dev command cannot be empty." })
   const definition = input.definition
   const workspace = typeof input.workspace === "string"
     ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
   const starter = workspaceSessionStarter(workspace) ?? workspaceSessionStarter(workspace.fs)
   const startSession = starter?.startSession.bind(starter)
-  if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
+  if (!startSession) throw workspaceErrorDiagnostics.WORKSPACE_R0041({ message: "Workspace Dev command requires a Workspace Session." })
   await materializeWorkspaceDevSources(workspace, input)
   let session: WorkspaceSession | undefined
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
@@ -411,7 +418,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
       session = await startSession({ abortSignal: input.abortSignal, host: input.host, paths: input.paths })
       return session
     })
-    if (!session) throw new Error("Workspace Dev Session did not start.")
+    if (!session) throw workspaceErrorDiagnostics.WORKSPACE_R0042({ message: "Workspace Dev Session did not start." })
     result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
@@ -431,7 +438,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     }
     throw error
   }
-  if (!session) throw new Error("Workspace Dev Session did not start.")
+  if (!session) throw workspaceErrorDiagnostics.WORKSPACE_R0043({ message: "Workspace Dev Session did not start." })
   await session.close()
   return result
 }

@@ -8,6 +8,7 @@ import type {
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceRequestExecutionResult,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceSourceRequestExecutionTarget {
   executeSourceRequest(input: WorkspaceSourceRequestExecutionInput): Promise<WorkspaceSourceRequestExecutionResult>
@@ -53,14 +54,14 @@ export function createWorkspaceSourceRequestExecution(
       const matches = targetMatches.filter(source => source.requestDescriptor && requestShapeMatches(source.requestDescriptor, input))
 
       if (matches.length !== 1) {
-        throw new Error(matches.length > 1
+        throw workspaceErrorDiagnostics.WORKSPACE_R0063({ message: matches.length > 1
           ? "[vitehub] Source request is ambiguous; more than one visible Source matches this curl target."
-          : "[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target.")
+          : "[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target." })
       }
 
       const source = matches[0]!
       const executor = getWorkspaceSourceRequestExecutor(source.source)
-      if (!executor) throw new Error("[vitehub] Source request executor is unavailable.")
+      if (!executor) throw workspaceErrorDiagnostics.WORKSPACE_R0064({ message: "[vitehub] Source request executor is unavailable." })
       return await executor(input, createSourceContext(definition, {
         key: source.key,
         mountPath: source.mountPath,

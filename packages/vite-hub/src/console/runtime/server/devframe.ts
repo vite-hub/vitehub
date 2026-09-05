@@ -22,6 +22,7 @@ import type { DevframeInstance, InitDevframeOptions } from "devframe/initiate"
 import type { EventHandler } from "h3"
 import type { ConsoleRpcFunctions, ConsoleRpcInput, ConsoleRpcResult } from "../rpc.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 interface DevframeH3HandlerOptions extends InitDevframeOptions {
   responseHeaders?: ConstructorParameters<typeof Headers>[0]
@@ -114,7 +115,7 @@ const operations = {
   async [consoleRpcMethods.search](input: ConsoleRpcInput) {
     const event = requestEvent("search", input)
     const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
-    if (!response.ok) throw Object.assign(new Error(await response.text()), { statusCode: response.status })
+    if (!response.ok) throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message: await response.text() }), { statusCode: response.status })
     return await response.json()
   },
   [consoleRpcMethods.sections]: (input: ConsoleRpcInput) => consoleSectionsHandler(requestEvent("sections", input)),

@@ -13,6 +13,7 @@ import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { consoleDefinitionSectionIds, type ConsoleDefinitionSectionId } from "../definitions"
 import { consoleSectionDetails } from "../sections"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -295,7 +296,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   }
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase)
-    if (!navigation) throw new Error("Could not load Console navigation.")
+    if (!navigation) throw viteHubErrorDiagnostics.VITE_HUB_R0106({ message: "Could not load Console navigation." })
     const installed = navigation.sections
     controller.signal.throwIfAborted()
     if (navigationRequest !== controller) return

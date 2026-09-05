@@ -1,19 +1,21 @@
 import { connectDevframe } from "devframe/client"
+import { Diagnostic } from "nostics"
 
 import { consoleRpcMethods } from "../rpc"
 
 import type { DevframeRpcClient } from "devframe/client"
 import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleDevframePath = "/_vitehub/rpc/"
 const clients = new Map<string, Promise<DevframeRpcClient>>()
 
-export class ConsoleRequestError extends Error {
+export class ConsoleRequestError extends Diagnostic {
   readonly status: number
 
   constructor(status: number, message = `Console request failed with status ${status}.`) {
-    super(message)
+    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
   }
@@ -127,7 +129,7 @@ function assertConsolePage(page: Record<string, unknown>): void {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const code = typeof page.errorCode === "string" ? page.errorCode : undefined
   if (!message && !code) return
-  const error = new Error(message ?? `Console request failed with error code ${code}.`)
+  const error = viteHubErrorDiagnostics.VITE_HUB_R0041({ message: message ?? `Console request failed with error code ${code}.` })
   if (code) Object.assign(error, { code })
   throw error
 }

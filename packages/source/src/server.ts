@@ -4,6 +4,7 @@ import { CollectionCursorError } from "./core/collection.ts"
 
 import type { H3Event } from "h3"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
+import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface CollectionHandler {
   (event: unknown): Promise<unknown>
@@ -17,7 +18,7 @@ export interface CollectionHandlerEvent {
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
   const value = query[key]
   if (Array.isArray(value)) {
-    throw new TypeError(`[vitehub] Collection query parameter ${JSON.stringify(key)} must have one value.`)
+    throw sourceErrorDiagnostics.SOURCE_R0011({ message: `[vitehub] Collection query parameter ${JSON.stringify(key)} must have one value.` })
   }
   return value
 }
@@ -25,10 +26,10 @@ function queryValue(query: Record<string, string | string[] | undefined>, key: s
 function queryLimit(query: Record<string, string | string[] | undefined>): number | undefined {
   const value = queryValue(query, "limit")
   if (value === undefined) return
-  if (!/^\d+$/.test(value)) throw new TypeError("[vitehub] Collection limit must be a positive integer.")
+  if (!/^\d+$/.test(value)) throw sourceErrorDiagnostics.SOURCE_R0012({ message: "[vitehub] Collection limit must be a positive integer." })
   const limit = Number(value)
   if (!Number.isSafeInteger(limit) || limit < 1) {
-    throw new TypeError("[vitehub] Collection limit must be a positive integer.")
+    throw sourceErrorDiagnostics.SOURCE_R0013({ message: "[vitehub] Collection limit must be a positive integer." })
   }
   return limit
 }
@@ -54,14 +55,12 @@ function serializeCollectionPage(value: unknown): unknown {
     if (!isJSONContainer(entry) || Array.isArray(entry)) return entry
     const prototype = Object.getPrototypeOf(entry)
     if (prototype !== null && Object.getPrototypeOf(prototype) !== null) {
-      throw new TypeError(
-        "[vitehub] Collection pages may only contain plain objects, arrays, and toJSON() values. Use transform() for class instances and other object types.",
-      )
+      throw sourceErrorDiagnostics.SOURCE_R0014({ message: "[vitehub] Collection pages may only contain plain objects, arrays, and toJSON() values. Use transform() for class instances and other object types." })
     }
     return entry
   })
   if (serialized === undefined) {
-    throw new TypeError("[vitehub] Collection page is not JSON-serializable.")
+    throw sourceErrorDiagnostics.SOURCE_R0015({ message: "[vitehub] Collection page is not JSON-serializable." })
   }
   return JSON.parse(serialized)
 }
@@ -72,7 +71,7 @@ function assertCollection(value: unknown): asserts value is Collection<unknown, 
     !(Reflect.get(Object(value), "page") instanceof Function) ||
     !(Reflect.get(Object(value), "parseQuery") instanceof Function)
   ) {
-    throw new TypeError("[vitehub] defineCollectionHandler() requires a Collection.")
+    throw sourceErrorDiagnostics.SOURCE_R0016({ message: "[vitehub] defineCollectionHandler() requires a Collection." })
   }
 }
 

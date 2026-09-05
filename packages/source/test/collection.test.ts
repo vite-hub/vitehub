@@ -43,7 +43,10 @@ describe("combined Sources", () => {
     const missingIdentity = ["missing" as "keyed", "july"] as const
     await expect(collection.get(missingIdentity)).rejects.toThrow('Combined Source alias "missing" is not defined')
     // SAFETY: The test deliberately supplies the pre-tuple legacy shape to exercise runtime validation.
-    await expect(collection.get("keyed:july" as never)).rejects.toBeInstanceOf(TypeError)
+    await expect(collection.get("keyed:july" as never)).rejects.toMatchObject({
+      code: "SOURCE_R0010",
+      message: "[vitehub] Combined Source identity must be a [source, key] string tuple.",
+    })
   })
 
   it("omits enumeration when any reader only supports get", async () => {

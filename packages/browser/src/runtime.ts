@@ -39,6 +39,7 @@ import type {
   BrowserDefinitionResult,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 const CONTROLLER_ATTACH_TIMEOUT_MS = 30_000
 
@@ -232,7 +233,7 @@ async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition
   const loaded = typeof entry === "function" ? await entry() : entry
   const definition = "default" in loaded && loaded.default ? loaded.default : loaded
   if (!isBrowserDefinition(definition)) {
-    throw new TypeError(`[vitehub:browser] Browser Definition ${JSON.stringify(name)} must default-export defineBrowser().`)
+    throw browserErrorDiagnostics.BROWSER_R0009({ message: `[vitehub:browser] Browser Definition ${JSON.stringify(name)} must default-export defineBrowser().` })
   }
   return definition
 }
@@ -241,7 +242,7 @@ export function defineBrowser<TInput = unknown, TResult = unknown>(
   run: BrowserDefinitionHandler<TInput, TResult>,
 ): BrowserDefinition<TInput, TResult> {
   if (typeof run !== "function") {
-    throw new TypeError("[vitehub:browser] defineBrowser() requires a Browser Definition handler.")
+    throw browserErrorDiagnostics.BROWSER_R0010({ message: "[vitehub:browser] defineBrowser() requires a Browser Definition handler." })
   }
   return { run }
 }

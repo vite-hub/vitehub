@@ -4,6 +4,7 @@ import { createUsageSummary, parseConsoleUsageWindow } from "./usage.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const caches = new WeakMap<AgentInvocations, Map<string, { expiresAt: number, value: Promise<Record<string, unknown>> }>>()
 
@@ -33,7 +34,7 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   const query = consoleRequestURL(event).searchParams
   const agentName = query.get("agent")?.trim() || undefined
   if (agentName && agentName.length > 512) {
-    throw Object.assign(new Error("Invalid Agent name"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0070({ message: "Invalid Agent name" }), {
       statusCode: 400,
       statusMessage: "Invalid Agent name",
     })
@@ -41,7 +42,7 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   const windowValue = query.get("window")
   const window = windowValue === null ? "30d" : parseConsoleUsageWindow(windowValue)
   if (!window) {
-    throw Object.assign(new Error("Invalid usage window"), {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0071({ message: "Invalid usage window" }), {
       statusCode: 400,
       statusMessage: "Invalid usage window",
     })

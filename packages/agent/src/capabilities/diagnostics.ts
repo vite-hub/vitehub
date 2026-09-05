@@ -10,6 +10,7 @@ import type {
   RuntimeResourceObservation,
   RuntimeResourceSnapshot,
 } from "@vite-hub/runtime"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const monitorContextKey = "vitehub.diagnostics.monitor"
 
@@ -37,7 +38,7 @@ declare global {
 function positiveDuration(value: number | undefined, fallback: number, label: string): number {
   const resolved = value ?? fallback
   if (!Number.isFinite(resolved) || resolved <= 0 || resolved > 2_147_483_647) {
-    throw new TypeError(`[vitehub] diagnostics({ ${label} }) must be a positive duration in milliseconds.`)
+    throw agentDiagnostics.AGENT_R0027({ message: `[vitehub] diagnostics({ ${label} }) must be a positive duration in milliseconds.` })
   }
   return resolved
 }
@@ -45,7 +46,7 @@ function positiveDuration(value: number | undefined, fallback: number, label: st
 function positiveBytes(value: number | undefined, fallback: number): number {
   const resolved = value ?? fallback
   if (!Number.isFinite(resolved) || resolved <= 0) {
-    throw new TypeError("[vitehub] diagnostics({ peakStepBytes }) must be a positive number of bytes.")
+    throw agentDiagnostics.AGENT_R0028({ message: "[vitehub] diagnostics({ peakStepBytes }) must be a positive number of bytes." })
   }
   return resolved
 }
@@ -246,12 +247,12 @@ function createMonitor(options: {
 export function diagnostics(
   options: DiagnosticsCapabilityOptions = {},
 ): AgentCapabilityDefinition {
-  if (!options || !hasRuntimeType(options, "object")) throw new TypeError("[vitehub] diagnostics() requires an options object when provided.")
+  if (!options || !hasRuntimeType(options, "object")) throw agentDiagnostics.AGENT_R0029({ message: "[vitehub] diagnostics() requires an options object when provided." })
   const heartbeat = positiveDuration(options.heartbeat, 60_000, "heartbeat")
   const interval = positiveDuration(options.interval, 10_000, "interval")
   const peakStepBytes = positiveBytes(options.peakStepBytes, 64 * 1024 * 1024)
   const timeout = positiveDuration(options.timeout, 1_000, "timeout")
-  if (interval > heartbeat) throw new TypeError("[vitehub] diagnostics({ interval }) cannot exceed diagnostics({ heartbeat }).")
+  if (interval > heartbeat) throw agentDiagnostics.AGENT_R0030({ message: "[vitehub] diagnostics({ interval }) cannot exceed diagnostics({ heartbeat })." })
   const reporter = boundedReporter(options.reporter || defaultReporter, timeout)
   const capability = defineCapability({
     id: "diagnostics",

@@ -9,6 +9,7 @@ import { satisfies, validRange } from "semver"
 
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const builtinModuleNames = new Set([
   ...builtinModules,
@@ -343,7 +344,7 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    if (escape === undefined) throw new Error("Deno output contains an incomplete import escape sequence.")
+    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -361,14 +362,14 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw new Error("Deno output contains an invalid hexadecimal import escape sequence.")
+      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -379,19 +380,19 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    if (/[1-9]/.test(escape)) throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
     cooked += escape
   }
   return cooked
@@ -713,7 +714,7 @@ function runtimePackageResolutionPlugin(
 function recordRuntimePackageResolution(packageJsonPaths: Map<string, string>, name: string, packageJsonPath: string): void {
   const existing = packageJsonPaths.get(name)
   if (existing && existing !== packageJsonPath) {
-    throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+    throw internalErrorDiagnostics.INTERNAL_B0015({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
   }
   packageJsonPaths.set(name, packageJsonPath)
 }
@@ -754,7 +755,7 @@ interface RuntimePackageJson {
 function parseRuntimePackageJson(source: string): RuntimePackageJson {
   const value: unknown = JSON.parse(source)
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for untrusted JSON input.
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected package.json to contain an object.")
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw internalErrorDiagnostics.INTERNAL_B0016({ message: "Expected package.json to contain an object." })
   // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
   const record = value as Record<string, unknown>
   const stringList = (key: string): string[] | undefined => {
@@ -763,22 +764,22 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package platform constraints accept either one string or an array of strings.
     if (typeof property === "string") return [property]
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every unknown package.json array item before returning it.
-    if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain strings.`)
+    if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0017({ message: `Expected package.json ${key} to contain strings.` })
     return property
   }
   const stringRecord = (key: string): Record<string, string> | undefined => {
     const property = record[key]
     if (property === undefined) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates the unknown package.json record and each value before returning it.
-    if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw new Error(`Expected package.json ${key} to contain string values.`)
+    if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0018({ message: `Expected package.json ${key} to contain string values.` })
     // SAFETY: The preceding validation proves every property value is a string.
     return property as Record<string, string>
   }
   const peerMeta = record.peerDependenciesMeta
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for unknown peer metadata.
-  if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw new Error("Expected package.json peerDependenciesMeta to contain an object.")
+  if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw internalErrorDiagnostics.INTERNAL_B0019({ message: "Expected package.json peerDependenciesMeta to contain an object." })
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown name field.
-  if (record.name !== undefined && typeof record.name !== "string") throw new Error("Expected package.json name to contain a string.")
+  if (record.name !== undefined && typeof record.name !== "string") throw internalErrorDiagnostics.INTERNAL_B0020({ message: "Expected package.json name to contain a string." })
   return {
     cpu: stringList("cpu"),
     dependencies: stringRecord("dependencies"),
@@ -851,7 +852,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   packageJsonPath ??= await resolvePackageJson(name, createRequire(join(outputNodeModules, "package.json")), outputNodeModules)
   if (!packageJsonPath) {
     if (options.optional) return
-    throw new Error("Could not resolve package.json for " + name + ".")
+    throw internalErrorDiagnostics.INTERNAL_B0021({ message: "Could not resolve package.json for " + name + "." })
   }
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
@@ -865,7 +866,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
         resolvedPackageJsonPath = existingPath.path
         packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
       } else if (!existingPath.hoistedPeer || !packageJson.version || !satisfiesPeerRanges(packageJson.version)) {
-        throw new Error(`Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.`)
+        throw internalErrorDiagnostics.INTERNAL_B0022({ message: `Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.` })
       }
     }
     rootPackagePaths.set(name, {
@@ -1060,7 +1061,7 @@ async function recordServerRuntimePackageResolutions(
       const resolvedPaths = new Set(bundledPaths)
       if (resolvedPackageJsonPath) resolvedPaths.add(resolvedPackageJsonPath)
       if (resolvedPaths.size > 1) {
-        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+        throw internalErrorDiagnostics.INTERNAL_B0023({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
       }
       const packageJsonPath = resolvedPackageJsonPath ?? resolvedPaths.values().next().value
       if (!packageJsonPath) continue
@@ -1107,7 +1108,7 @@ async function readRuntimePackages(
       bundledPaths.add(packageJsonPath)
       bundledPackageJsonPaths.set(name, bundledPaths)
       if (bundledPaths.size > 1) {
-        throw new Error(`Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.`)
+        throw internalErrorDiagnostics.INTERNAL_B0024({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
       }
       const existing = packages.get(name)
       packages.set(name, {
@@ -1187,7 +1188,7 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   for (const match of executableSource.matchAll(/new URL\(\s*(["'`])(\.[^"'`]*)\1\s*,\s*import\.meta\.url\s*\)/g)) {
     const specifier = cookImportSpecifier(match[2]!)
     if (allowedLocalImports.includes(specifier)) continue
-    throw new Error(`Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.`)
+    throw internalErrorDiagnostics.INTERNAL_B0025({ message: `Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.` })
   }
   let remaining = executableSource
     .replaceAll(/import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, _quote: string, rawSpecifier: string) => allowedLocalImports.includes(cookImportSpecifier(rawSpecifier)) ? "" : expression)
@@ -1196,14 +1197,14 @@ export function assertSupportedRelocatedImports(source: string, outputName: stri
   }
   for (const match of remaining.matchAll(/\bimport\s*\(/g)) {
     if (isStandaloneCall(remaining, match.index!)) {
-      throw new Error(`Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.`)
+      throw internalErrorDiagnostics.INTERNAL_B0026({ message: `Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.` })
     }
   }
   const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
   const computedRequire = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(?=[^)\s])(?!["'\x60])`, "g")
   for (const match of remaining.matchAll(computedRequire)) {
     if (isStandaloneCall(remaining, match.index!)) {
-      throw new Error(`Deno ${outputName} contains an unsupported computed require. Use a static import so ViteHub can bundle its dependency.`)
+      throw internalErrorDiagnostics.INTERNAL_B0027({ message: `Deno ${outputName} contains an unsupported computed require. Use a static import so ViteHub can bundle its dependency.` })
     }
   }
 }
@@ -1400,7 +1401,7 @@ export async function acquireDenoDeploymentLock(outputDir: string): Promise<() =
           else throw signalError
         }
       }
-      if (ownerAlive) throw new Error(`Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.`)
+      if (ownerAlive) throw internalErrorDiagnostics.INTERNAL_B0028({ message: `Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.` })
 
       const claimedLockPath = `${lockPath}.orphan.${process.pid}.${randomUUID()}`
       try {
@@ -1423,7 +1424,7 @@ export async function acquireDenoDeploymentLock(outputDir: string): Promise<() =
       await rm(claimedLockPath, { force: true, recursive: true })
     }
   }
-  throw new Error(`Could not acquire the Deno deployment output lock for ${JSON.stringify(outputDir)}.`)
+  throw internalErrorDiagnostics.INTERNAL_B0029({ message: `Could not acquire the Deno deployment output lock for ${JSON.stringify(outputDir)}.` })
 }
 
 async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promise<void> {
@@ -1482,7 +1483,7 @@ async function finalizeStagedDenoDeploymentOutput(
     await access(scheduleSource)
     if (options.hasScheduleIntegration === false) {
       await rm(scheduleSource, { force: true })
-      throw Object.assign(new Error("stale Deno Schedule output"), { code: "ENOENT" })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
     }
     hasSchedule = true
     await access(applicationEntrySource)
@@ -1538,11 +1539,11 @@ async function finalizeStagedDenoDeploymentOutput(
       )
       if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")
         && !hasRelocatableStaticImport(applicationBundle, "./schedule/deno-cron.mjs")) {
-        throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".')
+        throw internalErrorDiagnostics.INTERNAL_B0031({ message: 'Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".' })
       }
       if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./server/index.mjs")
         && !hasRelocatableStaticImport(applicationBundle, "./server/index.mjs")) {
-        throw new Error('Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".')
+        throw internalErrorDiagnostics.INTERNAL_B0032({ message: 'Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".' })
       }
       await rename(temporaryApplicationOutput, applicationOutput)
       await rename(temporaryScheduleOutput, scheduleOutput)
@@ -1557,7 +1558,7 @@ async function finalizeStagedDenoDeploymentOutput(
     // SAFETY: filesystem access and cleanup failures expose Node's optional error code.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     if (hasSchedule) {
-      throw new Error('Deno Schedule output requires a project-root "main.ts" application entrypoint.', { cause: error })
+      throw internalErrorDiagnostics.INTERNAL_B0033({ message: 'Deno Schedule output requires a project-root "main.ts" application entrypoint.', cause: error })
     }
   }
   const packages = await readRuntimePackages([

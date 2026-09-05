@@ -5,6 +5,7 @@ import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { DBModulePublicOptions } from "./types.ts"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicOptions, false> & { nuxtHostResource: true })
 
@@ -20,13 +21,13 @@ interface PlannedDatabase {
 }
 
 function parseDatabases(value: unknown): CloudflareD1Database[] {
-  if (!Array.isArray(value)) throw new Error("Cloudflare provisioning returned an invalid database list.")
+  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_R0004({ message: "Cloudflare provisioning returned an invalid database list." })
   // SAFETY: D1 database fields are optional and consumers narrow them before use.
   return value as CloudflareD1Database[]
 }
 
 function parseDatabase(value: unknown): CloudflareD1Database {
-  if (!value || Object(value) !== value) throw new Error("Cloudflare provisioning returned an invalid database.")
+  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_R0005({ message: "Cloudflare provisioning returned an invalid database." })
   return value
 }
 

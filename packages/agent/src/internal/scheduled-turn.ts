@@ -3,6 +3,7 @@ import type {
   AgentInvoker,
   AgentRunMetadata,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export const scheduledAgentNameContextKey = "agent.name"
 export const scheduledAgentChannelIdsContextKey = "agent.channels"
@@ -27,7 +28,7 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
 
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new TypeError(`[vitehub] ${label} must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_R0573({ message: `[vitehub] ${label} must be a non-empty string.` })
   }
   return value.trim()
 }
@@ -38,17 +39,17 @@ function optionalString(value: unknown, label: string): string | undefined {
 
 function assertExactKeys(value: Record<PropertyKey, unknown>, keys: readonly string[], label: string): void {
   const unknownKey = Object.keys(value).find(key => !keys.includes(key))
-  if (unknownKey) throw new TypeError(`[vitehub] ${label} does not support "${unknownKey}".`)
+  if (unknownKey) throw agentDiagnostics.AGENT_R0574({ message: `[vitehub] ${label} does not support "${unknownKey}".` })
 }
 
 function durableInvoker(value: unknown): AgentInvoker & { kind: string } {
   if (!isRecord(value)) {
-    throw new TypeError("[vitehub] Scheduled Agent turn durable invoker must be an object.")
+    throw agentDiagnostics.AGENT_R0575({ message: "[vitehub] Scheduled Agent turn durable invoker must be an object." })
   }
   assertExactKeys(value, ["email", "id", "kind", "label"], "Scheduled Agent turn durable invoker")
   const email = value.email
   if (email !== undefined) {
-    if (!isRecord(email)) throw new TypeError("[vitehub] Scheduled Agent turn durable invoker email must be an object.")
+    if (!isRecord(email)) throw agentDiagnostics.AGENT_R0576({ message: "[vitehub] Scheduled Agent turn durable invoker email must be an object." })
     assertExactKeys(email, ["address", "domain"], "Scheduled Agent turn durable invoker email")
   }
   const kind = requiredString(value.kind, "Scheduled Agent turn durable invoker kind")
@@ -75,7 +76,7 @@ function durableInvokerFromCurrent(value: AgentInvoker): AgentInvoker & { kind: 
 
 function durableDelivery(value: unknown): ScheduledAgentTurnDelivery {
   if (!isRecord(value)) {
-    throw new TypeError("[vitehub] Scheduled Agent turn delivery must be an object.")
+    throw agentDiagnostics.AGENT_R0577({ message: "[vitehub] Scheduled Agent turn delivery must be an object." })
   }
   assertExactKeys(value, ["channelId", "origin", "threadId"], "Scheduled Agent turn delivery")
   return {
@@ -94,10 +95,10 @@ export function createScheduledAgentTurnInput(
 ): ScheduledAgentTurnInput {
   if (delivery === "origin") {
     if (!run?.channelId || !run.threadId || !run.origin) {
-      throw new Error('[vitehub] schedule({ delivery: "origin" }) requires channelId and threadId from a named run origin.')
+      throw agentDiagnostics.AGENT_R0578({ message: '[vitehub] schedule({ delivery: "origin" }) requires channelId and threadId from a named run origin.' })
     }
     if (!channelIds.includes(run.channelId)) {
-      throw new Error('[vitehub] schedule({ delivery: "origin" }) requires the run channelId to match a configured Agent Channel.')
+      throw agentDiagnostics.AGENT_R0579({ message: '[vitehub] schedule({ delivery: "origin" }) requires the run channelId to match a configured Agent Channel.' })
     }
   }
   return {
@@ -117,9 +118,9 @@ export function createScheduledAgentTurnInput(
 }
 
 export function parseScheduledAgentTurnInput(value: unknown): ScheduledAgentTurnInput {
-  if (!isRecord(value)) throw new TypeError("[vitehub] Scheduled Agent turn input must be an object.")
+  if (!isRecord(value)) throw agentDiagnostics.AGENT_R0580({ message: "[vitehub] Scheduled Agent turn input must be an object." })
   assertExactKeys(value, ["delivery", "invoker", "kind", "prompt"], "Scheduled Agent turn input")
-  if (value.kind !== "agent-turn") throw new TypeError("[vitehub] Scheduled Agent turn input kind must be agent-turn.")
+  if (value.kind !== "agent-turn") throw agentDiagnostics.AGENT_R0581({ message: "[vitehub] Scheduled Agent turn input kind must be agent-turn." })
   return {
     ...(value.delivery === undefined ? {} : { delivery: durableDelivery(value.delivery) }),
     invoker: durableInvoker(value.invoker),

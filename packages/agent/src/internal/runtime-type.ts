@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 type RuntimeTypeMap = {
   bigint: bigint
   boolean: boolean
@@ -44,7 +45,7 @@ export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
     case "string": return isPrimitive && tag === "[object String]"
     case "symbol": return isPrimitive && tag === "[object Symbol]"
   }
-  throw new TypeError(`Unsupported runtime type: ${expected}`)
+  throw agentDiagnostics.AGENT_R0572({ message: `Unsupported runtime type: ${expected}` })
 }
 
 export function isCallableMember<TValue>(value: TValue): value is Extract<TValue, CallableFunction> {

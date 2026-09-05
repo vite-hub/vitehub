@@ -22,6 +22,7 @@ import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } 
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleMetadataContent = [
   "channel.effect.content",
@@ -85,7 +86,7 @@ const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocati
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
   if (!invocations) {
-    throw new TypeError("[vitehub] The Agent invocation console has not been installed for this runtime.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] The Agent invocation console has not been installed for this runtime." })
   }
   return invocations
 }
@@ -94,7 +95,7 @@ export function getConsoleInvocationsDatabase(): ConsoleInvocationsDatabase {
   const invocations = getConsoleInvocations()
   const database = consoleInvocationDatabases.get(invocations)
   if (!database) {
-    throw new TypeError("[vitehub] The Agent invocation console is not backed by the Console Drizzle database.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0064({ message: "[vitehub] The Agent invocation console is not backed by the Console Drizzle database." })
   }
   return database
 }

@@ -2480,7 +2480,7 @@ describe("agent CLI", () => {
       { type: "done" },
     ]))
     expect(emitted.exitCode).toBe(1)
-    expect(emitted.stderr).toContain(`{"code":"reaction_preview_failed","message":"GitHub reaction preview failed","status":422}`)
+    expect(emitted.stderr).toContain("[reaction_preview_failed] GitHub reaction preview failed")
     expect(emitted.stderr).not.toContain("[object Object]")
 
     const thrown = await runWithPost(new Response(new ReadableStream<Uint8Array>({
@@ -2491,7 +2491,7 @@ describe("agent CLI", () => {
       headers: { "content-type": "application/x-ndjson" },
     }))
     expect(thrown.exitCode).toBe(1)
-    expect(thrown.stderr).toContain(`{"code":"stream_read_failed","message":"reader failed"}`)
+    expect(thrown.stderr).toContain("[stream_read_failed] reader failed")
     expect(thrown.stderr).not.toContain("[object Object]")
   })
 

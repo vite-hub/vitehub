@@ -16,7 +16,7 @@ import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
 
@@ -33,6 +33,13 @@ const vercelQueueMock = vi.hoisted(() => {
 const vercelFunctionsMock = vi.hoisted(() => ({
   waitUntil: vi.fn(),
 }))
+
+it("identifies a missing generated Queue Definition", () => {
+  expect(missingQueueDefinitionError()).toMatchObject({
+    code: "QUEUE_R0013",
+    message: "Missing queue definition.",
+  })
+})
 
 vi.mock("@vercel/queue", () => ({
   QueueClient: class {

@@ -18,6 +18,20 @@ function modelsDevCatalog(provider: string, model: string, cost: Record<string, 
 }
 
 describe("usage Capability", () => {
+  it.each([
+    { code: "AGENT_R0903", response: () => new Response(null, { status: 503 }) },
+    { code: "AGENT_R0904", response: () => Response.json(null) },
+  ])("identifies pricing catalog failures with $code", async ({ code, response }) => {
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch: vi.fn(async () => response()) })
+
+    await expect(pricing({
+      model: "openai/gpt-5",
+      provider: "openai",
+      usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+    })).rejects.toMatchObject({ code })
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()

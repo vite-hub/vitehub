@@ -1,3 +1,4 @@
+import { markdownTemplateErrorDiagnostics } from "../error-diagnostics.ts"
 export const markdownTemplateFileSuffix = ".template.md"
 export const markdownTemplateModuleQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
@@ -18,11 +19,11 @@ export interface BundledMarkdownTemplate {
 
 export function markdownTemplateMaterializationPath(templatePath: string): string {
   if (!templatePath.startsWith("./") || !templatePath.endsWith(markdownTemplateFileSuffix) || templatePath.includes("\\")) {
-    throw new TypeError(`[vitehub] Markdown materialization requires a relative ${markdownTemplateFileSuffix} path, received ${JSON.stringify(templatePath)}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0001({ message: `[vitehub] Markdown materialization requires a relative ${markdownTemplateFileSuffix} path, received ${JSON.stringify(templatePath)}.` })
   }
   const segments = templatePath.slice(2).split("/")
   if (segments.some(segment => !segment || segment === "." || segment === "..")) {
-    throw new TypeError(`[vitehub] Markdown materialization paths cannot escape or contain ambiguous segments, received ${JSON.stringify(templatePath)}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0002({ message: `[vitehub] Markdown materialization paths cannot escape or contain ambiguous segments, received ${JSON.stringify(templatePath)}.` })
   }
   return templatePath.slice(2, -markdownTemplateFileSuffix.length) + ".md"
 }
@@ -99,7 +100,7 @@ export async function bundleMarkdownTemplateImports(
       const key = `${importer}\0${specifier}`
       if (imports[key]) continue
       const resolved = await load(specifier, importer)
-      if (!resolved) throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)}.`)
+      if (!resolved) throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0003({ message: `[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)}.` })
       imports[key] = resolved
       if (visited.has(resolved.id)) continue
       visited.add(resolved.id)

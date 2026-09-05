@@ -1,4 +1,5 @@
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -774,7 +775,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   const definition = hasAgentDefinition(agent) ? agent : undefined
   const name = binding.name || ("discoveryDefault" in binding ? context.agentIdentity?.name : definition?.name || context.agentIdentity?.name)
   if (name) return name
-  throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
+  throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\")." })
 }
 
 async function deferAgentWorkflowRecovery<TPayload, TResult>(
@@ -818,7 +819,7 @@ async function getAgentWorkflowHandle<
   if (registered) {
     const definition = await loadWorkflowDefinition(name)
     if (Boolean(definition?.internalAgentInvocationRecovery) !== recovery) {
-      throw new Error(`Workflow name ${JSON.stringify(name)} conflicts with an Agent invocation recovery Workflow.`)
+      throw agentDiagnostics.AGENT_R0422({ message: `Workflow name ${JSON.stringify(name)} conflicts with an Agent invocation recovery Workflow.` })
     }
   }
   if (!registered && recovery) {
@@ -1243,14 +1244,14 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       }
       catch (deliveryError) {
         if (lastSnapshot === fingerprint) lastSnapshot = undefined
-        console.error(new Error("[vitehub] Agent activity delivery failed.", { cause: deliveryError }))
+        console.error(agentDiagnostics.AGENT_R0423({ message: "[vitehub] Agent activity delivery failed.", cause: deliveryError }))
       }
     })
     try {
       context.waitUntil?.(delivery)
     }
     catch (waitUntilError) {
-      console.error(new Error("[vitehub] Agent activity delivery could not be retained.", { cause: waitUntilError }))
+      console.error(agentDiagnostics.AGENT_R0424({ message: "[vitehub] Agent activity delivery could not be retained.", cause: waitUntilError }))
     }
   }
   return {
@@ -1589,9 +1590,9 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
                     ? builtInWebChat<TRuntimeConfig>(input as never)
                     : undefined
     if (!channel || !hasRuntimeType(channel, "object") || !hasRuntimeType(channel.kind, "string")) {
-      throw new TypeError(hasRuntimeType(input, "function")
+      throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.`)
+        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.` })
     }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
@@ -1653,7 +1654,7 @@ function defineBaseAgent<
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions(baseCapabilities)
   if (chatCapability && channelChat) {
-    throw new TypeError("[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels }).")
+    throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
   const normalizedCapabilities = channelChat
@@ -1691,7 +1692,7 @@ function defineBaseAgent<
           })))
         : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
+      throw agentDiagnostics.AGENT_R0427({ message: "[vitehub] Agent Driver is required unless the agent uses driver.run." })
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return isCallableMember(resolvedAdapter)
@@ -1841,7 +1842,7 @@ function createSyntheticWorkspaceRun<
         const wrapStream = (stream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(stream)
           if (existing) return existing
-          if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
+          if (finished) throw agentDiagnostics.AGENT_R0428({ message: "[vitehub] Agent Invocation output has already finished." })
           const source = cancellableAsyncIterableSource(stream)
           sources.add(source)
           const wrapped = withCapabilityCleanup(source.stream, outcome => finish(outcome.failed ? outcome.error : undefined, source), {
@@ -1914,7 +1915,7 @@ function createSyntheticWorkspaceRun<
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
-                if (finished) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                if (finished) throw agentDiagnostics.AGENT_R0429({ message: "[vitehub] Agent Invocation output has already finished." })
                 try {
                   const stream = toUIMessageStream.apply(output, args)
                   if (!uiMessageStreamResolved) {
@@ -2152,7 +2153,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
-    throw new TypeError("[vitehub] Agent names cannot exceed 512 characters.")
+    throw agentDiagnostics.AGENT_R0430({ message: "[vitehub] Agent names cannot exceed 512 characters." })
   }
   let normalizedOptions = channels === agentOptions.channels
     ? agentOptions
@@ -2242,7 +2243,7 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
     return await agent.resolve(context as never)
   }
 
-  throw agentDiagnostics.AGENT_DEFINITION_INVALID()
+  throw agentDiagnostics.AGENT_C0001()
 }
 
 async function resolveAgentForRun<
@@ -2268,12 +2269,12 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]
   if (!loader) {
-    throw agentDiagnostics.AGENT_NOT_FOUND({ name, available: Object.keys(registry).sort() })
+    throw agentDiagnostics.AGENT_R0001({ name, available: Object.keys(registry).sort() })
   }
 
   const agent = resolveRegistryModule(await loader())
   if (!agent) {
-    throw agentDiagnostics.AGENT_EXPORT_INVALID({ name })
+    throw agentDiagnostics.AGENT_R0002({ name })
   }
 
   return agent
@@ -2426,7 +2427,7 @@ function mergeWorkspaceSources(
   const sources = { ...registered }
   for (const [key, source] of Object.entries(configured || {})) {
     if (key in sources) {
-      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+      throw agentDiagnostics.AGENT_R0431({ message: `[vitehub] Workspace source "${key}" is already defined.` })
     }
     sources[key] = source
   }
@@ -2473,7 +2474,7 @@ function resolveOwnedAgentWorkspaceDefinition(
 }
 
 function ownedAgentWorkspaceKey(agent: unknown): object {
-  if (!isRuntimeObject(agent)) throw new TypeError("[vitehub] Owned Agent Workspace state requires an object owner.")
+  if (!isRuntimeObject(agent)) throw agentDiagnostics.AGENT_R0432({ message: "[vitehub] Owned Agent Workspace state requires an object owner." })
   return agent
 }
 
@@ -3104,11 +3105,16 @@ function throwAgentTelemetryFailures(exports: PromiseSettledResult<void>[]): voi
   if (failures.length > 1) throw new AggregateError(failures, "Multiple Agent telemetry exports failed.")
 }
 
-class AgentTelemetryCapabilityError extends Error {
+class AgentTelemetryCapabilityError extends Diagnostic {
   readonly capabilityId: string
 
   constructor(capabilityId: string, cause: unknown) {
-    super(`[vitehub] Capability "${capabilityId}" telemetry export failed.`, { cause })
+    super({
+      cause,
+      code: "AGENT_R0890",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
+    }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
     this.capabilityId = capabilityId
   }
@@ -4156,7 +4162,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
 }
 
 function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
-  if (!isRuntimeObject(result)) throw new TypeError("[vitehub] Preserving Agent result properties requires an object result.")
+  if (!isRuntimeObject(result)) throw agentDiagnostics.AGENT_R0433({ message: "[vitehub] Preserving Agent result properties requires an object result." })
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -4805,7 +4811,7 @@ async function applyFinalOutputRenderers<
 function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChannelDeliveryEffectIntent {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   if (!value || !hasRuntimeType(value, "object") || !hasRuntimeType((value as { kind?: unknown }).kind, "string") || !(value as { kind: string }).kind.trim()) {
-    throw new TypeError("[vitehub] Channel finish delivery effect resolvers must return an effect intent with a non-empty kind.")
+    throw agentDiagnostics.AGENT_R0434({ message: "[vitehub] Channel finish delivery effect resolvers must return an effect intent with a non-empty kind." })
   }
 }
 
@@ -4847,7 +4853,7 @@ function createDurableFailureDeadline(timeout: number): DurableFailureDeadline {
 
 function durableFailureTimeoutError(timeout: number): Error & { isRetryable: false } {
   return Object.assign(
-    new Error(`Durable chat error fallback delivery timed out after ${timeout}ms.`),
+    agentDiagnostics.AGENT_R0435({ message: `Durable chat error fallback delivery timed out after ${timeout}ms.` }),
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     { isRetryable: false as const },
   )
@@ -5161,7 +5167,7 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0436({ message: "Durable failure delivery requires a deadline" })
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = await runFinishActivity(
             deliveryActivity,
@@ -5209,7 +5215,7 @@ async function finishAgentInvocation<
           },
         )
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0437({ message: "Durable failure delivery requires a deadline" })
           await runFinishActivity(
             deliveryActivity,
             async () => {
@@ -5482,7 +5488,7 @@ async function materializeAgentStructuredOutput(
       const streamError = (event as typeof event & { [agentStreamErrorSymbol]?: Error & { text?: unknown } })[agentStreamErrorSymbol]
       const rejectedText = hasRuntimeType(streamError?.text, "string") ? streamError.text : text
       if (output && rejectedText !== undefined && streamError?.name === "AI_NoObjectGeneratedError") await validateAgentOutput(output, rejectedText)
-      throw streamError ?? new Error(event.error)
+      throw streamError ?? agentDiagnostics.AGENT_R0438({ message: event.error })
     }
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
@@ -5833,8 +5839,8 @@ async function executeAgentInvocationWithCapacityLease<
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => {
-                if (finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
-                if (uiMessageStreamCreated) throw new Error("[vitehub] Agent Invocation UI-message stream has already been created.")
+                if (finishTask) throw agentDiagnostics.AGENT_R0439({ message: "[vitehub] Agent Invocation output has already finished." })
+                if (uiMessageStreamCreated) throw agentDiagnostics.AGENT_R0440({ message: "[vitehub] Agent Invocation UI-message stream has already been created." })
                 uiMessageStreamCreated = true
                 invocation.input.abortSignal?.removeEventListener("abort", onAbort)
                 let source: ReturnType<typeof nonBlockingPendingAsyncIterableSource>
@@ -6069,7 +6075,7 @@ async function executeAgentInvocationWithCapacityLease<
             enumerable: descriptor.enumerable ?? false,
             get() {
               if (!initialized) {
-                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                if (finishing || finishTask) throw agentDiagnostics.AGENT_R0441({ message: "[vitehub] Agent Invocation output has already finished." })
                 try {
                   const resolved = descriptor.get?.call(rendered)
                   value = isAsyncIterable(resolved) ? preserveStream(resolved) : resolved
@@ -6103,7 +6109,7 @@ async function executeAgentInvocationWithCapacityLease<
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => {
-              if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+              if (finishing || finishTask) throw agentDiagnostics.AGENT_R0442({ message: "[vitehub] Agent Invocation output has already finished." })
               try {
                 const renderedStream = toUIMessageStream.apply(rendered, args)
                 if (!uiMessageStreamResolved) {
@@ -6202,7 +6208,7 @@ async function executeAgentInvocationWithCapacityLease<
             enumerable: textStreamDescriptor.enumerable ?? false,
             get() {
               if (!initialized) {
-                if (finishing || finishTask) throw new Error("[vitehub] Agent Invocation output has already finished.")
+                if (finishing || finishTask) throw agentDiagnostics.AGENT_R0443({ message: "[vitehub] Agent Invocation output has already finished." })
                 try {
                   const textStream = resolveTextStream()
                   preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
@@ -6912,7 +6918,7 @@ export async function runAgent<
     return workflow.run
   }
   if (input.context?.[requireAgentWorkflowContextKey] === true) {
-    const error = new Error("[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider.")
+    const error = agentDiagnostics.AGENT_R0444({ message: "[vitehub] Durable Channel delivery requires this Agent invocation to start a Workflow. Disable durable delivery or remove nonportable Capabilities and configure a Workflow provider." })
     const activity = hasAgentDefinition(agent) ? createActiveAgentActivity(agent, invocationContext) : undefined
     await activity?.update("queued")
     await activity?.update(input.abortSignal?.aborted ? "cancelled" : "failed", error)

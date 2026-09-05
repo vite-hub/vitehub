@@ -16,6 +16,7 @@ import type {
   AgentToolSet,
 } from "./types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 type CliNode<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName> =
   | AgentCapabilityCliContribution<TRuntimeConfig, Name>
@@ -48,13 +49,13 @@ function isStandardSchema<T = unknown>(value: unknown): value is AgentCapability
 
 function assertCliName(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !stableCliName.test(value)) {
-    throw new TypeError(`[vitehub] ${label} must be a stable CLI name.`)
+    throw agentDiagnostics.AGENT_R0299({ message: `[vitehub] ${label} must be a stable CLI name.` })
   }
 }
 
 function assertCommandName(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !stableCommandName.test(value)) {
-    throw new TypeError(`[vitehub] ${label} must be a stable command name without whitespace.`)
+    throw agentDiagnostics.AGENT_R0300({ message: `[vitehub] ${label} must be a stable command name without whitespace.` })
   }
 }
 
@@ -63,7 +64,7 @@ function commandEntries<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   label: string,
 ): Array<[string, AgentCapabilityCliCommand<TRuntimeConfig, Name>]> {
   if (!isRecord(commands) || !Object.keys(commands).length) {
-    throw new TypeError(`[vitehub] ${label} requires at least one command.`)
+    throw agentDiagnostics.AGENT_R0301({ message: `[vitehub] ${label} requires at least one command.` })
   }
   return Object.entries(commands) as Array<[string, AgentCapabilityCliCommand<TRuntimeConfig, Name>]>
 }
@@ -72,32 +73,32 @@ function assertCliNode<TRuntimeConfig extends AgentRuntimeConfig, Name extends W
   node: AgentCapabilityCliCommand<TRuntimeConfig, Name>,
   label: string,
 ): void {
-  if (!isRecord(node)) throw new TypeError(`[vitehub] ${label} must be a command object.`)
+  if (!isRecord(node)) throw agentDiagnostics.AGENT_R0302({ message: `[vitehub] ${label} must be a command object.` })
   const hasChildren = node.commands !== undefined
   const hasRun = node.run !== undefined
   if (hasChildren === hasRun) {
-    throw new TypeError(`[vitehub] ${label} must define either commands or run.`)
+    throw agentDiagnostics.AGENT_R0303({ message: `[vitehub] ${label} must define either commands or run.` })
   }
   if (node.description !== undefined && typeof node.description !== "string") {
-    throw new TypeError(`[vitehub] ${label} description must be a string.`)
+    throw agentDiagnostics.AGENT_R0304({ message: `[vitehub] ${label} description must be a string.` })
   }
   if (node.effects !== undefined && (!Array.isArray(node.effects) || node.effects.some(effect => typeof effect !== "string" || !effect.trim()))) {
-    throw new TypeError(`[vitehub] ${label} effects must be strings.`)
+    throw agentDiagnostics.AGENT_R0305({ message: `[vitehub] ${label} effects must be strings.` })
   }
   if (node.examples !== undefined && (!Array.isArray(node.examples) || node.examples.some(example => typeof example !== "string" || !example.trim()))) {
-    throw new TypeError(`[vitehub] ${label} examples must be strings.`)
+    throw agentDiagnostics.AGENT_R0306({ message: `[vitehub] ${label} examples must be strings.` })
   }
   if (node.input !== undefined && !isStandardSchema(node.input)) {
-    throw new TypeError(`[vitehub] ${label} input must be a Standard Schema.`)
+    throw agentDiagnostics.AGENT_R0307({ message: `[vitehub] ${label} input must be a Standard Schema.` })
   }
   if (node.output !== undefined && !isStandardSchema(node.output) && (!isRecord(node.output) || node.output.schema !== undefined && !isStandardSchema(node.output.schema))) {
-    throw new TypeError(`[vitehub] ${label} output must be a Standard Schema or output metadata object.`)
+    throw agentDiagnostics.AGENT_R0308({ message: `[vitehub] ${label} output must be a Standard Schema or output metadata object.` })
   }
   if (isRecord(node.output) && node.output.format !== undefined && node.output.format !== "json" && node.output.format !== "text") {
-    throw new TypeError(`[vitehub] ${label} output format must be "json" or "text".`)
+    throw agentDiagnostics.AGENT_R0309({ message: `[vitehub] ${label} output format must be "json" or "text".` })
   }
   if (hasRun && typeof node.run !== "function") {
-    throw new TypeError(`[vitehub] ${label} run must be a function.`)
+    throw agentDiagnostics.AGENT_R0310({ message: `[vitehub] ${label} run must be a function.` })
   }
   if (!node.commands) return
   for (const [name, child] of commandEntries<TRuntimeConfig, Name>(node.commands, `${label}.commands`)) {
@@ -114,10 +115,10 @@ export function assertCapabilityCliContribution<
   cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined,
 ): void {
   if (cli === undefined) return
-  if (!isRecord(cli)) throw new TypeError(`[vitehub] Capability "${capabilityId}" cli must be an object.`)
+  if (!isRecord(cli)) throw agentDiagnostics.AGENT_R0311({ message: `[vitehub] Capability "${capabilityId}" cli must be an object.` })
   assertCliName(cli.name, `Capability "${capabilityId}" cli.name`)
   if (cli.description !== undefined && typeof cli.description !== "string") {
-    throw new TypeError(`[vitehub] Capability "${capabilityId}" cli.description must be a string.`)
+    throw agentDiagnostics.AGENT_R0312({ message: `[vitehub] Capability "${capabilityId}" cli.description must be a string.` })
   }
   for (const [name, command] of commandEntries<TRuntimeConfig, Name>(cli.commands, `Capability "${capabilityId}" cli.commands`)) {
     assertCommandName(name, `Capability "${capabilityId}" cli command "${name}"`)
@@ -189,7 +190,7 @@ function parseInputFlag(value: string): unknown {
     return JSON.parse(value)
   }
   catch {
-    throw new Error("--input must be valid JSON.")
+    throw agentDiagnostics.AGENT_R0313({ message: "--input must be valid JSON." })
   }
 }
 
@@ -204,7 +205,7 @@ function parseFlags(argv: string[], explicitInput: unknown, explicitJson: boolea
     }
     if (arg === "--input") {
       const value = argv[index + 1]
-      if (value === undefined) throw new Error("Missing value for --input.")
+      if (value === undefined) throw agentDiagnostics.AGENT_R0314({ message: "Missing value for --input." })
       input = parseInputFlag(value)
       index += 1
       continue
@@ -213,7 +214,7 @@ function parseFlags(argv: string[], explicitInput: unknown, explicitJson: boolea
       input = parseInputFlag(arg.slice("--input=".length))
       continue
     }
-    throw new Error(`Unknown Capability CLI option: ${arg}.`)
+    throw agentDiagnostics.AGENT_R0315({ message: `Unknown Capability CLI option: ${arg}.` })
   }
   return { ...(input !== undefined ? { input } : {}), json }
 }
@@ -237,7 +238,7 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
     }
     if (arg.startsWith("-")) break
     const child = childCommands(node)?.[arg]
-    if (!child) throw new Error(`Unknown ${cli.name} command: ${[...path, arg].join(" ")}.`)
+    if (!child) throw agentDiagnostics.AGENT_R0316({ message: `Unknown ${cli.name} command: ${[...path, arg].join(" ")}.` })
     node = child
     path.push(arg)
     if (isLeaf(child)) {
@@ -246,7 +247,7 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
     }
   }
   if (!isLeaf(node as AgentCapabilityCliCommand<TRuntimeConfig, Name>)) {
-    throw new Error(`Missing ${cli.name} subcommand. Run \`${cli.name}${path.length ? ` ${path.join(" ")}` : ""} --help\`.`)
+    throw agentDiagnostics.AGENT_R0317({ message: `Missing ${cli.name} subcommand. Run \`${cli.name}${path.length ? ` ${path.join(" ")}` : ""} --help\`.` })
   }
   const command = node as LeafCliCommand<TRuntimeConfig, Name>
   if (command.rest === true) {

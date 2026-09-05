@@ -6,48 +6,49 @@ navigation.group: Runtime and output
 icon: i-lucide-circle-alert
 ---
 
-Errors and diagnostics belong to the package that owns the failing boundary. ViteHub exposes one operational error class, `ViteHubError` from `@vite-hub/runtime`; use its namespaced `code` to choose the next proof path.
+Each package owns the errors from its public API, configuration, build integration, generated output, and runtime boundary. ViteHub-owned developer defects use [Nostics](https://github.com/vercel-labs/nostics). A diagnostic is an `Error` with a stable `code`, a message, and optional repair guidance, source locations, and documentation.
 
-`ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen, `cause` remains private, and later mutation cannot change `toJSON()`. Details must be bounded JSON data without accessors, cycles, `bigint`, non-finite numbers, or class instances; invalid public contracts fail with a fixed `TypeError` instead of serializing the rejected value.
+## Diagnostic codes
 
-## Code families
+Diagnostic codes use this format:
 
-| Code prefix | Owner | Usually means |
-| --- | --- | --- |
-| `CAPABILITY_*` | Runtime Package | Capability lookup or policy failed. |
-| `ENV_*` | Env Package | Env Declaration or runtime resolution failed. |
-| `BLOB_*` | Blob Package | Blob lookup or Provider-backed storage failed. |
-| `KV_*` | KV Package | Provider-backed key-value storage failed. |
-| `AUTH_*` and `AUTHENTICATION_*` | Auth Package | Authentication is required or a provider operation failed. HTTP adapters map `AUTHENTICATION_REQUIRED` to `401`. |
-| `EMAIL_*` | Email Package | Message validation, configuration, credentials, throttling, network, timeout, or delivery failed. |
-| `QUEUE_*`, `CLOUDFLARE_*`, and `VERCEL_*` | Queue Package | Queue dispatch, callback, or Provider handling failed. Queue Delivery owns retry and acknowledgement decisions. |
-| `WORKSPACE_*` | Workspace Package | Workspace lookup, path, runtime, store, rule, or file-tree behavior failed. |
-| `SOURCE_*` | Source Package | Source lookup, path validation, retrieval, or loader behavior failed. |
-| `SCHEDULE_*` | Schedule Package | Static or runtime Schedule behavior failed. |
-| `SANDBOX_*` | Sandbox Package | Sandbox Provider setup, execution, or output recovery failed. |
-| `WORKFLOW_*` and `OPENWORKFLOW_*` | Workflow Package | Workflow run, step, or Provider behavior failed. |
-| Rate Limit policy or driver error | Rate Limit Package | A policy is invalid, the selected driver cannot satisfy its guarantees, a Definition is unknown, or a provider binding is unavailable. |
-| `RATE_LIMIT_REJECTED` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
-| `LLM_GATE_REJECTED` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
-| `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
+| Format | Boundary |
+| --- | --- |
+| `<PACKAGE>_C####` | Configuration or API use |
+| `<PACKAGE>_B####` | Build, discovery, or generated output |
+| `<PACKAGE>_R####` | Runtime |
+
+The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, or `WORKSPACE`. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by `code` when the application can repair or classify that exact defect.
+
+```ts
+import { getAgentFromRegistry } from '@vite-hub/agent'
+
+try {
+  await getAgentFromRegistry('triage', {})
+}
+catch (error) {
+  if (error instanceof Error && 'code' in error && error.code === 'AGENT_R0001') {
+    // Use a discovered Agent name.
+  }
+  throw error
+}
+```
+
+When ViteHub wraps a lower-level failure, its `cause` remains available to protected in-process diagnostics. ViteHub preserves existing `DOMException`, `AggregateError`, cancellation errors, and application or third-party errors when their identity is part of the boundary contract.
+
+Some code runs where the Nostics package cannot load. Browser page evaluation, uploaded Sandbox scripts, standalone Deno deploy runners, and test helpers can use native errors inside their isolated environment. The owning package translates or sanitizes those failures when they cross back into the ViteHub process.
+
+## Operational errors
+
+Expected portable failures keep the `ViteHubError` contract from `@vite-hub/runtime`. Examples include authentication requirements, provider operation failures, missing Blob values, Queue delivery failures, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+
+`ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
+
+Use the operational code to choose application behavior. Use a Nostics code to locate and repair ViteHub configuration, build, or runtime code.
 
 ## Agent diagnostics
 
-Agent lookup, basic Capability registration, mode validation, and retryable tool-policy failures use [Nostics](https://github.com/vercel-labs/nostics). These errors have a stable `code`, a `message`, a `fix`, and a documentation link. They extend `Error`; catch them by code rather than `TypeError`.
-
-| Code | Action |
-| --- | --- |
-| `AGENT_NOT_FOUND` | Use a discovered Agent name. The message includes nearby names when available. |
-| `AGENT_EXPORT_INVALID`, `AGENT_DEFINITION_INVALID` | Export or pass an Agent Definition created with `defineAgent()`. |
-| `AGENT_CAPABILITY_DEFINITION_INVALID`, `AGENT_CAPABILITY_ID_REQUIRED`, `AGENT_CAPABILITY_ID_INVALID` | Supply a Capability object with a valid id. |
-| `AGENT_TRIGGER_NAME_REQUIRED`, `AGENT_TRIGGER_NAME_INVALID` | Supply a trigger name that starts with a letter and uses letters, numbers, hyphens, or underscores. |
-| `AGENT_CAPABILITY_MODE_INVALID` | Set mode to `read` or `write`. |
-| `AGENT_CAPABILITIES_INVALID`, `AGENT_CAPABILITY_DUPLICATE` | Supply an ordered array with unique Capability ids. |
-| `AGENT_EXTENSION_NOT_COMPILED` | Load Eve extensions through the ViteHub Agent Vite plugin. |
-| `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | Move definition-time contributions to a static Capabilities array. |
-| `AGENT_TOOL_POLICY_RETRYABLE` | Retry when the policy permits execution. |
-
-Application tools can use their own Nostics catalog:
+Agent configuration, build, and runtime defects use the `AGENT_C####`, `AGENT_B####`, and `AGENT_R####` families. Application tools can use their own Nostics catalog:
 
 ```ts
 import { defineDiagnostics } from 'nostics'
@@ -70,7 +71,28 @@ AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports
 
 `normalizeRuntimeDiagnosticError(error)` preserves Nostics metadata in bounded diagnostic records, including serialized Nostics errors. `formatRuntimeDiagnosticError(error)` from `@vite-hub/runtime` formats those records for text output. Sources share the node limit, and all strings share the size limit. Large error records can omit metadata when these limits are reached.
 
-Public HTTP error mapping, approval decisions, and cancellation keep their existing contracts. A Nostics diagnostic does not become a public `ViteHubError`. Unknown public failures still map to `INTERNAL`.
+Public HTTP error mapping, approval decisions, and cancellation keep their existing contracts. A Nostics diagnostic does not become a public `ViteHubError`. Unknown public failures still map to `INTERNAL`. Public HTTP responses never serialize causes or stacks.
+
+### Migrate existing error checks
+
+Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects with the diagnostic code. Application and third-party errors retain their own contracts. The initial Agent catalog uses these replacement codes:
+
+| Previous code | Current code |
+| --- | --- |
+| `AGENT_NOT_FOUND` | `AGENT_R0001` |
+| `AGENT_EXPORT_INVALID` | `AGENT_R0002` |
+| `AGENT_DEFINITION_INVALID` | `AGENT_C0001` |
+| `AGENT_CAPABILITY_DEFINITION_INVALID` | `AGENT_C0002` |
+| `AGENT_CAPABILITY_ID_REQUIRED` | `AGENT_C0003` |
+| `AGENT_CAPABILITY_ID_INVALID` | `AGENT_C0004` |
+| `AGENT_TRIGGER_NAME_REQUIRED` | `AGENT_C0005` |
+| `AGENT_TRIGGER_NAME_INVALID` | `AGENT_C0006` |
+| `AGENT_CAPABILITY_MODE_INVALID` | `AGENT_C0007` |
+| `AGENT_CAPABILITIES_INVALID` | `AGENT_C0008` |
+| `AGENT_EXTENSION_NOT_COMPILED` | `AGENT_B0001` |
+| `AGENT_CAPABILITY_DUPLICATE` | `AGENT_C0009` |
+| `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
+| `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
 ## Agent public errors
 
@@ -123,7 +145,7 @@ message instead of copying `error.message`.
 
 ## Local response
 
-Start with `getViteHubErrorShape(error)?.code`, then inspect the owning package and failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code and `details.driver`.
+Start with the error's `code`. A numeric Nostics code identifies the owning package and failure site. A semantic operational code can be read with `getViteHubErrorShape(error)?.code`. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code and `details.driver`.
 
 For Env, inspect the `ENV_*` code first. Its code set and public messages are fixed. `ENV_DECLARATION_INVALID` can include `details.path`, `ENV_REQUIRED_MISSING` can include a bounded source identifier and declaration path, and `ENV_RUNTIME_VALUE_INVALID` and `ENV_SOURCE_FAILED` can include a bounded source identifier such as `env`, `git:branch`, `package.json`, or `custom`. Raw labels and diagnostics remain in `cause`, which the serialized shape omits. Custom source resolvers keep application-owned errors unchanged.
 

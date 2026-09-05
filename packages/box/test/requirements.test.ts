@@ -25,10 +25,11 @@ describe("Box requirement failures", () => {
       10_000,
     );
 
-    expect(error.message).toBe(
-      '[vitehub] Box requirement "setup [redacted]" failed: timed out after 10000ms: token [redacted] failed',
-    );
-    expect(error).not.toHaveProperty("cause");
+    expect(error).toMatchObject({
+      code: "BOX_R0124",
+      message: '[vitehub] Box requirement "setup [redacted]" failed: timed out after 10000ms: token [redacted] failed',
+    });
+    expect(error.cause).toBeUndefined();
     expect(inspect(error, { depth: null })).not.toContain("setup-secret");
   });
 

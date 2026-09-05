@@ -14,6 +14,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getQueueClientCache, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 function createQueueDefinitionNotFoundError(name: string) {
   const queue = normalizePublicQueueIdentifier(name)
@@ -86,7 +87,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const provider = toProviderOptions(name, config)
   const createClient = getQueueRuntimeClientFactory()
   if (!createClient) {
-    throw new Error("[vitehub] Queue Client is installed by generated Provider Output.")
+    throw queueErrorDiagnostics.QUEUE_R0012({ message: "[vitehub] Queue Client is installed by generated Provider Output." })
   }
   return await runQueueProviderOperation(provider.provider, "create-client", () => createClient(provider))
 }

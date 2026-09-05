@@ -7,6 +7,7 @@ import ConsoleBrand from "./console-brand.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleSearch from "./console-search.vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface BlobObjectResponse {
   contentType?: string;
@@ -68,7 +69,7 @@ function stringRecord(value: unknown): Record<string, string> {
   const source = record(value);
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate every metadata value before rendering it.
   if (!source || Object.values(source).some(item => typeof item !== "string")) {
-    throw new TypeError("The Console returned invalid Blob metadata.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0095({ message: "The Console returned invalid Blob metadata." });
   }
   // SAFETY: Every value passed the string check above, and Object.entries produces string keys.
   return source as Record<string, string>;
@@ -78,7 +79,7 @@ function parseBlob(value: unknown): BlobObjectResponse {
   const source = record(value);
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate required object fields at this boundary.
   if (!source || typeof source.pathname !== "string" || typeof source.uploadedAt !== "string") {
-    throw new TypeError("The Console returned an invalid Blob object.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0096({ message: "The Console returned an invalid Blob object." });
   }
   const object: BlobObjectResponse = {
     customMetadata: stringRecord(source.customMetadata),
@@ -98,7 +99,7 @@ function parseBlob(value: unknown): BlobObjectResponse {
 function parsePage(value: unknown): BlobPageResponse {
   const source = record(value);
   if (!source || !Array.isArray(source.blobs) || !Array.isArray(source.stores)) {
-    throw new TypeError("The Console returned an invalid Blob page.");
+    throw viteHubErrorDiagnostics.VITE_HUB_R0097({ message: "The Console returned an invalid Blob page." });
   }
   return {
     blobs: source.blobs.map(parseBlob),

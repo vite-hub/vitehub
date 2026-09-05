@@ -4,6 +4,7 @@ import {
   renderMarkdownTemplateInternal,
   resolveMarkdownTemplateImports,
 } from "@vite-hub/markdown-template/internal/composition"
+import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
 
 export interface InstructionImportResolution {
   content: string
@@ -118,7 +119,7 @@ function validateInstructionMarkdownBindingValue(value: string): void {
   for (const match of value.matchAll(instructionTripleBindingPattern)) {
     const path = match[1]!
     if (!path.startsWith("context.")) {
-      throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
+      throw agentDiagnostics.AGENT_R0445({ message: `[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.` })
     }
   }
 }
@@ -269,7 +270,9 @@ function rethrowInstructionCompositionError(error: unknown, workspaceImport = fa
       .replace(/Circular instruction import: (workspace(?:\.[\w$-]+)+)\./, "Circular instruction workspace import: @$1.")
       .replace("Instruction import depth exceeded", "Instruction workspace import depth exceeded")
   }
-  throw error instanceof TypeError ? new TypeError(message) : new Error(message)
+  throw isAgentTypeDiagnostic(error)
+    ? agentDiagnostics.AGENT_R0446({ message, cause: error })
+    : agentDiagnostics.AGENT_R0447({ message, cause: error })
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
@@ -307,10 +310,10 @@ function resolveWorkspaceInstructionImport(
   if (!specifier.startsWith("workspace.")) return
   const value = namespacePathValue(workspace, specifier)
   if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Instruction workspace import "@${specifier}" is not defined.`)
+    throw agentDiagnostics.AGENT_R0448({ message: `[vitehub] Instruction workspace import "@${specifier}" is not defined.` })
   }
   if (typeof value !== "string") {
-    throw new TypeError(`[vitehub] Instruction workspace import "@${specifier}" must resolve to a string.`)
+    throw agentDiagnostics.AGENT_R0449({ message: `[vitehub] Instruction workspace import "@${specifier}" must resolve to a string.` })
   }
   return { id: specifier, template: value }
 }
@@ -323,7 +326,7 @@ function coverageAttribute(attrs: Record<string, unknown>, tag: "capability" | "
   const value = tag === "skill" ? attrs.path : attrs.key
   const name = tag === "skill" ? "path" : "key"
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`[vitehub] Instruction ${tag} block requires a non-empty ${name}.`)
+    throw agentDiagnostics.AGENT_R0450({ message: `[vitehub] Instruction ${tag} block requires a non-empty ${name}.` })
   }
   return value.trim()
 }

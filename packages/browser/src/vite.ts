@@ -22,6 +22,7 @@ import { discoverBrowserDefinitions } from "./discovery.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
 import type { BrowserEngine } from "./types.ts"
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BrowserModuleOptions {
   binding?: string
@@ -54,10 +55,10 @@ function resolveOptions(options: BrowserModuleOptions | false | undefined): Requ
   const binding = options && options.binding || "BROWSER"
   const engine = !options ? "kitesurf" : options.engine ?? "kitesurf"
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) {
-    throw new TypeError("[vitehub:browser] Browser binding must be a valid Cloudflare binding name.")
+    throw browserErrorDiagnostics.BROWSER_B0001({ message: "[vitehub:browser] Browser binding must be a valid Cloudflare binding name." })
   }
   if (engine !== "chromium" && engine !== "kitesurf") {
-    throw new TypeError("[vitehub:browser] Browser engine must be \"chromium\" or \"kitesurf\".")
+    throw browserErrorDiagnostics.BROWSER_B0002({ message: "[vitehub:browser] Browser engine must be \"chromium\" or \"kitesurf\"." })
   }
   return { binding, engine, remote: Boolean(options && options.remote) }
 }

@@ -4,6 +4,7 @@ import type {
   SandboxDefinitionFromHandler,
   SandboxDefinitionOptions,
 } from '../module-types'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 function createSandboxDefinition<THandler extends (...args: any[]) => any>(
   functionName: 'defineSandbox',
@@ -14,9 +15,9 @@ function createSandboxDefinition<THandler extends (...args: any[]) => any>(
     invalidKeysMessage: 'supports only portable Sandbox options (run, timeout, env, project)',
   })
   if (!validated)
-    throw new TypeError(`[vitehub] \`${functionName}()\` requires an options object.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0072({ message: `[vitehub] \`${functionName}()\` requires an options object.` })
   if (typeof validated.project !== 'undefined' && typeof validated.project !== 'boolean')
-    throw new TypeError(`[vitehub] \`${functionName}()\` project must be a boolean.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0073({ message: `[vitehub] \`${functionName}()\` project must be a boolean.` })
   const { project: _project, run, ...options } = validated
   assertDefinitionHandler(functionName, run, 'Sandbox handler in `run`')
   return {

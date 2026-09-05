@@ -2,6 +2,7 @@ import { builtinModules } from 'node:module'
 import { findDynamicImports } from 'mlly'
 import { dirname, relative, resolve as resolvePath } from 'pathe'
 import { build, type Loader, type Plugin } from 'esbuild'
+import { sandboxErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface DiscoveredDefinitionBundleOptions {
   alias?: Record<string, string>
@@ -72,7 +73,7 @@ export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefini
 
   const output = result.outputFiles?.[0]?.text
   if (!output)
-    throw new Error(`[vitehub] Failed to bundle discovered definition "${options.filename}".`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0047({ message: `[vitehub] Failed to bundle discovered definition "${options.filename}".` })
 
   return output
 }
@@ -112,7 +113,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
   }))
 
   if (!modules['definition.js']) {
-    throw new Error(`[vitehub] Failed to bundle discovered definition graph "${options.filename}".`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0048({ message: `[vitehub] Failed to bundle discovered definition graph "${options.filename}".` })
   }
 
   const externalImports = [...new Set(Object.values(result.metafile.outputs)

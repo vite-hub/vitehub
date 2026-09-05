@@ -9,6 +9,7 @@ import type {
   WranglerWorkerLoader,
   WranglerWorkflow,
 } from './cloudflare-target'
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 
 function compareNumericStrings(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true })
@@ -71,7 +72,7 @@ function dedupeByKey<T>(
     }
 
     if (!equals(existing, entry)) {
-      throw new Error(`[vitehub] Conflicting Cloudflare ${conflictLabel} "${key}".`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0045({ message: `[vitehub] Conflicting Cloudflare ${conflictLabel} "${key}".` })
     }
   }
 
@@ -140,9 +141,7 @@ function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
     .sort(compareNumericStrings)
 
   if (missingClasses.length) {
-    throw new Error(
-      `[vitehub] Missing Cloudflare durable object migration entries for: ${missingClasses.join(', ')}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0046({ message: `[vitehub] Missing Cloudflare durable object migration entries for: ${missingClasses.join(', ')}.` })
   }
 }
 

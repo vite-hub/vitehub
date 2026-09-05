@@ -3,6 +3,7 @@ import { glob, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, matchesGlob, relative, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import type { SandboxProjectOptions } from './module-types'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -63,7 +64,7 @@ async function isFile(path: string, root: string) {
     return false
   const target = await realpath(path)
   if (!isInside(root, target))
-    throw new Error(`[vitehub] Sandbox project file escapes its scan root: ${path}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0055({ message: `[vitehub] Sandbox project file escapes its scan root: ${path}` })
   return true
 }
 
@@ -113,7 +114,7 @@ function parseManifest(source: string, path: string): PackageManifest {
     return JSON.parse(source) as PackageManifest
   }
   catch (error) {
-    throw new Error(`[vitehub] Sandbox package manifest is invalid JSON: ${path}`, { cause: error })
+    throw sandboxErrorDiagnostics.SANDBOX_R0056({ message: `[vitehub] Sandbox package manifest is invalid JSON: ${path}`, cause: error })
   }
 }
 
@@ -125,19 +126,17 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
   if (typeof manifest.vitehub === 'undefined')
     return undefined
   if (!isPlainObject(manifest.vitehub))
-    throw new Error(`[vitehub] Sandbox package manifest "vitehub" must be an object: ${path}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0057({ message: `[vitehub] Sandbox package manifest "vitehub" must be an object: ${path}` })
 
   const sandbox = manifest.vitehub.sandbox
   if (typeof sandbox === 'undefined')
     return undefined
   if (!isPlainObject(sandbox))
-    throw new Error(`[vitehub] Sandbox package manifest "vitehub.sandbox" must be an object: ${path}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0058({ message: `[vitehub] Sandbox package manifest "vitehub.sandbox" must be an object: ${path}` })
 
   const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout')
   if (unsupported.length) {
-    throw new Error(
-      `[vitehub] Sandbox package manifest "vitehub.sandbox" has unsupported keys: ${unsupported.join(', ')}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0059({ message: `[vitehub] Sandbox package manifest "vitehub.sandbox" has unsupported keys: ${unsupported.join(', ')}.` })
   }
 
   const timeout = sandbox.timeout
@@ -145,9 +144,7 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
     return undefined
   const numericTimeout = Number(timeout)
   if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
-    throw new Error(
-      `[vitehub] Sandbox package manifest "vitehub.sandbox.timeout" must be a positive integer no greater than ${maxTimeout}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0060({ message: `[vitehub] Sandbox package manifest "vitehub.sandbox.timeout" must be a positive integer no greater than ${maxTimeout}.` })
   }
 
   return { timeout: numericTimeout }
@@ -253,7 +250,7 @@ async function addPnpmWorkspaceDependencies(
     if (included.has(name)) continue
     const dependency = packages.get(name)
     if (!dependency)
-      throw new Error(`[vitehub] Sandbox package references missing pnpm workspace dependency "${name}".`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0061({ message: `[vitehub] Sandbox package references missing pnpm workspace dependency "${name}".` })
     included.add(name)
     pending.push(...workspaceDependencyNames(dependency.manifest))
     for await (const match of glob('**/*', { cwd: dependency.root, exclude: projectFileExcludes }))
@@ -269,13 +266,11 @@ export async function resolveSandboxProject(
   const root = await realpath(resolve(scanRoot))
   const definition = await realpath(resolve(definitionFile))
   if (!isInside(root, definition))
-    throw new Error(`[vitehub] Sandbox Definition is outside its scan root: ${definitionFile}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0062({ message: `[vitehub] Sandbox Definition is outside its scan root: ${definitionFile}` })
 
   const packageRoot = await firstDirectoryWithFile(ancestors(dirname(definition), root), 'package.json', root)
   if (!packageRoot) {
-    throw new Error(
-      `[vitehub] Sandbox Definition "${definitionFile}" requires a package.json between its directory and "${root}".`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0063({ message: `[vitehub] Sandbox Definition "${definitionFile}" requires a package.json between its directory and "${root}".` })
   }
 
   const manifestPath = resolve(packageRoot, 'package.json')
@@ -314,18 +309,14 @@ export async function resolveSandboxProject(
       : undefined
   for (const patchPath of pnpmPatchPaths(installManifest || {})) {
     if (!isInside(installRoot, resolve(installRoot, patchPath))) {
-      throw new Error(
-        `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
-      )
+      throw sandboxErrorDiagnostics.SANDBOX_R0064({ message: `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}` })
     }
     await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
   }
   if (workspace) {
     for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source)) {
       if (!isInside(installRoot, resolve(installRoot, patchPath))) {
-        throw new Error(
-          `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0065({ message: `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}` })
       }
       await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
     }

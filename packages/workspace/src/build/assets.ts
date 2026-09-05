@@ -18,6 +18,7 @@ import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 import type { TransformOptions } from "jiti"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -165,7 +166,7 @@ export async function loadDiscoveredWorkspaceDefinition(
   definition: DiscoveredWorkspaceDefinition,
 ): Promise<WorkspaceDefinitionInput> {
   const mod = await loader.import(definition.path) as { default?: WorkspaceDefinitionInput }
-  if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+  if (!mod.default) throw workspaceErrorDiagnostics.WORKSPACE_B0001({ message: `[vitehub] Workspace definition "${definition.name}" has no default export.` })
   return mod.default
 }
 

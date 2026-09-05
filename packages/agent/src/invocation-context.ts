@@ -1,5 +1,6 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInvocationContextStore } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
 export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
@@ -36,10 +37,10 @@ export function agentInvocationSourceContext(context: AgentInvocationContextStor
 
 function assertContextId(id: unknown): asserts id is string {
   if (!hasRuntimeType(id, "string") || !id.trim()) {
-    throw new TypeError("[vitehub] Invocation context values require a non-empty string id.")
+    throw agentDiagnostics.AGENT_R0604({ message: "[vitehub] Invocation context values require a non-empty string id." })
   }
   if (!/^[a-z][a-z0-9-_.:]*$/i.test(id)) {
-    throw new TypeError(`[vitehub] Invocation context id "${id}" must be a stable identifier.`)
+    throw agentDiagnostics.AGENT_R0605({ message: `[vitehub] Invocation context id "${id}" must be a stable identifier.` })
   }
 }
 
@@ -63,7 +64,7 @@ export function createAgentInvocationContextStore(initial?: Record<string, unkno
     set(id: string, value: unknown, options?: { overwrite?: boolean }): void {
       assertContextId(id)
       if (values.has(id) && !options?.overwrite) {
-        throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
+        throw agentDiagnostics.AGENT_R0606({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       values.set(id, value)
     },

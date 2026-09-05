@@ -7,6 +7,7 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvResult } from "../errors.ts"
 import type { KVOperation, KVResult, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, createNamedHostedKVStorage, KVAtomicOperationUnsupportedError, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 
@@ -107,7 +108,7 @@ function createKVStorage(name = "default"): KVStorage {
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
     async list(options) {
-      if (!Number.isInteger(options.limit) || options.limit <= 0) throw new TypeError("`limit` must be a positive integer.")
+      if (!Number.isInteger(options.limit) || options.limit <= 0) throw kvErrorDiagnostics.KV_R0004({ message: "`limit` must be a positive integer." })
       return runKVOperation("list", name, storage => storage.listKeys(options))
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },

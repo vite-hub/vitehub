@@ -5,6 +5,7 @@ import { toAiSdkModelMessages } from "./ai-sdk.ts"
 
 import type { ModelMessage } from "ai"
 import type { AgentCapabilityContext, AgentCapabilityDefinition, AgentToolDefinition } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface EveApprovalContext {
   approvedTools: ReadonlySet<string>
@@ -60,12 +61,12 @@ async function loadMountedExtension(
     const extension = (await loadExtension()).default
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Extension modules are external input and the factory contract must be checked before invocation.
     if (typeof extension !== "function") {
-      throw new TypeError(`[vitehub] Eve extension ${JSON.stringify(packageName)} must have a default factory export.`)
+      throw agentDiagnostics.AGENT_R0413({ message: `[vitehub] Eve extension ${JSON.stringify(packageName)} must have a default factory export.` })
     }
     // SAFETY: The mounted-extension symbol check below validates the only mounted value property ViteHub consumes.
     const mounted = extension(config) as Record<symbol, unknown>
     if (mounted?.[Symbol.for("eve.mounted-extension")] !== true) {
-      throw new TypeError(`[vitehub] ${JSON.stringify(packageName)} did not return an Eve mounted extension.`)
+      throw agentDiagnostics.AGENT_R0414({ message: `[vitehub] ${JSON.stringify(packageName)} did not return an Eve mounted extension.` })
     }
   }
   finally {
@@ -85,7 +86,7 @@ function eveSessionId(context: AgentCapabilityContext): string {
 }
 
 function unsupportedEveRuntimeFeature(name: string): never {
-  throw new Error(`[vitehub] Eve extension tools using ${name} are not supported.`)
+  throw agentDiagnostics.AGENT_R0415({ message: `[vitehub] Eve extension tools using ${name} are not supported.` })
 }
 
 function toViteHubTool(
@@ -156,10 +157,10 @@ function toViteHubTool(
             }
             if (decision === "user-approval") return true
             if (decision === "approved" || decision === "not-applicable") return false
-            throw new TypeError(`[vitehub] Eve extension tool ${JSON.stringify(name)} returned an unsupported approval decision.`)
+            throw agentDiagnostics.AGENT_R0416({ message: `[vitehub] Eve extension tool ${JSON.stringify(name)} returned an unsupported approval decision.` })
           },
         }
-      : {}),
+      : undefined),
   }
 }
 
@@ -183,10 +184,10 @@ function addEveTool(
   context: AgentCapabilityContext,
 ): void {
   if (!isEveTool(value)) {
-    throw new TypeError(`[vitehub] Eve extension tool ${JSON.stringify(name)} is not a supported tool definition.`)
+    throw agentDiagnostics.AGENT_R0417({ message: `[vitehub] Eve extension tool ${JSON.stringify(name)} is not a supported tool definition.` })
   }
   const toolName = `${namespace}__${name}`
-  if (tools[toolName]) throw new Error(`[vitehub] Duplicate Eve extension tool ${JSON.stringify(toolName)}.`)
+  if (tools[toolName]) throw agentDiagnostics.AGENT_R0418({ message: `[vitehub] Duplicate Eve extension tool ${JSON.stringify(toolName)}.` })
   tools[toolName] = toViteHubTool(toolName, value, context)
 }
 
@@ -203,7 +204,7 @@ async function resolveEveTools(
         .filter(([, handler]) => typeof handler === "function")
         .map(([event]) => event)
       if (events.some(event => event !== "session.started" && event !== "step.started") || events.length > 1) {
-        throw new Error(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} uses unsupported events: ${events.join(", ")}.`)
+        throw agentDiagnostics.AGENT_R0419({ message: `[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} uses unsupported events: ${events.join(", ")}.` })
       }
       const event = events[0]
       if (!event) continue
@@ -227,7 +228,7 @@ async function resolveEveTools(
       }
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic extension output must be validated before enumerating its tools.
       if (typeof resolved !== "object") {
-        throw new TypeError(`[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.`)
+        throw agentDiagnostics.AGENT_R0420({ message: `[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.` })
       }
       // SAFETY: isEveTool validates every enumerated value before it enters the ViteHub tool registry.
       for (const [name, tool] of Object.entries(resolved as Record<string, EveToolDefinition>)) {

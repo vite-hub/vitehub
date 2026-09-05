@@ -4,13 +4,14 @@ import { runtimeValue } from "./cloudflare-runtime.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 const s3PeerInstall = "@aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
 
 function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   const bucketName = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!bucketName) {
-    throw new Error("Missing runtime environment variable `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, or `R2_BUCKET_NAME` for Cloudflare R2 Blob.")
+    throw blobErrorDiagnostics.BLOB_R0003({ message: "Missing runtime environment variable `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, or `R2_BUCKET_NAME` for Cloudflare R2 Blob." })
   }
   return createFilesSdkDriver({
     ...options,
@@ -34,7 +35,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new Error("Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.")
+    throw blobErrorDiagnostics.BLOB_R0004({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })
   }
 
   const [{ GetObjectCommand, PutObjectCommand, S3Client }, { getSignedUrl }] = await Promise.all([

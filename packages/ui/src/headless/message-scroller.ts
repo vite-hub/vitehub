@@ -18,6 +18,7 @@ import {
   type Ref,
   type VNodeRef,
 } from "vue";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type MessageScrollBehavior = "auto" | "instant" | "smooth";
 export type MessageScrollPosition = "start" | "end";
@@ -48,7 +49,7 @@ const messageScrollerKey: InjectionKey<InternalMessageScrollerContext> =
 function useInternalMessageScroller(): InternalMessageScrollerContext {
   const context = inject(messageScrollerKey);
   if (!context)
-    throw new Error("Message scroller primitives must be used inside MessageScrollerRoot.");
+    throw uiErrorDiagnostics.UI_R0002({ message: "Message scroller primitives must be used inside MessageScrollerRoot." });
   return context;
 }
 

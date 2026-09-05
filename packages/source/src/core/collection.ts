@@ -1,5 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import { Diagnostic } from "nostics"
 import { isPlainRecord } from "@vite-hub/internal/object"
+import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
@@ -193,15 +195,21 @@ export type CollectionQueryInput<TInput> = TInput extends object
 
 type QueryInput<TSchema extends StandardSchemaV1> = CollectionQueryInput<StandardSchemaV1.InferInput<TSchema>>
 
-export class CollectionCursorError extends TypeError {
+export class CollectionCursorError extends Diagnostic {
   constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {
-    super(message, options)
+    super({
+      cause: options?.cause,
+      code: "SOURCE_R0023",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics",
+      why: message,
+    }, CollectionCursorError)
+    this.name = "CollectionCursorError"
   }
 }
 
 function assertPositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw new TypeError(`[vitehub] Collection ${label} must be a positive integer.`)
+    throw sourceErrorDiagnostics.SOURCE_R0004({ message: `[vitehub] Collection ${label} must be a positive integer.` })
   }
 }
 
@@ -272,14 +280,14 @@ function isCursorValue(value: unknown, ancestors = new Set<object>()): value is 
 
 function encodeCursor(value: CollectionCursorValue): string {
   if (!isCursorValue(value)) {
-    throw new TypeError("[vitehub] Collection cursor() must return a JSON-serializable value.")
+    throw sourceErrorDiagnostics.SOURCE_R0005({ message: "[vitehub] Collection cursor() must return a JSON-serializable value." })
   }
   return encodeBase64Url(JSON.stringify(value))
 }
 
 async function parseSchema<TOutput>(schema: StandardSchemaV1<unknown, TOutput>, value: unknown): Promise<TOutput> {
   const result = await schema["~standard"].validate(value)
-  if (result.issues) throw new TypeError(result.issues[0]?.message ?? "Collection value is invalid.")
+  if (result.issues) throw sourceErrorDiagnostics.SOURCE_R0006({ message: result.issues[0]?.message ?? "Collection value is invalid." })
   return result.value
 }
 
@@ -298,7 +306,7 @@ async function decodeCursor<TCursorInput extends CollectionCursorValue, TCursorO
   try {
     const cursor = await parseSchema(schema, decoded)
     if (!isCursorValue(cursor)) {
-      throw new TypeError("Collection cursor schema returned an invalid value.")
+      throw sourceErrorDiagnostics.SOURCE_R0007({ message: "Collection cursor schema returned an invalid value." })
     }
     return cursor
   } catch (cause) {
@@ -368,7 +376,7 @@ export function defineCollection<
   assertPositiveInteger(defaultLimit, "defaultLimit")
   assertPositiveInteger(maxLimit, "maxLimit")
   if (defaultLimit > maxLimit) {
-    throw new TypeError("[vitehub] Collection defaultLimit cannot exceed maxLimit.")
+    throw sourceErrorDiagnostics.SOURCE_R0008({ message: "[vitehub] Collection defaultLimit cannot exceed maxLimit." })
   }
 
   return {
@@ -381,7 +389,7 @@ export function defineCollection<
         signal: request.signal,
       })
       if (!Array.isArray(sourceItems)) {
-        throw new TypeError("[vitehub] Collection load() must return an array.")
+        throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Collection load() must return an array." })
       }
       const hasMore = sourceItems.length > limit
       const pageItems = sourceItems.slice(0, limit)

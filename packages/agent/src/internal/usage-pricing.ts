@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type {
   AgentRunMetadata,
   AgentUsage,
@@ -50,7 +51,7 @@ const modelsDevPricingTimeout = 10_000
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()
   if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
-    throw new TypeError(`[vitehub] Invalid decimal price "${value}".`)
+    throw agentDiagnostics.AGENT_R0591({ message: `[vitehub] Invalid decimal price "${value}".` })
   }
   const [whole, fraction = ""] = trimmed.split(".")
   return {
@@ -221,9 +222,9 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
       catalogExpiresAt = 0
       catalog = (async () => {
         const response = await fetcher(catalogUrl, { signal: AbortSignal.timeout(timeout) })
-        if (!response.ok) throw new Error(`[vitehub] Models.dev pricing request failed with ${response.status}.`)
+        if (!response.ok) throw agentDiagnostics.AGENT_R0903({ message: `[vitehub] Models.dev pricing request failed with ${response.status}.` })
         const body: unknown = await response.json()
-        if (!isRuntimeRecord(body)) throw new TypeError("[vitehub] Models.dev pricing response must be an object.")
+        if (!isRuntimeRecord(body)) throw agentDiagnostics.AGENT_R0904({ message: "[vitehub] Models.dev pricing response must be an object." })
         const result: Record<string, Record<string, StaticModelPrice>> = {}
         for (const [providerId, provider] of Object.entries(body)) {
           if (!isRuntimeRecord(provider) || !isRuntimeRecord(provider.models)) continue

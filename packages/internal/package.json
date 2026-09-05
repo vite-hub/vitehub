@@ -60,6 +60,7 @@
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "semver": "^7.8.5"
   },

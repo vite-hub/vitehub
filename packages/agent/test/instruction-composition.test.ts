@@ -541,7 +541,11 @@ describe("instruction composition", () => {
       workspace: { enabled: true },
     })).rejects.toThrow("Unsafe instruction condition")
     await expect(composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
-      .rejects.toThrow("must resolve to a scalar")
+      .rejects.toMatchObject({
+        code: "AGENT_R0446",
+        message: expect.stringContaining("must resolve to a scalar"),
+        cause: expect.objectContaining({ code: "MARKDOWN_TEMPLATE_R0018" }),
+      })
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else{condition=\"context.admin\"}\nFallback\n::"))
       .rejects.toThrow("else block does not accept a condition")
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled"))

@@ -35,7 +35,10 @@ describe("Console routes", () => {
   it.each(["", ".", "..", "~", "~chat", "support/team", "Chat", "chat_bot", "-chat", "chat-", "chat--bot"])(
     "rejects the invalid Agent identity %j",
     (agentName) => {
-      expect(() => encodeAgentRouteParam(agentName)).toThrow(TypeError)
+      expect(() => encodeAgentRouteParam(agentName)).toThrowError(expect.objectContaining({
+        code: "VITE_HUB_R0045",
+        message: `[vitehub] Agent name ${JSON.stringify(agentName)} must use lowercase letters, numbers, and single hyphens.`,
+      }))
       expect(decodeAgentRouteParam(agentName)).toBeUndefined()
     },
   )

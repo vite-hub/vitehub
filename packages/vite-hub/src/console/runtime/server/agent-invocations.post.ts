@@ -8,13 +8,14 @@ import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const allowedInputKeys = new Set(["prompt", "invokerProfileId"])
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
 function consoleError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0046({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

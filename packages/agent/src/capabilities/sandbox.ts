@@ -8,6 +8,7 @@ import type {
   AgentCapabilityDefinition,
   MaybePromise,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface SandboxCapabilityOptions {
   commands: string[]
@@ -15,11 +16,11 @@ export interface SandboxCapabilityOptions {
 
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
-    throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
+    throw agentDiagnostics.AGENT_R0164({ message: "[vitehub] sandbox({ commands }) requires at least one executable name." })
   }
   for (const command of commands) {
     if (typeof command !== "string" || !/^[A-Za-z0-9_.-]+$/.test(command)) {
-      throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
+      throw agentDiagnostics.AGENT_R0165({ message: "[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings." })
     }
   }
   return commands
@@ -41,9 +42,10 @@ export function sandbox(options: SandboxCapabilityOptions): AgentCapabilityDefin
           name: "sandbox_exec",
           async execute(input) {
             const value = input as { args?: string[], command?: string, cwd?: string, env?: Record<string, string>, timeout?: number }
-            if (!value || typeof value.command !== "string") throw new TypeError("[vitehub] sandbox_exec requires a command.")
-            if (!commands.includes(value.command)) throw new Error(`[vitehub] Sandbox command "${value.command}" is not allowed.`)
-            if (!handle.exec) throw new Error("[vitehub] Sandbox primitive does not expose exec().")
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before the allowed-command check.
+            if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0166({ message: "[vitehub] sandbox_exec requires a command." })
+            if (!commands.includes(value.command)) throw agentDiagnostics.AGENT_R0167({ message: `[vitehub] Sandbox command "${value.command}" is not allowed.` })
+            if (!handle.exec) throw agentDiagnostics.AGENT_R0168({ message: "[vitehub] Sandbox primitive does not expose exec()." })
             return await handle.exec(value.command, value.args || [], { cwd: value.cwd, env: value.env, timeout: value.timeout })
           },
         }),

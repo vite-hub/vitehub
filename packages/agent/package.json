@@ -143,8 +143,8 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "catalog:ai",
-    "@chat-adapter/telegram": "catalog:chat",
     "@cfworker/json-schema": "4.1.1",
+    "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",

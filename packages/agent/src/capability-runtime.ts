@@ -158,19 +158,19 @@ export interface ResolvedAgentCapabilities {
 
 function assertCapabilityId(id: unknown): asserts id is string {
   if (!hasRuntimeType(id, "string") || !id.trim()) {
-    throw agentDiagnostics.AGENT_CAPABILITY_ID_REQUIRED()
+    throw agentDiagnostics.AGENT_C0003()
   }
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
-    throw agentDiagnostics.AGENT_CAPABILITY_ID_INVALID({ id })
+    throw agentDiagnostics.AGENT_C0004({ id })
   }
 }
 
 function assertTriggerName(name: unknown, capabilityId: string): asserts name is string {
   if (!hasRuntimeType(name, "string") || !name.trim()) {
-    throw agentDiagnostics.AGENT_TRIGGER_NAME_REQUIRED({ capability: capabilityId })
+    throw agentDiagnostics.AGENT_C0005({ capability: capabilityId })
   }
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
-    throw agentDiagnostics.AGENT_TRIGGER_NAME_INVALID({ capability: capabilityId, name })
+    throw agentDiagnostics.AGENT_C0006({ capability: capabilityId, name })
   }
 }
 
@@ -183,7 +183,7 @@ export function defineCapability<
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
 ): TCapability {
   if (!capability || !hasRuntimeType(capability, "object")) {
-    throw agentDiagnostics.AGENT_CAPABILITY_DEFINITION_INVALID()
+    throw agentDiagnostics.AGENT_C0002()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   assertCapabilityId((capability as { id?: unknown }).id)
@@ -197,7 +197,7 @@ export function defineCapability<
 export function normalizeMode(value: unknown, label: string): AgentCapabilityMode {
   if (value === undefined) return "read"
   if (value === "read" || value === "write") return value
-  throw agentDiagnostics.AGENT_CAPABILITY_MODE_INVALID({ label })
+  throw agentDiagnostics.AGENT_C0007({ label })
 }
 
 export function normalizeCapabilities(
@@ -205,18 +205,18 @@ export function normalizeCapabilities(
 ): AgentCapabilityDefinition[] {
   if (capabilities === undefined) return []
   if (!Array.isArray(capabilities)) {
-    throw agentDiagnostics.AGENT_CAPABILITIES_INVALID()
+    throw agentDiagnostics.AGENT_C0008()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   if (capabilities.some(capability => (capability as Record<symbol, unknown>)?.[Symbol.for("eve.mounted-extension")] === true)) {
-    throw agentDiagnostics.AGENT_EXTENSION_NOT_COMPILED()
+    throw agentDiagnostics.AGENT_B0001()
   }
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
   const explicit = capabilities.map(capability => defineCapability(capability as AgentCapabilityDefinition))
   const explicitById = new Map<string, AgentCapabilityDefinition>()
   for (const capability of explicit) {
     if (explicitById.has(capability.id)) {
-      throw agentDiagnostics.AGENT_CAPABILITY_DUPLICATE({ id: capability.id })
+      throw agentDiagnostics.AGENT_C0009({ id: capability.id })
     }
     explicitById.set(capability.id, capability)
   }
@@ -265,7 +265,7 @@ export async function resolveAgentCapabilityDefinitions<
       accessMetadata?.chat === true ? "chat access" : undefined,
     ].filter((value): value is string => Boolean(value))
     if (unsupported.length) {
-      throw agentDiagnostics.AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED({ id: capability.id, unsupported })
+      throw agentDiagnostics.AGENT_C0010({ id: capability.id, unsupported })
     }
   }
 
@@ -275,11 +275,11 @@ export async function resolveAgentCapabilityDefinitions<
 function validateSandboxCommands(commands: unknown): void {
   if (commands === undefined) return
   if (!Array.isArray(commands) || !commands.length) {
-    throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
+    throw agentDiagnostics.AGENT_R0318({ message: "[vitehub] sandbox({ commands }) requires at least one executable name." })
   }
   for (const command of commands) {
     if (!hasRuntimeType(command, "string") || !/^[A-Za-z0-9_.-]+$/.test(command)) {
-      throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
+      throw agentDiagnostics.AGENT_R0319({ message: "[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings." })
     }
   }
 }
@@ -310,7 +310,7 @@ export function validateAgentCapabilityComposition(
 ): void {
   for (const capability of normalizeCapabilities(capabilities)) {
     if (capability.id === "gmail" && options.driverKind !== "provider") {
-      throw new Error("[vitehub] gmail() requires a provider Agent Driver so its Workspace commands have a local execution host.")
+      throw agentDiagnostics.AGENT_R0320({ message: "[vitehub] gmail() requires a provider Agent Driver so its Workspace commands have a local execution host." })
     }
     if (capability.id === "sandbox") {
       // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
@@ -319,7 +319,7 @@ export function validateAgentCapabilityComposition(
     if (!options.hasWorkspace) {
       if (capabilityRequiresWorkspace(capability)) {
         const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
-        throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
+        throw agentDiagnostics.AGENT_R0321({ message: `[vitehub] ${name}() requires an explicit workspace.` })
       }
       continue
     }
@@ -327,7 +327,7 @@ export function validateAgentCapabilityComposition(
     const workspaceMode = options.workspaceMode || "read"
     if (capability.id === "workspace-shell") {
       if (normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
-        throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+        throw agentDiagnostics.AGENT_R0322({ message: "[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\"." })
       }
     }
   }
@@ -341,7 +341,7 @@ export function capabilityWorkspaceSources(
   for (const capability of normalized) {
     for (const [key, source] of Object.entries(capability.workspaceSources || {})) {
       if (key in sources) {
-        throw new Error(`[vitehub] Duplicate workspace source "${key}" contributed by capabilities.`)
+        throw agentDiagnostics.AGENT_R0323({ message: `[vitehub] Duplicate workspace source "${key}" contributed by capabilities.` })
       }
       sources[key] = source
     }
@@ -352,7 +352,7 @@ export function capabilityWorkspaceSources(
 function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]): void {
   const accessIndex = capabilities.findIndex(capability => capability.id === "access")
   if (accessIndex > 0) {
-    throw new Error("[vitehub] access() must be the first capability so invocation access is applied before other capabilities can read scoped runtime surfaces or expose tools.")
+    throw agentDiagnostics.AGENT_R0324({ message: "[vitehub] access() must be the first capability so invocation access is applied before other capabilities can read scoped runtime surfaces or expose tools." })
   }
 }
 
@@ -487,19 +487,19 @@ function assertWorkspaceContribution(
 
   for (const [key, source] of sourceEntries) {
     if (definition.sources?.[key]) {
-      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace Source.`)
+      throw agentDiagnostics.AGENT_R0325({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace Source.` })
     }
     const contributedSource = normalizedContributionSource(key, source, runtime)
     for (const existing of contributionSources) {
       if (sourcesConflict(existing, contributedSource)) {
-        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with contributed Workspace Source "${existing.key}" at mount "${contributedSource.mountPath || "."}".`)
+        throw agentDiagnostics.AGENT_R0326({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with contributed Workspace Source "${existing.key}" at mount "${contributedSource.mountPath || "."}".` })
       }
     }
     contributionSources.push(contributedSource)
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
       const existing = normalizedContributionSource(existingKey, existingSource, runtime)
       if (sourcesConflict(existing, contributedSource)) {
-        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with Workspace Source "${existingKey}" at mount "${contributedSource.mountPath || "."}".`)
+        throw agentDiagnostics.AGENT_R0327({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with Workspace Source "${existingKey}" at mount "${contributedSource.mountPath || "."}".` })
       }
     }
   }
@@ -507,7 +507,7 @@ function assertWorkspaceContribution(
   for (const pattern of rulePatterns) {
     for (const existingPattern of workspaceRulePatterns(definition)) {
       if (rulesConflict(existingPattern, pattern)) {
-        throw new Error(`[vitehub] ${capabilityId}() workspace contribution rule "${pattern}" conflicts with existing Workspace Rule "${existingPattern}".`)
+        throw agentDiagnostics.AGENT_R0328({ message: `[vitehub] ${capabilityId}() workspace contribution rule "${pattern}" conflicts with existing Workspace Rule "${existingPattern}".` })
       }
     }
   }
@@ -597,18 +597,18 @@ async function assertResolvedWorkspaceContributionSources(
     if (!source) continue
     const contributedSource = normalizedContributionSource(key, source, runtime)
     if (!await selectedScopeContainsResolvedSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
-      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
+      throw agentDiagnostics.AGENT_R0329({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.` })
     }
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
       if (existingKey === key) continue
       const existing = normalizedContributionSource(existingKey, existingSource, runtime)
       if (sourcesConflict(existing, contributedSource)) {
         const label = contributed.has(existingKey) ? "contributed Workspace Source" : "Workspace Source"
-        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${contributedSource.mountPath || "."}".`)
+        throw agentDiagnostics.AGENT_R0330({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${contributedSource.mountPath || "."}".` })
       }
     }
     if (!contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource)) {
-      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".`)
+      throw agentDiagnostics.AGENT_R0331({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".` })
     }
   }
 }
@@ -658,7 +658,7 @@ function assertSelectedWorkspaceSourceGrants(
   if (!scope || scope.all) return
   for (const key of scope.sources || []) {
     if (definitions.some(definition => definition?.sources?.[key])) continue
-    throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${key}".`)
+    throw agentDiagnostics.AGENT_R0332({ message: `[vitehub] Workspace Scope source grant references unknown source "${key}".` })
   }
 }
 
@@ -723,7 +723,7 @@ function assertStaticWorkspaceContributionSourcesInScope(
     if (contributedSource.source?.resolve) continue
     if (!contributedSource.mountPath && !contributedSource.probePaths?.length && contributedSource.source) continue
     if (!selectedScopeContainsSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
-      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
+      throw agentDiagnostics.AGENT_R0333({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.` })
     }
   }
 }
@@ -1018,7 +1018,7 @@ export async function resolveAgentCapabilities<
         delivery: {
           effect(intent) {
             if (!intent || !hasRuntimeType(intent, "object") || !hasRuntimeType(intent.kind, "string") || !intent.kind.trim()) {
-              throw new TypeError("[vitehub] delivery.effect() requires an effect intent with a non-empty kind.")
+              throw agentDiagnostics.AGENT_R0334({ message: "[vitehub] delivery.effect() requires an effect intent with a non-empty kind." })
             }
             const next = [...registries.deliveryEffectIntents, intent]
             registries.deliveryEffectIntents = next
@@ -1027,7 +1027,7 @@ export async function resolveAgentCapabilities<
           finishEffect(effect) {
             const effects = Array.isArray(effect) ? effect : [effect]
             if (!hasRuntimeType(effect, "function") && effects.some(effect => !effect || !isRuntimeRecord(effect) || !hasRuntimeType(effect.kind, "string") || !effect.kind.trim())) {
-              throw new TypeError("[vitehub] delivery.finishEffect() requires an effect intent or resolver.")
+              throw agentDiagnostics.AGENT_R0335({ message: "[vitehub] delivery.finishEffect() requires an effect intent or resolver." })
             }
             const next = [...registries.finishDeliveryEffectProviders, effect]
             registries.finishDeliveryEffectProviders = next
@@ -1038,7 +1038,7 @@ export async function resolveAgentCapabilities<
           async resolve(model, options) {
             const resolver = model ?? invocationOptions.model
             if (resolver === undefined) {
-              throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
+              throw agentDiagnostics.AGENT_R0336({ message: `[vitehub] ${capability.id}() requires a model option or an agent model.` })
             }
             const resolverContext = {
               ...metadataContext,
@@ -1117,7 +1117,7 @@ export async function resolveAgentCapabilities<
         telemetry: {
           metadata(metadata) {
             if (!metadata || !hasRuntimeType(metadata, "object") || Array.isArray(metadata)) {
-              throw new TypeError(`[vitehub] Capability "${capability.id}" telemetry.metadata() requires a metadata object.`)
+              throw agentDiagnostics.AGENT_R0337({ message: `[vitehub] Capability "${capability.id}" telemetry.metadata() requires a metadata object.` })
             }
             registries.telemetryMetadata.push({ capabilityId: capability.id, metadata })
           },
@@ -1217,7 +1217,7 @@ export async function resolveAgentCapabilities<
         const resolved = createCapabilityCliTool(capability, context, cli)
         if (isToolSet(resolved)) {
           if (tools?.[cli.name]) {
-            throw new Error(`[vitehub] Capability CLI "${cli.name}" conflicts with an existing Agent tool.`)
+            throw agentDiagnostics.AGENT_R0338({ message: `[vitehub] Capability CLI "${cli.name}" conflicts with an existing Agent tool.` })
           }
           recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
           tools = { ...tools, ...resolved }
@@ -1229,7 +1229,7 @@ export async function resolveAgentCapabilities<
         if (isToolSet(resolved)) {
           for (const name of Object.keys(resolved)) {
             if (tools?.[name]?.metadata?.vitehubCapabilityCli === true) {
-              throw new Error(`[vitehub] Capability tool "${name}" conflicts with an existing Capability CLI.`)
+              throw agentDiagnostics.AGENT_R0339({ message: `[vitehub] Capability tool "${name}" conflicts with an existing Capability CLI.` })
             }
           }
           recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
@@ -1312,16 +1312,16 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
   for (const requirement of capability.requires || []) {
     if (!requirement.workspace) continue
     if (requirement.workspace.required && !workspace) {
-      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
+      throw agentDiagnostics.AGENT_R0340({ message: `[vitehub] ${capability.id}() requires an explicit workspace.` })
     }
     if (!workspace) continue
     if (requirement.workspace.mode === "write" && workspaceMode !== "write") {
-      throw new Error(`[vitehub] ${capability.id}() requires workspace.mode: "write".`)
+      throw agentDiagnostics.AGENT_R0341({ message: `[vitehub] ${capability.id}() requires workspace.mode: "write".` })
     }
     for (const path of requirement.workspace.paths || []) {
       // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       if (!await workspace.fs.exists(path as never)) {
-        throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
+        throw agentDiagnostics.AGENT_R0342({ message: `[vitehub] ${capability.id}() requires workspace path ${path}.` })
       }
     }
   }

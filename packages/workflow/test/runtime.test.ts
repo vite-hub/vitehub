@@ -244,7 +244,10 @@ describe("workflow runtime", () => {
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
-      cause: new TypeError(`Vercel Workflow provider returned an invalid ${field}.`),
+      cause: expect.objectContaining({
+        code: "WORKFLOW_R0026",
+        message: `Vercel Workflow provider returned an invalid ${field}.`,
+      }),
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation, provider: "vercel" },
       message: "Workflow provider operation failed.",
@@ -1455,7 +1458,10 @@ describe("workflow runtime", () => {
     const error = await runWorkflow("welcome", {}).catch(error => error)
 
     expect(error).not.toBeInstanceOf(ViteHubError)
-    expect(error).toEqual(new Error("OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\"."))
+    expect(error).toMatchObject({
+      code: "WORKFLOW_R0018",
+      message: "OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\".",
+    })
   })
 
   it("creates an OpenWorkflow worker from the runtime registry", async () => {

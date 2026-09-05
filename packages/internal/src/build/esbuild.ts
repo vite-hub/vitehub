@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { build as bundle, type Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -534,9 +535,9 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
                 },
                 resolveDir: dirname(importer),
               })
-              if (resolved.errors.length) return Promise.reject(new Error(resolved.errors.map(error => error.text).join("\n")))
+              if (resolved.errors.length) return Promise.reject(internalErrorDiagnostics.INTERNAL_B0041({ message: resolved.errors.map(error => error.text).join("\n") }))
               if (resolved.external || resolved.namespace !== "file") {
-                throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)} to a file.`)
+                throw internalErrorDiagnostics.INTERNAL_B0042({ message: `[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)} to a file.` })
               }
               const imported = { id: resolved.path, template: await readFile(resolved.path, "utf8") }
               imports[key] = imported

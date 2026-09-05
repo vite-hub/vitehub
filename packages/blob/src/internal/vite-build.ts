@@ -15,6 +15,7 @@ import { normalizeBlobOptions } from "../config.ts"
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const blobPackageName = "@vite-hub/blob"
 const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
@@ -188,7 +189,7 @@ function resolveBlobConfig(
 ): false | ResolvedBlobModuleOptions {
   if (blob && typeof blob === "object" && "store" in blob) {
     if (!isResolvedBlobConfig(blob)) {
-      throw new TypeError("`blob.store` must contain a fully resolved Blob store with a supported `driver`.")
+      throw blobErrorDiagnostics.BLOB_R0016({ message: "`blob.store` must contain a fully resolved Blob store with a supported `driver`." })
     }
     return blob
   }
@@ -253,7 +254,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   ]
   if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
-    imports.push(`import { blobResult } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
+    imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
     const driverImport = driverImports[driverModule]
@@ -306,7 +307,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "function resolveBlobStoreConfig(name) {",
           "  const stores = blobConfig.stores || { default: blobConfig.store }",
           "  const store = stores[name]",
-          "  if (!store) throw new Error(`Unknown Blob store \"${name}\".`)",
+          "  if (!store) throw unknownBlobStoreError(name)",
           "  return store",
           "}",
           "",

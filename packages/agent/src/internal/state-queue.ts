@@ -1,6 +1,7 @@
 import type { QueueEntry, StateAdapter } from "chat"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject } from "./runtime-value.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AtomicAgentStateQueueAdapter extends StateAdapter {
   queuePeek(threadId: string): Promise<QueueEntry | null>
@@ -18,7 +19,7 @@ export function parseAgentStateQueueEntry(serialized: string): QueueEntry {
     !("message" in value) ||
     !isRuntimeObject(value.message)
   ) {
-    throw new TypeError("[vitehub] Agent State queue contains an invalid entry.")
+    throw agentDiagnostics.AGENT_R0582({ message: "[vitehub] Agent State queue contains an invalid entry." })
   }
   // SAFETY: The persisted queue entry's timestamps and serialized message object were validated above.
   return value as QueueEntry
@@ -28,7 +29,7 @@ export function requireAtomicAgentStateQueue(state: StateAdapter): AtomicAgentSt
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const candidate = state as Partial<AtomicAgentStateQueueAdapter>
   if (!isRuntimeFunction(candidate.queuePeek) || !isRuntimeFunction(candidate.queueReplaceHead)) {
-    throw new Error("[vitehub] Durable steered Channel delivery requires State with atomic queue replacement support.")
+    throw agentDiagnostics.AGENT_R0583({ message: "[vitehub] Durable steered Channel delivery requires State with atomic queue replacement support." })
   }
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return candidate as AtomicAgentStateQueueAdapter

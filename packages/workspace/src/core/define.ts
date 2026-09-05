@@ -1,4 +1,5 @@
 import type { WorkspaceDefinitionInput } from "./types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 const workspaceDefinitionKeys = new Set([
   "bindings",
@@ -17,15 +18,15 @@ const workspaceDefinitionKeys = new Set([
 function assertWorkspaceDefinitionKeys(definition: WorkspaceDefinitionInput): void {
   const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
   if (!unsupported.length) return
-  throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  throw workspaceErrorDiagnostics.WORKSPACE_R0015({ message: `[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
 }
 
 export function defineWorkspace(definition: WorkspaceDefinitionInput): WorkspaceDefinitionInput {
   if (!definition || typeof definition !== "object") {
-    throw new TypeError("[vitehub] defineWorkspace requires a workspace definition.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0016({ message: "[vitehub] defineWorkspace requires a workspace definition." })
   }
   if ("name" in definition) {
-    throw new TypeError("[vitehub] Workspace names are inferred from definition filenames.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0017({ message: "[vitehub] Workspace names are inferred from definition filenames." })
   }
   assertWorkspaceDefinitionKeys(definition)
   return definition

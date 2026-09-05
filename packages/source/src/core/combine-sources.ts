@@ -1,4 +1,5 @@
 import { sourceError } from "./errors.ts"
+import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface CombinedSourceReader {
   get(key: never): Promise<unknown>
@@ -100,7 +101,7 @@ export function combineSources<const TSources extends CombinedSources>(
       String(identity[0]) !== identity[0] ||
       String(identity[1]) !== identity[1]
     ) {
-      throw new TypeError("[vitehub] Combined Source identity must be a [source, key] string tuple.")
+      throw sourceErrorDiagnostics.SOURCE_R0010({ message: "[vitehub] Combined Source identity must be a [source, key] string tuple." })
     }
 
     const [source, key] = identity

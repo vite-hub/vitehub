@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {

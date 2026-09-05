@@ -2,6 +2,7 @@ import { dirname } from 'pathe'
 
 import type { SandboxDefinitionBundle } from '../module-types'
 import type { SandboxExecutionBox } from './execution-box'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const DEFAULT_DEFINITION_ENTRY = 'definition.js'
 
@@ -44,7 +45,7 @@ function normalizeSandboxBundlePath(path: string) {
   const normalized = slashPath.replace(/^\/+|\/+$/g, '')
   const parts = normalized.split('/').filter(Boolean)
   if (!normalized || slashPath.startsWith('/') || /^[A-Za-z]:\//.test(slashPath) || parts.some(part => part === '.' || part === '..'))
-    throw new Error(`[vitehub] Sandbox bundle path must stay inside the project: ${path}.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0067({ message: `[vitehub] Sandbox bundle path must stay inside the project: ${path}.` })
   return parts.join('/')
 }
 

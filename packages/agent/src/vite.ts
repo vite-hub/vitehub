@@ -32,6 +32,7 @@ import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface AgentCliContributingPlugin {
   vitehub?: {
@@ -385,7 +386,7 @@ function discoverScheduledAgentDefinitions(root: string, serverDirs = [join(root
   for (const definition of definitions) {
     const existing = unique.get(definition.name)
     if (existing && existing.handler !== definition.handler) {
-      throw new Error(`[vitehub] Duplicate Agent name "${definition.name}" cannot be registered as a Runtime Schedule target.`)
+      throw agentDiagnostics.AGENT_B0002({ message: `[vitehub] Duplicate Agent name "${definition.name}" cannot be registered as a Runtime Schedule target.` })
     }
     unique.set(definition.name, definition)
   }
@@ -420,7 +421,7 @@ async function transformScheduleRegistry(
 ): Promise<string | undefined> {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
-    throw new Error("[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding.")
+    throw agentDiagnostics.AGENT_B0003({ message: "[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding." })
   }
   const entries = (await Promise.all(definitions.map(async (definition) => {
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -428,7 +429,7 @@ async function transformScheduleRegistry(
     const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
     const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
     return [
-      `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
+      `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw vitehubAgentRuntimeError("AGENT_R0892", ${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
       `  const module = await import(${JSON.stringify(handlerImport)})`,
       `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true)} })`,
@@ -442,7 +443,7 @@ async function transformScheduleRegistry(
   )
   return [
     `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
@@ -478,7 +479,7 @@ async function writeStandaloneAgentScheduleRegistry(
 function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefinition[]): string | undefined {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+scheduleTargetNames\b/.test(code)) {
-    throw new Error("[vitehub] Unable to extend Runtime Schedule targets: expected a scheduleTargetNames binding.")
+    throw agentDiagnostics.AGENT_B0004({ message: "[vitehub] Unable to extend Runtime Schedule targets: expected a scheduleTargetNames binding." })
   }
   return [
     code,
@@ -606,7 +607,7 @@ function resolveLibsqlAgentState(
   const explicitEphemeralHosting = options.runtime === "cloudflare-agents" ? "cloudflare" : options.runtime === "vercel" ? "vercel" : undefined
   const ephemeralHosting = localDevelopment ? undefined : explicitEphemeralHosting || resolveAgentHosting(config)
   if (ephemeralHosting && resolvedUrl?.startsWith("file:")) {
-    throw new TypeError(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)
+    throw agentDiagnostics.AGENT_B0005({ message: `[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.` })
   }
   return {
     ...(authTokenEnvName ? { authTokenEnvName } : {}),
@@ -829,7 +830,7 @@ function validateInspectionRoute(routes: ResolvedAgentModuleOptions["routes"]): 
   const conflictingRoute = [defaultAgentChatRoute, routes.webhooks, routes.discordGateway]
     .find(route => route && agentRoutesOverlap(routes.inspection as string, route))
   if (conflictingRoute) {
-    throw new TypeError(`[vitehub] Agent inspection route conflicts with the generated route ${JSON.stringify(conflictingRoute)}.`)
+    throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent inspection route conflicts with the generated route ${JSON.stringify(conflictingRoute)}.` })
   }
 }
 
@@ -1306,7 +1307,7 @@ export async function transformEveExtensionCapabilities(
       hasDynamicOptionReference = true
     })
     if (hasDynamicOptionReference && await resolveExtension(imported.source)) {
-      throw new Error(`[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.`)
+      throw agentDiagnostics.AGENT_B0007({ message: `[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.` })
     }
   }
   if (!calls.length) return
@@ -1316,11 +1317,11 @@ export async function transformEveExtensionCapabilities(
     const resolvedIdentity = await resolveExtension(call.source)
     if (!resolvedIdentity) continue
     if ([...functionRanges, ...nestedClassRanges].some(range => call.call.start > range.start && call.call.end < range.end)) {
-      throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.`)
+      throw agentDiagnostics.AGENT_B0008({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.` })
     }
     const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
     if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
-      throw new Error(`[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.`)
+      throw agentDiagnostics.AGENT_B0009({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.` })
     }
     extensions.push({ ...call, identity: typeof resolvedIdentity === "string" ? resolvedIdentity : call.source })
   }
@@ -1331,7 +1332,7 @@ export async function transformEveExtensionCapabilities(
     packageCounts.set(extension.identity!, (packageCounts.get(extension.identity!) ?? 0) + 1)
   }
   const duplicate = [...packageCounts].find(([, count]) => count > 1)
-  if (duplicate) throw new Error(`[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.`)
+  if (duplicate) throw agentDiagnostics.AGENT_B0010({ message: `[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.` })
   const identifiers = new Set(references.keys())
   let helper = "__vitehubEveExtensionCapability"
   while (identifiers.has(helper)) helper += "_"
@@ -1353,7 +1354,7 @@ export async function transformEveExtensionCapabilities(
     const separateRuntimeImport = [...runtimeImportIdentities]
       .find(([statement, identity]) => statement !== extension.declaration && identity === extension.identity)?.[0]
     if (separateRuntimeImport) {
-      throw new Error(`[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.`)
+      throw agentDiagnostics.AGENT_B0011({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.` })
     }
     let hasSurvivingReference = false
     visitNodes(program, (node, parent) => {
@@ -1373,7 +1374,7 @@ export async function transformEveExtensionCapabilities(
       hasSurvivingReference = true
     })
     if (hasSurvivingReference) {
-      throw new Error(`[vitehub] Eve extension factory ${JSON.stringify(extension.local)} cannot be referenced outside its static Capability mount.`)
+      throw agentDiagnostics.AGENT_B0012({ message: `[vitehub] Eve extension factory ${JSON.stringify(extension.local)} cannot be referenced outside its static Capability mount.` })
     }
     const args = Array.isArray(extension.call.arguments) ? extension.call.arguments : []
     const config = isPositionedNode(args[0]) ? code.slice(args[0].start, args[0].end) : "undefined"
@@ -1392,7 +1393,7 @@ export async function transformEveExtensionCapabilities(
       ? extension.declaration.specifiers.filter(specifier => isPositionedNode(specifier) && specifier.type !== "ImportDefaultSpecifier" && specifier.importKind !== "type" && extension.declaration.importKind !== "type")
       : []
     if (valueCoImports.length) {
-      throw new Error(`[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot share its import with named runtime values.`)
+      throw agentDiagnostics.AGENT_B0013({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot share its import with named runtime values.` })
     }
     replacements.push({
       end: extension.declaration.end,
@@ -1451,11 +1452,11 @@ async function resolveEveExtensionPackage(
           ? supportedEveExtensionContracts[formatVersion]
           : undefined
         if (!isRecord(manifest) || manifest.kind !== "eve-extension" || !contracts || !requires) {
-          throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.`)
+          throw agentDiagnostics.AGENT_B0014({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported manifest.` })
         }
         for (const [contract, version] of Object.entries(requires)) {
           if (contracts[contract] !== version) {
-            throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.`)
+            throw agentDiagnostics.AGENT_B0015({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.` })
           }
         }
         return packageName
@@ -1533,10 +1534,10 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
     "  const url = runtimeUrl || viteHubChatStateOptions.url",
     ...(durableUrlRequired
-      ? ["  if (!url) throw new Error('[vitehub] Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment. Configure agent.providers.state or set the environment variable.')"]
+      ? ["  if (!url) throw vitehubAgentRuntimeError('AGENT_R0893', '[vitehub] Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment. Configure agent.providers.state or set the environment variable.')"]
       : []),
     ...(ephemeralHosting
-      ? [`  if (url?.startsWith('file:')) throw new Error(${JSON.stringify(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)})`]
+      ? [`  if (url?.startsWith('file:')) throw vitehubAgentRuntimeError('AGENT_R0894', ${JSON.stringify(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)})`]
       : []),
     "  if (!viteHubChatState) {",
     "    viteHubChatState = createLibsqlAgentState({",
@@ -1659,7 +1660,7 @@ async function generateAgentDeploymentCatalog(
   const channelHandlers = options.channelHandlers !== false
   const typescript = options.typescript === true
   if (options.inspection && definitions.length > 1 && !routeUsesParam(options.inspection, "agent")) {
-    throw new TypeError("[vitehub] Multi-Agent inspection routes require an agent route parameter.")
+    throw agentDiagnostics.AGENT_B0016({ message: "[vitehub] Multi-Agent inspection routes require an agent route parameter." })
   }
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
@@ -1678,7 +1679,7 @@ async function generateAgentDeploymentCatalog(
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
   const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
   if (workspaceEntries && !options.workspaceRuntimeImport) {
-    throw new TypeError("[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents.")
+    throw agentDiagnostics.AGENT_B0017({ message: "[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents." })
   }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const registeredAgentWorkspaceEntries = definitions.flatMap(definition => definition.workspace
@@ -1686,6 +1687,7 @@ async function generateAgentDeploymentCatalog(
     : [])
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
+    "agentGeneratedRuntimeError as vitehubAgentRuntimeError",
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
@@ -1697,9 +1699,7 @@ async function generateAgentDeploymentCatalog(
       ...(options.inspection
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
-      ...(channelHandlers || options.inspection || workspaceEntries
-        ? [`import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`]
-        : []),
+      `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
@@ -1715,7 +1715,7 @@ async function generateAgentDeploymentCatalog(
       "  const agent = module && typeof module === 'object' && 'default' in module ? module.default : module",
       ...(typescript
         ? [
-            "  if (!agent) throw new TypeError('[vitehub] Generated Agent module does not export an Agent definition.')",
+            "  if (!agent) throw vitehubAgentRuntimeError('AGENT_R0895', '[vitehub] Generated Agent module does not export an Agent definition.')",
           ]
         : []),
       `  return agent${typescript ? " as AgentInput" : ""}`,
@@ -1875,7 +1875,7 @@ async function generateAgentWebhookRouteHandler(
           "    while (!controller.signal.aborted) {",
           "      try {",
           `        const response = await handler(new Request("http://vitehub.local/api/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
-          "        if (!response.ok) throw new Error(`Discord Gateway listener failed with ${response.status}.`)",
+          "        if (!response.ok) throw vitehubAgentRuntimeError('AGENT_R0896', `Discord Gateway listener failed with ${response.status}.`)",
           "      }",
           "      catch (error) {",
           "        if (controller.signal.aborted) break",
@@ -2261,7 +2261,7 @@ async function generateAgentDenoServer(
     "    const portArg = readDenoArg(args, index, '--port')",
     "    if (portArg) {",
     "      const port = Number(portArg.value)",
-    "      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('[vitehub] Deno Provider Output expected --port to be a valid TCP port.')",
+    "      if (!Number.isInteger(port) || port < 0 || port > 65535) throw vitehubAgentRuntimeError('AGENT_R0897', '[vitehub] Deno Provider Output expected --port to be a valid TCP port.')",
     "      options.port = port",
     "      index = portArg.index",
     "    }",
@@ -2416,6 +2416,7 @@ async function writeNetlifyAgentProviderOutput(
           external: resolveNetlifyAgentBundleExternals(generatedOptions),
           format: "esm",
           platform: "node",
+          workingDir: generatedOptions.sourceRootDir,
         },
         config: createNetlifyAgentFunctionConfig({
           discordGatewayRoute: options.routes.discordGateway,
@@ -2704,7 +2705,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             if (!identity) return false
             const owner = eveExtensionOwners.get(identity)
             if (owner && owner !== normalizedId) {
-              throw new Error(`[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.`)
+              throw agentDiagnostics.AGENT_B0018({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.` })
             }
             eveExtensionOwners.set(identity, normalizedId)
             return identity

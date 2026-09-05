@@ -13,6 +13,7 @@ import type {
 } from "../types.ts"
 import type { McpClient, McpClientConfig, McpToolFingerprints } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface McpToolDrift {
   added: string[]
@@ -113,7 +114,7 @@ async function createMcpClient(config: McpClientConfig): Promise<McpClient> {
 async function assertMcpToolIntegrity(server: string, tools: Record<string, unknown>, baseline: McpToolFingerprints, integrityLabel: string): Promise<void> {
   const aiSdk = await loadAiSdk()
   if (!hasRuntimeType(aiSdk.fingerprintTools, "function") || !hasRuntimeType(aiSdk.detectToolDrift, "function")) {
-    throw new TypeError(`[vitehub] ${integrityLabel} requires ai 7.0.19 or newer.`)
+    throw agentDiagnostics.AGENT_R0561({ message: `[vitehub] ${integrityLabel} requires ai 7.0.19 or newer.` })
   }
   // SAFETY: MCP client tool discovery returns AI SDK tool definitions, while the public adapter keeps their generic shape opaque.
   const current = await aiSdk.fingerprintTools(tools as never)
@@ -144,7 +145,7 @@ async function resolveMcpToolServer(
       owned: true,
     }
   }
-  throw new TypeError(invalidServerMessage)
+  throw agentDiagnostics.AGENT_R0562({ message: invalidServerMessage })
 }
 
 export function defineMcpToolCapability<
@@ -173,7 +174,7 @@ export function defineMcpToolCapability<
           const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
           const name = options.toolName(server.name, toolName)
           if (tools[name]) {
-            throw new Error(`[vitehub] Duplicate MCP tool name "${name}" after normalization.`)
+            throw agentDiagnostics.AGENT_R0563({ message: `[vitehub] Duplicate MCP tool name "${name}" after normalization.` })
           }
           tools[name] = {
             ...definition,

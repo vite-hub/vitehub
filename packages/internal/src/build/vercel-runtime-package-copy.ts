@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from "node:path"
 import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
 
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 export async function copyVercelFunctionRuntimePackageDirectories(options: {
   outputRoot?: string
@@ -134,7 +135,7 @@ async function resolvePackageJson(name: string, fromDir: string): Promise<string
     current = dirname(current)
   }
   // SAFETY: NodeJS.ErrnoException extends Error with the mutable filesystem error code assigned below.
-  const error = new Error(`Could not resolve package.json for ${name}.`) as NodeJS.ErrnoException
+  const error = internalErrorDiagnostics.INTERNAL_B0044({ message: `Could not resolve package.json for ${name}.` }) as NodeJS.ErrnoException
   error.code = "ENOENT"
   throw error
 }
@@ -142,7 +143,7 @@ async function resolvePackageJson(name: string, fromDir: string): Promise<string
 function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`Expected ${path} to contain a JSON object.`)
+    throw internalErrorDiagnostics.INTERNAL_B0045({ message: `Expected ${path} to contain a JSON object.` })
   }
   // SAFETY: The checks above establish a non-null, non-array object with string keys.
   return value as Record<string, unknown>

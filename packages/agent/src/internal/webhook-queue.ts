@@ -1,6 +1,7 @@
 import type { StateAdapter } from "chat"
 
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeUndefined } from "./runtime-value.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
   concurrencyGroup: string
@@ -78,7 +79,7 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     ("invocation" in value && !isRuntimeUndefined(value.invocation) && !isRuntimeObject(value.invocation)) ||
     ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
   ) {
-    throw new TypeError("[vitehub] Agent webhook queue contains an invalid delivery.")
+    throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })
   }
   // SAFETY: Every persisted webhook field with a runtime contract was validated above; invocation payloads remain unknown by design.
   return value as AgentWebhookQueueDelivery
@@ -290,7 +291,7 @@ export function createAgentWebhookQueue<Options>(
     }
     scheduled.clear()
     pending.clear()
-    for (const { controller } of active.values()) controller.abort(new Error(webhookQueueStopMessage))
+    for (const { controller } of active.values()) controller.abort(agentDiagnostics.AGENT_R0594({ message: webhookQueueStopMessage }))
     await Promise.allSettled([...discoveries])
     await idle()
   }

@@ -1,4 +1,5 @@
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 const defaultMaxInputBytes = 64 * 1024
 const defaultTimeoutMs = 100
@@ -45,13 +46,13 @@ async function parseWithShSyntax(command: string) {
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  if (timeoutMs <= 0) throw new Error(`Shell analysis timed out after ${timeoutMs}ms.`)
+  if (timeoutMs <= 0) throw shellErrorDiagnostics.SHELL_R0001({ message: `Shell analysis timed out after ${timeoutMs}ms.` })
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`Shell analysis timed out after ${timeoutMs}ms.`)), timeoutMs)
+        timeout = setTimeout(() => reject(shellErrorDiagnostics.SHELL_R0002({ message: `Shell analysis timed out after ${timeoutMs}ms.` })), timeoutMs)
       }),
     ])
   }

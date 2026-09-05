@@ -1,3 +1,4 @@
+import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
 type RuntimeTypeMap = {
   bigint: bigint
   boolean: boolean
@@ -44,7 +45,7 @@ export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
     case "string": return isPrimitive && tag === "[object String]"
     case "symbol": return isPrimitive && tag === "[object Symbol]"
   }
-  throw new TypeError(`Unsupported runtime type: ${expected}`)
+  throw runtimeErrorDiagnostics.RUNTIME_R0008({ message: `Unsupported runtime type: ${expected}` })
 }
 
 /** Marks an intentional structural boundary that TypeScript cannot express. */

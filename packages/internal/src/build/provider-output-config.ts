@@ -1,4 +1,5 @@
 import { readFile, rm, writeFile } from "node:fs/promises"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type ProviderJsonPrimitive = boolean | null | number | string
 export type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
@@ -75,7 +76,7 @@ export function isProviderJsonRecord(value: unknown): value is ProviderJsonRecor
 
 function assertProviderJsonRecord(value: unknown): asserts value is ProviderJsonRecord {
   if (!isProviderJsonRecord(value)) {
-    throw new TypeError("[vitehub] Provider output config must be a JSON object.")
+    throw internalErrorDiagnostics.INTERNAL_B0043({ message: "[vitehub] Provider output config must be a JSON object." })
   }
 }
 

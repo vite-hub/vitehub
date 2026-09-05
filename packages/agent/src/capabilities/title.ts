@@ -37,6 +37,7 @@ import type {
   StreamEvent,
 } from "../messages.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
@@ -279,7 +280,7 @@ function titleAdapterRunContext(
   prompt: string,
 ): AgentAdapterRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] title({ driver }) requires an agent runtime context.")
+    throw agentDiagnostics.AGENT_R0232({ message: "[vitehub] title({ driver }) requires an agent runtime context." })
   }
   return markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
@@ -299,7 +300,7 @@ function titleRunContext(
   prompt: string,
 ): AgentRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] title({ driver }) requires an agent runtime context.")
+    throw agentDiagnostics.AGENT_R0233({ message: "[vitehub] title({ driver }) requires an agent runtime context." })
   }
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {

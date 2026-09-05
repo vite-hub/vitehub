@@ -26,6 +26,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
+import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
@@ -1022,7 +1023,7 @@ function resolveOwnedCloudflareArtifacts(
     const existing = configured.filter(entry => entry.binding === artifact.binding)
     const collision = existing.find(entry => entry.namespace !== artifact.namespace)
     if (collision) {
-      throw new TypeError(`[vitehub] Cloudflare Artifacts binding "${artifact.binding}" already exists in Wrangler config with namespace ${JSON.stringify(collision.namespace)}, but Workspace requested namespace "${artifact.namespace}". Configure a unique binding or use the existing namespace.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0027({ message: `[vitehub] Cloudflare Artifacts binding "${artifact.binding}" already exists in Wrangler config with namespace ${JSON.stringify(collision.namespace)}, but Workspace requested namespace "${artifact.namespace}". Configure a unique binding or use the existing namespace.` })
     }
     return existing.length === 0
   })
@@ -1294,7 +1295,7 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
 
 function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
   const controller = new AbortController()
-  const abort = () => controller.abort(new Error(message))
+  const abort = () => controller.abort(workspaceErrorDiagnostics.WORKSPACE_R0028({ message: message }))
   target.once("close", abort)
   return {
     dispose: () => target.off("close", abort),

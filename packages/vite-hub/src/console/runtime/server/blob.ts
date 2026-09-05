@@ -4,6 +4,7 @@ import { installConsoleBlobScope, resolveConsoleBlob } from "../../internal.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleBlobInspection } from "../../internal.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export function installConsoleBlob(
   projectRoot: string,
@@ -20,7 +21,7 @@ export function installConsoleBlob(
 export function getConsoleBlob(): ConsoleBlobInspection {
   const inspection = resolveConsoleBlob()
   if (!inspection) {
-    throw new TypeError("[vitehub] Blob inspection has not been installed for this runtime.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0049({ message: "[vitehub] Blob inspection has not been installed for this runtime." })
   }
   return inspection
 }

@@ -70,6 +70,7 @@ import type {
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface AiSdkAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -123,10 +124,10 @@ function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob
     }
   }
   if (part.data instanceof Blob) {
-    throw new TypeError("[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
+    throw agentDiagnostics.AGENT_R0004({ message: "[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL." })
   }
   if (part.fetchData) {
-    throw new TypeError("[vitehub] toAiSdkModelMessages() cannot resolve attachment callbacks synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
+    throw agentDiagnostics.AGENT_R0005({ message: "[vitehub] toAiSdkModelMessages() cannot resolve attachment callbacks synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL." })
   }
 }
 
@@ -336,7 +337,7 @@ const defaultAiSdkAttachmentMaxBytes = 25 * 1024 * 1024
 function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): number {
   const maxBytes = options?.maxBytes ?? defaultAiSdkAttachmentMaxBytes
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
-    throw new TypeError("[vitehub] aiSdk({ execution: { attachments: { maxBytes } } }) must be a positive finite number.")
+    throw agentDiagnostics.AGENT_R0006({ message: "[vitehub] aiSdk({ execution: { attachments: { maxBytes } } }) must be a positive finite number." })
   }
   return maxBytes
 }
@@ -379,7 +380,7 @@ function resolvedImageMediaType(data: AttachmentData): string | undefined {
 
 function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | undefined, maxBytes: number): void {
   if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
-    throw new Error(`[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
+    throw agentDiagnostics.AGENT_R0007({ message: `[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).` })
   }
 }
 
@@ -389,7 +390,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = await resolveAttachmentData(part)
   if (hasFetchData && !isAttachmentData(resolved)) {
-    throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
+    throw agentDiagnostics.AGENT_R0008({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
   }
   if (!resolved) return { byteLength: 0 }
   const byteLength = attachmentDataByteLength(resolved) ?? 0
@@ -850,7 +851,7 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
           const why = readAgentErrorProperty(error, "why")
           if (hasRuntimeType(name, "string")
             && (hasRuntimeType(why, "string") || hasRuntimeType(code, "string") && name === code)) {
-            throw new Error(formatRuntimeDiagnosticError(error), { cause: error })
+            throw agentDiagnostics.AGENT_R0009({ message: formatRuntimeDiagnosticError(error), cause: error })
           }
           throw error
         }
@@ -1246,7 +1247,7 @@ function toolCallRepairPrompt(toolCall: { input: unknown, toolName: string }, sc
 function outputMaxAttempts(output: AgentAdapterRunContext["output"]): number {
   const maxAttempts = output?.maxAttempts ?? 3
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-    throw new TypeError("[vitehub] Agent output maxAttempts must be a positive integer.")
+    throw agentDiagnostics.AGENT_R0010({ message: "[vitehub] Agent output maxAttempts must be a positive integer." })
   }
   return maxAttempts
 }
@@ -1431,7 +1432,7 @@ async function createAgent(
             }
             latestFailure = {
               ...(repairedFailure ?? {
-                error: repairError instanceof Error ? repairError : new Error(String(repairError)),
+                error: repairError instanceof Error ? repairError : agentDiagnostics.AGENT_R0011({ message: String(repairError) }),
                 text: repairResult?.text ?? latestFailure.text,
               }),
               evidence: latestFailure.evidence,
@@ -1552,7 +1553,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         catch (error) {
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           const repairResult = await repairOutput({
-            error: error instanceof Error ? error : new Error(String(error)),
+            error: error instanceof Error ? error : agentDiagnostics.AGENT_R0012({ message: String(error) }),
             evidence: fallbackCapture?.evidence(),
             text: synthesized.text,
           }, repairCallInput) as GenerateTextResult<ToolSet, never, never>
@@ -1592,7 +1593,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         catch (error) {
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           generated = await repairOutput({
-            error: error instanceof Error ? error : new Error(String(error)),
+            error: error instanceof Error ? error : agentDiagnostics.AGENT_R0013({ message: String(error) }),
             evidence: fallbackCapture?.evidence(),
             text: generated.text,
           }, repairCallInput) as GenerateTextResult<ToolSet, never, never>

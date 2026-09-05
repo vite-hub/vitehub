@@ -67,7 +67,8 @@
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

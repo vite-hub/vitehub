@@ -25,6 +25,7 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as VitePlugin } from "vite"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
@@ -65,7 +66,7 @@ interface VercelWorkflowOutputState {
 
 function parseJsonRecord(text: string, label: string): Record<string, unknown> {
   const value: unknown = JSON.parse(text)
-  if (!isRuntimeRecord(value)) throw new TypeError(`Expected ${label} to contain a JSON record.`)
+  if (!isRuntimeRecord(value)) throw workflowErrorDiagnostics.WORKFLOW_R0003({ message: `Expected ${label} to contain a JSON record.` })
   return value
 }
 
@@ -242,7 +243,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
         return !path.startsWith("..") && !isAbsolute(path)
       })
       if (!colocated) {
-        throw new Error(`Native Vercel workflow entry ${JSON.stringify(relative(rootDir, file))} must be colocated with its discovered workflow definition.`)
+        throw workflowErrorDiagnostics.WORKFLOW_R0004({ message: `Native Vercel workflow entry ${JSON.stringify(relative(rootDir, file))} must be colocated with its discovered workflow definition.` })
       }
       hasNativeEntry = true
     }
@@ -462,7 +463,7 @@ function assertNoExternalCanonicalWorkflowOutput(state: VercelNativeWorkflowStat
     .filter(([file, digest]) => /^v1\/(?:flow|step)\.func\/|^v1\/webhook\//.test(file) && state.ownership?.files[file] !== digest)
     .map(([file]) => file)
   if (externalCanonicalFiles.length) {
-    throw new Error(`Native Vercel Workflow output conflicts with existing unowned Workflow DevKit functions: ${externalCanonicalFiles.join(", ")}. Build all native Workflow source directories together.`)
+    throw workflowErrorDiagnostics.WORKFLOW_R0005({ message: `Native Vercel Workflow output conflicts with existing unowned Workflow DevKit functions: ${externalCanonicalFiles.join(", ")}. Build all native Workflow source directories together.` })
   }
 }
 
@@ -473,7 +474,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) {
-    throw new Error("Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0006({ message: "Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies." })
   }
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
@@ -750,7 +751,7 @@ function resolveAgentWorkspaceSourceRoot(file: string): string {
 }
 
 function resolveInstructionFile(file: string, seen: Set<string>, dependencies?: Set<string>): string {
-  if (seen.has(file)) throw new Error(`[vitehub] Circular instruction import: ${file}.`)
+  if (seen.has(file)) throw workflowErrorDiagnostics.WORKFLOW_R0007({ message: `[vitehub] Circular instruction import: ${file}.` })
   seen.add(file)
   dependencies?.add(file)
   try {
@@ -1072,7 +1073,7 @@ export async function writeProviderEntries(
     if (definition.source !== "agent-workflow") continue
     const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
     if (definitionNames.has(recoveryName)) {
-      throw new Error(`Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.`)
+      throw workflowErrorDiagnostics.WORKFLOW_R0008({ message: `Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.` })
     }
   }
   const providerDefinitions = definitions.flatMap(definition => definition.source === "agent-workflow"

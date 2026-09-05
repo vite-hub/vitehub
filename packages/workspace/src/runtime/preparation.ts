@@ -7,6 +7,7 @@ import type {
   WorkspaceMaterializeSourcesResult,
   WorkspaceName,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type WorkspacePreparationState =
   | {
@@ -72,14 +73,14 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
   options: WorkspacePreparationOptions<Name>,
 ): WorkspacePreparation {
   if (!options || !hasRuntimeType(options.workspace, "string") || !options.workspace.trim()) {
-    throw new TypeError("[vitehub] Workspace preparation requires a Workspace name.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0034({ message: "[vitehub] Workspace preparation requires a Workspace name." })
   }
   if (options.sources !== undefined && (!Array.isArray(options.sources) || options.sources.some(source => !hasRuntimeType(source, "string") || !source.trim()))) {
-    throw new TypeError("[vitehub] Workspace preparation sources must be non-empty strings.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0035({ message: "[vitehub] Workspace preparation sources must be non-empty strings." })
   }
   const retryDelayMs = options.retryDelayMs ?? 10_000
   if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > MAX_TIMER_DELAY_MS) {
-    throw new TypeError(`[vitehub] Workspace preparation retryDelayMs must be between 0 and ${MAX_TIMER_DELAY_MS}.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0036({ message: `[vitehub] Workspace preparation retryDelayMs must be between 0 and ${MAX_TIMER_DELAY_MS}.` })
   }
 
   const workspaceName = options.workspace.trim()
@@ -132,7 +133,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
           .filter(source => source.materialize === "startup")
           .map(source => source.key)
         if (!selectedSources.length) {
-          throw new Error(`[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.`)
+          throw workspaceErrorDiagnostics.WORKSPACE_R0037({ message: `[vitehub] Workspace "${workspaceName}" has no startup sources to prepare.` })
         }
 
         // The Workspace facade owns the synchronization fence for accepted
@@ -145,7 +146,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         const sourceResults = new Map(result.sources.map(source => [source.source, source]))
         const failures = selectedSources.filter(source => sourceResults.get(source)?.status !== "ready")
         if (failures.length) {
-          throw new Error(`[vitehub] Workspace "${workspaceName}" sources failed to prepare: ${failures.join(", ")}.`)
+          throw workspaceErrorDiagnostics.WORKSPACE_R0038({ message: `[vitehub] Workspace "${workspaceName}" sources failed to prepare: ${failures.join(", ")}.` })
         }
         await waitForAbortable(options.validate?.(result), controller.signal)
 
@@ -237,7 +238,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = undefined
       const current = active
-      abortController?.abort(new Error(`[vitehub] Workspace "${workspaceName}" preparation stopped.`))
+      abortController?.abort(workspaceErrorDiagnostics.WORKSPACE_R0039({ message: `[vitehub] Workspace "${workspaceName}" preparation stopped.` }))
       await current
     },
   })

@@ -1,5 +1,6 @@
 import type { AgentInvocationRecord, AgentInvocations } from "@vite-hub/agent"
 import * as v from "valibot"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface ConsoleUsageCost {
   display: string
@@ -350,7 +351,7 @@ function usageTime(record: Pick<AgentInvocationRecord, "completedAt" | "createdA
 }
 
 function consoleError(message: string): Error {
-  return Object.assign(new Error(message), { statusCode: 400, statusMessage: message })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0072({ message: message }), { statusCode: 400, statusMessage: message })
 }
 
 export async function createUsageSummary(

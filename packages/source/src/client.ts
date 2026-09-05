@@ -4,6 +4,7 @@ import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
 import type { AnyCollection, CollectionClientItem, CollectionPage, CollectionQuery } from "./core/collection.ts"
 import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
+import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string
 
@@ -49,12 +50,12 @@ function isAbortError(error: unknown): boolean {
 
 function parseCollectionPage(value: unknown): CollectionPage<unknown> {
   if (Object(value) !== value) {
-    throw new TypeError("[vitehub] Collection response must be an object.")
+    throw sourceErrorDiagnostics.SOURCE_R0001({ message: "[vitehub] Collection response must be an object." })
   }
   const items = Reflect.get(Object(value), "items")
   const nextCursor = Reflect.get(Object(value), "nextCursor")
   if (!Array.isArray(items) || !(nextCursor === null || String(nextCursor) === nextCursor)) {
-    throw new TypeError("[vitehub] Collection response must contain items and nextCursor.")
+    throw sourceErrorDiagnostics.SOURCE_R0002({ message: "[vitehub] Collection response must contain items and nextCursor." })
   }
   return { items, nextCursor }
 }
@@ -131,7 +132,7 @@ export function useCollection<TName extends CollectionName>(
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
-          throw new TypeError("[vitehub] Collection returned the same cursor twice.")
+          throw sourceErrorDiagnostics.SOURCE_R0003({ message: "[vitehub] Collection returned the same cursor twice." })
         }
         if (cursor) seenCursors.add(cursor)
       } while (options.all === true && cursor)

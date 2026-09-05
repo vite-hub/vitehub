@@ -21,6 +21,7 @@ import {
   browserSessionRefError,
   browserSessionStateError,
 } from "./errors.ts"
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 const CONTROLLER_RELEASE_TIMEOUT_MS = 30_000
 
@@ -106,7 +107,7 @@ function timestamp(value: Date | string | undefined): string | undefined {
 
 function assertAudience(value: unknown): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError("[vitehub:browser] Browser handoff audience must be a non-empty string.")
+    throw browserErrorDiagnostics.BROWSER_R0001({ message: "[vitehub:browser] Browser handoff audience must be a non-empty string." })
   }
 }
 
@@ -264,7 +265,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     this.assertState("handoff", "released")
     if (this.attaching || this.closing) throw browserSessionStateError("handoff", "controlled")
     if (options?.mode !== "live") {
-      throw new TypeError('[vitehub:browser] handoff({ mode }) currently requires "live".')
+      throw browserErrorDiagnostics.BROWSER_R0002({ message: '[vitehub:browser] handoff({ mode }) currently requires "live".' })
     }
     assertAudience(options.audience)
     if (!this.features.liveHandoff || !this.lastControllerSupportsHandoff) {
@@ -375,7 +376,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
   createHandoff(input: Omit<HandoffRecord<TConnection>, "cleanup" | "expiresAt" | "timer"> & { ttl?: number }): BrowserSessionRef {
     const ttl = input.ttl ?? this.options.policy?.handoffTtl ?? 60_000
     if (!Number.isFinite(ttl) || ttl <= 0) {
-      throw new TypeError("[vitehub:browser] Browser handoff ttl must be a positive number of milliseconds.")
+      throw browserErrorDiagnostics.BROWSER_R0003({ message: "[vitehub:browser] Browser handoff ttl must be a positive number of milliseconds." })
     }
     const id = randomId("browser_ref")
     const expiresAt = Date.now() + ttl
@@ -463,7 +464,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
 
 export function createBrowser<TConnection>(options: CreateBrowserOptions<TConnection>): BrowserClient<TConnection> {
   if (!options || typeof options !== "object" || !options.provider) {
-    throw new TypeError("[vitehub:browser] createBrowser() requires a provider.")
+    throw browserErrorDiagnostics.BROWSER_R0004({ message: "[vitehub:browser] createBrowser() requires a provider." })
   }
   return new BrowserClientImpl(options)
 }

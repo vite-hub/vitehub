@@ -3,6 +3,7 @@ import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
 
 import type { AgentInput, AgentInvocations } from "@vite-hub/agent"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleAgentsKey: unique symbol = Symbol.for("vitehub.console.agents")
 export const consoleAgentDefinitionsKey: unique symbol = Symbol.for("vitehub.console.agent-definitions")
@@ -76,7 +77,7 @@ function resolveConsoleAgentInvocations(
   if (installation.invocations) return installation.invocations
   const configured = [...new Set(definitions.map(({ agent }) => explicitAgentInvocations(agent)).filter(Boolean))]
   if (configured.length > 1) {
-    throw new TypeError("[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions.")
+    throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
   }
   return installConsoleInvocations(installation.projectRoot, configured[0])
 }

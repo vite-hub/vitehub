@@ -56,6 +56,7 @@ import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } f
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 const customTitleEffectChannels = new WeakSet<object>()
@@ -353,7 +354,7 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
 export const pullRequest = {
   read(invocation: GitHubPullRequestReadInvocation): GitHubPullRequestContext {
     const context = githubPullRequestRunContextFromUnknown(invocation.context.get("pullRequest"))
-    if (!context) throw new Error("[vitehub] pullRequest.read() requires pull request invocation context.")
+    if (!context) throw agentDiagnostics.AGENT_R0343({ message: "[vitehub] pullRequest.read() requires pull request invocation context." })
     const value = context.pullRequest
     return {
       ...(context.trigger.actor.login ? { actor: context.trigger.actor.login } : {}),
@@ -468,7 +469,7 @@ function normalizeGitHubPullRequestWorkspaceMount(mount: string): string {
   const normalized = mount.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
   const parts = normalized.split("/").filter(Boolean)
   if (mount.startsWith("/") || /^[A-Za-z]:[\\/]/.test(mount) || parts.some(part => part === "." || part === "..") || parts[0] === ".git" || parts[0] === ".vitehub") {
-    throw new TypeError("[vitehub] GitHub pull request workspace mount must stay inside the Workspace.")
+    throw agentDiagnostics.AGENT_R0344({ message: "[vitehub] GitHub pull request workspace mount must stay inside the Workspace." })
   }
   return parts.join("/")
 }
@@ -1133,13 +1134,13 @@ async function githubAppSetting<TRuntimeConfig extends AgentRuntimeConfig>(
 
 function requiredString(value: unknown, name: string): string {
   const string = hasRuntimeType(value, "number") ? String(value) : cleanSecret(value)
-  if (!string) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
+  if (!string) throw agentDiagnostics.AGENT_R0345({ message: `[vitehub] Missing GitHub App ${name}.` })
   return string
 }
 
 function requiredNumber(value: unknown, name: string): number {
   const number = hasRuntimeType(value, "number") ? value : Number(cleanSecret(value))
-  if (!Number.isFinite(number)) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
+  if (!Number.isFinite(number)) throw agentDiagnostics.AGENT_R0346({ message: `[vitehub] Missing GitHub App ${name}.` })
   return number
 }
 
@@ -1158,10 +1159,10 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
       if (file) return file.replace(/\\n/g, "\n")
     }
     catch (error) {
-      throw new Error(`[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, { cause: error })
+      throw agentDiagnostics.AGENT_R0347({ message: `[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, cause: error })
     }
   }
-  throw new Error("[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH is required.")
+  throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH is required." })
 }
 
 function base64url(value: string | Buffer) {
@@ -1202,7 +1203,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   })
   const body = await response.json().catch(() => undefined)
   const token = isRecord(body) && hasRuntimeType(body.token, "string") ? body.token : undefined
-  if (!token) throw new Error("[vitehub] GitHub App installation token response did not include token.")
+  if (!token) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token." })
   const expiresAt = isRecord(body) && hasRuntimeType(body.expires_at, "string") ? Date.parse(body.expires_at) : Date.now() + 9 * 60_000
   githubAppTokenCache.set(cacheKey, { expiresAt, token })
   return token
@@ -1267,14 +1268,14 @@ function githubApiHeaders(token?: string, userAgent?: string): Record<string, st
 async function githubApi(fetcher: typeof fetch, url: string, init: RequestInit): Promise<Response> {
   const response = await fetcher(url, init)
   if (!response.ok) {
-    throw new Error(`[vitehub] GitHub delivery effect failed with ${response.status}.`)
+    throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${response.status}.` })
   }
   return response
 }
 
 async function githubApiJson(fetcher: typeof fetch, url: string, headers: Record<string, string>): Promise<unknown> {
   const response = await fetcher(url, { headers, method: "GET" })
-  if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+  if (!response.ok) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${response.status}.` })
   return await response.json().catch(() => undefined)
 }
 
@@ -1284,7 +1285,7 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
   let nextUrl: string | undefined = githubApiPageUrl(url, page)
   while (nextUrl && (limit <= 0 || items.length < limit)) {
     const response = await fetcher(nextUrl, { headers, method: "GET" })
-    if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+    if (!response.ok) throw agentDiagnostics.AGENT_R0352({ message: `[vitehub] GitHub metadata request failed with ${response.status}.` })
     const pageItems = await response.json().catch(() => undefined)
     if (!Array.isArray(pageItems) || !pageItems.length) break
     items.push(...pageItems)
@@ -1297,7 +1298,7 @@ async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: R
 
 async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, headers: Record<string, string>, limit: number): Promise<unknown[]> {
   const firstResponse = await fetcher(githubApiPageUrl(url, 1), { headers, method: "GET" })
-  if (!firstResponse.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${firstResponse.status}.`)
+  if (!firstResponse.ok) throw agentDiagnostics.AGENT_R0353({ message: `[vitehub] GitHub metadata request failed with ${firstResponse.status}.` })
   const firstItems = await firstResponse.json().catch(() => undefined)
   if (!Array.isArray(firstItems) || !firstItems.length) return []
   const lastPage = githubApiLastPage(firstResponse.headers.get("link"))
@@ -1306,7 +1307,7 @@ async function githubApiJsonRecentPages(fetcher: typeof fetch, url: string, head
   const pageLimit = Math.ceil(limit / 100) + 1
   for (let page = lastPage; page > Math.max(1, lastPage - pageLimit) && items.length < limit; page--) {
     const response = await fetcher(githubApiPageUrl(url, page), { headers, method: "GET" })
-    if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+    if (!response.ok) throw agentDiagnostics.AGENT_R0354({ message: `[vitehub] GitHub metadata request failed with ${response.status}.` })
     const pageItems = await response.json().catch(() => undefined)
     if (!Array.isArray(pageItems)) break
     items.push(...pageItems.reverse())
@@ -1362,7 +1363,7 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   const headers = githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent)
   const appMetadata = await githubApiJson(options.fetch || fetch, `${options.apiBaseUrl || "https://api.github.com"}/app`, headers)
   const resolvedAppId = isRecord(appMetadata) ? maybeNumber(appMetadata.id) : undefined
-  if (!resolvedAppId) throw new Error("[vitehub] GitHub App metadata did not include an ID.")
+  if (!resolvedAppId) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID." })
   return { appId: resolvedAppId }
 }
 
@@ -1390,7 +1391,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     return { login: "github-actions[bot]" }
   }
   if (app) return githubAppIdentity(app, context)
-  throw new Error("[vitehub] GitHub Agent activity could not resolve the authenticated identity.")
+  throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
 function githubActivityLinksState(links: readonly { label: string, url: string }[]): { label: string, url: string }[] {
@@ -1416,12 +1417,12 @@ function githubActivityRunId(agentName: string, runId: string): string {
 }
 
 function githubActivityTarget(value: unknown): GitHubActivityTarget {
-  if (!isRecord(value)) throw new TypeError("[vitehub] GitHub Agent activity requires a target with repository and issue.")
+  if (!isRecord(value)) throw agentDiagnostics.AGENT_R0357({ message: "[vitehub] GitHub Agent activity requires a target with repository and issue." })
   const repository = maybeString(value.repository)
   const issue = maybeNumber(value.issue)
   const installationId = maybeNumber(value.installationId)
   if (!repository || !/^[^/\s]+\/[^/\s]+$/.test(repository) || !Number.isSafeInteger(issue) || issue! < 1) {
-    throw new TypeError("[vitehub] GitHub Agent activity requires a target with repository and issue.")
+    throw agentDiagnostics.AGENT_R0358({ message: "[vitehub] GitHub Agent activity requires a target with repository and issue." })
   }
   return { repository, issue: issue!, ...(installationId ? { installationId } : {}) }
 }
@@ -1561,7 +1562,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const previousUpdate = githubActivityUpdates.get(commentsTarget) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
         const token = await githubPullRequestMetadataToken(app, context, target.installationId)
-        if (!token) throw new Error("[vitehub] GitHub Agent activity requires GitHub authentication.")
+        if (!token) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
         const headers = githubApiHeaders(token, options.userAgent)
         const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
         const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
@@ -1583,7 +1584,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
             if (isOwnedGithubActivityComment(known, identity)) existing = known
           }
           else if (response.status !== 404) {
-            throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+            throw agentDiagnostics.AGENT_R0360({ message: `[vitehub] GitHub metadata request failed with ${response.status}.` })
           }
         }
         existing ||= owned[0]
@@ -2039,15 +2040,15 @@ async function ensureGitHubArtifactBranch(
   const refUrl = `${baseUrl}/repos/${command.owner}/${command.repo}/git/ref/heads/${encodeURIComponent(branch)}`
   const existing = await fetcher(refUrl, { headers, method: "GET" })
   if (existing.ok) return
-  if (existing.status !== 404) throw new Error(`[vitehub] GitHub delivery effect failed with ${existing.status}.`)
+  if (existing.status !== 404) throw agentDiagnostics.AGENT_R0361({ message: `[vitehub] GitHub delivery effect failed with ${existing.status}.` })
   const sha = await githubPullRequestBaseSha(fetcher, command, headers)
-  if (!sha) throw new Error("[vitehub] GitHub delivery artifact publishing requires a pull request base SHA.")
+  if (!sha) throw agentDiagnostics.AGENT_R0362({ message: "[vitehub] GitHub delivery artifact publishing requires a pull request base SHA." })
   const created = await fetcher(`${baseUrl}/repos/${command.owner}/${command.repo}/git/refs`, {
     body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
     headers,
     method: "POST",
   })
-  if (!created.ok && created.status !== 422) throw new Error(`[vitehub] GitHub delivery effect failed with ${created.status}.`)
+  if (!created.ok && created.status !== 422) throw agentDiagnostics.AGENT_R0363({ message: `[vitehub] GitHub delivery effect failed with ${created.status}.` })
 }
 
 function githubWebBaseUrl(apiBaseUrl: string | undefined): string {
@@ -2245,7 +2246,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const command = githubCommandFromEffect(context)
       if (!command) return
       if (command.event === "pull_request") {
-        throw new Error("[vitehub] GitHub pull request lifecycle invocations cannot update a triggering comment.")
+        throw agentDiagnostics.AGENT_R0364({ message: "[vitehub] GitHub pull request lifecycle invocations cannot update a triggering comment." })
       }
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
@@ -2390,7 +2391,7 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
       ({ createDiscordAdapter } = await import("@chat-adapter/discord"))
     }
     catch (error) {
-      throw new Error("[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", { cause: error })
+      throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", cause: error })
     }
     const botToken = cleanSecret(adapterOptions.botToken)
     const adapter = createDiscordAdapter({
@@ -2434,7 +2435,7 @@ function addDiscordThreadTitleSupport(adapter: Adapter, options: DiscordAdapterO
       })
       if (!response.ok) {
         const error = await response.text().catch(() => response.statusText)
-        throw new Error(`[vitehub] Discord thread title update failed: ${response.status}${error ? ` ${error}` : ""}`)
+        throw agentDiagnostics.AGENT_R0366({ message: `[vitehub] Discord thread title update failed: ${response.status}${error ? ` ${error}` : ""}` })
       }
     },
   })
@@ -2542,10 +2543,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               ...(activityTarget.installationId ? { installationId: activityTarget.installationId } : {}),
             },
           }))
-          context.waitUntil(update.catch(error => console.error(new Error(
-            "[vitehub] GitHub pull request activity initialization failed.",
-            { cause: error },
-          ))))
+          context.waitUntil(update.catch(error => console.error(agentDiagnostics.AGENT_R0367({ message: "[vitehub] GitHub pull request activity initialization failed.", cause: error }))))
           if (!options.reconcile) return ignored("activity_queued")
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
@@ -2653,9 +2651,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
 
 function githubPullRequestContextValue(input: GitHubPullRequestReadInvocation): GitHubPullRequestContext {
   const value = pullRequest.read(input)
-  if (!value.source?.repo) throw new Error("[vitehub] GitHub pull request workspace requires a repository source.")
-  if (!value.source.ref) throw new Error("[vitehub] GitHub pull request workspace requires a source ref.")
-  if (!value.head?.sha) throw new Error("[vitehub] GitHub pull request workspace requires the exact head SHA.")
+  if (!value.source?.repo) throw agentDiagnostics.AGENT_R0368({ message: "[vitehub] GitHub pull request workspace requires a repository source." })
+  if (!value.source.ref) throw agentDiagnostics.AGENT_R0369({ message: "[vitehub] GitHub pull request workspace requires a source ref." })
+  if (!value.head?.sha) throw agentDiagnostics.AGENT_R0370({ message: "[vitehub] GitHub pull request workspace requires the exact head SHA." })
   return value
 }
 
@@ -2698,7 +2696,7 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
-    throw new TypeError("[vitehub] defineChannel() requires a non-empty Channel kind.")
+    throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
   }
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
     // SAFETY: An omitted message configuration selects the default settings object.
@@ -2771,7 +2769,7 @@ export function http<
   options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if ("path" in options) {
-    throw new TypeError("[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path.")
+    throw agentDiagnostics.AGENT_R0372({ message: "[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path." })
   }
   return defineChannel("http", options)
 }
@@ -2792,7 +2790,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   options: TelegramChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if (options.webhooks !== undefined && options.webhookSecret !== undefined) {
-    throw new TypeError("[vitehub] telegram() accepts webhookSecret or webhooks, not both.")
+    throw agentDiagnostics.AGENT_R0373({ message: "[vitehub] telegram() accepts webhookSecret or webhooks, not both." })
   }
   const {
     adapter: _adapter,
@@ -2847,7 +2845,7 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       ])
       const resolvedBotToken = cleanSecret(botToken) || cleanSecret(runtimeEnv("TELEGRAM_BOT_TOKEN", context))
       if (!resolvedBotToken) {
-        throw new TypeError("[vitehub] Telegram Channel synchronization requires telegram({ botToken }) or TELEGRAM_BOT_TOKEN.")
+        throw agentDiagnostics.AGENT_R0374({ message: "[vitehub] Telegram Channel synchronization requires telegram({ botToken }) or TELEGRAM_BOT_TOKEN." })
       }
       const resolvedSecretToken = secretToken === false
         ? undefined

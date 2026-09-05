@@ -1,4 +1,5 @@
 import { isViteHubError, ViteHubError } from "@vite-hub/runtime"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
 
@@ -7,7 +8,7 @@ interface AuthenticationProviderErrorOptions extends ErrorOptions {
 }
 
 export function invalidAuthenticationErrorOptions(): never {
-  throw new TypeError("[vitehub] Invalid authentication error options.")
+  throw authErrorDiagnostics.AUTH_R0004({ message: "[vitehub] Invalid authentication error options." })
 }
 
 function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknown {

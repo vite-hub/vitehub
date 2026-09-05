@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import type ts from 'typescript'
 import type { SandboxDefinitionOptions } from './module-types'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const require = createRequire(import.meta.url)
 const sandboxDefinitionSyntax = '`defineSandbox({ run, ...options })`'
@@ -37,7 +38,7 @@ function readStaticValue(node: ts.Expression): unknown {
   if (ts.isArrayLiteralExpression(node)) {
     return node.elements.map((element) => {
       if (!ts.isExpression(element))
-        throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options arrays must use static values.`)
+        throw sandboxErrorDiagnostics.SANDBOX_C0001({ message: `[vitehub] ${sandboxDefinitionSyntax} options arrays must use static values.` })
       return readStaticValue(element)
     })
   }
@@ -45,19 +46,19 @@ function readStaticValue(node: ts.Expression): unknown {
     const value: Record<string, unknown> = {}
     for (const property of node.properties) {
       if (!ts.isPropertyAssignment(property))
-        throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use plain object literals.`)
+        throw sandboxErrorDiagnostics.SANDBOX_C0002({ message: `[vitehub] ${sandboxDefinitionSyntax} options must use plain object literals.` })
       const key = ts.isIdentifier(property.name)
         ? property.name.text
         : ts.isStringLiteral(property.name)
           ? property.name.text
           : undefined
       if (!key)
-        throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options only support identifier or string-literal keys.`)
+        throw sandboxErrorDiagnostics.SANDBOX_C0003({ message: `[vitehub] ${sandboxDefinitionSyntax} options only support identifier or string-literal keys.` })
       value[key] = readStaticValue(property.initializer)
     }
     return value
   }
-  throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static JSON-serializable values.`)
+  throw sandboxErrorDiagnostics.SANDBOX_C0004({ message: `[vitehub] ${sandboxDefinitionSyntax} options must use static JSON-serializable values.` })
 }
 
 function readSandboxDefinitionFactories(sourceFile: ts.SourceFile) {
@@ -143,7 +144,7 @@ function readDefinitionObject(sourceFile: ts.SourceFile): ts.ObjectLiteralExpres
       continue
     }
     if (expression.arguments.length !== 1 || !ts.isObjectLiteralExpression(expression.arguments[0])) {
-      throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires one direct object literal.`)
+      throw sandboxErrorDiagnostics.SANDBOX_C0005({ message: `[vitehub] ${sandboxDefinitionSyntax} requires one direct object literal.` })
     }
     return expression.arguments[0]
   }
@@ -176,17 +177,17 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
       continue
     }
     if (!key || (!ts.isPropertyAssignment(property) && !ts.isMethodDeclaration(property)))
-      throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires explicit object properties.`)
+      throw sandboxErrorDiagnostics.SANDBOX_C0006({ message: `[vitehub] ${sandboxDefinitionSyntax} requires explicit object properties.` })
     if (key === 'run') {
       hasRun = true
       continue
     }
     if (!ts.isPropertyAssignment(property))
-      throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options must use static values.`)
+      throw sandboxErrorDiagnostics.SANDBOX_C0007({ message: `[vitehub] ${sandboxDefinitionSyntax} options must use static values.` })
     const value = readStaticValue(property.initializer)
     if (key === 'project') {
       if (value !== true && value !== false)
-        throw new Error(`[vitehub] ${sandboxDefinitionSyntax} project must be a boolean.`)
+        throw sandboxErrorDiagnostics.SANDBOX_C0008({ message: `[vitehub] ${sandboxDefinitionSyntax} project must be a boolean.` })
       project = value
     }
     else {
@@ -194,7 +195,7 @@ export async function extractSandboxDefinitionMetadata(file: string): Promise<Ex
     }
   }
   if (!hasRun)
-    throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires a \`run\` handler.`)
+    throw sandboxErrorDiagnostics.SANDBOX_C0009({ message: `[vitehub] ${sandboxDefinitionSyntax} requires a \`run\` handler.` })
   // SAFETY: readStaticValue parsed every option into the JSON-compatible Definition option contract.
   const runtimeOptions = Object.keys(options).length ? options as SandboxDefinitionOptions : undefined
   return runtimeOptions || project !== undefined

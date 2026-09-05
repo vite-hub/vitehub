@@ -10,6 +10,7 @@ import { discoverRealtimeDefinitions } from "./discovery.ts"
 
 import type { Plugin, UserConfig } from "vite"
 import type { RealtimeModuleOptions } from "./types.ts"
+import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
   importBase?: string
@@ -97,16 +98,16 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
       const provider = getHostingProvider(configuredPreset)
       const authority = options.authority || "auto"
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw new Error(`[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.`)
+        throw realtimeErrorDiagnostics.REALTIME_B0001({ message: `[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.` })
       }
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         configureCloudflareRealtime(nitro)
       }
       else if (environment?.command === "build" && authority === "auto") {
-        throw new Error("[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server.")
+        throw realtimeErrorDiagnostics.REALTIME_B0002({ message: "[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server." })
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw new Error(`[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.`)
+        throw realtimeErrorDiagnostics.REALTIME_B0003({ message: `[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.` })
       }
       nitro.features = { ...nitro.features, websocket: true }
       nitro.handlers = [

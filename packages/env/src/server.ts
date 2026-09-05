@@ -18,6 +18,7 @@ import type {
   ServerEnvInspection,
   ServerEnvInspectionEntry,
 } from "./types.ts"
+import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
 
@@ -144,14 +145,14 @@ function providerFor(name: string, providers: EnvProviders | undefined): EnvProv
     throw envSourceFailed("provider", cause)
   }
   if (!provider) {
-    throw new TypeError("The configured Server Env provider is unavailable or invalid.")
+    throw envErrorDiagnostics.ENV_R0019({ message: "The configured Server Env provider is unavailable or invalid." })
   }
   return provider
 }
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason === undefined
-    ? Object.assign(new Error("Server Env loading was aborted."), { name: "AbortError" })
+    ? Object.assign(envErrorDiagnostics.ENV_R0020({ message: "Server Env loading was aborted." }), { name: "AbortError" })
     : signal.reason
 }
 
@@ -269,7 +270,7 @@ function createProviderLoads(
 
 async function providerValue(entry: RuntimeProviderEntry, loads: ProviderLoads): Promise<unknown> {
   const load = loads.get(entry.source.provider)
-  if (!load) throw envSourceFailed("provider", new TypeError("The Server Env provider was not loaded."))
+  if (!load) throw envSourceFailed("provider", envErrorDiagnostics.ENV_R0021({ message: "The Server Env provider was not loaded." }))
   return (await load).get(entry.source.key)
 }
 

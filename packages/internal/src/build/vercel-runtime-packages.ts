@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
 let nodeFileTracePromise: Promise<typeof import("@vercel/nft").nodeFileTrace> | undefined
@@ -126,7 +127,7 @@ async function copyPackageToNodeModules(
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
   if (!packageJsonPath) {
     if (options.optional) return
-    throw new Error(`Could not resolve package.json for ${name}.`)
+    throw internalErrorDiagnostics.INTERNAL_B0046({ message: `Could not resolve package.json for ${name}.` })
   }
 
   const resolvedPackageJsonPath = await realpath(packageJsonPath)
@@ -353,7 +354,7 @@ function isPackageResolutionMiss(error: unknown): boolean {
 function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`Expected ${path} to contain a JSON object.`)
+    throw internalErrorDiagnostics.INTERNAL_B0047({ message: `Expected ${path} to contain a JSON object.` })
   }
   // SAFETY: The checks above establish a non-null, non-array object with string keys.
   return value as Record<string, unknown>

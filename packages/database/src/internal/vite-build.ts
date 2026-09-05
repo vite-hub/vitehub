@@ -15,6 +15,7 @@ import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const dbPackageName = "@vite-hub/database"
 const productName = "database"
@@ -212,12 +213,12 @@ interface ProviderWriteOptions {
 function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
   const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig, provisionState)
   if (databasesMissingNames.length) {
-    throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.`)
+    throw databaseErrorDiagnostics.DATABASE_R0001({ message: `[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.` })
   }
 
   const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig, provisionState)
   if (unsupportedDatabases.length) {
-    throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
+    throw databaseErrorDiagnostics.DATABASE_R0002({ message: `[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.` })
   }
 
   const d1Databases = resolveCloudflareD1Bindings(runtimeConfig, { provisionState }).d1Databases
@@ -252,7 +253,7 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
 function createVercelOutput({ artifacts, runtimeConfig, serverFunctionName }: ProviderWriteOptions): VercelProviderDeploymentOutput {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
-    throw new Error(`[vitehub] Vercel output requires \`db.cloudflare.http\` with \`db.cloudflare.databaseId\`, or a remote libSQL \`db.connection.url\`, for databases: ${unsupportedDatabases.join(", ")}.`)
+    throw databaseErrorDiagnostics.DATABASE_R0003({ message: `[vitehub] Vercel output requires \`db.cloudflare.http\` with \`db.cloudflare.databaseId\`, or a remote libSQL \`db.connection.url\`, for databases: ${unsupportedDatabases.join(", ")}.` })
   }
   const blobRuntime = artifacts.blobRuntimeModules.vercel
 

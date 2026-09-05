@@ -9,6 +9,7 @@ import type { FileSource, SourceCacheOptions, SourceContent, SourceContext } fro
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
 import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
+import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface McpResourcesRequestOptions {
   maxTotalTimeout?: number
@@ -178,7 +179,7 @@ async function createMcpClient(config: McpResourcesClientConfig) {
 async function resolveMcpServer(server: McpResourcesServer, ctx: SourceContext) {
   const resolved = typeof server === "function" ? await server(ctx) : server
   if (isMcpResourcesClient(resolved) || isMcpResourcesClientConfig(resolved)) return resolved
-  throw new TypeError("[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config.")
+  throw sourceErrorDiagnostics.SOURCE_R0021({ message: "[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config." })
 }
 
 function withRequestSignal(request: McpResourcesRequestOptions | undefined, signal: AbortSignal) {
@@ -375,7 +376,7 @@ function createResourceItem<TKey extends string>(
 
 export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): FileSource<TKey> {
   if (!options || typeof options !== "object" || !options.server) {
-    throw new TypeError("[vitehub] mcpResources({ server }) requires an MCP server.")
+    throw sourceErrorDiagnostics.SOURCE_R0022({ message: "[vitehub] mcpResources({ server }) requires an MCP server." })
   }
 
   async function getEntries(ctx: SourceContext) {

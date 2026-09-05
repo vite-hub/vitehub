@@ -1,3 +1,4 @@
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 const retryDelays = [1_000, 2_000, 5_000, 10_000, 15_000]
 const retryable = /container is starting|currently provisioning|retry in a moment|network connection lost|not listening in the tcp address|durable object reset|code was updated|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
 
@@ -14,11 +15,11 @@ export async function withCloudflareRequest<T>(operation: string, timeout: numbe
     catch (error) {
       const message = [error instanceof Error ? error.message : String(error), error instanceof Error && error.cause instanceof Error ? error.cause.message : ''].join('\n')
       if (attempt === retryDelays.length || !retryable.test(message))
-        throw new Error(`[vitehub] Cloudflare Box ${operation} failed: ${message.trim()}`, { cause: error })
+        throw boxErrorDiagnostics.BOX_R0088({ message: `[vitehub] Cloudflare Box ${operation} failed: ${message.trim()}`, cause: error })
       await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]))
     }
   }
-  throw new Error(`[vitehub] Cloudflare Box ${operation} retries exhausted.`)
+  throw boxErrorDiagnostics.BOX_R0089({ message: `[vitehub] Cloudflare Box ${operation} retries exhausted.` })
 }
 
 async function withDeadline<T>(operation: string, timeout: number, run: () => Promise<T>) {
@@ -27,7 +28,7 @@ async function withDeadline<T>(operation: string, timeout: number, run: () => Pr
     return await Promise.race([
       run(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`[vitehub] Cloudflare Box ${operation} timed out after ${timeout}ms.`)), timeout)
+        timer = setTimeout(() => reject(boxErrorDiagnostics.BOX_R0090({ message: `[vitehub] Cloudflare Box ${operation} timed out after ${timeout}ms.` })), timeout)
       }),
     ])
   }

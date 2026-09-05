@@ -10,6 +10,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type PapercutSource = "tool"
 
@@ -78,11 +79,11 @@ function createPapercutId(): string {
 
 function normalizePapercutMessage(value: unknown): string {
   if (!hasRuntimeType(value, "string") || !value.trim()) {
-    throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
+    throw agentDiagnostics.AGENT_R0153({ message: "[vitehub] report_papercut requires a non-empty message." })
   }
   const message = value.trim()
   if (message.length > papercutMaxMessageLength) {
-    throw new TypeError(`[vitehub] report_papercut message must be at most ${papercutMaxMessageLength} characters.`)
+    throw agentDiagnostics.AGENT_R0154({ message: `[vitehub] report_papercut message must be at most ${papercutMaxMessageLength} characters.` })
   }
   return message
 }
@@ -92,7 +93,7 @@ export function papercuts<
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   if (!options || !hasRuntimeType(options.report, "function")) {
-    throw new TypeError("[vitehub] papercuts() requires a report callback.")
+    throw agentDiagnostics.AGENT_R0155({ message: "[vitehub] papercuts() requires a report callback." })
   }
   return defineCapability({
     id: "papercuts",

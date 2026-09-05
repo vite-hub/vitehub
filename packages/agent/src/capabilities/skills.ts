@@ -6,6 +6,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface SkillsCapabilityOptions {
   path?: string
@@ -19,7 +20,7 @@ const skillFilename = "SKILL.md"
 function normalizeShellExecution(value: unknown): AgentCapabilityMode | undefined {
   if (value === undefined) return undefined
   if (value === "read" || value === "write") return value
-  throw new TypeError("[vitehub] skills({ shellExecution }) must be \"read\" or \"write\".")
+  throw agentDiagnostics.AGENT_R0198({ message: "[vitehub] skills({ shellExecution }) must be \"read\" or \"write\"." })
 }
 
 function normalizeSkillPath(path: string): string {
@@ -80,7 +81,7 @@ function workspaceShellTools(
   mode: AgentCapabilityMode,
   workspace: { tools: { inspect: () => AgentToolSet, write?: () => AgentToolSet } } | undefined,
 ): AgentToolSet {
-  if (!workspace) throw new Error("[vitehub] skills({ shellExecution }) requires an explicit workspace.")
+  if (!workspace) throw agentDiagnostics.AGENT_R0199({ message: "[vitehub] skills({ shellExecution }) requires an explicit workspace." })
   return (mode === "write" && workspace.tools.write
     ? workspace.tools.write()
     : workspace.tools.inspect()) as AgentToolSet

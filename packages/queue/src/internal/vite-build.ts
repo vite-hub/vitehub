@@ -21,6 +21,7 @@ import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const queuePackageName = "@vite-hub/queue"
 const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
@@ -197,7 +198,7 @@ function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefini
     const physicalName = getCloudflareQueueName(definition.name, namePrefix)
     const existing = names.get(physicalName)
     if (existing) {
-      throw new Error(`Queue names ${JSON.stringify(existing.name)} and ${JSON.stringify(definition.name)} collide after Cloudflare resource name derivation:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved Queue name: ${physicalName}`)
+      throw queueErrorDiagnostics.QUEUE_R0009({ message: `Queue names ${JSON.stringify(existing.name)} and ${JSON.stringify(definition.name)} collide after Cloudflare resource name derivation:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved Queue name: ${physicalName}` })
     }
     names.set(physicalName, definition)
   }
@@ -362,7 +363,7 @@ function createCloudflareOutput(
       alias: providerRuntimeAliases,
       banner: `// ${cloudflareQueueWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
-      external: ["@vercel/queue", "cloudflare:workers", "node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
+      external: ["@vercel/queue", "cloudflare:workers", "node:async_hooks", "node:crypto", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
       platform: "neutral",
     },
@@ -452,7 +453,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     `import { toNodeHandler } from ${JSON.stringify(createImportPath(file, resolvePackageDependency("h3/node")))}`,
     `import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/vercel-client")))}`,
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
-    `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/state")))}`,
+    `import { loadQueueDefinition, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("internal/runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
     "globalThis.__vitehubVercelQueue = __vitehubVercelQueue",
@@ -464,7 +465,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     "app.use(async (event) => {",
     `  const definition = await loadQueueDefinition(${JSON.stringify(name)})`,
     "  if (!definition) {",
-    "    throw new Error('Missing queue definition.')",
+    "    throw missingQueueDefinitionError()",
     "  }",
     `  return await handleHostedVercelQueueCallback(event, ${JSON.stringify(name)}, definition)`,
     "})",
@@ -557,7 +558,7 @@ async function writeVercelQueueFunctions(
     const functionDirKey = [...segments, `${segments.at(-1)}.func`].join("/")
     const existing = functionDirs.get(functionDirKey)
     if (existing) {
-      throw new Error(`Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}`)
+      throw queueErrorDiagnostics.QUEUE_R0010({ message: `Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}` })
     }
     functionDirs.set(functionDirKey, definition)
     const functionDir = resolve(stagedQueueRoot, ...segments, `${segments.at(-1)}.func`)

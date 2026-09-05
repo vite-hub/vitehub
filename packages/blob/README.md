@@ -116,7 +116,7 @@ await fetch(upload.url, {
 })
 ```
 
-Blob operations return `[error, value]`. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they are configuration or API misuse rather than an operational result.
+Blob operations return `[error, value]`. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 

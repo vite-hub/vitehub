@@ -5,6 +5,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { blobError, blobResult } from "./errors.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
+import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 function setBlobResponseHeader(event: BlobServeEvent, name: string, value: string) {
   // SAFETY: BlobServeEvent exposes the response headers setHeader mutates and omits only unrelated H3 event fields.
@@ -110,10 +111,10 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     },
     async sign(pathname, options) {
       if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
-        throw new TypeError("`expiresIn` must be a positive integer.")
+        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
       }
       if (!driver.sign) {
-        throw new Error(`Blob driver "${driver.name}" does not support signed requests.`)
+        throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
       const normalizedPathname = normalizePathname(pathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
@@ -146,7 +147,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
         : [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
     },
     store() {
-      throw new Error("Named Blob stores are only available from the @vite-hub/blob runtime export.")
+      throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
 }

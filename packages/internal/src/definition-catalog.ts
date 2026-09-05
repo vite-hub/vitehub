@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { relative, resolve } from "pathe"
 
 import { generatedDirSegments } from "./build/paths.ts"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 const sourceFilePattern = /\.(?:c|m)?[jt]sx?$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]sx?$/i
@@ -180,7 +181,7 @@ export function registerDefinition<TDefinition extends DiscoveredDefinition>(
 ): void {
   const existing = definitions.get(definition.name)
   if (existing) {
-    throw new Error(`Duplicate ${sourceLabel} name "${definition.name}":\n  - ${existing.handler}\n  - ${definition.handler}`)
+    throw internalErrorDiagnostics.INTERNAL_C0001({ message: `Duplicate ${sourceLabel} name "${definition.name}":\n  - ${existing.handler}\n  - ${definition.handler}` })
   }
 
   definitions.set(definition.name, definition)
@@ -200,7 +201,7 @@ export function mergeDefinitions<TDefinition extends DiscoveredDefinition>(
     for (const definition of source) {
       const existing = definitions.get(definition.name)
       if (existing && existing.handler !== definition.handler) {
-        throw new Error(`Duplicate ${feature} name "${definition.name}" from multiple discovery sources:\n  - ${existing.handler} (${existing.source ?? "unknown"})\n  - ${definition.handler} (${definition.source ?? "unknown"})`)
+        throw internalErrorDiagnostics.INTERNAL_C0002({ message: `Duplicate ${feature} name "${definition.name}" from multiple discovery sources:\n  - ${existing.handler} (${existing.source ?? "unknown"})\n  - ${definition.handler} (${definition.source ?? "unknown"})` })
       }
 
       if (!existing) {

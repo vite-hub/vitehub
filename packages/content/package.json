@@ -43,7 +43,8 @@
   },
   "dependencies": {
     "@vite-hub/source": "workspace:*",
-    "h3": "catalog:unjs"
+    "h3": "catalog:unjs",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

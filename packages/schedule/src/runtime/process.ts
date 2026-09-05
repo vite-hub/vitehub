@@ -8,6 +8,7 @@ import {
 
 import type { ProcessWakeRuntime } from "../internal/process-wake-runtime.ts"
 import type { RuntimeScheduleWakeDriverFactory } from "./driver.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ProcessScheduleWakeDriverOptions {
   concurrency?: number
@@ -22,10 +23,10 @@ function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurren
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
   if (!Number.isFinite(intervalMs) || intervalMs <= 0 || intervalMs > DEFAULT_INTERVAL_MS) {
-    throw new TypeError("Process Schedule Wake Driver intervalMs must be a positive number no greater than 60000.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0024({ message: "Process Schedule Wake Driver intervalMs must be a positive number no greater than 60000." })
   }
   if (!Number.isInteger(concurrency) || concurrency < 1) {
-    throw new TypeError("Process Schedule Wake Driver concurrency must be a positive integer.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0025({ message: "Process Schedule Wake Driver concurrency must be a positive integer." })
   }
   return { concurrency, intervalMs }
 }
@@ -94,7 +95,7 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
         return closePromise
       },
       reconcile(records) {
-        if (closed) return Promise.reject(new Error("Process Schedule Wake Driver is closed."))
+        if (closed) return Promise.reject(scheduleErrorDiagnostics.SCHEDULE_R0026({ message: "Process Schedule Wake Driver is closed." }))
         return run(Effect.flatMap(ProcessWakeRuntimeService, service => service.reconcile(records)))
       },
     }

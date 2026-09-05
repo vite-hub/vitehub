@@ -187,7 +187,10 @@ describe("useCollection", () => {
     await refresh
 
     expect(collection.items.value).toEqual([])
-    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
+    expect(collection.error.value).toMatchObject({
+      code: "SOURCE_R0003",
+      message: "[vitehub] Collection returned the same cursor twice.",
+    })
     scope.stop()
   })
 
@@ -209,7 +212,10 @@ describe("useCollection", () => {
     await loadMore
 
     expect(collection.items.value).toEqual([{ id: 1 }])
-    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
+    expect(collection.error.value).toMatchObject({
+      code: "SOURCE_R0003",
+      message: "[vitehub] Collection returned the same cursor twice.",
+    })
     scope.stop()
   })
 
@@ -235,7 +241,10 @@ describe("useCollection", () => {
     await secondLoadMore
 
     expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }])
-    expect(collection.error.value).toEqual(new TypeError("[vitehub] Collection returned the same cursor twice."))
+    expect(collection.error.value).toMatchObject({
+      code: "SOURCE_R0003",
+      message: "[vitehub] Collection returned the same cursor twice.",
+    })
     scope.stop()
   })
 

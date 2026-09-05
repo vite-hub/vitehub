@@ -19,6 +19,7 @@ import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleDevframeHandler } from "./nitro.ts"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 function resolveConsoleRuntimeRoot(): string {
@@ -26,7 +27,7 @@ function resolveConsoleRuntimeRoot(): string {
     fileURLToPath(new URL("./runtime", import.meta.url)),
     fileURLToPath(new URL("./console/runtime", import.meta.url)),
   ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
-  if (!root) throw new Error("[vitehub] Could not locate the packaged Console runtime.")
+  if (!root) throw viteHubErrorDiagnostics.VITE_HUB_B0001({ message: "[vitehub] Could not locate the packaged Console runtime." })
   return root
 }
 const consoleRuntimeRoot = resolveConsoleRuntimeRoot()
@@ -144,22 +145,22 @@ export function assertConsoleProductionAccess(
   },
 ): void {
   if (configured !== true && configured.exposure === "host-managed" && Reflect.get(configured, "invoke") === true) {
-    throw new Error('[vitehub] console.invoke requires console: { access: "auth" }.')
+    throw viteHubErrorDiagnostics.VITE_HUB_B0002({ message: '[vitehub] console.invoke requires console: { access: "auth" }.' })
   }
   if (options.development) return
   if (configured === true) {
-    throw new Error('[vitehub] console: true is development-only. Production Console builds require console: { access: "auth" } or console: { exposure: "host-managed" }.')
+    throw viteHubErrorDiagnostics.VITE_HUB_B0003({ message: '[vitehub] console: true is development-only. Production Console builds require console: { access: "auth" } or console: { exposure: "host-managed" }.' })
   }
   if (configured.exposure === "host-managed") return
   if (configured.access !== "auth") {
-    throw new TypeError('[vitehub] Console production access must use access: "auth" or exposure: "host-managed".')
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] Console production access must use access: "auth" or exposure: "host-managed".' })
   }
   if (!options.auth) {
-    throw new Error('[vitehub] console: { access: "auth" } requires a discovered ViteHub Auth Definition.')
+    throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { access: "auth" } requires a discovered ViteHub Auth Definition.' })
   }
   const missing = consoleAccessRoutes.filter(target => !options.auth?.access.routes.some(route => authRouteProtects(route, target)))
   if (missing.length) {
-    throw new Error(`[vitehub] Console Auth access must configure an authorize callback for ${missing.map(target => target.route).join(" and ")}.`)
+    throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] Console Auth access must configure an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
   }
 }
 
@@ -291,7 +292,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       fixture = undefined
       if (configuredFixture) {
         if (environment.command === "build") {
-          throw new Error("[vitehub] Console fixture mode is development-only.")
+          throw viteHubErrorDiagnostics.VITE_HUB_B0007({ message: "[vitehub] Console fixture mode is development-only." })
         }
         fixture = resolve(projectRoot, configuredFixture)
         readConsoleFixture(fixture)

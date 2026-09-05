@@ -108,7 +108,10 @@ describe("Agent Invocation Stream", () => {
       failure = error
     }
 
-    expect(failure).toEqual(new TypeError("Invalid Agent Invocation Stream event."))
+    expect(failure).toMatchObject({
+      code: "AGENT_R0607",
+      message: "Invalid Agent Invocation Stream event.",
+    })
     expect(signal?.reason).toBe(failure)
   })
 

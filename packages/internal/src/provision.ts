@@ -1,3 +1,5 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { Diagnostic } from "nostics"
 export type ProvisionProvider = "cloudflare" | "vercel"
 
 export interface ProvisionLogger {
@@ -80,13 +82,13 @@ export interface ProvisionRequest {
   <T>(path: string, options: ParsedProvisionRequestOptions<T>): Promise<T>
 }
 
-export class ProvisionRequestError extends Error {
+export class ProvisionRequestError extends Diagnostic {
   readonly codes: readonly (number | string)[]
   readonly status: number
 
   constructor(method: string, path: string, status: number, codes: readonly (number | string)[] = []) {
     const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
-    super(`Provision request failed: ${method} ${path} (${status}).${suffix}`)
+    super({ code: "INTERNAL_R0013", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: `Provision request failed: ${method} ${path} (${status}).${suffix}` }, ProvisionRequestError)
     this.name = "ProvisionRequestError"
     this.codes = codes
     this.status = status
@@ -139,7 +141,7 @@ export function createCloudflareProvisionClient(config: CloudflareProvisionConfi
     return await client(path, {
       ...options,
       parse(value) {
-        if (!value || Object(value) !== value) throw new Error("Cloudflare provisioning returned an invalid response.")
+        if (!value || Object(value) !== value) throw internalErrorDiagnostics.INTERNAL_R0010({ message: "Cloudflare provisioning returned an invalid response." })
         // SAFETY: The object check establishes the optional Cloudflare envelope representation.
         const envelope = value as CloudflareEnvelope<unknown>
         return { ...envelope, result: envelope.result === undefined ? undefined : parse(envelope.result) }

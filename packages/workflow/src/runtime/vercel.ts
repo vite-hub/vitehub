@@ -4,6 +4,7 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface VercelRun {
   cancel: () => Promise<void>
@@ -123,8 +124,8 @@ const statusMap: Record<string, WorkflowRunStatus> = {
   running: "running",
 }
 
-function invalidVercelResult(field: string): TypeError {
-  return new TypeError(`Vercel Workflow provider returned an invalid ${field}.`)
+function invalidVercelResult(field: string): Error {
+  return workflowErrorDiagnostics.WORKFLOW_R0026({ message: `Vercel Workflow provider returned an invalid ${field}.` })
 }
 
 function normalizeStatus(status: unknown): WorkflowRunStatus {

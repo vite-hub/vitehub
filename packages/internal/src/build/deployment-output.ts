@@ -12,6 +12,7 @@ import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-confi
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -247,7 +248,7 @@ function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
 
 function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
   if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
-    throw new TypeError(`Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}`)
+    throw internalErrorDiagnostics.INTERNAL_B0034({ message: `Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}` })
   }
   return resolve(outputRoot, fileName)
 }
@@ -257,7 +258,7 @@ async function readProviderOutputOwnershipFile(outputRoot: string, fileName: str
     const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted ownership files currently store KV binding names, so every entry must be a string.
     if (!Array.isArray(parsed) || !parsed.every(value => typeof value === "string")) {
-      throw new TypeError(`Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}`)
+      throw internalErrorDiagnostics.INTERNAL_B0035({ message: `Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}` })
     }
     return parsed
   }
@@ -298,7 +299,7 @@ async function resolvePersistedProviderOutputOwnership(
   const arrays = { ...ownership?.arrays }
   await Promise.all(Object.entries(files).map(async ([field, fileName]) => {
     const current = arrays[field]
-    if (!current) throw new TypeError(`Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.`)
+    if (!current) throw internalErrorDiagnostics.INTERNAL_B0036({ message: `Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.` })
     arrays[field] = {
       ...current,
       values: [
@@ -337,7 +338,7 @@ export function createDefaultNetlifyOutputRoot(rootDir: string): string {
 
 function assertNetlifyFunctionName(functionName: string): void {
   if (!functionName || functionName.includes("\\") || functionName.split("/").some(part => !part || part === "." || part === "..")) {
-    throw new Error(`Invalid Netlify function name: ${functionName}`)
+    throw internalErrorDiagnostics.INTERNAL_B0037({ message: `Invalid Netlify function name: ${functionName}` })
   }
 }
 
@@ -364,7 +365,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
     : undefined
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
-    throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
+    throw internalErrorDiagnostics.INTERNAL_B0038({ message: `Cloudflare output file conflicts with bundle outfile: ${workerOutfile}` })
   }
   const backupRoot = copiesStaticOutput
     ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))
@@ -1096,7 +1097,7 @@ export async function resetProviderDeploymentOutputs(
   const resetsActiveFinalization = active && (!generation || active.state.generations.has(generation))
   if (resetsActiveFinalization) {
     active.state.rollback = true
-    active.controller.abort(new Error("Provider Output finalization reset"))
+    active.controller.abort(internalErrorDiagnostics.INTERNAL_B0039({ message: "Provider Output finalization reset" }))
     active.reset = {
       failures: new Set([failure]),
       promise: active.promise.catch(() => undefined),

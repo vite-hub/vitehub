@@ -4,6 +4,7 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
 import type { MaybePromise } from "./index.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type RuntimeDiagnosticLevel = "debug" | "error" | "info" | "warn"
 export type RuntimeResourceScope = "container" | "host" | "process" | "service" | "workload"
@@ -256,9 +257,9 @@ export function normalizeRuntimeDiagnosticError(
   const maxDepth = options.maxDepth ?? 4
   const maxErrors = options.maxErrors ?? 8
   const maxStringLength = options.maxStringLength ?? 4_096
-  if (!Number.isInteger(maxDepth) || maxDepth < 0) throw new TypeError("[vitehub:runtime] Diagnostic error maxDepth must be a non-negative integer.")
-  if (!Number.isInteger(maxErrors) || maxErrors < 1) throw new TypeError("[vitehub:runtime] Diagnostic error maxErrors must be a positive integer.")
-  if (!Number.isInteger(maxStringLength) || maxStringLength < 64) throw new TypeError("[vitehub:runtime] Diagnostic error maxStringLength must be an integer of at least 64.")
+  if (!Number.isInteger(maxDepth) || maxDepth < 0) throw runtimeErrorDiagnostics.RUNTIME_R0001({ message: "[vitehub:runtime] Diagnostic error maxDepth must be a non-negative integer." })
+  if (!Number.isInteger(maxErrors) || maxErrors < 1) throw runtimeErrorDiagnostics.RUNTIME_R0002({ message: "[vitehub:runtime] Diagnostic error maxErrors must be a positive integer." })
+  if (!Number.isInteger(maxStringLength) || maxStringLength < 64) throw runtimeErrorDiagnostics.RUNTIME_R0003({ message: "[vitehub:runtime] Diagnostic error maxStringLength must be an integer of at least 64." })
   return normalizeError(error, {
     ancestors: new Set(),
     includeStack: options.includeStack === true,

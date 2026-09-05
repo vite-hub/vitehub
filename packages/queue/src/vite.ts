@@ -17,6 +17,7 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } fro
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
+import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverQueueDefinitions } from "./discovery.ts"
 
@@ -50,7 +51,7 @@ const mergeNoExternal = createNoExternalMerger(queuePackageName)
 export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: QueueNitroConfigOptions): Promise<Record<string, unknown>> {
   const createNitroConfig = plugin.vitehub?.queue?.createNitroConfig
   if (!createNitroConfig) {
-    throw new Error("The existing @vite-hub/queue/vite plugin does not expose Queue Nitro configuration.")
+    throw queueErrorDiagnostics.QUEUE_B0001({ message: "The existing @vite-hub/queue/vite plugin does not expose Queue Nitro configuration." })
   }
   return createNitroConfig(options)
 }
@@ -58,7 +59,7 @@ export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: Q
 function resolveStableQueueDefinitions(resolveDefinitions: () => DiscoveredQueueDefinition[], snapshot: DiscoveredQueueDefinition[], context: string) {
   const definitions = resolveDefinitions()
   if (JSON.stringify(definitions) !== JSON.stringify(snapshot)) {
-    throw new Error(`[vitehub] ${context} Queue Definitions changed after config resolution. Generate Queue Definition source files before Vite config resolves.`)
+    throw queueErrorDiagnostics.QUEUE_B0002({ message: `[vitehub] ${context} Queue Definitions changed after config resolution. Generate Queue Definition source files before Vite config resolves.` })
   }
   return definitions
 }
@@ -144,7 +145,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   }
   const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
   if (binding && generated.producers.length > 1) {
-    throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
+    throw queueErrorDiagnostics.QUEUE_B0003({ message: "A custom Cloudflare queue binding can only be used with one Queue Definition." })
   }
   const generatedProducers = binding ? generated.producers.map(producer => ({ ...producer, binding })) : generated.producers
   contributeCloudflareProviderOutput(providerOutput, {

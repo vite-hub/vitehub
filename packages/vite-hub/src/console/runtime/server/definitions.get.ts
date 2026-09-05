@@ -4,9 +4,10 @@ import { isConsoleDefinitionSectionId } from "../definitions.ts"
 
 import type { ConsoleDefinitionSectionId, ConsoleDefinitionSummary } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 function requestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(new Error(statusMessage), { statusCode, statusMessage })
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }), { statusCode, statusMessage })
 }
 
 export default function consoleDefinitionsHandler(event: ConsoleRequestEvent): {

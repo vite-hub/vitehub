@@ -844,6 +844,9 @@ importers:
       bun-types:
         specifier: ^1.4.0
         version: 1.4.0
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -926,6 +929,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -997,6 +1003,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
     devDependencies:
       '@asciidev/box-sdk':
         specifier: ^0.0.34
@@ -1040,6 +1049,9 @@ importers:
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1068,6 +1080,9 @@ importers:
 
   packages/channels:
     dependencies:
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1099,6 +1114,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       nuxt:
         specifier: catalog:nuxt-compat
         version: 4.5.2(29226aa5a191f88b4ee58c023848d627)
@@ -1133,6 +1151,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -1167,6 +1188,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1235,6 +1259,9 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1266,6 +1293,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@26.4.1)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1325,6 +1355,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1368,6 +1401,9 @@ importers:
       destr:
         specifier: ^2.0.5
         version: 2.0.5
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       unstorage:
         specifier: catalog:storage
         version: 2.0.0-alpha.10
@@ -1421,6 +1457,9 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.6.2(shiki@4.4.3)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1467,6 +1506,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1526,6 +1568,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1612,6 +1657,9 @@ importers:
       marked:
         specifier: catalog:realtime
         version: 17.0.6
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1704,6 +1752,9 @@ importers:
       mlly:
         specifier: catalog:unjs
         version: 1.8.2
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -1784,6 +1835,9 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1834,6 +1888,9 @@ importers:
       just-bash:
         specifier: catalog:shell
         version: 3.4.2
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       sh-syntax:
         specifier: catalog:shell
         version: 0.6.0
@@ -1871,6 +1928,9 @@ importers:
       mlly:
         specifier: catalog:unjs
         version: 1.8.2
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -1935,6 +1995,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
@@ -2149,6 +2212,9 @@ importers:
       nitro:
         specifier: catalog:unjs
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       ocache:
         specifier: catalog:runtime
         version: 0.3.0
@@ -2240,6 +2306,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -2335,6 +2404,9 @@ importers:
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
+      nostics:
+        specifier: catalog:runtime
+        version: 1.2.0
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1

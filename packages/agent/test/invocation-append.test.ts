@@ -65,7 +65,7 @@ it.each(["metadata", "content"] as const)("applies %s policy to external observa
   expect(saved?.observations[0]?.attributes?.["message.content"]).toBe(content === "content" ? "Public evidence" : undefined)
   expect(saved?.observations[0]?.attributes?.["report.uuid"]).toBe("report-id")
   await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "" })).rejects.toThrow("non-empty")
-  await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "x".repeat(513) })).rejects.toThrow("512")
+  await expect(invocations.appendObservation("fixture", { name: "bad", type: "run" }, { id: "x".repeat(513) })).rejects.toMatchObject({ code: "AGENT_R0901", message: expect.stringContaining("512") })
 })
 
 it("captures only safe selected metadata content", async () => {
@@ -116,7 +116,7 @@ it.each(["record", "undefined"] as const)("fails visibly when a store ignores ap
   const invocations = defineAgentInvocations({
     store: { ...store, update: id => result === "record" ? store.get(id) : undefined },
   })
-  await expect(invocations.appendObservation("fixture", { name: "report", type: "run" }, { id: "report-id" })).rejects.toThrow("did not persist")
+  await expect(invocations.appendObservation("fixture", { name: "report", type: "run" }, { id: "report-id" })).rejects.toMatchObject({ code: "AGENT_R0902", message: expect.stringContaining("did not persist") })
 })
 
 it("retains appended evidence under journal pressure and fails before silently dropping a new append", async () => {
@@ -141,6 +141,6 @@ it("retains appended evidence under journal pressure and fails before silently d
     timestamp,
   })
   expect((await store.get("fixture"))?.observations.some(event => event.name === "forged.append")).toBe(false)
-  await expect(invocations.appendObservation("fixture", { name: "report.ack", type: "capability" }, { id: "ack" })).rejects.toThrow("capacity reached")
+  await expect(invocations.appendObservation("fixture", { name: "report.ack", type: "capability" }, { id: "ack" })).rejects.toMatchObject({ code: "AGENT_R0900", message: expect.stringContaining("capacity reached") })
   await expect(invocations.appendObservation("fixture", { name: "report.pending", type: "capability" }, { id: "pending" })).resolves.toBeDefined()
 })

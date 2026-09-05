@@ -20,6 +20,7 @@ import type {
   AuthSignInConfiguration,
   ViteHubAuth,
 } from "./types.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
 
@@ -209,7 +210,7 @@ function getAuthRuntimeState(): AuthRuntimeState {
 
 function resolveDefaultDefinition(): AuthDefinition {
   if (!discoveredDefinition) {
-    throw new Error("[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`.")
+    throw authErrorDiagnostics.AUTH_R0005({ message: "[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`." })
   }
   return discoveredDefinition
 }
@@ -321,10 +322,10 @@ export async function assertAuthOrigin(
   event?: unknown,
 ): Promise<ViteHubAuth> {
   const origin = request.headers.get("origin")
-  if (!origin) throw new TypeError("The request origin is required.")
+  if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
   const auth = getAuthForRequest(request, undefined, event)
   if (!(await auth.$context).isTrustedOrigin(origin)) {
-    throw new TypeError("The request origin is not trusted.")
+    throw authErrorDiagnostics.AUTH_R0007({ message: "The request origin is not trusted." })
   }
   return auth
 }
@@ -370,7 +371,7 @@ function authAccessRoutes(
   return routeIndexes.map((routeIndex) => {
     const route = routes?.[routeIndex]
     if (!route) {
-      throw new TypeError(`[vitehub] Auth access route ${routeIndex} is unavailable at runtime.`)
+      throw authErrorDiagnostics.AUTH_R0008({ message: `[vitehub] Auth access route ${routeIndex} is unavailable at runtime.` })
     }
     return route
   })
@@ -475,10 +476,10 @@ export async function requireAuthAccessRoutes(
   requiredAuthorizeRouteIndexes: number[] = [],
 ): Promise<Response | undefined> {
   if (!Array.isArray(routeIndexes) || routeIndexes.length === 0 || routeIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
-    throw new TypeError("[vitehub] Auth access route indexes must be a non-empty array of non-negative integers.")
+    throw authErrorDiagnostics.AUTH_R0009({ message: "[vitehub] Auth access route indexes must be a non-empty array of non-negative integers." })
   }
   if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
-    throw new TypeError("[vitehub] Required Auth authorize route indexes must be an array of non-negative integers.")
+    throw authErrorDiagnostics.AUTH_R0010({ message: "[vitehub] Required Auth authorize route indexes must be an array of non-negative integers." })
   }
   return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes)
 }

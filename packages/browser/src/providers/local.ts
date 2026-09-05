@@ -11,6 +11,7 @@ import { browserProviderError } from "../errors.ts"
 import type { BrowserProvider } from "../types.ts"
 import type { CDPBrowserConnection } from "../internal/connections.ts"
 import type { ChildProcess } from "node:child_process"
+import { browserErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface LocalBrowserOptions {
   args?: string[]
@@ -47,7 +48,7 @@ async function openPort(): Promise<number> {
       const port = isPlainObject(address) && isNumber(address.port) ? address.port : undefined
       server.close((error) => {
         if (error) reject(error)
-        else if (port === undefined) reject(new Error("Failed to reserve a local browser port."))
+        else if (port === undefined) reject(browserErrorDiagnostics.BROWSER_R0005({ message: "Failed to reserve a local browser port." }))
         else resolve(port)
       })
     })
@@ -74,7 +75,7 @@ async function waitForEndpoint(port: number, child: ChildProcess, timeout: numbe
       while (Date.now() - startedAt < timeout) {
         if (child.exitCode !== null || child.signalCode !== null) {
           throw browserProviderError("local", "start Chromium", {
-            cause: new Error(`Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).`),
+            cause: browserErrorDiagnostics.BROWSER_R0006({ message: `Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).` }),
           })
         }
         try {
@@ -117,11 +118,11 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 
 export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPBrowserConnection> {
   if (!options?.executablePath || !isString(options.executablePath)) {
-    throw new TypeError("[vitehub:browser] localBrowser() requires an executablePath.")
+    throw browserErrorDiagnostics.BROWSER_R0007({ message: "[vitehub:browser] localBrowser() requires an executablePath." })
   }
   const startupTimeout = options.startupTimeout ?? 15_000
   if (!Number.isFinite(startupTimeout) || startupTimeout <= 0 || startupTimeout > 2_147_483_647) {
-    throw new TypeError("[vitehub:browser] localBrowser() startupTimeout must be greater than zero and no greater than 2147483647ms.")
+    throw browserErrorDiagnostics.BROWSER_R0008({ message: "[vitehub:browser] localBrowser() startupTimeout must be greater than zero and no greater than 2147483647ms." })
   }
   return {
     features: {
