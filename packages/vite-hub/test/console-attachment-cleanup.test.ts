@@ -1,8 +1,8 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { consoleAttachmentPrefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { consoleAttachmentPrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
 import type { BlobObject, BlobStorage } from "@vite-hub/blob"
 
 const dirs: string[] = []
@@ -13,7 +13,7 @@ const cleanupPrefix = "vitehub-console-attachment-cleanup/"
 const path = () => `${consoleAttachmentPrefix}${crypto.randomUUID()}`
 const marker = (path: string) => path.replace(consoleAttachmentPrefix, cleanupPrefix)
 
-function connect(base: string): Pick<BlobStorage, "put" | "del" | "list"> {
+function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"> {
   const filename = (path: string) => join(base, Buffer.from(path).toString("base64url"))
   const metadata = (pathname: string): BlobObject => ({ pathname, contentType: "text/plain", httpEtag: undefined, uploadedAt: new Date(), httpMetadata: {}, customMetadata: {} })
   return {
@@ -21,6 +21,16 @@ function connect(base: string): Pick<BlobStorage, "put" | "del" | "list"> {
       if (typeof body !== "string") throw new Error("Fixture expects strings")
       await writeFile(filename(path), body)
       return [null, metadata(path)]
+    },
+    async get(path) {
+      try {
+        const bytes = await readFile(filename(path))
+        return [null, Uint8Array.from(bytes).buffer]
+      }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [null, null]
+        throw error
+      }
     },
     async del(paths) {
       for (const path of typeof paths === "string" ? [paths] : paths) await rm(filename(path), { force: true })
@@ -109,4 +119,46 @@ it("recovers the entire batch when rollback stops during its first deletion", as
   const restarted = connect(base)
   await retryConsoleAttachmentCleanup(restarted)
   expect((await restarted.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([owned])
+})
+
+it("recovers every batch member when interrupted during marker creation", async () => {
+  const { base, storage } = await fixture()
+  const abandoned = Array.from({ length: 10 }, path)
+  const owned = path()
+  for (const object of [...abandoned, owned]) await storage.put(object, "image")
+  let recorded!: () => void
+  const recording = new Promise<void>(resolve => { recorded = resolve })
+  void rollbackConsoleAttachments({
+    ...storage,
+    async put(...args) {
+      await storage.put(...args)
+      recorded()
+      // Simulate a committed write whose response never reaches the stopped host.
+      return new Promise<never>(() => {})
+    },
+  }, abandoned)
+  await recording
+  const restarted = connect(base)
+  for (const object of abandoned) {
+    expect(await isConsoleAttachmentPendingCleanup(restarted, object.slice(consoleAttachmentPrefix.length))).toBe(true)
+  }
+  expect(await isConsoleAttachmentPendingCleanup(restarted, owned.slice(consoleAttachmentPrefix.length))).toBe(false)
+  await retryConsoleAttachmentCleanup(restarted)
+  expect((await restarted.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([owned])
+})
+
+it("retains the whole batch if a later deletion fails", async () => {
+  const { base, storage } = await fixture()
+  const abandoned = [path(), path()]
+  for (const object of abandoned) await storage.put(object, "image")
+  const failure = new Error("Second deletion failed")
+  expect(await rollbackConsoleAttachments({
+    ...storage,
+    async del(object) {
+      if (object === abandoned[1]) throw failure
+      return storage.del(object)
+    },
+  }, abandoned)).toEqual([failure])
+  await retryConsoleAttachmentCleanup(connect(base))
+  expect((await storage.list())[1]?.blobs).toEqual([])
 })

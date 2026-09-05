@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
-import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix as prefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
+import { isConsoleAttachmentPendingCleanup, consoleAttachmentPrefix as prefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
 import type { ImagePart } from "@vite-hub/agent"
 
 const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string(), filename: v.optional(v.string(), "image") })), v.minLength(1), v.maxLength(10)) })
@@ -72,9 +72,7 @@ export async function consoleInputMessage(prompt: string, attachments: unknown):
   const parts: ImagePart[] = []
   for (const { id, name } of new Map(parsed.output.map(part => [part.id, part])).values()) {
     const storage = getConsoleBlob().storage
-    const [cleanupError, pendingCleanup] = await storage.get(`${consoleAttachmentCleanupPrefix}${id}`)
-    if (cleanupError) throw cleanupError
-    if (pendingCleanup) throw error(404, "The stored image is pending deletion.")
+    if (await isConsoleAttachmentPendingCleanup(storage, id)) throw error(404, "The stored image is pending deletion.")
     const [headError, metadata] = await storage.head(`${prefix}${id}`)
     if (headError) throw headError
     if (!metadata || !metadata.contentType || !imageTypes.has(metadata.contentType)) throw error(404, "The stored image is unavailable.")
