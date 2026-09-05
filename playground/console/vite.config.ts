@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
 import { consoleMockAPI } from "./mock-api.ts"
+import { consoleMockRPC } from "./rpc.ts"
 import { consoleAppConfig } from "../../packages/vite-hub/src/console/app.config.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "../..")
@@ -13,6 +14,7 @@ export default defineConfig({
   base: "/_vitehub/",
   plugins: [
     consoleMockAPI(),
+    consoleMockRPC(),
     vue(),
     ...ui({
       comark: false,
