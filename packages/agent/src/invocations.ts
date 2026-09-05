@@ -25,7 +25,7 @@ const DEFAULT_OBSERVATION_BYTES = 16 * 1024 * 1024
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
-const MAX_AGENT_CONFIGURATION_DEPTH = 8
+const MAX_AGENT_CONFIGURATION_DEPTH = 16
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
@@ -695,11 +695,10 @@ function boundedObservationAttributeValue(
     items: 16_384,
     collectionItems: MAX_CAPABILITY_IDS,
     maxDepth: MAX_AGENT_CONFIGURATION_DEPTH,
-    stringLength: budget.stringLength,
+    stringLength: 1024 * 1024,
     truncated: false,
   }
-  const configuration = boundedObservationValue(value, configurationBudget, 0, maxStringLength, builtIns)
-  budget.stringLength = configurationBudget.stringLength
+  const configuration = boundedObservationValue(value, configurationBudget, 0, MAX_OBSERVATION_CONTENT_STRING_LENGTH, builtIns)
   budget.truncated ||= configurationBudget.truncated
   return configuration
 }

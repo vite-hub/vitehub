@@ -1329,7 +1329,7 @@ describe("Agent Invocations", () => {
     const journal = await bindAgentInvocations(invocations, runtime("large-tool-catalog"))
     if (!journal) throw new Error("Expected the invocation journal.")
     const tools = Array.from({ length: 40 }, (_, index) => ({
-      name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file.",
+      name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file. ".repeat(80),
       inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path" } }, required: ["path"] },
       outputSchema: { type: "object", properties: { content: { type: "string" } } },
     }))
