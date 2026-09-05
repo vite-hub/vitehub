@@ -1,3 +1,6 @@
+import { github, type GitHubChannelOptions } from '../channels.ts'
+import type { AgentChannelDefinition } from '../types.ts'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { createHash, createSign } from "node:crypto"
@@ -86,6 +89,9 @@ export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
 }
 
 export interface GitHubHost {
+  channel(options?: Omit<GitHubChannelOptions, 'app'>): AgentChannelDefinition
+  /** Resolve credentials and Git binding for the current checkout callback. */
+  environment(): Promise<Record<string, string>>
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
   budget(): { limited: false } | { limited: true, remaining: number, resetAt: number }
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
@@ -216,6 +222,7 @@ export function parseGraphQLRateLimit(value: unknown, checkedAt: number = Date.n
 }
 
 export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
+  const checkoutScope = new AsyncLocalStorage<GitHubHostAccess & { path: string }>()
   const reserve = options.reserve ?? 1_500
   const cacheMs = options.cacheMs ?? 15_000
   const graphQLCheckTimeout = options.graphQLCheckTimeout ?? GITHUB_GRAPHQL_CHECK_TIMEOUT_MS
@@ -659,7 +666,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           signal: operation.signal,
         })
       }
-      return await run({ ...baseAuth, path: checkout, push, signal: operation.signal })
+      return await checkoutScope.run({ ...baseAuth, path: checkout }, () => run({ ...baseAuth, path: checkout, push, signal: operation.signal }))
     }
     finally {
       operation.close()
@@ -668,6 +675,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   return {
+    channel(channelOptions = {}) {
+      return github({ ...channelOptions, app: { token: async () => (await access()).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
+    },
+    async environment() {
+      const current = checkoutScope.getStore()
+      if (!current) return (await access({ fallback: true })).env
+      return { ...current.env, GIT_DIR: join(current.path, '.git'), GIT_WORK_TREE: '.' }
+    },
     access,
     budget,
     command,
