@@ -49,6 +49,40 @@ describe("Console requests", () => {
     })
   })
 
+  it("preserves URL query values and lets explicit options replace them", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { invocations: [] } })
+
+    await expect(requestConsole(
+      "/api/_vitehub/console/invocations?id=old-1&id=old-2&agent=old&limit=10&status=old",
+      { query: { agent: ["selected"], limit: 20, status: [] } },
+    )).resolves.toEqual({ invocations: [] })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocations, {
+      method: "GET",
+      query: {
+        agent: ["selected"],
+        id: ["old-1", "old-2"],
+        limit: "20",
+        status: [],
+      },
+    })
+  })
+
+  it("preserves invocation delta cursors from the URL", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { observations: [] } })
+
+    await expect(requestConsole(
+      "/api/_vitehub/console/invocations/run-1?observationCount=100&observationCursor=cursor-100",
+    )).resolves.toEqual({ observations: [] })
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocation, {
+      id: "run-1",
+      method: "GET",
+      query: {
+        observationCount: "100",
+        observationCursor: "cursor-100",
+      },
+    })
+  })
+
   it("preserves remote status and retries only transient request failures", async () => {
     mocks.call.mockResolvedValue({ message: "Upstream unavailable.", ok: false, status: 502 })
 
