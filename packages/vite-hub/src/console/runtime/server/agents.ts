@@ -37,8 +37,8 @@ type ResolvedConsoleAgentDefinition = {
 
 function record(value: unknown): Record<string, unknown> | undefined {
   if (Array.isArray(value)) return
-  const result = v.safeParse(recordSchema, value)
-  return result.success ? result.output : undefined
+  // Keep definition identity and symbol metadata for journal ownership and rebinding.
+  return v.is(recordSchema, value) ? value : undefined
 }
 
 function stringValue(value: unknown): string | undefined {

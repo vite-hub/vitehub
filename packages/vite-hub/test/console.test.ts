@@ -489,6 +489,7 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -542,6 +543,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -610,7 +612,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/usage", "/_vitehub", "/_vitehub/**", "/_vitehub/rpc/**"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/api/_vitehub/console/status", "/api/_vitehub/console/usage", "/_vitehub", "/_vitehub/**", "/_vitehub/rpc/**"])
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -809,6 +811,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [config])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -857,6 +860,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -904,6 +908,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -990,6 +995,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
         "/_vitehub",
         "/_vitehub/**",
@@ -2055,7 +2061,7 @@ describe("Agent invocation console", () => {
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const explicit = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const definition: { invocations?: AgentInvocations, name: string } = { name: "support" }
+    const definition = { ...defineAgent({ name: "support", driver: { run: () => "ok" } }) }
     const entries = [{ definition: { default: definition }, fallbackName: "help" }]
 
     installConsoleAgentDefinitions(entries, { invocations: first })
@@ -3331,7 +3337,7 @@ describe("Agent invocation console", () => {
     expect(projected).not.toHaveProperty("totalTokens")
   })
 
-  it("keeps completed sessions without usage in the no-usage state", async () => {
+  it("includes completed sessions while keeping missing usage unavailable", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
       completedAt: "2026-08-27T10:00:00.000Z",
@@ -3347,7 +3353,7 @@ describe("Agent invocation console", () => {
       now: "2026-08-27T12:00:00.000Z",
       window: "24h",
     })).resolves.toMatchObject({
-      available: false,
+      available: true,
       models: [],
       totals: { costAvailable: false, invocations: 1, totalTokensAvailable: false },
     })
