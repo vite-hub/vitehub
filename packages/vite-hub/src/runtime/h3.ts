@@ -46,7 +46,9 @@ export function getRuntimeContext(
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
   const env = getCloudflareEnv(event, { fallback: false })
-  const waitUntil = options.waitUntil?.bind(options) ?? resolveWaitUntil(event, { preferHost: true })
+  const waitUntil = options.waitUntil?.bind(options)
+    ?? options.vercel?.waitUntil?.bind(options.vercel)
+    ?? resolveWaitUntil(event, { preferHost: true })
   const cloudflare = options.cloudflare ?? (env ? { env } : undefined)
   const runtime = options.runtime ?? detectRuntime(!!cloudflare)
   return createRuntimeContext({

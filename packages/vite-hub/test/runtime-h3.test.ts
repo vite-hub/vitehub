@@ -102,6 +102,32 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it.each([false, true])("honors the explicit Vercel lifetime with event lifetime %s", async (withHost) => {
+    const eventOwner = { waitUntil: vi.fn() }
+    const vercel = { waitUntil: vi.fn() }
+    const context = getRuntimeContext({ context: {}, ...(withHost ? eventOwner : {}) }, { runtime: "vercel", vercel })
+    const first = Promise.resolve()
+    const second = Promise.resolve()
+    context.waitUntil(first)
+    context.vercel?.waitUntil?.(second)
+    expect(vercel.waitUntil.mock.calls).toEqual([[first], [second]])
+    expect(vercel.waitUntil.mock.contexts).toEqual([vercel, vercel])
+    expect(eventOwner.waitUntil).not.toHaveBeenCalled()
+    await context.flushWaitUntil()
+  })
+
+  it("uses the top-level lifetime before an explicit Vercel lifetime", async () => {
+    const options = { runtime: "vercel" as const, vercel: { waitUntil: vi.fn() }, waitUntil: vi.fn() }
+    const context = getRuntimeContext({ context: {} }, options)
+    const task = Promise.resolve()
+    context.waitUntil(task)
+    context.vercel?.waitUntil?.(task)
+    expect(options.waitUntil.mock.calls).toEqual([[task], [task]])
+    expect(options.waitUntil.mock.contexts).toEqual([options, options])
+    expect(options.vercel.waitUntil).not.toHaveBeenCalled()
+    await context.flushWaitUntil()
+  })
+
   it("retains failed tasks for an explicit drain without a host lifetime", async () => {
     const context = getRuntimeContext({ context: {} })
     const completed = vi.fn()

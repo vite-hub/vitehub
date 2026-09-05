@@ -203,7 +203,7 @@ const body = {
 } satisfies ConsoleAgentInvocationInput
 ```
 
-History must contain valid ViteHub Messages with `user` or `assistant` roles and unique IDs. The Console preserves message metadata and appends the new prompt as a user Message. It rejects malformed Messages and `system` or `tool` roles before starting the Agent. Omit `messages` for a prompt-only invocation. Each request creates a new invocation; history does not resume a previous runtime session.
+History must contain valid ViteHub Messages with `user` or `assistant` roles and unique IDs. Parts must be `text`, `file`, `image`, or `audio`. The Console preserves message metadata and appends the new prompt as a user Message. It rejects malformed Messages, `system` or `tool` roles, and other parts before starting the Agent. This includes tool calls, tool results, and approval parts nested in user or assistant Messages. Omit `messages` for a prompt-only invocation. Each request creates a new invocation; history does not resume a previous runtime session.
 
 
 Nuxt does not need an SEO module for the `X-Robots-Tag` default. If the app already uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route metadata so its robots and sitemap modules also know that Console pages are not indexable:

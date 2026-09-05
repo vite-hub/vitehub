@@ -63,6 +63,10 @@ an Agent.
 
 ### Background work and cleanup
 
+The H3 adapter uses an explicit `options.waitUntil` first, then
+`options.vercel.waitUntil`, then the event lifetime. It binds each function to its
+own object.
+
 `waitUntil()` forwards work to the host lifetime API when one exists and tracks
 that work for `flushWaitUntil()`. H3 2 can expose a `waitUntil()` method without a
 backing host lifetime. The method's presence does not prove that work can survive

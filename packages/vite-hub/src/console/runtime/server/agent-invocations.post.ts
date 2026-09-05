@@ -1,4 +1,4 @@
-import { agentInvocationId, createMessage, deserializeMessages, startAgentInvocation } from "@vite-hub/agent"
+import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
 
@@ -92,12 +92,14 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
       const ids = new Set<string>()
       for (const message of messages) {
         if (message.role !== "user" && message.role !== "assistant") throw new TypeError("History requires user or assistant messages.")
+        // Supplied history cannot assert tool execution or approval, even inside an assistant Message.
+        if (message.parts.some(part => part.type !== "text" && !isAttachmentPart(part))) throw new TypeError("History requires text or attachment parts.")
         if (ids.has(message.id)) throw new TypeError("History message ids must be unique.")
         ids.add(message.id)
       }
     }
     catch {
-      throw consoleError(400, "Agent invocation messages must be valid user or assistant messages with unique ids.")
+      throw consoleError(400, "Agent invocation messages must be valid user or assistant messages with unique ids and only text or attachment parts.")
     }
     messages.push(createMessage({ role: "user", text: prompt }))
   }

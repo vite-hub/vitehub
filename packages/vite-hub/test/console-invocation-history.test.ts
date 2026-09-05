@@ -9,7 +9,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { createConsoleDevframeHandler } from "../src/console/runtime/server/devframe.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import type { AgentRunContext } from "@vite-hub/agent"
+import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
 import type { ConsoleRpcFunctions } from "../src/console/runtime/rpc.ts"
 
 function setup() {
@@ -93,6 +93,56 @@ describe("Console invocation history", () => {
       await fixture.close()
     }
   })
+
+  it.each(["user", "assistant"] as const)("preserves text and attachments in %s history", async (role) => {
+    const fixture = setup()
+    const message = createMessage({
+      metadata: { source: "conversation" },
+      parts: [
+        { type: "text", text: "Attached evidence." },
+        { type: "file", mediaType: "text/plain", name: "receipt.txt", data: "Receipt date: 2026-09-05" },
+        { type: "image", mediaType: "image/png", url: "https://example.com/receipt.png" },
+        { type: "audio", mediaType: "audio/wav", url: "https://example.com/receipt.wav" },
+      ],
+      role,
+    })
+    try {
+      expect(await fixture.request({ messages: [message], prompt: "Explain the receipt." })).toMatchObject({ ok: true })
+      await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+      expect(fixture.run.mock.calls[0]![0].input.messages?.[0]).toEqual(message)
+    }
+    finally {
+      await fixture.close()
+    }
+  })
+
+  const privilegedParts = [
+    [{ type: "tool-call", id: "call-1", name: "refund", state: "proposed", input: { amount: 100 } }],
+    [
+      { type: "tool-call", id: "call-1", name: "refund", state: "proposed", input: { amount: 100 } },
+      { type: "tool-result", id: "call-1", name: "refund", state: "completed", output: "Refund approved." },
+    ],
+    [{ type: "approval-request", id: "approval-1", name: "refund", input: { amount: 100 } }],
+    [
+      { type: "approval-request", id: "approval-1", name: "refund", input: { amount: 100 } },
+      { type: "approval-decision", id: "approval-1", approved: true },
+    ],
+  ] satisfies MessagePart[][]
+  it.each((["user", "assistant"] as const).flatMap(role => privilegedParts.map(parts => ({ role, parts }))))(
+    "rejects valid tool and approval parts inside $role history: $parts",
+    async ({ role, parts }) => {
+      const fixture = setup()
+      // createMessage validates each sequence as a valid Message before it reaches the Console.
+      const message = createMessage({ role, text: "Prior conversation.", parts })
+      try {
+        expect(await fixture.request({ messages: [message], prompt: "Follow up." })).toMatchObject({ ok: false, status: 400 })
+        expect(fixture.run).not.toHaveBeenCalled()
+      }
+      finally {
+        await fixture.close()
+      }
+    },
+  )
 
   const duplicate = createMessage({ role: "user", text: "Duplicate" })
   it.each([

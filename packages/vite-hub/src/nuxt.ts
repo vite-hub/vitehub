@@ -33,6 +33,7 @@ import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
@@ -98,7 +99,7 @@ type NuxtLike = {
       auth?: AuthModuleOptions
       database?: Parameters<typeof vitehub>[0]["database"]
       kv?: KVModuleOptions
-      queue?: Parameters<typeof vitehub>[0]["queue"]
+      queue?: QueueModuleOptions
       rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
       schedule?: Parameters<typeof vitehub>[0]["schedule"]
       workspace?: Parameters<typeof vitehub>[0]["workspace"]
@@ -665,7 +666,7 @@ async function applyNitroConfig(
     nitro?: Record<string, unknown>
     blob?: Parameters<typeof vitehub>[0]["blob"]
     database?: Parameters<typeof vitehub>[0]["database"]
-    queue?: Parameters<typeof vitehub>[0]["queue"]
+    queue?: QueueModuleOptions
     rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
     schedule?: Parameters<typeof vitehub>[0]["schedule"]
     sandbox?: Parameters<typeof vitehub>[0]["sandbox"]
@@ -874,7 +875,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     kv?: KVModuleOptions
-    queue?: Parameters<typeof vitehub>[0]["queue"]
+    queue?: QueueModuleOptions
   }
   if (envConfig && Object.values(envConfig).some(Boolean)) {
     const existingEnv = viteConfig.env ?? {}
@@ -898,7 +899,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     .filter(root => root !== projectRoot)
   const generatedTypes = [
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
-    ...(options.queue ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/queue.d.ts"))] : []),
+    ...(effectiveQueue ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/queue.d.ts"))] : []),
     ...(options.schedule ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/schedule.d.ts"))] : []),
     ...secondaryProjectRoots
       .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
