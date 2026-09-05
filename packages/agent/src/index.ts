@@ -5941,8 +5941,12 @@ async function executeAgentInvocationWithCapacityLease<
                         else void cancellationTask.catch(() => {})
                         return
                       }
-                      if (outcome.failed) await source.settleCancellation(outcome.error)
-                      await finishPreserved(outcome)
+                      try {
+                        if (outcome.failed) await source.settleCancellation(outcome.error)
+                      }
+                      finally {
+                        await finishPreserved(outcome)
+                      }
                     },
                     {
                       abortSignal: invocation.input.abortSignal,
@@ -7046,8 +7050,15 @@ export async function runScheduledAgent<CALL_OPTIONS = unknown>(
   })
   // Scheduled invocations have no stream consumer. Drain here so completion,
   // capacity release and the final result share the same lifecycle boundary.
-  if (isAsyncIterable(result) || hasTraceableStreamResult(result)) {
-    const stream = isAsyncIterable(result) ? result : streamAgentOutputToEvents(result)
+  if (result instanceof Response) {
+    return { raw: result, text: await result.text() }
+  }
+  if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) {
+    const stream = isAsyncIterable(result)
+      ? result
+      : !hasTraceableStreamResult(result) && isUIMessageStreamResult(result)
+          ? result.toUIMessageStream()
+          : streamAgentOutputToEvents(result)
     const collected = withStreamedResult(stream, result)
     for await (const _event of collected.stream) { /* lifecycle effects run while consuming */ }
     return await collected.finishResult()
