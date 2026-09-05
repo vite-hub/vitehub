@@ -1552,6 +1552,8 @@ function renderGithubActivity(
   }
   const body = sections.join("\n\n")
   if (Buffer.byteLength(body) <= githubActivityBodyLimit) return body
+  // Drop the oldest run before truncating current tasks, results, or errors.
+  if (state.history.length) return renderGithubActivity(activity, { ...state, history: state.history.slice(0, -1) })
   const stateMarker = sections[0]!
   let bounded = stateMarker
   for (const section of sections.slice(1)) {
