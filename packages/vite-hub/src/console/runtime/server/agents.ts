@@ -127,11 +127,11 @@ export function getConsoleAgents(): readonly string[] {
   return (resolveConsoleInvocations() as ConsoleAgentInvocations | undefined)?.[consoleAgentsKey] ?? []
 }
 
-export function getConsoleAgentDefinition(name: string): AgentInput | undefined {
+export function getConsoleAgentDefinition(name: string, access: "invoke" | "inspect" = "invoke"): AgentInput | undefined {
   // SAFETY: The global journal registry may be absent; installConsoleAgentDefinitions owns these metadata fields.
   const invocations = resolveConsoleInvocations() as ConsoleAgentInvocations | undefined
-  if (invocations?.[consoleInvokeEnabledKey] !== true) return undefined
-  return invocations[consoleAgentDefinitionsKey]?.get(name)
+  if (access === "invoke" && invocations?.[consoleInvokeEnabledKey] !== true) return undefined
+  return invocations?.[consoleAgentDefinitionsKey]?.get(name)
 }
 
 export interface ConsoleAgentInvokerProfile {

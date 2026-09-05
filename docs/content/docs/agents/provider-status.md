@@ -5,7 +5,7 @@ description: Inspect provider authentication and subscription quota without runn
 
 Agent Definitions expose `status(context, { abortSignal })` for provider inspection. Built-in Codex and Claude Code Drivers reuse T3's account and quota probes. Inspection does not create an Agent Invocation, send a model prompt, or open a conversation.
 
-The Console shows this evidence on Usage and exposes it through its authenticated `status` RPC operation and `GET /api/_vitehub/console/status`. The optional `agent` query selects a discovered Agent Definition. Console access rules protect this endpoint in production, including when the application uses a custom base path.
+The Console shows this evidence on Usage and exposes it through its authenticated `status` RPC operation and `GET /api/_vitehub/console/status`. The optional `agent` query selects a discovered Agent Definition. Console access rules protect this endpoint in production, including when the application uses a custom base path. Inspection remains available when `console.invoke` is disabled; task execution still requires its explicit opt-in.
 
 A result includes `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. Quota windows contain percentages and reset times. They are separate from monetary usage costs.
 

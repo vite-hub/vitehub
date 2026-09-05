@@ -13,7 +13,7 @@ export default async function statusHandler(event: ConsoleRequestEvent): Promise
   if (name && name.length > 512) throw Object.assign(new Error("Invalid Agent name."), { statusCode: 400 })
   const names = name ? [name] : getConsoleAgents()
   return { agents: await Promise.all(names.map(async name => {
-    const agent = getConsoleAgentDefinition(name)
+    const agent = getConsoleAgentDefinition(name, "inspect")
     if (!agent) throw Object.assign(new Error("Agent status is unavailable."), { statusCode: 404 })
     return readStatus(agent, name)
   })) }

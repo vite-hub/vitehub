@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
+import { getConsoleAgentDefinition, installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import agentInvocationsHandler from "../src/console/runtime/server/agent-invocations.post.ts"
+import statusHandler from "../src/console/runtime/server/status.get.ts"
 import { createConsoleStatusReader } from "../src/console/runtime/server/status.ts"
 import type { AgentInput, AgentProviderStatus } from "@vite-hub/agent"
 
@@ -7,6 +12,22 @@ const agent = (status?: AgentInput["status"]): AgentInput => ({ resolve: vi.fn()
 afterEach(() => vi.useRealTimers())
 
 describe("Console status", () => {
+  it("inspects registered definitions while task execution is disabled", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const create = vi.spyOn(store, "create")
+    const invocations = defineAgentInvocations({ store })
+    const definition = agent(vi.fn(async () => ready))
+    installConsoleInvocations(process.cwd(), invocations)
+    installConsoleAgentDefinitions([{ definition, fallbackName: "bot" }], { invocations })
+
+    expect(getConsoleAgentDefinition("bot")).toBeUndefined()
+    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready] })
+    expect(getConsoleAgentDefinition("bot")).toBeUndefined()
+    await expect(agentInvocationsHandler({ method: "POST", context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
+    expect(definition.resolve).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it("shares concurrent probes and cached results per definition", async () => {
     const probe = vi.fn<NonNullable<AgentInput["status"]>>(async () => ready)
     const definition = agent(probe)
