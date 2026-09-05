@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
-import { access, readFile } from "node:fs/promises"
+import { access, readFile, readdir } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -83,6 +84,44 @@ describe("provider inspection", () => {
     await inspectAgentProvider({ provider: "claude-code", launch }, context())
     expect(launch.mock.calls[0]?.[0]).toMatchObject({ purpose: "inspection", requiredEnvironment: [] })
     await expect(access(launcher)).rejects.toThrow()
+  })
+
+  it.each(["env", "launch"] as const)("cleans inspection resources when a stalled %s resolver ignores cancellation", async (stage) => {
+    const controller = new AbortController()
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    let root = ""
+    const before = new Set(await readdir(tmpdir()))
+    const stalled = () => { entered(); return new Promise<never>(() => {}) }
+    const probe = inspectAgentProvider({
+      provider: "codex", credentials: '{"OPENAI_API_KEY":"stalled-resolver"}',
+      ...(stage === "env" ? { env: stalled } : { launch: (value: { cwd: string }) => { root = value.cwd; return stalled() } }),
+    }, { ...context(), abortSignal: controller.signal })
+    const rejected = expect(probe).rejects.toThrow("inspection cancelled")
+    await started
+    const allocated = (await readdir(tmpdir())).filter(name => !before.has(name) && (name.startsWith("vitehub-codex-process-") || name.startsWith("vitehub-provider-inspection-")))
+    expect(allocated.length).toBeGreaterThan(0)
+    controller.abort(new Error("inspection cancelled"))
+    await rejected
+    for (const name of allocated) await expect(access(join(tmpdir(), name))).rejects.toThrow()
+    if (root) await expect(access(root)).rejects.toThrow()
+    expect(inspectProvider).not.toHaveBeenCalled()
+  })
+
+  it("settles a cancelled credential resolver and ignores its late result", async () => {
+    const controller = new AbortController()
+    let resolveCredentials!: (value: string) => void
+    const credentials = new Promise<string>(resolve => { resolveCredentials = resolve })
+    const env = vi.fn(() => ({}))
+    const probe = inspectAgentProvider({ provider: "codex", credentials: () => credentials, env }, { ...context(), abortSignal: controller.signal })
+    const rejected = expect(probe).rejects.toThrow("inspection cancelled")
+    controller.abort(new Error("inspection cancelled"))
+    await rejected
+    resolveCredentials('{"OPENAI_API_KEY":"late-credentials"}')
+    await credentials
+    await Promise.resolve()
+    expect(env).not.toHaveBeenCalled()
+    expect(inspectProvider).not.toHaveBeenCalled()
   })
 
   it("forwards cancellation and cleans credentials when the probe fails", async () => {

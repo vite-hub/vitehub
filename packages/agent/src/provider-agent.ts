@@ -939,7 +939,7 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     return normalizeCodexCredentials(resolved)
   }
   if (!profile || context.purpose === "inspection") {
-    const credentials = await resolveCredentials()
+    const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
     return { ...await createTemporaryCodexCredentialHome(credentials), scope: codexCredentialSeedHash(credentials) }
   }
 
@@ -989,7 +989,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   let root: string | undefined
   try {
     signal?.throwIfAborted()
-    home = await prepareCodexCredentials(options, context)
+    home = await waitForProviderOperation(prepareCodexCredentials(options, context), signal, async home => { await home?.release() })
     signal?.throwIfAborted()
     if (home?.scope) {
       const recent = recentProviderQuotaFailures.get(home.scope)
@@ -1002,7 +1002,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       const cached = providerStatusCache.get(options)?.get(home.scope)
       if (cached && Date.now() - Date.parse(cached.checkedAt) < 30_000) return { ...cached, agent: context.agentIdentity?.name ?? "agent" }
     }
-    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
+    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
@@ -1014,9 +1014,9 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     if (options.launch !== undefined) {
       root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
       const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
-      const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
+      const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
         ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: home ? ["CODEX_HOME"] : [],
-      }))
+      }), signal))
       signal?.throwIfAborted()
       binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
     }
