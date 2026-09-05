@@ -2,6 +2,7 @@ import type { Message } from "@vite-hub/agent"
 
 export interface ConsoleAgentInvocationInput {
   attachments?: Array<{ id: string, name: string }>
+  files?: Array<{ url: string, filename?: string }>
   invokerProfileId?: string
   messages?: Array<Message & { role: "user" | "assistant" }>
   prompt: string

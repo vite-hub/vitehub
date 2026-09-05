@@ -10,6 +10,7 @@ const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.u
 
 const prefix = "vitehub-console-attachments/"
 const maximumBytes = 10 * 1024 * 1024
+export const consoleAttachmentRequestBytes = Math.ceil(maximumBytes * 4 / 3) + 40960
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
 
 function error(statusCode: number, message: string): Error {
@@ -19,7 +20,10 @@ function error(statusCode: number, message: string): Error {
 /** Validate the entire batch before writing; roll back this request's objects on failure. */
 export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promise<ImagePart[]> {
   assertConsoleRequest(event, ["POST"])
-  const body = await consoleRequestJSON(event, Math.ceil(maximumBytes * 4 / 3) + 40960)
+  return storeConsoleAttachments(await consoleRequestJSON(event, consoleAttachmentRequestBytes))
+}
+
+export async function storeConsoleAttachments(body: unknown): Promise<ImagePart[]> {
   const parsed = v.safeParse(uploadSchema, body)
   if (!parsed.success) throw error(400, "Provide between 1 and 10 image data URLs.")
   let totalBytes = 0

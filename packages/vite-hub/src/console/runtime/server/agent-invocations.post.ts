@@ -1,4 +1,4 @@
-import { consoleInputMessage } from "./attachments.ts"
+import { consoleAttachmentRequestBytes, consoleInputMessage, storeConsoleAttachments } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
@@ -12,7 +12,7 @@ import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages", "attachments"])
+const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages", "attachments", "files"])
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
@@ -74,7 +74,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
 
   let body: Record<string, unknown> | undefined
   try {
-    body = record(await consoleRequestJSON(event))
+    body = record(await consoleRequestJSON(event, consoleAttachmentRequestBytes))
   }
   catch (error) {
     if (error instanceof Error && "statusCode" in error) throw error
@@ -84,8 +84,10 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   const unknown = Object.keys(body).filter(key => !allowedInputKeys.has(key))
   if (unknown.length) throw consoleError(400, `Unsupported Agent invocation field: ${unknown[0]}.`)
 
+  if (body.files !== undefined && body.attachments !== undefined) throw consoleError(400, "Provide files or stored attachments, not both.")
+
   const prompt = stringValue(body.prompt)?.trim() ?? ""
-  if (!prompt && !(Array.isArray(body.attachments) && body.attachments.length)) throw consoleError(400, "Agent invocation requires a prompt.")
+  if (!prompt && !(Array.isArray(body.attachments) && body.attachments.length) && !(Array.isArray(body.files) && body.files.length)) throw consoleError(400, "Agent invocation requires a prompt.")
   let messages: Message[] | undefined
   if (body.messages !== undefined) {
     if (!Array.isArray(body.messages)) throw consoleError(400, "Agent invocation messages must be an array.")
@@ -105,10 +107,6 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     }
 
   }
-  if (body.attachments !== undefined) {
-    messages = [...(messages || []), await consoleInputMessage(prompt, body.attachments)]
-  }
-  else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
   const profileValue = body.invokerProfileId
   let profileId: string | undefined
   if (profileValue !== undefined) {
@@ -118,6 +116,14 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   if (profileId && !consoleAgentInvokerProfiles(agent).some(profile => profile.id === profileId)) {
     throw consoleError(400, "Unknown Agent invocation profile.")
   }
+
+  const attachments = body.files === undefined
+    ? body.attachments
+    : await storeConsoleAttachments({ files: body.files })
+  if (attachments !== undefined) {
+    messages = [...(messages || []), await consoleInputMessage(prompt, attachments)]
+  }
+  else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
 
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
   const controller = await startAgentInvocation(agent, createExecutionContext({
