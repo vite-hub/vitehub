@@ -29,7 +29,11 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => ({
   useWorkspace: serverMocks.useWorkspace,
 }))
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 beforeEach(() => {
   serverMocks.assertAuthOrigin.mockReset().mockResolvedValue({ api: { getSession: serverMocks.getSession } })
@@ -53,6 +57,14 @@ function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean } = {}
 
 function workspaceFacade(fs: Record<string, unknown>, capabilities = { conditionalWrites: true }) {
   return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
+}
+
+function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
+  const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    headers: { upgrade: "websocket" },
+  }) as Request & { runtime?: unknown }
+  request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+  return request
 }
 
 describe("realtime server handler", () => {
@@ -825,6 +837,105 @@ describe("realtime server handler", () => {
     )
   })
 
+  it("retries room initialization after a Workspace read fails", async () => {
+    const stat = vi.fn()
+      .mockRejectedValueOnce(new Error("Workspace read failed"))
+      .mockResolvedValue(undefined)
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat,
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = () => durableRealtimeRequest(exec)
+
+    expect((await handler.fetch(request())).status).toBe(500)
+    const response = await handler.fetch(request()) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(peer)
+    response.crossws.close(peer)
+
+    expect(stat).toHaveBeenCalledTimes(3)
+  })
+
+  it("cleans a failed initial durable snapshot before retrying", async () => {
+    vi.useFakeTimers()
+    const documentDestroy = vi.spyOn(Y.Doc.prototype, "destroy")
+    let failSnapshot = true
+    const exec = vi.fn((query: string) => {
+      if (query.startsWith("INSERT OR REPLACE") && failSnapshot) {
+        failSnapshot = false
+        throw new Error("disk unavailable")
+      }
+      return { toArray: () => [] }
+    })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = () => durableRealtimeRequest(exec)
+
+    expect((await handler.fetch(request())).status).toBe(500)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(documentDestroy).toHaveBeenCalledTimes(1)
+
+    const response = await handler.fetch(request()) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    expect(vi.getTimerCount()).toBe(1)
+    response.crossws.open(peer)
+    response.crossws.close(peer)
+
+    expect(vi.getTimerCount()).toBe(0)
+    expect(documentDestroy).toHaveBeenCalledTimes(2)
+    expect(exec.mock.calls.filter(([query]) => query.startsWith("INSERT OR REPLACE"))).toHaveLength(2)
+  })
+
+  it("shares one pending room initialization and destroys it after its last peer closes", async () => {
+    let releaseRead!: () => void
+    let reportReadStarted!: () => void
+    const readStarted = new Promise<void>((resolve) => { reportReadStarted = resolve })
+    const continueRead = new Promise<void>((resolve) => { releaseRead = resolve })
+    const stat = vi.fn(async () => {
+      reportReadStarted()
+      await continueRead
+      return undefined
+    })
+    const exec = vi.fn((_query: string) => ({ toArray: () => [] }))
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat,
+    }))
+    vi.useFakeTimers()
+    const documentDestroy = vi.spyOn(Y.Doc.prototype, "destroy")
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = () => durableRealtimeRequest(exec)
+
+    const firstRequest = handler.fetch(request())
+    await readStarted
+    const secondRequest = handler.fetch(request())
+    releaseRead()
+    const [first, second] = await Promise.all([firstRequest, secondRequest]) as Array<Response & { crossws: { close(peer: object): void, open(peer: object): void } }>
+    const firstPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const secondPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    first.crossws.open(firstPeer)
+    second.crossws.open(secondPeer)
+
+    first.crossws.close(firstPeer)
+    expect(vi.getTimerCount()).toBe(1)
+    expect(documentDestroy).not.toHaveBeenCalled()
+    second.crossws.close(secondPeer)
+
+    expect(serverMocks.useWorkspace).toHaveBeenCalledTimes(2)
+    expect(stat).toHaveBeenCalledTimes(2)
+    expect(exec.mock.calls.filter(([query]) => query.startsWith("INSERT OR REPLACE"))).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(documentDestroy).toHaveBeenCalledOnce()
+  })
+
   it("does not retain awareness clients from a rejected update", async () => {
     serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
@@ -944,6 +1055,16 @@ describe("realtime transport boundaries", () => {
 })
 
 describe("realtime Workspace documents", () => {
+  it("destroys a document when stored durable state cannot be restored", () => {
+    const destroy = vi.spyOn(Y.Doc.prototype, "destroy")
+
+    expect(() => restoreRealtimeDocument("", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: new Uint8Array([255]).buffer,
+    })).toThrow()
+    expect(destroy).toHaveBeenCalledOnce()
+  })
+
   it("opens a new path as an empty document", async () => {
     const readFile = vi.fn()
     const result = await readRealtimeWorkspaceDocument(

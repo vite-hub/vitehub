@@ -293,8 +293,14 @@ export function restoreRealtimeDocument(markdown: string, baselineDigest: string
   const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
   if (!update || storedDigest !== baselineDigest) return markdownToYDoc(markdown)
   const document = new Y.Doc()
-  Y.applyUpdate(document, update)
-  return document
+  try {
+    Y.applyUpdate(document, update)
+    return document
+  }
+  catch (error) {
+    document.destroy()
+    throw error
+  }
 }
 
 function canRestoreRealtimeDocument(baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): boolean {
@@ -495,38 +501,46 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           : undefined
         const restoresStoredDocument = workspaceDocument && canRestoreRealtimeDocument(initial.baselineDigest, stored)
         const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
-        const storedUpdates = restoresStoredDocument && sql
-          ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-          : []
-        for (const row of storedUpdates) {
-          const update = storedUpdate(row.update_blob)
-          if (update) Y.applyUpdate(document, update)
-        }
-        assertRealtimeRoomStateQuota(document)
-        const awareness = new awarenessProtocol.Awareness(document)
-        awareness.setLocalState(null)
-        const value: Room = {
-          awareness,
-          awarenessClientOwners: new Map(),
-          baselineDigest: initial.baselineDigest,
-          channel: `vitehub:realtime:${key}`,
-          document,
-          durableReady: !!sql || !!initial.baselineDigest,
-          key,
-          mutated: false,
-          peers: new Set(),
-          persistedUpdates: storedUpdates.length,
-          sql: workspaceDocument ? sql : undefined,
-        }
-        value.document.on("update", (update: Uint8Array, origin: unknown) => {
-          value.mutated = true
-          persistRoomUpdate(value, update)
-          if (origin && typeof origin === "object" && "publish" in origin) {
-            (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
+        let awareness: awarenessProtocol.Awareness | undefined
+        try {
+          const storedUpdates = restoresStoredDocument && sql
+            ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+            : []
+          for (const row of storedUpdates) {
+            const update = storedUpdate(row.update_blob)
+            if (update) Y.applyUpdate(document, update)
           }
-        })
-        if (value.sql && !restoresStoredDocument) persistRoom(value)
-        return value
+          assertRealtimeRoomStateQuota(document)
+          awareness = new awarenessProtocol.Awareness(document)
+          awareness.setLocalState(null)
+          const value: Room = {
+            awareness,
+            awarenessClientOwners: new Map(),
+            baselineDigest: initial.baselineDigest,
+            channel: `vitehub:realtime:${key}`,
+            document,
+            durableReady: !!sql || !!initial.baselineDigest,
+            key,
+            mutated: false,
+            peers: new Set(),
+            persistedUpdates: storedUpdates.length,
+            sql: workspaceDocument ? sql : undefined,
+          }
+          value.document.on("update", (update: Uint8Array, origin: unknown) => {
+            value.mutated = true
+            persistRoomUpdate(value, update)
+            if (origin && typeof origin === "object" && "publish" in origin) {
+              (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
+            }
+          })
+          if (value.sql && !restoresStoredDocument) persistRoom(value)
+          return value
+        }
+        catch (error) {
+          awareness?.destroy()
+          document.destroy()
+          throw error
+        }
       })()
       rooms.set(key, room)
       room.catch(() => {
