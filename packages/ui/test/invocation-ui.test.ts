@@ -2699,6 +2699,18 @@ describe("Agent Invocation UI", () => {
     expect(groups[1]!.get(".vh-invocation-lifecycle__label").attributes("data-operation")).toBe("remove");
   });
 
+  it("renders historical tool catalogs that contain journal truncation markers", () => {
+    const invocation: AgentInvocationView = {
+      id: "truncated-tools", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      status: "failed", observations: [],
+      configuration: JSON.parse('{"tools":[{"name":"search"},"[truncated]",{},null,{"name":"exec"}]}'),
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.text()).toContain("search");
+    expect(wrapper.text()).toContain("exec");
+    expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
+  });
+
   it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {

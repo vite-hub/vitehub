@@ -1324,6 +1324,24 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("retains a full multi-capability tool catalog within the configuration budget", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("large-tool-catalog"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    const tools = Array.from({ length: 40 }, (_, index) => ({
+      name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file.",
+      inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path" } }, required: ["path"] },
+      outputSchema: { type: "object", properties: { content: { type: "string" } } },
+    }))
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { tools },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("large-tool-catalog"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ tools })
+    expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+  })
+
   it("marks bounded Agent configuration as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))

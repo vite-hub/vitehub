@@ -395,6 +395,7 @@ function normalizedTimestamp(value: Date | string): string {
 interface ObservationBudget {
   items: number
   maxDepth?: number
+  collectionItems?: number
   stringLength: number
   truncated: boolean
 }
@@ -551,7 +552,7 @@ function boundedObservationValue(
     return "[truncated]"
   }
   if (Array.isArray(value)) {
-    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    const length = Math.min(value.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
       if (!Object.hasOwn(value, index)) {
@@ -577,7 +578,7 @@ function boundedObservationValue(
   if (value instanceof Map) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
-    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -591,7 +592,7 @@ function boundedObservationValue(
   if (value instanceof Set) {
     budget.truncated = true
     const entries: unknown[] = []
-    const limit = Math.min(MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -601,12 +602,12 @@ function boundedObservationValue(
   }
   if (value instanceof ArrayBuffer) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
     return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
   }
   if (ArrayBuffer.isView(value)) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
     return {
       bytes: boundedObservationValue(
         Array.from(new Uint8Array(value.buffer, value.byteOffset, length)),
@@ -637,7 +638,7 @@ function boundedObservationValue(
     for (const [key, child] of Object.entries(value)) {
       if (key !== "cause" && key !== "errors") details.push([key, child])
     }
-    const length = Math.min(details.length, MAX_OBSERVATION_COLLECTION_ITEMS)
+    const length = Math.min(details.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS))
     if (length < details.length) budget.truncated = true
     return Object.fromEntries(details.slice(0, length).map(([key, child]) => [
       boundedString(key),
@@ -656,7 +657,7 @@ function boundedObservationValue(
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const entries = Object.entries(value as Record<string, unknown>)
-  const length = Math.min(entries.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+  const length = Math.min(entries.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
   if (length < entries.length) budget.truncated = true
   return Object.fromEntries(entries
     .slice(0, length)
@@ -689,14 +690,18 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
-  const maxDepth = budget.maxDepth
-  if (key === "vitehub.agent.configuration") budget.maxDepth = MAX_AGENT_CONFIGURATION_DEPTH
-  try {
-    return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
+  if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
+  const configurationBudget: ObservationBudget = {
+    items: 16_384,
+    collectionItems: MAX_CAPABILITY_IDS,
+    maxDepth: MAX_AGENT_CONFIGURATION_DEPTH,
+    stringLength: budget.stringLength,
+    truncated: false,
   }
-  finally {
-    budget.maxDepth = maxDepth
-  }
+  const configuration = boundedObservationValue(value, configurationBudget, 0, maxStringLength, builtIns)
+  budget.stringLength = configurationBudget.stringLength
+  budget.truncated ||= configurationBudget.truncated
+  return configuration
 }
 
 function boundedObservation(
@@ -1353,6 +1358,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const configuredObservationLimits = observationLimits(options.observations)
   const content = options.content || "metadata"
   const metadataContent = new Set(options.metadataContent || [])
+  if (options.configuration === "content") metadataContent.add("vitehub.agent.configuration")
   const store = options.store
   const invocations: BoundAgentInvocations = {
     [agentInvocationsBrand]: true,

@@ -1124,6 +1124,9 @@ function inspectorDisclosure(
 }
 
 function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
+  const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
+  const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
+  configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
