@@ -14,6 +14,7 @@ interface ConsoleAgentProfile {
 }
 
 const invocationResultSchema = v.object({ id: v.string() });
+const uploadedAttachmentsSchema = v.array(v.object({ id: v.string(), name: v.string() }));
 
 const props = defineProps<{
   agent: string;
@@ -63,12 +64,11 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
       prompt: message.text,
     };
     if (message.files?.length) {
-      body.attachments = [];
-      for (const file of message.files) {
-        const uploaded = await requestConsole(`${props.base.replace(/\/agents$/, "")}/attachments`, { method: "POST", body: file });
-        const parsed = v.parse(invocationResultSchema, uploaded);
-        body.attachments.push({ id: parsed.id, name: file.filename?.slice(0, 255) || "image" });
-      }
+      const uploaded = await requestConsole(`${props.base.replace(/\/agents$/, "")}/attachments`, {
+        method: "POST",
+        body: { files: message.files },
+      });
+      body.attachments = v.parse(uploadedAttachmentsSchema, uploaded);
     }
     if (selectedProfileId.value) body.invokerProfileId = selectedProfileId.value;
     const response = await requestConsole(

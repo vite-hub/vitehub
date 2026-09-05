@@ -5,7 +5,7 @@ import { assertConsoleRequest, consoleRequestJSON } from "./request.ts"
 import type { ImagePart } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 
-const uploadSchema = v.object({ url: v.string(), filename: v.optional(v.string(), "image") })
+const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string(), filename: v.optional(v.string(), "image") })), v.minLength(1), v.maxLength(10)) })
 const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
 
 const prefix = "vitehub-console-attachments/"
@@ -16,29 +16,53 @@ function error(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode, statusMessage: message })
 }
 
-/** Store bytes before starting an invocation. Only durable references enter its journal. */
-export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promise<ImagePart> {
+/** Validate the entire batch before writing; roll back this request's objects on failure. */
+export async function consoleAttachmentUpload(event: ConsoleRequestEvent): Promise<ImagePart[]> {
   assertConsoleRequest(event, ["POST"])
-  const body = await consoleRequestJSON(event, Math.ceil(maximumBytes * 4 / 3) + 4096)
+  const body = await consoleRequestJSON(event, Math.ceil(maximumBytes * 4 / 3) + 40960)
   const parsed = v.safeParse(uploadSchema, body)
-  if (!parsed.success) throw error(400, "An image data URL is required.")
-  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(parsed.output.url)
-  if (!match || !imageTypes.has(match[1]!)) throw error(415, "Use a PNG, JPEG, WebP, or GIF image.")
-  const bytes = Buffer.from(match[2]!, "base64")
-  if (!bytes.length || bytes.length > maximumBytes) throw error(413, "Images must be between 1 byte and 10 MiB.")
-  const id = crypto.randomUUID()
-  const name = parsed.output.filename.slice(0, 255)
+  if (!parsed.success) throw error(400, "Provide between 1 and 10 image data URLs.")
+  let totalBytes = 0
+  const files = parsed.output.files.map(file => {
+    const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(file.url)
+    if (!match || !imageTypes.has(match[1]!)) throw error(415, "Use a PNG, JPEG, WebP, or GIF image.")
+    const bytes = Buffer.from(match[2]!, "base64")
+    totalBytes += bytes.length
+    if (!bytes.length || totalBytes > maximumBytes) throw error(413, "Images must be non-empty and total at most 10 MiB.")
+    return { bytes, mediaType: match[1]!, name: file.filename.slice(0, 255) }
+  })
   let storage: ReturnType<typeof getConsoleBlob>["storage"]
   try { storage = getConsoleBlob().storage }
   catch { throw error(503, "Configure ViteHub Blob storage to send and retain Console attachments.") }
-  const [failure, stored] = await storage.put(`${prefix}${id}`, bytes, { contentType: match[1] })
-  if (failure) throw failure
-  if (!stored.url) {
-    const [cleanupError] = await storage.del(`${prefix}${id}`)
-    if (cleanupError) throw cleanupError
-    throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
+  const paths: string[] = []
+  const attachments: ImagePart[] = []
+  try {
+    for (const file of files) {
+      const id = crypto.randomUUID()
+      const path = `${prefix}${id}`
+      // Include the attempted write: providers may store bytes before reporting an error.
+      paths.push(path)
+      const [failure, stored] = await storage.put(path, file.bytes, { contentType: file.mediaType })
+      if (failure) throw failure
+      if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
+      attachments.push({ id, mediaType: file.mediaType, name: file.name, size: file.bytes.length, type: "image", url: stored.url })
+    }
+    return attachments
   }
-  return { id, mediaType: match[1]!, name, size: bytes.length, type: "image", url: stored.url }
+  catch (failure) {
+    const cleanupErrors: Error[] = []
+    for (const path of paths) {
+      try {
+        const [cleanupError] = await storage.del(path)
+        if (cleanupError) cleanupErrors.push(cleanupError)
+      }
+      catch (cleanupError) {
+        cleanupErrors.push(cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)))
+      }
+    }
+    if (cleanupErrors.length) throw new AggregateError([failure, ...cleanupErrors], "Attachment upload failed and some uploaded objects could not be removed.")
+    throw failure
+  }
 }
 
 export async function consoleInputMessage(prompt: string, attachments: unknown): Promise<ReturnType<typeof createMessage>> {

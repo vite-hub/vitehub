@@ -1,21 +1,27 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import { blob } from "../../blob/src/runtime/storage.ts"
 import { blobError } from "../../blob/src/errors.ts"
-import { setBlobRuntimeConfig } from "../../blob/src/runtime/state.ts"
+import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 import { consoleAttachmentUpload, consoleInputMessage } from "../src/console/runtime/server/attachments.ts"
 
 const dirs: string[] = []
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }) })
+afterEach(async () => {
+  setBlobRuntimeStorage(undefined)
+  setBlobRuntimeConfig(undefined)
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII="
-const upload = (url: string) => consoleAttachmentUpload({ method: "POST", req: { json: async () => ({ url, filename: "test.png" }) } })
+const uploadBatch = (files: Array<{ url: string, filename?: string }>) => consoleAttachmentUpload({ method: "POST", req: { json: async () => ({ files }) } })
+const upload = async (url: string) => (await uploadBatch([{ url, filename: "test.png" }]))[0]!
 
 it("retains image bytes and metadata across storage restart without embedding bytes in the message", async () => {
   const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
   const connect = () => {
+    setBlobRuntimeStorage(undefined)
     setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
     installConsoleBlob(base, {
       ...blob,
@@ -64,14 +70,89 @@ it("surfaces a rejected upload's cleanup failure", async () => {
     async del() { return [cleanupError, undefined] },
   })
 
-  await expect(upload(`data:image/png;base64,${png}`)).rejects.toBe(cleanupError)
+  await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ errors: [expect.objectContaining({ statusCode: 503 }), cleanupError] })
 })
 
 it.each([null, [], "image", {}, { url: 123 }])("rejects malformed upload bodies: %j", async (body) => {
   await expect(consoleAttachmentUpload({ method: "POST", req: { json: async () => body } }))
-    .rejects.toMatchObject({ statusCode: 400, message: "An image data URL is required." })
+    .rejects.toMatchObject({ statusCode: 400, message: "Provide between 1 and 10 image data URLs." })
 })
 
 it.each([[123], [null], [{}], ["../../secret"]])("rejects invalid attachment IDs: %j", async (id) => {
   await expect(consoleInputMessage("", [id])).rejects.toMatchObject({ statusCode: 400, message: "Invalid attachment ID." })
+})
+
+it("validates all files and the combined budget before writing any objects", async () => {
+  const put = vi.fn(blob.put)
+  installConsoleBlob("/batch-validation", { ...blob, put })
+  const file = { url: `data:image/png;base64,${png}` }
+  await expect(uploadBatch([file, { url: "data:text/html;base64,PHNjcmlwdD4=" }])).rejects.toMatchObject({ statusCode: 415 })
+  await expect(uploadBatch(Array.from({ length: 11 }, () => file))).rejects.toMatchObject({ statusCode: 400 })
+  await expect(uploadBatch([])).rejects.toMatchObject({ statusCode: 400 })
+  const large = { url: `data:image/png;base64,${Buffer.alloc(6 * 1024 * 1024).toString("base64")}` }
+  await expect(uploadBatch([large, large])).rejects.toMatchObject({ statusCode: 413 })
+  expect(put).not.toHaveBeenCalled()
+})
+
+it("rolls back a partially written batch without deleting an earlier successful upload", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, blob)
+  const retained = await upload(`data:image/png;base64,${png}`)
+  const failure = blobError("BLOB_OPERATION_FAILED", "put", "default")
+  let writes = 0
+  installConsoleBlob(base, {
+    ...blob,
+    async put(path, bytes, options) {
+      const result = await blob.put(path, bytes, options)
+      // Simulate a provider error after the second object's bytes were written.
+      if (++writes === 2) return [failure, undefined]
+      return result
+    },
+  })
+  await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toBe(failure)
+  const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  expect(listError).toBeNull()
+  expect(result?.blobs.map(item => item.pathname)).toEqual([`vitehub-console-attachments/${retained.id}`])
+})
+
+it("attempts every rollback even when one deletion fails", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  const failure = new Error("Upload interrupted")
+  const cleanupError = blobError("BLOB_OPERATION_FAILED", "del", "default")
+  let writes = 0
+  let deletions = 0
+  const del = vi.fn(async (path: string | string[]) => {
+    if (++deletions === 1) throw cleanupError
+    return blob.del(path)
+  })
+  installConsoleBlob(base, {
+    ...blob,
+    del,
+    async put(path, bytes, options) {
+      if (++writes === 2) throw failure
+      return blob.put(path, bytes, options)
+    },
+  })
+  await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toMatchObject({ errors: [failure, cleanupError] })
+  expect(del).toHaveBeenCalledTimes(2)
+})
+
+it("returns durable references for every file in a successful batch", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, blob)
+  const parts = await uploadBatch([
+    { url: `data:image/png;base64,${png}`, filename: "first.png" },
+    { url: `data:image/png;base64,${png}`, filename: "second.png" },
+  ])
+  expect(parts.map(part => part.name)).toEqual(["first.png", "second.png"])
+  expect(new Set(parts.map(part => part.id)).size).toBe(2)
+  setBlobRuntimeStorage(undefined)
+  const message = await consoleInputMessage("both images", parts)
+  expect(message.parts.map(part => part.type)).toEqual(["text", "image", "image"])
+  for (const part of message.parts) {
+    if (part.type === "image") expect(await part.fetchData!()).toBeInstanceOf(Blob)
+  }
 })
