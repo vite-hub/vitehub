@@ -2701,7 +2701,7 @@ describe("Agent Invocation UI", () => {
 
   it("renders historical tool catalogs that contain journal truncation markers", () => {
     const invocation: AgentInvocationView = {
-      id: "truncated-tools", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      id: "truncated-tools", traceId: "truncated-tools", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "failed", observations: [],
       configuration: JSON.parse('{"tools":[{"name":"search"},"[truncated]",{},null,{"name":"exec"}]}'),
     };
