@@ -92,7 +92,12 @@ export async function requestConsole(
     signal?: AbortSignal
   } = {},
 ): Promise<unknown> {
+  const url = new URL(path, "http://vitehub.local")
   const query: Record<string, string | string[]> = {}
+  for (const key of new Set(url.searchParams.keys())) {
+    const values = url.searchParams.getAll(key)
+    query[key] = values.length === 1 ? values[0]! : values
+  }
   for (const [key, value] of Object.entries(options.query ?? {})) {
     if (value === undefined) continue
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
