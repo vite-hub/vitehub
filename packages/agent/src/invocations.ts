@@ -698,7 +698,7 @@ function boundedObservationAttributeValue(
     stringLength: maxStringLength,
     truncated: false,
   }
-  const configuration = boundedObservationValue(value, configurationBudget, 0, Math.min(maxStringLength, MAX_OBSERVATION_CONTENT_STRING_LENGTH), builtIns)
+  const configuration = boundedObservationValue(value, configurationBudget, 0, maxStringLength, builtIns)
   budget.truncated ||= configurationBudget.truncated
   return configuration
 }

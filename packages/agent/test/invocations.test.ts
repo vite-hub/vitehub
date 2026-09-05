@@ -1345,6 +1345,20 @@ describe("Agent Invocations", () => {
     expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
   })
 
+  it("retains individual configuration strings above the default limit when explicitly allowed", async () => {
+    const instructions = ["x".repeat(100 * 1024)]
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 1024 * 1024 }, store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("long-configuration-string"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { instructions },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("long-configuration-string"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ instructions })
+    expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+  })
+
   it("constrains retained configuration to an explicit string budget", async () => {
     const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 4096 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("limited-configuration"))
