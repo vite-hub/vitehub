@@ -3550,9 +3550,9 @@ async function createAgentInvocationContext<
       runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace) }
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparationController = new AbortController()
     input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,

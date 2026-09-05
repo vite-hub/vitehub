@@ -57,7 +57,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
   const sessionUrl = options.sessionUrl ?? (options.console ? ({ agentName, id }: { agentName: string, id: string }) => {
-    const origin = typeof options.console!.origin === "function" ? options.console!.origin(agentName) : options.console!.origin
+    const origin = hasRuntimeType(options.console!.origin, "function") ? options.console!.origin(agentName) : options.console!.origin
     const base = (options.console!.base ?? "/_vitehub").replace(/\/$/, "")
     return new URL(`${base}/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, origin).href
   } : undefined)
