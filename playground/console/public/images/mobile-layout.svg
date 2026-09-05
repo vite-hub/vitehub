@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="780" viewBox="0 0 360 780">
+<rect width="360" height="780" fill="#080808"/>
+<g fill="#eee" font-family="sans-serif"><text x="24" y="38" font-size="16">ViteHub</text><text x="24" y="110" font-size="22">Activity</text><text x="24" y="141" fill="#888" font-size="12">Synthetic Console layout</text></g>
+<rect x="24" y="168" width="312" height="120" rx="8" fill="#131313"/>
+<path d="M40 263 L102.0 246 L180.0 252 L258.0 217 L320 192" fill="none" stroke="#60a5fa" stroke-width="3"/>
+<g fill="#202020"><rect x="24" y="320" width="312" height="1"/><rect x="24" y="386" width="312" height="1"/><rect x="24" y="452" width="312" height="1"/></g>
+<g fill="#b8b8b8" font-family="sans-serif" font-size="14"><text x="24" y="355">Review navigation</text><text x="24" y="421">Check image previews</text><text x="24" y="487">Verify keyboard access</text></g>
+</svg>

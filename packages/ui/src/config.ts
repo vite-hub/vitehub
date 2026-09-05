@@ -37,6 +37,7 @@ const runtimeComponents = {
   UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
   UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
   UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+  UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
 };
 
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");

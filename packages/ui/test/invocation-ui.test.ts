@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { createSSRApp, h, nextTick } from "vue";
+import { createSSRApp, defineComponent, h, nextTick } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
@@ -184,20 +184,24 @@ describe("Agent Invocation UI", () => {
       { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
       { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
       { filename: "inline.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,c2FmZQ==" },
+      { filename: "retained.png", mediaType: "image/png", type: "file", url: "/files/retained-image" },
+      { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "javascript:alert(1)" },
       { mediaType: "text/html", type: "file", url: "data:text/html,<script>alert(1)</script>" },
     ];
-    const wrapper = mount(AgentMessageParts, { props: { parts } });
+    const wrapper = mount(AgentMessageParts, {
+      global: { components: { UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }) } },
+      props: { parts },
+    });
 
     expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual([
       "https://example.com/safe.txt",
-      "data:image/png;base64,c2FmZQ==",
     ]);
-    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ==", "/files/retained-image"]);
     expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
-    expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
-    expect(wrapper.get("img").attributes("alt")).toBe("");
+    expect(wrapper.get("img").attributes("alt")).toBe("inline.png");
     expect(wrapper.text()).toContain("unsafe.txt");
-    expect(wrapper.text()).toContain("inline.png");
+    expect(wrapper.get('[aria-label="Preview inline.png"]').attributes("type")).toBe("button");
+    expect(wrapper.text()).toContain("unsafe.png");
     expect(wrapper.text()).toContain("text/html");
   });
 

@@ -226,11 +226,115 @@
   text-decoration: none;
 }
 
-.vh-attachment__preview {
-  aspect-ratio: 1;
-  border-radius: calc(var(--vh-ui-radius) * 0.7);
-  height: 2.5rem;
+.vh-image-preview {
+  appearance: none;
+  aspect-ratio: 4 / 3;
+  background: var(--vh-ui-bg-elevated);
+  border: 1px solid var(--vh-ui-border);
+  border-radius: 0.5rem;
+  color: var(--vh-ui-muted);
+  cursor: zoom-in;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  vertical-align: top;
+  width: 13rem;
+}
+
+.vh-image-preview:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
+.vh-image-preview img {
+  display: block;
+  height: 100%;
   object-fit: cover;
+  width: 100%;
+}
+
+.vh-typeset p:has(> .vh-image-preview:only-child) {
+  display: inline-block;
+  margin: 0.5rem 0.5rem 0 0;
+  max-width: calc(50% - 0.5rem);
+  vertical-align: top;
+}
+
+.vh-image-preview--compact {
+  aspect-ratio: 1;
+  border: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.vh-image-unavailable {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+}
+
+.vh-image-overlay {
+  background: rgb(0 0 0 / 80%);
+  z-index: 59;
+}
+
+.vh-image-dialog {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  max-height: 92dvh;
+  max-width: 92vw;
+  overflow: visible;
+  width: max-content;
+  z-index: 60;
+}
+
+.vh-image-dialog__toolbar {
+  align-items: center;
+  border: 0;
+  color: white;
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
+  padding-bottom: 0.5rem;
+}
+
+.vh-image-dialog__name {
+  flex: 1;
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-image-dialog__action {
+  color: white;
+  flex: none;
+}
+
+.vh-image-dialog__action:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.vh-image-dialog__image {
+  border-radius: 0.5rem;
+  display: block;
+  max-height: calc(92dvh - 3rem);
+  max-width: 92vw;
+  object-fit: contain;
+}
+
+.vh-image-dialog__error {
+  background: black;
+  border-radius: 0.5rem;
+  color: white;
+  font-size: 0.875rem;
+  max-width: 24rem;
+  padding: 2rem;
 }
 
 .vh-attachment__name {
@@ -254,7 +358,7 @@
   gap: 0.5rem;
 }
 
-.vh-prompt__attachment button {
+.vh-prompt__attachment-remove {
   appearance: none;
   background: transparent;
   border: 0;
@@ -273,13 +377,7 @@
   width: 4rem;
 }
 
-.vh-prompt__attachment-preview {
-  height: 100%;
-  object-fit: cover;
-  width: 100%;
-}
-
-.vh-prompt__attachment--image button {
+.vh-prompt__attachment--image .vh-prompt__attachment-remove {
   align-items: center;
   background: color-mix(in oklab, black 65%, transparent);
   border-radius: 9999px;

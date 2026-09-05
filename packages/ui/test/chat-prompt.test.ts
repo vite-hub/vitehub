@@ -102,6 +102,7 @@ const global = {
     UButton: ButtonStub,
     UChatPrompt: TrimGuardPrompt,
     UChatPromptSubmit: ChatPromptSubmitStub,
+    UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }),
   },
 };
 
@@ -201,7 +202,7 @@ describe("AgentChatPrompt", () => {
     expect(wrapper.emitted("error")).toEqual([[error]]);
   });
 
-  it("previews image attachments above the editor", () => {
+  it("previews image attachments above the editor with a separate remove control", async () => {
     const wrapper = mount(AgentChatPrompt, {
       global,
       props: {
@@ -220,6 +221,11 @@ describe("AgentChatPrompt", () => {
       alt: "preview.png",
       src: "data:image/png;base64,aW1hZ2U=",
     });
+    expect(wrapper.get('[aria-label="Preview preview.png"]').attributes("type")).toBe("button");
+    expect(wrapper.find("button button").exists()).toBe(false);
+    await wrapper.get('[aria-label="Remove preview.png"]').trigger("click");
+    expect(wrapper.emitted("update:files")).toEqual([[[]]]);
+    expect(wrapper.emitted("submit")).toBeUndefined();
   });
 
   it.each([
