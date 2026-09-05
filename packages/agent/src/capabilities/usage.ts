@@ -32,8 +32,8 @@ export function usage(options: UsageOptions = {}): AgentCapabilityDefinition {
     id: "usage",
     instructionCoverage: false,
     metadata: {
-      costSupported: pricing !== undefined,
       kind: "usage",
+      pricing: pricing !== undefined,
     },
     configure(context) {
       context.modelExecution.instrument({

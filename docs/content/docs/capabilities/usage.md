@@ -72,7 +72,7 @@ Pass `pricing: false` when the application needs tokens without estimated cost.
 capabilities: [usage({ pricing: false })]
 ```
 
-The Capability exposes whether pricing is configured in `metadata.costSupported`. The Console uses this flag before recorded cost is available. Provider-recorded cost remains available when pricing is disabled.
+The Capability exposes whether pricing is configured in `metadata.pricing`. The Console uses this flag before recorded cost is available. Provider-recorded cost remains available when pricing is disabled.
 
 Pass `pricing` when the application owns its rates or provider mapping. Return exact USD as a decimal string. ViteHub derives the display value.
 
