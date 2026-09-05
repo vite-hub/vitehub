@@ -8,6 +8,8 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
+import { createConsoleUsageIndex } from "./usage-index.ts"
+
 import {
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
@@ -80,6 +82,12 @@ export interface ConsoleInvocationsDatabase {
   schema: typeof consoleInvocationSchema
 }
 
+const consoleUsageIndexes = new WeakMap<AgentInvocations, ReturnType<typeof createConsoleUsageIndex>>()
+
+export function getConsoleUsageIndex(invocations: AgentInvocations): ReturnType<typeof createConsoleUsageIndex> | undefined {
+  return consoleUsageIndexes.get(invocations)
+}
+
 const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocationsDatabase>()
 
 export function getConsoleInvocations(): AgentInvocations {
@@ -141,6 +149,7 @@ export function createConsoleInvocations(projectRoot: string): AgentInvocations 
       maxRecords: false,
     }),
   })
+  consoleUsageIndexes.set(invocations, createConsoleUsageIndex(client))
   consoleInvocationDatabases.set(invocations, {
     db: drizzle(client, { schema: consoleInvocationSchema }),
     schema: consoleInvocationSchema,
