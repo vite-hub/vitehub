@@ -91,6 +91,12 @@ function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"
 
 const optionalAgentRuntimeExternals = ["@anthropic-ai/claude-agent-sdk", "bufferutil", "utf-8-validate", "zlib-sync"]
 
+const rolldownExternalCases = [
+  { name: "array", external: ["existing", () => true, /^node:/], expected: ["existing", /^node:/] },
+  { name: "string", external: "existing", expected: ["existing"] },
+  { name: "RegExp", external: /^node:/, expected: [/^node:/] },
+]
+
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
@@ -549,7 +555,7 @@ describe("agent Vite plugin", () => {
     }
   }, 60_000)
 
-  it("normalizes the final server environment externals for Rolldown", async () => {
+  it.each(rolldownExternalCases)("normalizes $name externals in the final server environment", async ({ external, expected }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const hook = plugin.configEnvironment
@@ -557,7 +563,7 @@ describe("agent Vite plugin", () => {
     const config = {
       build: {
         rolldownOptions: {
-          external: ["existing", () => true, /^node:/],
+          external,
           input: ["server-entry"],
           output: {
             plugins: [outputPlugin],
@@ -583,7 +589,7 @@ describe("agent Vite plugin", () => {
     })
     // SAFETY: The server environment hook returns a Vite configuration fragment.
     expect(mergeConfig(config, result as never).build.rolldownOptions).toEqual({
-      external: ["existing", /^node:/],
+      external: expected,
       input: ["server-entry"],
       output: {
         plugins: [outputPlugin],
@@ -1885,14 +1891,14 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("installs automatic Cloudflare chat state for Cloudflare hosting", async () => {
+  it.each(rolldownExternalCases)("installs automatic Cloudflare chat state with $name externals", async ({ external, expected }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const outputPlugin = { name: "output-plugin" }
     const config = {
       build: {
         rolldownOptions: {
-          external: ["existing", () => true],
+          external,
           input: ["server-entry"],
           output: {
             plugins: [outputPlugin],
@@ -1959,7 +1965,7 @@ describe("agent Vite plugin", () => {
       },
     })
     expect(mergeConfig(config, output).build.rolldownOptions).toEqual({
-      external: ["existing", ...optionalAgentRuntimeExternals],
+      external: [...expected, ...optionalAgentRuntimeExternals],
       input: ["server-entry"],
       output: {
         plugins: [outputPlugin],

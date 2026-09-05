@@ -661,9 +661,11 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
   const build = config.build ?? {}
   const configuredExternal = build.rolldownOptions?.external
-  if (Array.isArray(configuredExternal)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite can merge scalar and array externals; normalize both before returning additions.
+  const external = typeof configuredExternal === "string" || configuredExternal instanceof RegExp ? [configuredExternal] : configuredExternal
+  if (Array.isArray(external)) {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
-    const supportedExternal = configuredExternal.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
+    const supportedExternal = external.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
     if (build.rolldownOptions) build.rolldownOptions.external = supportedExternal
     return {
       rolldownOptions: {
