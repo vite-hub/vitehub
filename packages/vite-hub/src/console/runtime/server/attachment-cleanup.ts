@@ -70,11 +70,12 @@ async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string): 
   const [failure, blob] = await storage.get(pathname)
   if (failure) throw failure
   if (!blob) return undefined
-  let data: unknown
-  try { data = JSON.parse(await blob.text()) }
-  catch { return undefined }
+  // An unreadable record may still own pending deletions. Fail closed so its
+  // images cannot be reused and then removed when a later retry reads it.
+  const data: unknown = JSON.parse(await blob.text())
   const parsed = v.safeParse(v.pipe(v.array(idSchema), v.minLength(1), v.maxLength(10)), data)
-  return parsed.success ? parsed.output : undefined
+  if (!parsed.success) throw new Error("Invalid attachment cleanup batch record")
+  return parsed.output
 }
 
 /** Batch records must also prevent an abandoned image from gaining a new owner. */

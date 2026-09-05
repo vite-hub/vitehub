@@ -162,3 +162,36 @@ it("retains the whole batch if a later deletion fails", async () => {
   await retryConsoleAttachmentCleanup(connect(base))
   expect((await storage.list())[1]?.blobs).toEqual([])
 })
+
+it("rejects reuse when reading a batch body fails and recovers on retry", async () => {
+  const { base, storage } = await fixture()
+  const abandoned = [path(), path()]
+  for (const object of abandoned) await storage.put(object, "image")
+  await rollbackConsoleAttachments({ ...storage, async del() { throw new Error("Deletion unavailable") } }, abandoned)
+  const failure = new Error("Body stream interrupted")
+  const unreadable = {
+    ...storage,
+    async get(pathname: string) {
+      const result = await storage.get(pathname)
+      if (result[1]) result[1].text = async () => { throw failure }
+      return result
+    },
+  }
+  for (const object of abandoned) {
+    await expect(isConsoleAttachmentPendingCleanup(unreadable, object.slice(consoleAttachmentPrefix.length))).rejects.toBe(failure)
+  }
+  await expect(retryConsoleAttachmentCleanup(unreadable)).rejects.toBe(failure)
+  expect((await storage.list())[1]?.blobs).toHaveLength(3)
+  await retryConsoleAttachmentCleanup(connect(base))
+  expect((await storage.list())[1]?.blobs).toEqual([])
+})
+
+it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record is corrupt: %s", async (body) => {
+  const { storage } = await fixture()
+  const abandoned = path()
+  await storage.put(abandoned, "image")
+  await storage.put(`${cleanupPrefix}batch/${crypto.randomUUID()}`, body)
+  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow()
+  await expect(retryConsoleAttachmentCleanup(storage)).rejects.toThrow()
+  expect((await storage.list())[1]?.blobs).toHaveLength(2)
+})
