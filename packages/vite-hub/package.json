@@ -81,6 +81,7 @@
     "./agent/server": "./dist/agent/server.js",
     "./agent/server/github": "./dist/agent/server/github.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
+    "./agent/vite": "./dist/agent/vite.js",
     "./agent/vue": "./dist/agent/vue.js",
     "./auth": "./dist/auth.js",
     "./auth/agent": "./dist/auth/agent.js",

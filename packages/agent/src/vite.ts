@@ -3090,3 +3090,6 @@ declare module "vite" {
 }
 
 export { processAgentHost } from './process-host-vite.ts'
+
+export { agentHostRoutes } from './host-routes-vite.ts'
+export type { AgentHostRoute } from './host-routes-vite.ts'

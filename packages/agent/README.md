@@ -373,6 +373,16 @@ Agent Definition. `host.health()` reports provider availability and stale record
 `host.wake()` requests discovery after work completes. `host.start()` is idempotent;
 `host.close()` stops admission and waits for tracked work.
 
+The host can also live beside an Agent Definition as a named export. Keep the
+Agent Definition as the module's default export and select the host in Vite:
+
+```ts
+processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' })
+```
+
+`exportName` defaults to `default`. Both startup/shutdown and the drain route use
+the selected export; no separate host entry file is required.
+
 For Nitro, add `processAgentHost({ entry: './server/host.ts' })` from
 `@vite-hub/agent/vite` to the Vite plugins. The entry exports the host as default.
 The plugin starts it and closes it with Nitro, and serves drain status at
@@ -392,6 +402,43 @@ A provider `env` resolver can call `host.environment()` inside
 including concurrent callbacks. Await the entire agent run before returning.
 Use `defineAgent({ extends: agent, name, workspace })` to bind the workspace
 without rebuilding driver configuration.
+
+### Host inspection routes
+
+Keep host inspection configuration beside an Agent Definition. `agentHostRoutes`
+from `vite-hub/agent/vite` generates GET/HEAD routes from named function exports:
+
+```ts
+agentHostRoutes({
+  entry: './server/agents/support/agent.ts',
+  health: 'health',
+  workspace: 'workspace',
+})
+```
+
+The defaults are `/api/health` and
+`/api/_vitehub/console/invocations/:id/workspace`. Each option also accepts
+`{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
+`(invocationId, path?)` and return a Response; for GitHub checkouts, use
+`createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
+These are opt-in host routes: the application owns access control, including any
+middleware protecting Workspace content. They do not grant Console authorization.
+
+Export `health = createAgentHealth({ name: 'Support', agent: () => agent })` from
+`vite-hub/agent/server` for model, admission, invocation workload, and provider
+status. Provider inspection uses the definition's credentials and launch target
+(including SSH), sends no prompt, and shares Console's cached inspection logic.
+Optional `process`, `github`, and `console` inputs add process recovery, GitHub
+access/budget, and Console delivery diagnostics. `diagnostics(signal)` and
+`workload()` add application-specific information. An informational warning can
+set `affectsHealth: false`, so an expected budget wait does not degrade health.
+
+Reports are cached for five seconds and concurrent reads share one sample.
+`maxAgeMs` and `timeoutMs` configure caching and the default 15-second deadline.
+A timeout returns a degraded report and prevents overlapping samples until the
+original dependency settles. Dependency errors are not copied into public reports.
+Health is an operational report and returns HTTP 200 even when degraded; keep
+startup readiness and Kubernetes restart policy on their existing probes.
 
 ## Host lifecycle and transcript retention
 

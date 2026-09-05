@@ -1787,6 +1787,47 @@ describe("lazy sources", () => {
     expect(getItem).toHaveBeenCalledTimes(6)
   })
 
+  it("looks up live files without enumerating the Source tree", async () => {
+    const paths: Record<string, string> = { "docs/guides/start.md": "/local/start.md" }
+    const ownKeys = vi.fn((target: Record<string, string>) => Reflect.ownKeys(target))
+    const getItem = vi.fn(async (key: string) => ({ key, content: "unused" }))
+    const source = markLiveWorkspaceSource(custom({
+      materialize: "lazy",
+      async getKeys() { return ["guides/start.md"] },
+      getItem,
+    }), new Proxy(paths, { ownKeys }))
+    const view = createWorkspaceSourceView({ name: "live-stat", sources: { docs: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.stat("docs/guides/start.md")).resolves.toEqual({ path: "docs/guides/start.md", type: "file" })
+    await expect(view.exists("docs/guides/start.md")).resolves.toBe(true)
+    expect(ownKeys).not.toHaveBeenCalled()
+    await expect(view.stat("docs/guides")).resolves.toEqual({ path: "docs/guides", type: "directory" })
+    await expect(view.exists("docs/guide")).resolves.toBe(false)
+    await expect(view.exists("docs/toString")).resolves.toBe(false)
+    await expect(view.stat("docs/missing.md")).rejects.toThrow("Workspace path does not exist")
+
+    delete paths["docs/guides/start.md"]
+    paths["docs/reference/api.md"] = "/local/api.md"
+    await expect(view.exists("docs/guides/start.md")).resolves.toBe(false)
+    await expect(view.exists("docs/guides")).resolves.toBe(false)
+    await expect(view.stat("docs/reference/api.md")).resolves.toEqual({ path: "docs/reference/api.md", type: "file" })
+    await expect(view.stat("docs/reference")).resolves.toEqual({ path: "docs/reference", type: "directory" })
+    expect(getItem).not.toHaveBeenCalled()
+  })
+
+  it("looks up live paths populated during preparation", async () => {
+    const paths: Record<string, string> = {}
+    const source = markLiveWorkspaceSource(custom({
+      materialize: "lazy",
+      async prepare() { paths["docs/ready.md"] = "/local/ready.md" },
+      async getKeys() { return ["ready.md"] },
+      async getItem(key) { return { key, content: "unused" } },
+    }), paths)
+    const view = createWorkspaceSourceView({ name: "prepared-live-stat", sources: { docs: source } }, createMemoryWorkspaceStore())
+    await expect(view.stat("docs/ready.md")).resolves.toEqual({ path: "docs/ready.md", type: "file" })
+    await expect(view.stat("docs")).resolves.toEqual({ path: "docs", type: "directory" })
+  })
+
   it("serves prepared startup live Sources from their snapshot", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: `version ${getItem.mock.calls.length}\n` }))
     const source = markLiveWorkspaceSource(custom({
