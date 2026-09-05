@@ -76,6 +76,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-new-chat.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-session-bootstrap.ts",
         to: "dist/console/runtime/components",
       },

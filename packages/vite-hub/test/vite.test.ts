@@ -621,6 +621,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
+      typesImportBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
@@ -684,11 +685,13 @@ describe("vitehub", () => {
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ preset: "vercel", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/queue",
       provider: "vercel",
       providerImportAliases: expect.any(Object),
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/queue",
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
     })
