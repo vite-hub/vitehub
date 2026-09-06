@@ -1,4 +1,4 @@
-import type { Message, StreamEvent } from "./messages.ts"
+import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -13,8 +13,10 @@ import type {
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
+  RuntimeDiagnosticError,
   RuntimeHostContext,
   RuntimeWaitUntil,
+  OpenTelemetryLogRecordView,
   OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
 import type {
@@ -72,7 +74,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
+  AgentRuntimeContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
+    runtimeConfig: TRuntimeConfig
+  }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
@@ -108,7 +113,22 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 }
 
 declare global {
-  interface ViteHubAgentInvocationContextValues {}
+  interface ViteHubAgentInvocationContextValues {
+    "agent.channels": string[]
+    "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
+    "agent.invocation.traceId": string
+    "agent.name": string
+    "agent.output.eventObserver": (event: StreamEvent) => void
+    "agent.output.progressSummary": boolean
+    "agent.schedule.turn": boolean
+    "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
+    "channel.delivery.titleDelivered": boolean
+    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.finish": AgentChatFinishExtension
+    "vitehub.channel.final-output": boolean
+    "vitehub.title.response-fallback": boolean
+    "workspace.sourceResolution.definition": WorkspaceDefinition
+  }
   interface ViteHubAgentFinishExtensions {}
   interface ViteHubAgentOutputExtensions {}
 }
@@ -118,6 +138,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
+  "agent.inspection.configurationUpdated": () => Promise<void>
   "chat.sessionId": string
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
@@ -143,7 +164,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
   entries: () => IterableIterator<[string, unknown]>
   get: {
     <TKey extends keyof TValues & string>(id: TKey): TValues[TKey] | undefined
-    <T = unknown>(id: string): T | undefined
+    (id: string): unknown
   }
   has: (id: string) => boolean
   set: {
@@ -199,7 +220,36 @@ export interface AgentScheduleInvocationInput {
   target?: string
 }
 
+export interface AgentActivityLink {
+  label: string
+  url: string
+}
+
+export type AgentActivityStatus = "cancelled" | "completed" | "failed" | "queued" | "running" | "waiting"
+
+export type AgentActivityTaskStatus = "completed" | "in-progress" | "pending"
+
+export type AgentActivityTarget =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly AgentActivityTarget[]
+  | { readonly [key: string]: AgentActivityTarget }
+
+export interface AgentActivityTask {
+  status: AgentActivityTaskStatus
+  title: string
+}
+
+export interface AgentRunActivity {
+  links?: readonly AgentActivityLink[]
+  runId?: string
+  target: AgentActivityTarget
+}
+
 export interface AgentRunMetadata<TOrigin extends string = string> {
+  activity?: AgentRunActivity
   annotations?: Record<string, AgentInvocationAnnotationValue>
   channelId?: string
   messageId?: string
@@ -208,19 +258,93 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   threadId?: string
 }
 
-export interface AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+interface AgentTelemetryExportContextBase<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   agent: {
     name?: string
     version?: string
   }
   run?: AgentRunMetadata
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+}
+
+export interface AgentTelemetryLogsExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentTelemetryExportContextBase<TRuntimeConfig> {
+  records: readonly OpenTelemetryLogRecordView[]
+  signal: "logs"
+}
+
+export interface AgentTelemetryTracesExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentTelemetryExportContextBase<TRuntimeConfig> {
+  signal: "traces"
   spans: readonly OpenTelemetrySpanView[]
 }
 
-export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = (
-  context: AgentTelemetryExportContext<TRuntimeConfig>,
-) => MaybePromise<void>
+export type AgentTelemetryExportContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | AgentTelemetryLogsExportContext<TRuntimeConfig>
+  | AgentTelemetryTracesExportContext<TRuntimeConfig>
+
+export type AgentTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
+  bivarianceHack(context: AgentTelemetryExportContext<TRuntimeConfig>): MaybePromise<void>
+}["bivarianceHack"]
+
+export interface AgentTelemetryContentOptions {
+  inputs?: boolean
+  instructions?: boolean
+  outputs?: boolean
+}
+
+export interface AgentTelemetryRegistration<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  content?: AgentTelemetryContentOptions
+  exporter: AgentTelemetry<TRuntimeConfig>
+  /** Export append-only LogRecords while the invocation is still running. */
+  live?: boolean
+}
+
+export interface AgentCapabilityTelemetryContext {
+  metadata: (metadata: Record<string, unknown>) => void
+}
+
+export interface AgentTelemetryCapabilityMetadata {
+  id: string
+  metadata?: Record<string, AgentInspectionValue>
+}
+
+export interface AgentToolInspection {
+  description?: string
+  inputSchema?: AgentInspectionValue
+  name: string
+  outputSchema?: AgentInspectionValue
+}
+
+export interface AgentTelemetryConfiguration {
+  agent?: {
+    name?: string
+    version?: string
+  }
+  capabilities?: AgentTelemetryCapabilityMetadata[]
+  channels?: Array<{
+    id: string
+    kind: string
+  }>
+  driver: {
+    kind: AgentDriverKind
+    model?: {
+      id?: string
+      provider?: string
+    }
+    provider?: string
+  }
+  /** Stable SHA-256 of the resolved behavior-relevant configuration. */
+  fingerprint?: string
+  instructions?: string[]
+  runtime: {
+    name: string
+  }
+  tools?: AgentToolInspection[]
+  workspace?: {
+    mode: AgentCapabilityMode
+    name?: string
+    sources?: string[]
+  }
+}
 
 export interface AgentChannelDelivery {
   agentName: string
@@ -541,8 +665,8 @@ export interface AgentInvocationExtensions<TValues extends object = Record<strin
     capabilityId: TKey,
     key: TField
   ): NonNullable<TValues[TKey]>[TField] | undefined
-  get<T = unknown>(capabilityId: string): T | undefined
-  get<T = unknown>(capabilityId: string, key: string): T | undefined
+  get(capabilityId: string): unknown
+  get(capabilityId: string, key: string): unknown
   toJSON: () => Record<string, unknown>
 }
 
@@ -634,10 +758,7 @@ export type AgentHookOutcome = "error" | "success"
 
 export interface AgentHookObserverEvent {
   durationMs: number
-  error?: {
-    message: string
-    name?: string
-  }
+  error?: RuntimeDiagnosticError
   ids?: Record<string, string | undefined>
   metadata?: Record<string, unknown>
   name: string
@@ -894,6 +1015,7 @@ export interface AgentCapabilityRuntimeContext<
   state: {
     require: (name: string, options?: { optional?: boolean }) => void
   }
+  telemetry: AgentCapabilityTelemetryContext
   tools: {
     add: (tools: AgentToolSet | undefined) => void
     transform: (transform: AgentToolTransform) => void
@@ -920,6 +1042,8 @@ export interface AgentCapabilityDefinition<
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
+  /** Set to false when the Capability has no model-facing behavior to explain in Agent Driver Instructions. */
+  instructionCoverage?: boolean
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
@@ -927,6 +1051,7 @@ export interface AgentCapabilityDefinition<
   prepare?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   requires?: AgentCapabilityRequirement[]
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  telemetry?: AgentTelemetryRegistration<TRuntimeConfig>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
   workspaceSources?: WorkspaceDefinition["sources"]
@@ -1064,7 +1189,28 @@ export interface AgentDriverCapacityQueueOptions {
   timeout?: number
 }
 
+export interface AgentDriverCapacitySampleContext {
+  active: number
+  concurrency: number
+  pending: number
+  signal: AbortSignal
+}
+
+export interface AgentDriverCapacitySample {
+  concurrency: number
+  reason?: string
+}
+
+export interface AgentDriverAdaptiveCapacityOptions {
+  fallbackConcurrency?: number
+  intervalMs?: number
+  rampUp?: number
+  sample: (context: AgentDriverCapacitySampleContext) => MaybePromise<AgentDriverCapacitySample>
+  sampleTimeoutMs?: number
+}
+
 export interface AgentDriverCapacityOptions {
+  adaptive?: AgentDriverAdaptiveCapacityOptions
   concurrency: number
   queue?: AgentDriverCapacityQueueOptions
 }
@@ -1080,6 +1226,7 @@ export interface AgentModelExecutionOptions<
   attachments?: AgentAttachmentExecutionOptions
   callSettings?: Record<string, unknown>
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
+  repairToolCall?: boolean
   stepLimit?: number
   workspaceFallback?: boolean | {
     enabled?: boolean
@@ -1089,30 +1236,127 @@ export interface AgentModelExecutionOptions<
 
 export type AgentProviderPermissions = "allow-all" | "allow-edits" | "ask"
 
+type SingleAttemptAgentOutputDefinition<TOutput> = Omit<AgentOutputDefinition<TOutput>, "maxAttempts"> & {
+  maxAttempts?: never
+}
+
+export interface AgentProviderUsageLimits {
+  checkedAt: string
+  windows: readonly {
+    id: string
+    kind: "session" | "weekly" | "monthly" | "other"
+    label: string
+    usedPercent: number
+    resetsAt?: string
+    windowDurationMins?: number
+  }[]
+  unavailable?: { reason: "unsupported" | "probeFailed" }
+}
+
+export interface AgentProviderStatus {
+  agent: string
+  provider?: "codex" | "claude-code"
+  readiness: "ready" | "unavailable" | "unknown" | "unsupported"
+  checkedAt: string
+  stale: boolean
+  installed?: boolean
+  authenticated?: boolean
+  reason?: string
+  usageLimits?: AgentProviderUsageLimits
+}
+
 export interface AgentProviderDriverOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TOutput = unknown,
 > {
   capacity?: AgentDriverCapacityOptions
-  env?: Record<string, string | undefined>
+  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
+  env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: {
     attachments?: AgentAttachmentExecutionOptions
   }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
-  output?: AgentOutputDefinition<TOutput>
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
+  /** Provider approval policy. Defaults to `"ask"`; `"allow-all"` requires an explicit opt-in. */
   permissions?: AgentProviderPermissions
+  providerSettings?: Record<string, unknown>
+  /** SQLite file used to persist provider session cursors across process restarts. */
+  sessionStorePath?: string
 }
 
-export type CodexDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface AgentProviderSealedCredential {
+  unseal(): string
+}
+
+export type AgentProviderCredentialValue = string | AgentProviderSealedCredential
+
+export interface AgentProviderCredentialContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "actor" | "invoker" | "workspace" | "fs"> {
+  /** Inspection has no invocation, actor, or mounted Workspace. */
+  purpose?: "invocation" | "inspection"
+  actor?: AgentAdapterMetadataContext<TRuntimeConfig>["actor"]
+  invoker?: AgentAdapterMetadataContext<TRuntimeConfig>["invoker"]
+  workspace?: AgentAdapterMetadataContext<TRuntimeConfig>["workspace"]
+  fs?: AgentAdapterMetadataContext<TRuntimeConfig>["fs"]
+  abortSignal?: AbortSignal
+}
+
+export type AgentProviderEnvironment = Record<string, string | undefined>
+
+export type AgentProviderEnvironmentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<AgentProviderEnvironment, AgentProviderCredentialContext<TRuntimeConfig>>
+
+export interface AgentProviderLaunchCommand {
+  args?: readonly string[]
+  command: string
+}
+
+export interface AgentProviderLaunchContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentProviderCredentialContext<TRuntimeConfig> {
+  command: string
+  cwd: string
+  environment: Readonly<AgentProviderEnvironment>
+  /** Framework-owned environment names injected when the provider process starts. Filtered executors must forward them. */
+  requiredEnvironment: readonly string[]
+}
+
+export type AgentProviderLaunchResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<AgentProviderLaunchCommand, AgentProviderLaunchContext<TRuntimeConfig>>
+
+export type AgentProviderCredentialResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
+
+type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+/** A non-empty reasoning effort advertised by the selected Codex model. */
+export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
+export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
+
+export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
+  credentialProfile?: string
+  credentials?: AgentProviderCredentialResolver
+  /** Advanced Codex runtime settings passed to the provider runtime. */
+  providerSettings?: Record<string, unknown>
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+}
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
+declare const agentDriverCallOptions: unique symbol
+
+type AgentDriverCallOptions<CALL_OPTIONS> = {
+  readonly [agentDriverCallOptions]?: (options: CALL_OPTIONS) => CALL_OPTIONS
+}
+
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
   | BuiltInAgentDriverName
-  | ({ kind: "codex" } & CodexDriverOptions<TOutput>)
-  | ({ kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "codex" } & CodexDriverOptions<TOutput>)
+  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1124,11 +1368,16 @@ export interface AgentModelDriver<
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
+  launch?: never
   maxRetries?: number
   model: AgentModelResolver<TRuntimeConfig>
   output?: AgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -1146,10 +1395,15 @@ export interface AgentRunDriver<
   execution?: never
   instructions?: never
   kind?: never
+  launch?: never
   model?: never
-  output?: AgentOutputDefinition<TOutput>
+  output?: SingleAttemptAgentOutputDefinition<TOutput>
   permissionMode?: never
   permissions?: never
+  providerSettings?: never
+  reasoningEffort?: never
+  reasoningSummary?: never
+  sessionStorePath?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -1180,10 +1434,12 @@ export interface AgentDefinitionCliOptions {
 }
 
 export interface AgentOutputDefinition<TOutput = unknown> {
+  maxAttempts?: number
   schema: StandardSchemaV1<unknown, TOutput>
 }
 
 export interface AgentUIMessageStreamProjection {
+  commentary?: "hidden" | "visible"
   reasoning?: "hidden" | "visible"
   tools?: "hidden" | "full"
 }
@@ -1215,7 +1471,6 @@ type AgentSharedSettings<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
@@ -1255,7 +1510,8 @@ export interface AgentDefinition<
   name?: string
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
-  telemetry?: AgentTelemetry<TRuntimeConfig>
+  /** Inspect provider credentials and quota without creating an invocation or sending a prompt. */
+  status?(context: AgentRuntimeContext<TRuntimeConfig>, options?: { abortSignal?: AbortSignal }): Promise<AgentProviderStatus>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1263,8 +1519,12 @@ export interface AgentDefinition<
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
-export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext, TOutput = unknown> =
-  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any, any, TOutput>
+export type AgentInput<
+  TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
+  TOutput = unknown,
+  CALL_OPTIONS = any,
+  TInvokerProfile extends AgentInvokerProfile = any,
+> = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -1394,7 +1654,7 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxMessages?: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -1522,10 +1782,20 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   durable?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  final?: {
+    delivery: "new-message"
+  }
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
+  loading?: {
+    intervalMs?: number
+    text: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+    updates?: "commentary"
+  }
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
+  meta?: StandardSchemaV1<unknown, Record<string, unknown>>
+  metaRevision?: string
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
   stream?: boolean
@@ -1538,7 +1808,33 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   [key: string]: unknown
 }
 
+export interface AgentActivityUpdate {
+  /** ISO timestamp when execution began, excluding admission delay. */
+  startedAt?: string
+  /** ISO timestamp of the latest lifecycle transition. */
+  updatedAt?: string
+  agentName?: string
+  error?: string
+  links: readonly AgentActivityLink[]
+  runId: string
+  status: AgentActivityStatus
+  summary?: string
+  tasks: readonly AgentActivityTask[]
+}
+
+export interface AgentChannelActivityContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  activity: AgentActivityUpdate
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  target: AgentActivityTarget
+}
+
+export interface AgentChannelActivityDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  update(context: AgentChannelActivityContext<TRuntimeConfig>): MaybePromise<void>
+}
+
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  activity?: AgentChannelActivityDefinition<TRuntimeConfig>
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
@@ -1595,6 +1891,8 @@ interface AgentChatBaseOptions<TRuntimeConfig extends AgentRuntimeConfig = Agent
 
 export interface AgentChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChatBaseOptions<TRuntimeConfig> {
+  meta?: never
+  metaRevision?: never
   platforms?: never
   webhooks?: never
 }
@@ -1620,6 +1918,7 @@ export interface AgentToolExecutionContext {
 }
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
+  activity?: AgentActivity
   description?: string
   execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<TOutput>
   inputSchema?: AgentToolSchema<TInput>
@@ -1653,7 +1952,7 @@ export interface AgentInspectionFileTreeItem {
   children?: AgentInspectionFileTreeItem[]
   kind: "directory" | "file"
   label?: string
-  materialize?: "build" | "lazy"
+  materialize?: "build" | "startup" | "lazy"
   materialized?: boolean
   materializedAt?: string
   path: string
@@ -1700,15 +1999,26 @@ export interface AgentInspectionModelExecutionMetadata {
 }
 
 export interface AgentInspectionProviderMetadata {
+  credentialProfile?: string
+  credentials?: true
+  environment?: "dynamic" | "static"
+  launch?: "dynamic" | "static"
   model?: string
-  permissions?: AgentProviderPermissions
+  permissions: AgentProviderPermissions
   provider?: string
+  providerSettings?: string[]
+  reasoningEffort?: CodexReasoningEffort
+  reasoningSummary?: CodexReasoningSummary
+  sessionStore?: "sqlite"
 }
 
 export interface AgentInspectionDriverMetadata {
-  capacity?: AgentDriverCapacityOptions & {
+  capacity?: Omit<AgentDriverCapacityOptions, "adaptive"> & {
     active: number
+    effectiveConcurrency?: number
+    lastSampleAt?: number
     pending: number
+    reason?: string
   }
   readonly executionAuthority: ExecutionAuthority
   execution?: AgentInspectionModelExecutionMetadata
@@ -1764,7 +2074,7 @@ export interface AgentUsage {
 export interface AgentUsageCost {
   display: string
   estimated: boolean
-  source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
+  source: "custom" | "estimated" | "models.dev" | "provider" | (string & {})
   usd: string
 }
 
@@ -1783,6 +2093,7 @@ export interface AgentUsageRecord {
     tokensPerSecond?: number
   }
   model?: string
+  provider?: string
   raw?: unknown
   response?: {
     finishReason?: unknown

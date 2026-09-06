@@ -33,7 +33,6 @@ describe("public ViteHub skill", () => {
       "references/capabilities-authority.md",
       "references/channels-triggers.md",
       "references/framework-composition.md",
-      "references/migration.md",
       "references/preview-contract.md",
       "references/project-patterns.md",
       "references/project-shapes.md",

@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface FsBlobMetadata {
   contentType?: string
@@ -41,7 +42,7 @@ function resolveRoot(options: ResolvedFsBlobStoreConfig) {
 function resolveBlobPath(root: string, pathname: string) {
   const path = resolve(root, pathname)
   if (!isInside(root, path)) {
-    throw new Error(`Blob pathname escapes the configured base: ${pathname}`)
+    throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname escapes the configured base: ${pathname}` })
   }
   return path
 }

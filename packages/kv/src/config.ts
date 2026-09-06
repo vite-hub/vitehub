@@ -17,6 +17,7 @@ import type {
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
 } from "./types.ts"
+import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface KVResolutionInput {
   env?: Record<string, string | undefined>
@@ -48,7 +49,8 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
     case "deno-kv": return resolveDenoStore(store)
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
-    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "deno-kv", "upstash", or "fs-lite".`)
+    // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+    default: throw kvErrorDiagnostics.KV_C0001({ message: `Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "deno-kv", "upstash", or "fs-lite".` })
   }
 }
 
@@ -67,7 +69,7 @@ export function normalizeKVOptions(
   if (options === false) return
 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw new TypeError("`kv` must be a plain object.")
+    throw kvErrorDiagnostics.KV_C0002({ message: "`kv` must be a plain object." })
   }
 
   const env = input.env || process.env
@@ -79,7 +81,7 @@ export function normalizeKVOptions(
       Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
     )
     const defaultStore = resolvedStores.default
-    if (!defaultStore) throw new TypeError("`kv.stores.default` is required when using named KV stores.")
+    if (!defaultStore) throw kvErrorDiagnostics.KV_C0003({ message: "`kv.stores.default` is required when using named KV stores." })
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 

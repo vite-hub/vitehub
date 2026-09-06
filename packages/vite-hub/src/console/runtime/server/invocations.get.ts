@@ -1,0 +1,276 @@
+import { getConsoleInvocations } from "./invocations.ts"
+import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { invocationUsage } from "./usage.ts"
+
+import type { ConsoleRequestEvent } from "./request.ts"
+import type {
+  AgentInvocationListOptions,
+  AgentInvocationListResult,
+  AgentInvocationRecordStatus,
+  AgentInvocationSummary,
+  AgentInvocations,
+} from "@vite-hub/agent"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+
+type ConsoleInvocationSummary = AgentInvocationSummary & {
+  usage?: ReturnType<typeof invocationUsage>
+}
+
+interface ConsoleInvocationCursor {
+  done?: string | null
+  history?: string | null
+  queued?: string | null
+  working?: string | null
+}
+
+const defaultListLimit = 50
+const maximumListLimit = 100
+
+function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
+  if (!value) return {}
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw viteHubErrorDiagnostics.VITE_HUB_R0055()
+    const keys = ["working", "queued", "done", "history"] as const
+    if (!keys.some(key => Reflect.has(parsed, key))) throw viteHubErrorDiagnostics.VITE_HUB_R0056()
+    const cursor: ConsoleInvocationCursor = {}
+    for (const key of keys) {
+      if (!Reflect.has(parsed, key)) continue
+      const value = Reflect.get(parsed, key)
+      if (value !== null && String(value) !== value) throw viteHubErrorDiagnostics.VITE_HUB_R0057()
+      cursor[key] = value === null ? null : String(value)
+    }
+    return cursor
+  }
+  catch {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }), {
+      statusCode: 400,
+      statusMessage: "Invalid invocation cursor",
+    })
+  }
+}
+
+function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {
+  if (!("working" in cursor || "queued" in cursor || "done" in cursor || "history" in cursor)) return
+  return JSON.stringify(cursor)
+}
+
+async function listLifecyclePage(
+  status: readonly AgentInvocationRecordStatus[] | undefined,
+  limit: number,
+  cursor: string | null | undefined,
+  agentName: string | undefined,
+  capabilityId: string | undefined,
+): Promise<AgentInvocationListResult> {
+  const options: AgentInvocationListOptions = { limit }
+  if (status) options.status = status
+  if (agentName) options.agentName = agentName
+  if (capabilityId) options.capabilityId = capabilityId
+  if (cursor !== null && cursor !== undefined) options.cursor = cursor
+  return getConsoleInvocations().list(options)
+}
+
+async function summaryWithUsage(
+  invocations: AgentInvocations,
+  summary: AgentInvocationSummary,
+): Promise<ConsoleInvocationSummary> {
+  const invocation = await invocations.get(summary.id)
+  if (!invocation) return summary
+  const usage = invocationUsage(invocation)
+  return {
+    ...summary,
+    ...(usage ? { usage } : {}),
+  }
+}
+
+const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocationListResult> = async (event) => {
+  assertConsoleRequest(event)
+  const query = consoleRequestURL(event).searchParams
+  const ids = query.getAll("id")
+  if (ids.length > 100) {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0059({ message: "Too many invocation ids" }), {
+      statusCode: 400,
+      statusMessage: "Too many invocation ids",
+    })
+  }
+  if (ids.length > 0) {
+    const invocations = getConsoleInvocations()
+    const records = await Promise.all(ids.map(async (id) => {
+      const summary = await invocations.getSummary(id)
+      return summary && summaryWithUsage(invocations, summary)
+    }))
+    return {
+      invocations: records.filter(record => record !== undefined),
+    }
+  }
+  const cursor = decodeCursor(query.get("cursor") || undefined)
+  const agentName = query.get("agent")?.trim() || undefined
+  if (agentName && agentName.length > 512) {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0060({ message: "Invalid Agent name" }), {
+      statusCode: 400,
+      statusMessage: "Invalid Agent name",
+    })
+  }
+  const capabilityId = query.get("capability")?.trim() || undefined
+  if (capabilityId && capabilityId.length > 512) {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid Capability id" }), {
+      statusCode: 400,
+      statusMessage: "Invalid Capability id",
+    })
+  }
+  const limitValue = query.get("limit")
+  const limit = limitValue === null ? undefined : Number(limitValue)
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0062({ message: "Invalid invocation limit" }), {
+      statusCode: 400,
+      statusMessage: "Invalid invocation limit",
+    })
+  }
+  const pageLimit = Math.min(limit ?? defaultListLimit, maximumListLimit)
+  const emptyPage: AgentInvocationListResult = { invocations: [] }
+  const initialPage = !("working" in cursor || "queued" in cursor || "done" in cursor || "history" in cursor)
+  let remainingLimit = pageLimit
+  const deferredGroups = new Set<keyof ConsoleInvocationCursor>()
+  const pages: Record<keyof ConsoleInvocationCursor, AgentInvocationListResult> = {
+    done: emptyPage,
+    history: emptyPage,
+    queued: emptyPage,
+    working: emptyPage,
+  }
+  const groups: readonly [keyof ConsoleInvocationCursor, readonly AgentInvocationRecordStatus[] | undefined][] = [
+    ["queued", ["pending"]],
+    ["working", ["running"]],
+    ["done", ["cancelled", "completed", "failed"]],
+    ["history", undefined],
+  ]
+  const primaryPending = initialPage || "working" in cursor || "queued" in cursor || "done" in cursor
+  if (primaryPending) deferredGroups.add("history")
+  const pendingGroups = groups
+    .filter(([key]) => (initialPage ? key !== "history" : key in cursor && (key !== "history" || !primaryPending)))
+    .sort(([left], [right]) => Number(cursor[right] === null) - Number(cursor[left] === null))
+  const pendingKeys = new Set(pendingGroups.map(([key]) => key))
+  let remainingGroups = pendingGroups.length
+  for (const [key, statuses] of pendingGroups) {
+    if (remainingLimit === 0) {
+      deferredGroups.add(key)
+      remainingGroups--
+      continue
+    }
+    const limit = Math.ceil(remainingLimit / remainingGroups)
+    const page = await listLifecyclePage(statuses, limit, cursor[key], agentName, capabilityId)
+    pages[key] = page
+    const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+    remainingLimit = Math.max(0, pageLimit - returnedIds.size)
+    remainingGroups--
+  }
+  for (const [key, statuses] of pendingGroups) {
+    if (remainingLimit === 0) break
+    const page = pages[key]
+    if (page.cursor === undefined) continue
+    const backfillBudget = remainingLimit
+    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName, capabilityId)
+    pages[key] = {
+      ...backfill,
+      invocations: [...page.invocations, ...backfill.invocations],
+    }
+    const groupIndex = groups.findIndex(([groupKey]) => groupKey === key)
+    const recheckLaterGroups = async (budget: number) => {
+      const currentIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+      let rollback = false
+      for (const [laterKey, laterStatuses] of groups.slice(groupIndex + 1)) {
+        if (laterKey === "history" || !pendingKeys.has(laterKey)) continue
+        const laterPage = pages[laterKey]
+        const recheckLimit = Math.min(pageLimit, laterPage.invocations.length + budget)
+        if (recheckLimit === 0) continue
+        const refreshed = await listLifecyclePage(
+          laterStatuses,
+          recheckLimit,
+          cursor[laterKey],
+          agentName,
+          capabilityId,
+        )
+        const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
+        const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
+        if (added.length === 0) continue
+        const allowedNewIds = new Set(added
+          .filter(invocation => !currentIds.has(invocation.id))
+          .slice(0, budget)
+          .map(invocation => invocation.id))
+        const keptInvocations = refreshed.invocations.filter(invocation =>
+          previousIds.has(invocation.id)
+          || currentIds.has(invocation.id)
+          || allowedNewIds.has(invocation.id),
+        )
+        const trimmed = keptInvocations.length < refreshed.invocations.length
+        const newIds = keptInvocations.filter(invocation => allowedNewIds.has(invocation.id))
+        rollback ||= newIds.length > 0
+        budget = Math.max(0, budget - newIds.length)
+        for (const invocation of keptInvocations) currentIds.add(invocation.id)
+        pages[laterKey] = {
+          ...refreshed,
+          ...trimmed ? { cursor: undefined } : {},
+          invocations: keptInvocations,
+        }
+        if (trimmed) deferredGroups.add(laterKey)
+      }
+      return rollback
+    }
+    const refillEarlierGroup = async () => {
+      const otherIds = new Set(Object.entries(pages)
+        .filter(([pageKey]) => pageKey !== key)
+        .flatMap(([, current]) => current.invocations.map(invocation => invocation.id)))
+      const refillLimit = Math.max(0, pageLimit - otherIds.size)
+      if (refillLimit === 0) {
+        pages[key] = { ...emptyPage }
+        deferredGroups.add(key)
+      }
+      else {
+        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName, capabilityId)
+      }
+      return refillLimit
+    }
+    if (await recheckLaterGroups(backfillBudget)) {
+      const refillLimit = await refillEarlierGroup()
+      if (await recheckLaterGroups(refillLimit)) {
+        await refillEarlierGroup()
+      }
+    }
+    const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
+    remainingLimit = Math.max(0, pageLimit - returnedIds.size)
+  }
+  const { done, history, queued, working } = pages
+  const next: ConsoleInvocationCursor = {}
+  if (working.cursor !== undefined) next.working = working.cursor
+  else if (deferredGroups.has("working")) next.working = cursor.working ?? null
+  if (queued.cursor !== undefined) next.queued = queued.cursor
+  else if (deferredGroups.has("queued")) next.queued = cursor.queued ?? null
+  if (done.cursor !== undefined) next.done = done.cursor
+  else if (deferredGroups.has("done")) next.done = cursor.done ?? null
+  if (history.cursor !== undefined) next.history = history.cursor
+  else if (deferredGroups.has("history")) next.history = cursor.history ?? null
+  const nextCursor = encodeCursor(next)
+  const historyIds = new Set(history.invocations.map(invocation => invocation.id))
+  const doneIds = new Set(done.invocations.map(invocation => invocation.id))
+  const workingIds = new Set(working.invocations.map(invocation => invocation.id))
+  const invocations = getConsoleInvocations()
+  const result: AgentInvocationListResult = {
+    invocations: await Promise.all([
+      ...working.invocations.filter(invocation => !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
+      ...queued.invocations.filter(invocation => !workingIds.has(invocation.id) && !doneIds.has(invocation.id) && !historyIds.has(invocation.id)),
+      ...done.invocations.filter(invocation => !historyIds.has(invocation.id)),
+      ...history.invocations,
+    ].map(summary => summaryWithUsage(invocations, summary))),
+    remainingStatuses: [...new Set<AgentInvocationRecordStatus>([
+      ...("working" in next ? ["running" as const] : []),
+      ...("queued" in next ? ["pending" as const] : []),
+      ...("done" in next ? ["cancelled" as const, "completed" as const, "failed" as const] : []),
+      ...("history" in next
+        ? ["cancelled" as const, "completed" as const, "failed" as const]
+        : []),
+    ])],
+  }
+  if (nextCursor) result.cursor = nextCursor
+  return result
+}
+
+export default invocationsHandler

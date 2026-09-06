@@ -48,14 +48,14 @@ interface CloudflareEnvCarrier {
   req?: { runtime?: { cloudflare?: { env?: CloudflareWorkerEnv } } }
 }
 
-export function getCloudflareEnv(event: unknown): CloudflareWorkerEnv | undefined {
+export function getCloudflareEnv(event: unknown, options: { fallback?: boolean } = {}): CloudflareWorkerEnv | undefined {
   const target = event as CloudflareEnvCarrier | undefined
   return target?.env
     || target?.context?.cloudflare?.env
     || target?.context?._platform?.cloudflare?.env
     || target?.req?.runtime?.cloudflare?.env
     || target?.node?.req?.runtime?.cloudflare?.env
-    || getActiveCloudflareEnv()
+    || (options.fallback === false ? undefined : getActiveCloudflareEnv())
 }
 
 type WaitUntilFn = (promise: Promise<unknown>) => void
@@ -79,10 +79,9 @@ interface WaitUntilCarrier {
   }
 }
 
-export function resolveWaitUntil(event: unknown): WaitUntilFn | undefined {
+export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean } = {}): WaitUntilFn | undefined {
   const target = event as WaitUntilCarrier | undefined
-  const owners = [
-    target,
+  const hosts = [
     target?.context,
     target?.context?.cloudflare,
     target?.context?.cloudflare?.context,
@@ -95,6 +94,7 @@ export function resolveWaitUntil(event: unknown): WaitUntilFn | undefined {
     target?.node?.req?.runtime?.cloudflare,
     target?.node?.req?.runtime?.cloudflare?.context,
   ]
+  const owners = options.preferHost ? [...hosts, target] : [target, ...hosts]
   for (const owner of owners) {
     if (typeof owner?.waitUntil === "function") {
       return owner.waitUntil.bind(owner)

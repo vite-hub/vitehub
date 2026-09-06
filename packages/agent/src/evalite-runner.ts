@@ -8,6 +8,7 @@ import { agentEvalFileConvention } from "./discovery.ts"
 import type { Writable } from "node:stream"
 import type { Evalite } from "evalite/types"
 import type { ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface RunAgentEvaliteOptions extends ResolvedAgentEvalOptions {
   cacheEnabled?: boolean
@@ -29,7 +30,7 @@ async function exportResultsToJSON(options: { cwd: string, outputPath: string, s
   })
   const latestFullRun = latestFullRunResults[0]
   if (!latestFullRun) {
-    throw new Error("No completed run found to export")
+    throw agentDiagnostics.AGENT_R0412({ message: "No completed run found to export" })
   }
 
   const suites = await options.storage.suites.getMany({

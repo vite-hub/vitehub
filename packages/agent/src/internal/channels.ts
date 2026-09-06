@@ -1,3 +1,4 @@
+import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
 import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannels,
@@ -10,6 +11,7 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 import type { Lock, StateAdapter } from "chat"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
 export const messageChannelStateContextKey = "chat.channelState"
@@ -47,7 +49,7 @@ export function defineMessageChannelInstructions<
 >(channel: TChannel, instructions: string): TChannel {
   const value = instructions.trim()
   if (!value) {
-    throw new TypeError("[vitehub] Internal Channel instructions must be a non-empty string.")
+    throw agentDiagnostics.AGENT_R0557({ message: "[vitehub] Internal Channel instructions must be a non-empty string." })
   }
   Object.defineProperty(channel, messageChannelInstructions, {
     enumerable: true,
@@ -58,8 +60,11 @@ export function defineMessageChannelInstructions<
 
 export function inheritMessageChannelInstructions<
   TChannel extends object,
->(channel: TChannel, source: object): TChannel {
-  const instructions = (source as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+>(channel: TChannel, source: unknown): TChannel {
+  const instructions = isRuntimeObject(source)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    ? (source as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+    : undefined
   if (instructions) defineMessageChannelInstructions(channel, instructions)
   return channel
 }
@@ -68,7 +73,8 @@ export function inspectMessageChannelInstructions(
   channels: Record<string, unknown> | undefined,
 ): string[] {
   return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
-    const instructions = channel && typeof channel === "object"
+    const instructions = channel && hasRuntimeType(channel, "object")
+      // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
       ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
       : undefined
     return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
@@ -77,9 +83,12 @@ export function inspectMessageChannelInstructions(
 
 export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
-  channel: object | undefined,
+  channel: unknown,
 ): void {
-  const instructions = channel && (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+  const instructions = isRuntimeObject(channel)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
+    : undefined
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
 }
 
@@ -90,8 +99,8 @@ export function markAuxiliaryMessageChannelInstructionContext<TContext extends o
   return context
 }
 
-export function isAuxiliaryAgentAdapterContext(context: object): boolean {
-  return auxiliaryMessageChannelInstructionContexts.has(context)
+export function isAuxiliaryAgentAdapterContext(context: unknown): boolean {
+  return isRuntimeObject(context) && auxiliaryMessageChannelInstructionContexts.has(context)
 }
 
 export function markMessageChannelInstructionConsumer<TConsumer extends object>(
@@ -104,15 +113,17 @@ export function markMessageChannelInstructionConsumer<TConsumer extends object>(
   return consumer
 }
 
-export function consumesMessageChannelInstructions(consumer: object): boolean {
-  return (consumer as { [messageChannelInstructionConsumer]?: unknown })[messageChannelInstructionConsumer] === true
+export function consumesMessageChannelInstructions(consumer: unknown): boolean {
+  return isRuntimeObject(consumer)
+    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+    && (consumer as { [messageChannelInstructionConsumer]?: unknown })[messageChannelInstructionConsumer] === true
 }
 
 export function resolveMessageChannelInstructions(
   context: AgentInvocationContextStore,
-  adapterContext?: object,
+  adapterContext?: unknown,
 ): string | undefined {
-  if (adapterContext && auxiliaryMessageChannelInstructionContexts.has(adapterContext)) return undefined
+  if (isRuntimeObject(adapterContext) && auxiliaryMessageChannelInstructionContexts.has(adapterContext)) return undefined
   return messageChannelInvocationInstructions.get(context)
 }
 
@@ -149,7 +160,7 @@ export async function claimMessageChannelTitleDelivery(
   context: AgentInvocationContextStore,
   run: AgentRunMetadata | undefined,
 ): Promise<MessageChannelTitleDeliveryAttempt> {
-  const binding = context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
+  const binding = context.get(messageChannelStateContextKey)
   if (!binding || !run?.threadId) return { deliver: true }
 
   const markerKey = `${binding.keyPrefix}channel-title:${run.threadId}:delivered`
@@ -277,22 +288,22 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
       }
     }
     else if (channelDefinition.webhooks) {
-      throw new TypeError("[vitehub] Channel webhooks require an adapter-backed Channel. Add adapter or invoke the Agent from an app-owned route.")
+      throw agentDiagnostics.AGENT_R0558({ message: "[vitehub] Channel webhooks require an adapter-backed Channel. Add adapter or invoke the Agent from an app-owned route." })
     }
   }
 
   if (!hasMessageChannel) return undefined
   if (channelIdentities.length) {
     if (messageChannelCount > 1) {
-      throw new TypeError("[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land.")
+      throw agentDiagnostics.AGENT_R0559({ message: "[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land." })
     }
     options.identity = channelIdentities[0]
   }
   if (channelMessageOverrides.length) {
     if (messageChannelCount > 1) {
-      const unsupportedOverrides = channelMessageOverrides.some(({ commentary: _commentary, filter: _filter, stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
+      const unsupportedOverrides = channelMessageOverrides.some(({ commentary: _commentary, filter: _filter, meta: _meta, metaRevision: _metaRevision, stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
       if (unsupportedOverrides) {
-        throw new TypeError("[vitehub] Channel-local messages options other than commentary, filter, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
+        throw agentDiagnostics.AGENT_R0560({ message: "[vitehub] Channel-local messages options other than commentary, filter, meta, metaRevision, or stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land." })
       }
     }
     else {

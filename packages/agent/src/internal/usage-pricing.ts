@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type {
   AgentRunMetadata,
   AgentUsage,
@@ -5,11 +6,14 @@ import type {
   AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 export interface AgentUsagePricingContext {
   model?: AgentUsageRecord["model"]
+  provider?: AgentUsageRecord["provider"]
   response?: AgentUsageRecord["response"]
   run?: Partial<AgentRunMetadata>
+  transport?: AgentUsageRecord["transport"]
   usage: AgentUsage
 }
 
@@ -30,23 +34,24 @@ interface StaticModelPrice {
   inputCacheRead?: string
   inputCacheWrite?: string
   output?: string
+  tiers?: Array<StaticModelPrice & { size: number }>
 }
 
-export interface VercelAiGatewayPricingOptions {
+export interface ModelsDevPricingOptions {
+  catalogUrl?: string
   maxAge?: number
   fetch?: typeof fetch
-  modelsUrl?: string
   timeout?: number
 }
 
-const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
-const vercelAiGatewayPricingMaxAge = 5 * 60_000
-const vercelAiGatewayPricingTimeout = 10_000
+const modelsDevCatalogUrl = "https://models.dev/api.json"
+const modelsDevPricingMaxAge = 60 * 60_000
+const modelsDevPricingTimeout = 10_000
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()
   if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
-    throw new TypeError(`[vitehub] Invalid decimal price "${value}".`)
+    throw agentDiagnostics.AGENT_R0591({ message: `[vitehub] Invalid decimal price "${value}".` })
   }
   const [whole, fraction = ""] = trimmed.split(".")
   return {
@@ -87,8 +92,10 @@ export async function enrichAgentUsageCost(
   if (!cost && !calls?.length && record.usage) {
     const priced = await pricing({
       model: record.model,
+      provider: record.provider,
       response: record.response,
       run: record.run || run,
+      transport: record.transport,
       usage: record.usage,
     })
     cost = priced ? materializeAgentUsageCost(priced) : undefined
@@ -117,8 +124,8 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | unde
   const regularInputTokens = Math.max(0, (usage.inputTokens || 0) - cacheReadTokens - cacheWriteTokens)
   const categories = [
     [price.input, regularInputTokens],
-    [price.inputCacheRead || price.input, cacheReadTokens],
-    [price.inputCacheWrite || price.input, cacheWriteTokens],
+    [price.inputCacheRead ?? price.input, cacheReadTokens],
+    [price.inputCacheWrite ?? price.input, cacheWriteTokens],
     [price.output, usage.outputTokens],
   ] as const
   if (categories.some(([value, count]) => count > 0 && value === undefined)) return
@@ -127,87 +134,142 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | unde
     .filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
 }
 
-function normalizeVercelPrice(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
+function decimalStringFromNumber(value: number): string {
+  const [coefficient, rawExponent] = value.toString().split("e")
+  if (rawExponent === undefined) return coefficient
+  const digits = coefficient.replace(".", "")
+  const decimalIndex = (coefficient.indexOf(".") === -1 ? coefficient.length : coefficient.indexOf(".")) + Number(rawExponent)
+  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`
+  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`
+  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
 }
 
-function addModelIdCandidate(candidates: string[], value: string | undefined) {
-  if (value && !candidates.includes(value)) candidates.push(value)
+function normalizeModelsDevPrice(value: unknown): string | undefined {
+  if (!hasRuntimeType(value, "number") || !Number.isFinite(value) || value < 0) return
+  const parts = decimalToParts(decimalStringFromNumber(value))
+  return addDecimalParts([{
+    scale: parts.scale * 1_000_000n,
+    units: parts.units,
+  }])
 }
 
-function normalizeAnthropicGatewayModelId(id: string): string {
-  return id
-    .replace(/^anthropic\//, "")
-    .replace(/^claude-(\d+)-(\d+)-/, "claude-$1.$2-")
-    .replace(/(.+-\d+)-(\d+)$/, "$1.$2")
-}
-
-function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undefined): string[] {
-  const modelId = typeof model === "string" ? model.trim() : ""
-  if (!modelId) return []
-  const candidates: string[] = []
-  addModelIdCandidate(candidates, modelId)
-
-  const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
-  const isAnthropic = modelId.startsWith("anthropic/") || (!modelId.includes("/") && unscoped.startsWith("claude-"))
-  if (isAnthropic) {
-    addModelIdCandidate(candidates, `anthropic/${unscoped}`)
-    addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)
+function normalizeModelsDevTier(value: unknown): NonNullable<StaticModelPrice["tiers"]>[number] | undefined {
+  if (!isRuntimeRecord(value)) return
+  const tier = value
+  const condition = tier.tier
+  if (!isRuntimeRecord(condition)) return
+  const conditionRecord = condition
+  if (conditionRecord.type !== "context") return
+  const size = conditionRecord.size
+  if (!hasRuntimeType(size, "number") || !Number.isFinite(size) || size < 0) return
+  return {
+    input: normalizeModelsDevPrice(tier.input),
+    inputCacheRead: normalizeModelsDevPrice(tier.cache_read),
+    inputCacheWrite: normalizeModelsDevPrice(tier.cache_write),
+    output: normalizeModelsDevPrice(tier.output),
+    size,
   }
-
-  return candidates
 }
 
-export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
-  const fetcher = options.fetch || globalThis.fetch
-  const maxAge = options.maxAge ?? vercelAiGatewayPricingMaxAge
-  const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
-  const timeout = options.timeout ?? vercelAiGatewayPricingTimeout
-  let prices: Promise<Record<string, StaticModelPrice>> | undefined
-  let pricesExpiresAt = 0
+function normalizeModelsDevModel(value: unknown): StaticModelPrice | undefined {
+  if (!isRuntimeRecord(value)) return
+  const cost = value.cost
+  if (!isRuntimeRecord(cost)) return
+  const record = cost
+  return {
+    input: normalizeModelsDevPrice(record.input),
+    inputCacheRead: normalizeModelsDevPrice(record.cache_read),
+    inputCacheWrite: normalizeModelsDevPrice(record.cache_write),
+    output: normalizeModelsDevPrice(record.output),
+    tiers: Array.isArray(record.tiers)
+      ? record.tiers.map(normalizeModelsDevTier).filter((tier): tier is NonNullable<ReturnType<typeof normalizeModelsDevTier>> => Boolean(tier))
+      : undefined,
+  }
+}
 
-  async function loadPrices() {
-    if (!prices || (pricesExpiresAt > 0 && Date.now() >= pricesExpiresAt)) {
-      pricesExpiresAt = 0
-      prices = (async () => {
-        const response = await fetcher(modelsUrl, { signal: AbortSignal.timeout(timeout) })
-        if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
-        const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: Record<string, unknown> }> }
-        const result: Record<string, StaticModelPrice> = {}
-        for (const model of body.data || []) {
-          if (typeof model.id !== "string" || !model.pricing) continue
-          result[model.id] = {
-            input: normalizeVercelPrice(model.pricing.input),
-            inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
-            inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
-            output: normalizeVercelPrice(model.pricing.output),
+function modelsDevModelCandidates(provider: string, model: string): string[] {
+  const candidates = [model]
+  const prefix = `${provider}/`
+  if (model.startsWith(prefix)) candidates.unshift(model.slice(prefix.length))
+  if (model.includes("/")) candidates.push(model.slice(model.lastIndexOf("/") + 1))
+  return [...new Set(candidates)]
+}
+
+function priceForUsage(price: StaticModelPrice, usage: AgentUsage): StaticModelPrice {
+  const tier = price.tiers
+    ?.filter(item => usage.inputTokens !== undefined && usage.inputTokens >= item.size)
+    .sort((left, right) => right.size - left.size)[0]
+  return tier
+    ? {
+        input: tier.input ?? price.input,
+        inputCacheRead: tier.inputCacheRead ?? price.inputCacheRead,
+        inputCacheWrite: tier.inputCacheWrite ?? price.inputCacheWrite,
+        output: tier.output ?? price.output,
+      }
+    : price
+}
+
+export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUsagePricing {
+  const fetcher = options.fetch || globalThis.fetch
+  const catalogUrl = options.catalogUrl || modelsDevCatalogUrl
+  const maxAge = options.maxAge ?? modelsDevPricingMaxAge
+  const timeout = options.timeout ?? modelsDevPricingTimeout
+  let catalog: Promise<Record<string, Record<string, StaticModelPrice>>> | undefined
+  let catalogExpiresAt = 0
+
+  async function loadCatalog() {
+    if (!catalog || (catalogExpiresAt > 0 && Date.now() >= catalogExpiresAt)) {
+      catalogExpiresAt = 0
+      catalog = (async () => {
+        const response = await fetcher(catalogUrl, { signal: AbortSignal.timeout(timeout) })
+        if (!response.ok) throw agentDiagnostics.AGENT_R0903({ message: `[vitehub] Models.dev pricing request failed with ${response.status}.` })
+        const body: unknown = await response.json()
+        if (!isRuntimeRecord(body)) throw agentDiagnostics.AGENT_R0904({ message: "[vitehub] Models.dev pricing response must be an object." })
+        const result: Record<string, Record<string, StaticModelPrice>> = {}
+        for (const [providerId, provider] of Object.entries(body)) {
+          if (!isRuntimeRecord(provider) || !isRuntimeRecord(provider.models)) continue
+          const models: Record<string, StaticModelPrice> = {}
+          for (const [modelId, model] of Object.entries(provider.models)) {
+            const price = normalizeModelsDevModel(model)
+            if (price) models[modelId] = price
           }
+          result[providerId] = models
         }
-        pricesExpiresAt = Date.now() + maxAge
+        catalogExpiresAt = Date.now() + maxAge
         return result
       })().catch((error) => {
-        prices = undefined
-        pricesExpiresAt = 0
+        catalog = undefined
+        catalogExpiresAt = 0
         throw error
       })
     }
-    return await prices
+    return await catalog
   }
 
-  return async ({ model, usage }) => {
+  return async ({ model, provider, transport, usage }) => {
     if (usage.inputTokens === undefined || usage.outputTokens === undefined) return
-    const modelIds = vercelGatewayModelIdCandidates(model)
-    if (!modelIds.length) return
-    const catalog = await loadPrices()
-    const price = modelIds
-      .map(modelId => catalog[modelId])
+    const modelId = hasRuntimeType(model, "string") ? model.trim() : ""
+    if (!modelId) return
+    const providerId = hasRuntimeType(provider, "string") && provider.trim()
+      ? provider.trim()
+      : transport === "gateway"
+        ? "vercel"
+        : modelId.includes("/")
+          ? modelId.slice(0, modelId.indexOf("/"))
+          : ""
+    if (!providerId) return
+    const prices = await loadCatalog()
+    const providerPrices = prices[providerId]
+    if (!providerPrices) return
+    const price = modelsDevModelCandidates(providerId, modelId)
+      .map(candidate => providerPrices[candidate])
       .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
-    const amount = pricedTokens(usage, price)
+    const amount = pricedTokens(usage, priceForUsage(price, usage))
     if (amount === undefined) return
     return materializeAgentUsageCost({
       estimated: true,
-      source: "vercel-ai-gateway",
+      source: "models.dev",
       usd: amount,
     })
   }

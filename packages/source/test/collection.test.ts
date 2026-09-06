@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createSource, defineCollection, defineSource } from "../src/index.ts"
+import { combineSources } from "../src/index.ts"
 
 function enumerable<const TKey extends string, TData>(key: TKey, data: TData) {
   return {
@@ -13,9 +13,9 @@ function enumerable<const TKey extends string, TData>(key: TKey, data: TData) {
   }
 }
 
-describe("Source Collections", () => {
+describe("combined Sources", () => {
   it("keeps equal Source keys distinct by alias", async () => {
-    const collection = defineCollection({
+    const collection = combineSources({
       sources: {
         first: enumerable("same", 1),
         second: enumerable("same", 2),
@@ -29,31 +29,47 @@ describe("Source Collections", () => {
     await expect(collection.get(["second", "same"])).resolves.toEqual({ data: 2, key: "same" })
   })
 
-  it("supports keyed context Sources and validates Collection failures", async () => {
-    const definition = defineSource(context => ({
+  it("supports get-only readers and validates Collection failures", async () => {
+    const keyed = {
       async get(key: string) {
-        return `${context.rootDir}:${key.toUpperCase()}`
+        return key.toUpperCase()
       },
-    }))
-    const keyed = createSource(definition, { rootDir: "/recaps" })
-    const collection = defineCollection({ sources: { keyed } })
+    }
+    const collection = combineSources({ sources: { keyed } })
 
-    await expect(collection.get(["keyed", "july"])).resolves.toBe("/recaps:JULY")
-    await expect(collection.items()).rejects.toMatchObject({ code: "SOURCE_FAILED", name: "ViteHubError" })
-    await expect(collection.get(["missing" as "keyed", "july"])).rejects.toThrow("source alias \"missing\" is not defined")
-    await expect(collection.get("keyed:july" as never)).rejects.toBeInstanceOf(TypeError)
+    await expect(collection.get(["keyed", "july"])).resolves.toBe("JULY")
+    expect(collection).not.toHaveProperty("items")
+    // SAFETY: The test deliberately supplies a missing alias to exercise runtime validation.
+    const missingIdentity = ["missing" as "keyed", "july"] as const
+    await expect(collection.get(missingIdentity)).rejects.toThrow('Combined Source alias "missing" is not defined')
+    // SAFETY: The test deliberately supplies the pre-tuple legacy shape to exercise runtime validation.
+    await expect(collection.get("keyed:july" as never)).rejects.toMatchObject({
+      code: "SOURCE_R0010",
+      message: "[vitehub] Combined Source identity must be a [source, key] string tuple.",
+    })
   })
 
-  it("rejects non-enumerable Collections before reading any Source", async () => {
+  it("omits enumeration when any reader only supports get", async () => {
     const items = vi.fn(async () => [{ key: "one" }])
-    const collection = defineCollection({
+    const collection = combineSources({
       sources: {
-        enumerable: { async get(key: string) { return key }, items },
-        keyed: { async get(key: string) { return key } },
+        enumerable: {
+          async get(key: string) {
+            return key
+          },
+          items,
+        },
+        keyed: {
+          async get(key: string) {
+            return key
+          },
+        },
       },
     })
 
-    await expect(collection.items()).rejects.toThrow("source alias \"keyed\" is not enumerable")
+    expect(collection).not.toHaveProperty("items")
+    await expect(collection.get(["enumerable", "one"])).resolves.toBe("one")
+    await expect(collection.get(["keyed", "two"])).resolves.toBe("two")
     expect(items).not.toHaveBeenCalled()
   })
 })

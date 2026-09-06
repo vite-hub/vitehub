@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
-import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
+import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
 
 const roots: string[] = []
 
@@ -44,7 +44,7 @@ describe("colocated Agent Skills", () => {
   })
 
   it("attaches discovered sources without changing agents when no skills exist", () => {
-    const agent = { name: "review" } as { name: string, settings?: string }
+    const agent: { name: string, settings?: string } = { name: "review" }
     Object.defineProperty(agent, "settings", { value: "preserved" })
     const sources = {
       review: { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" },
@@ -52,7 +52,7 @@ describe("colocated Agent Skills", () => {
 
     expect(withColocatedAgentSkills(agent, undefined)).toBe(agent)
     const resolved = withColocatedAgentSkills(agent, sources)
-    expect((resolved as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]).toBe(sources)
+    expect(Object.getOwnPropertyDescriptor(resolved, colocatedAgentSkillsSymbol)?.value).toBe(sources)
     expect(resolved.settings).toBe("preserved")
     expect(Object.getOwnPropertyDescriptor(resolved, "settings")?.enumerable).toBe(false)
   })
@@ -63,10 +63,13 @@ describe("colocated Agent Skills", () => {
     await mkdir(join(root, "review", "skills", "review"), { recursive: true })
     await writeFile(join(root, "review.ts"), "export default {}\n", "utf8")
     await writeFile(join(root, "review", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+    await writeFile(join(root, "review", "skills", "review", ".git"), "gitdir: /tmp/review-skill.git\n", "utf8")
 
     expect(readColocatedAgentSkills(join(root, "review.ts"))).toBeUndefined()
+    expect(resolveColocatedAgentSkillsRoot(join(root, "review.ts"))).toBeUndefined()
     await writeFile(join(root, "review", "index.ts"), "export default {}\n", "utf8")
     expect(readColocatedAgentSkills(join(root, "review", "index.ts"))).toBeDefined()
+    expect(resolveColocatedAgentSkillsRoot(join(root, "review", "index.ts"))).toBe(join(root, "review", "skills"))
   })
 
   it("preserves support for a symlinked Skills root", async () => {

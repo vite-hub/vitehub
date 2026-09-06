@@ -1,6 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 
+import { deferQueue, dynamicQueue, getQueue, runQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { QueueErrorCode } from "../src/errors.ts"
 import { hubQueue } from "../src/vite.ts"
@@ -38,4 +39,43 @@ it("types Queue error codes", () => {
     | "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS"
   >()
 
+})
+
+const welcome = defineQueue<{ email: string }>(job => job.payload.email)
+const audit = defineQueue<{ payload: string, region: string, id: string }>(job => job.payload.id)
+
+declare module "../src/types.ts" {
+  interface QueueRegistry {
+    welcome: typeof welcome
+    audit: typeof audit
+  }
+}
+
+it("checks dispatch against the selected Queue Definition", async () => {
+  await runQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
+  deferQueue("audit", { payload: "event", region: "business", id: "row-1" })
+  const client = await getQueue("welcome")
+  await client.send({ email: "ada@example.test" }, { id: "job-1" })
+  // @ts-expect-error Payload belongs to welcome, not audit.
+  await runQueue("welcome", { payload: "event", region: "business", id: "row-1" })
+  // @ts-expect-error No envelope form remains.
+  await runQueue("welcome", { payload: { email: "ada@example.test" }, delaySeconds: 1 })
+  // @ts-expect-error Named clients retain their definition's payload.
+  await client.send({ count: 1 })
+  if (client.provider === "cloudflare") {
+    await client.sendBatch([{ body: { email: "ada@example.test" } }])
+    // @ts-expect-error A batch does not accept one message ID.
+    await client.sendBatch([{ body: { email: "ada@example.test" } }], { id: "job-1" })
+    // @ts-expect-error Batch payloads also belong to the named definition.
+    await client.sendBatch([{ body: { count: 1 } }])
+  }
+  const selected: "welcome" | "audit" = Math.random() > 0.5 ? "welcome" : "audit"
+  // @ts-expect-error A union name cannot accept input valid for only one possible target.
+  await runQueue(selected, { email: "ada@example.test" })
+  // @ts-expect-error Missing definition name.
+  await getQueue("missing")
+  const name: string = "external-name"
+  // @ts-expect-error Operational names require explicit dynamic dispatch.
+  deferQueue(name, { email: "ada@example.test" })
+  await dynamicQueue.run(name, { arbitrary: true })
 })

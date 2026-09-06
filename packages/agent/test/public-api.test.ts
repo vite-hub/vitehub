@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 
 import { expect, it } from "vitest"
+import manifest from "../package.json" with { type: "json" }
 
 const moduleSpecifierPattern = /(?:\bfrom\s*|(?:\bimport|\brequire)\s*\(?\s*)["']([^"']+)["']/g
 
@@ -47,6 +48,7 @@ it("keeps Effect out of published Agent declarations", async () => {
   expect(containsForbiddenPublicReference(output)).toBe(false)
   expect(output).not.toContain("class AgentOutputValidationError")
   expect(output).not.toContain("class TranscriptionError")
+  expect(output).not.toMatch(/\brepositoryHost(?:Context)?\b/)
 })
 
 it("does not publish Agent-specific error constructors", async () => {
@@ -54,6 +56,8 @@ it("does not publish Agent-specific error constructors", async () => {
   const capabilities = await import("../dist/capabilities.js")
   expect(agent).not.toHaveProperty("AgentOutputValidationError")
   expect(capabilities).not.toHaveProperty("TranscriptionError")
+  expect(capabilities).not.toHaveProperty("repositoryHost")
+  expect(capabilities).not.toHaveProperty("repositoryHostContext")
 })
 
 it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {
@@ -63,13 +67,11 @@ it("pins Effect to the Agent implementation dependency without leaking runtime f
       .filter(path => /\.[cm]?js$/.test(path))
       .map(path => readFile(new URL(path, dist), "utf8")),
   )).join("\n")
-  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as Record<string, Record<string, unknown> | undefined>
-
   expect(javascript).not.toContain("FiberFailure")
-  expect(manifest.dependencies?.effect).toBe("catalog:effect")
-  expect(manifest.devDependencies?.effect).toBeUndefined()
-  expect(manifest.optionalDependencies?.effect).toBeUndefined()
-  expect(manifest.peerDependencies?.effect).toBeUndefined()
+  expect(manifest).toMatchObject({ dependencies: { effect: "catalog:effect" } })
+  expect(manifest).not.toMatchObject({ devDependencies: { effect: expect.anything() } })
+  expect(manifest).not.toMatchObject({ optionalDependencies: { effect: expect.anything() } })
+  expect(manifest).not.toMatchObject({ peerDependencies: { effect: expect.anything() } })
   expect(JSON.stringify(manifest.exports)).not.toContain("effect")
 })
 
@@ -92,6 +94,28 @@ it("keeps Effect out of provider and browser bundle graphs", async () => {
     const bundle = await readBundleGraph(new URL(`../dist/${entry}`, import.meta.url))
     expect(containsForbiddenPublicReference(bundle), `${entry} must remain Effect and FiberFailure-free`).toBe(false)
   }
+})
+
+it("statically imports the provider runtime in the published Agent build", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const javascript = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => /\.[cm]?js$/.test(path))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+
+  expect(javascript).toMatch(/\bfrom\s*["']@t3tools\/provider-runtime["']/)
+  expect(javascript).not.toMatch(/\bimport\s*\(\s*["']@t3tools\/provider-runtime["']/)
+})
+
+it("keeps the generated Console runtime out of the base Agent bundle", async () => {
+  const javascript = (await Promise.all(
+    ["index.js", "server.js", "runtime/workflow.js"].map(entry =>
+      readBundleGraph(new URL(`../dist/${entry}`, import.meta.url)),
+    ),
+  )).join("\n")
+
+  expect(javascript).not.toContain("vite-hub/console/server")
 })
 
 it.each([

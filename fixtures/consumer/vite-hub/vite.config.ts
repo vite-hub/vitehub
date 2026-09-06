@@ -21,7 +21,7 @@ export default defineConfig({
     blob: preset === "cloudflare" || (preset === "vercel" && !providerSandboxClosure),
     database: true,
     email: {
-      driver: "unemail/driver/resend",
+      driver: "resend",
       options: {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
@@ -35,7 +35,7 @@ export default defineConfig({
         }
       : {
           agent: true,
-          workflow: true,
+          workflow: preset === "netlify" ? false : true,
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),
   })],

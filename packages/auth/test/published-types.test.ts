@@ -20,7 +20,6 @@ const packedPackages = [
   "auth",
   "box",
   "env",
-  "history",
   "markdown-template",
   "rate-limit",
   "runtime",

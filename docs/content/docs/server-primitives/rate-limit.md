@@ -2,6 +2,7 @@
 title: Rate Limit
 description: Require request budgets through an event-first H3 guard and atomic drivers.
 navigation.order: 3.5
+navigation.group: Application
 icon: i-lucide-gauge
 ---
 
@@ -92,7 +93,7 @@ interface RateLimitDecision {
 }
 ```
 
-Use `createRateLimiter()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normal `TypeError` or `Error` instances. The managed guard maps rejection to H3 `HTTPError`: status `429` when limited and status `503` when fail-closed enforcement is unavailable. It adds `retry-after` only when the driver supplies `retryAfter`, so do not calculate billing or authorization from optional best-effort metadata.
+Use `createRateLimiter()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects use package-owned `RATE_LIMIT_B####` or `RATE_LIMIT_R####` Nostics codes. The managed guard maps rejection to H3 `HTTPError`: status `429` when limited and status `503` when fail-closed enforcement is unavailable. It adds `retry-after` only when the driver supplies `retryAfter`, so do not calculate billing or authorization from optional best-effort metadata.
 
 ## Inspect generated guarantees
 

@@ -9,6 +9,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type MemoryKind = "episodic" | "procedural" | "profile" | "semantic" | (string & {})
 
@@ -293,7 +294,7 @@ function getWritableWorkspace(context: AgentCapabilityContext): WritableWorkspac
 
 async function appendWorkspaceJsonl(path: string, context: AgentCapabilityContext, line: string) {
   const workspace = getWritableWorkspace(context)
-  if (!workspace) throw new Error("[vitehub:agent] workspaceJsonlMemoryStore() requires an agent workspace with write access.")
+  if (!workspace) throw agentDiagnostics.AGENT_R0118({ message: "[vitehub:agent] workspaceJsonlMemoryStore() requires an agent workspace with write access." })
   const parent = path.split("/").slice(0, -1).join("/")
   if (parent) {
     await workspace.fs.mkdir(parent, { recursive: true })
@@ -303,7 +304,7 @@ async function appendWorkspaceJsonl(path: string, context: AgentCapabilityContex
 
 async function readWorkspaceJsonl(path: string, context: AgentCapabilityContext): Promise<MemoryEvent[]> {
   const workspace = context.workspace
-  if (!workspace) throw new Error("[vitehub:agent] workspaceJsonlMemoryStore() requires an agent workspace.")
+  if (!workspace) throw agentDiagnostics.AGENT_R0119({ message: "[vitehub:agent] workspaceJsonlMemoryStore() requires an agent workspace." })
   let contents = ""
   try {
     contents = await workspace.fs.readFile(path, { encoding: "utf8" })
@@ -468,14 +469,14 @@ function resolveMemoryStore(adapter: MemoryStoreAdapter | MemoryStoreFactory, co
 function resolveMemoryScope(options: MemoryStoreOptions, context: AgentCapabilityContext): MemoryScope {
   const scope = typeof options.scope === "function" ? options.scope(context) : options.scope
   if (!scope || !Object.values(scope).some(Boolean)) {
-    throw new Error("[vitehub:agent] memory() stores require an explicit scope.")
+    throw agentDiagnostics.AGENT_R0120({ message: "[vitehub:agent] memory() stores require an explicit scope." })
   }
   return normalizeMemoryScope(scope)
 }
 
 function assertMemoryKind(options: MemoryStoreOptions, kind: MemoryKind) {
   if (options.allowKinds?.length && !options.allowKinds.includes(kind)) {
-    throw new Error(`[vitehub:agent] Memory kind "${kind}" is not allowed for this store.`)
+    throw agentDiagnostics.AGENT_R0121({ message: `[vitehub:agent] Memory kind "${kind}" is not allowed for this store.` })
   }
 }
 
@@ -498,20 +499,20 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           : undefined
       const getStore = (name?: string) => {
         const storeName = name || defaultStoreName
-        if (!storeName) throw new Error("[vitehub:agent] Multiple memory stores are configured; pass `store` explicitly.")
+        if (!storeName) throw agentDiagnostics.AGENT_R0122({ message: "[vitehub:agent] Multiple memory stores are configured; pass `store` explicitly." })
         const store = resolved.get(storeName)
-        if (!store) throw new Error(`[vitehub:agent] Unknown memory store "${storeName}".`)
+        if (!store) throw agentDiagnostics.AGENT_R0123({ message: `[vitehub:agent] Unknown memory store "${storeName}".` })
         return { storeName, ...store }
       }
       const readSearchAllowed = (options: MemoryStoreOptions) => options.read?.tools?.search !== false
       const readOneAllowed = (options: MemoryStoreOptions) => options.read?.tools?.read !== false
       const assertReadAllowed = (selected: ReturnType<typeof getStore>, tool: "read" | "search") => {
         const allowed = tool === "search" ? readSearchAllowed(selected.options) : readOneAllowed(selected.options)
-        if (!allowed) throw new Error(`[vitehub:agent] Memory store "${selected.storeName}" does not allow ${tool}.`)
+        if (!allowed) throw agentDiagnostics.AGENT_R0124({ message: `[vitehub:agent] Memory store "${selected.storeName}" does not allow ${tool}.` })
       }
       const assertWriteAllowed = (selected: ReturnType<typeof getStore>) => {
         if (selected.options.write?.mode !== "tool") {
-          throw new Error(`[vitehub:agent] Memory store "${selected.storeName}" does not allow writes.`)
+          throw agentDiagnostics.AGENT_R0125({ message: `[vitehub:agent] Memory store "${selected.storeName}" does not allow writes.` })
         }
       }
       const writePolicy = ({ input }: { input?: unknown }) => {

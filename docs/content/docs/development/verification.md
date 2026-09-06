@@ -2,6 +2,7 @@
 title: Verification
 description: Choose the right proof tier for ViteHub primitives and provider behavior.
 navigation.order: 35
+navigation.group: Proof and recovery
 icon: i-lucide-badge-check
 ---
 

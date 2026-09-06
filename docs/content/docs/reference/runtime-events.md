@@ -2,6 +2,7 @@
 title: Runtime events
 description: Reference runtime event, policy, approval, stream, and usage records across ViteHub packages.
 navigation.order: 57
+navigation.group: Runtime and output
 icon: i-lucide-activity
 ---
 
@@ -15,8 +16,16 @@ It can describe policy, approval, capability, error, lifecycle, or run activity.
 
 ```ts [@vite-hub/runtime]
 interface TraceEvent {
+  activity?: {
+    owner: 'agent' | 'vitehub'
+    phase: 'setup' | 'execution' | 'delivery' | 'teardown'
+  }
   attributes?: Record<string, unknown>
   name: string
+  payload?:
+    | { value: unknown, visibility: 'public' }
+    | { summary: string, visibility: 'summary' }
+    | { visibility: 'redacted' | 'private' }
   timestamp?: Date | string
   trace?: {
     id: string
@@ -26,6 +35,19 @@ interface TraceEvent {
   type: 'approval' | 'capability' | 'error' | 'lifecycle' | 'policy' | 'run'
 }
 ```
+
+`activity` separates work performed by an Agent from ViteHub runtime work and places it in a stable lifecycle phase. For example, Workspace materialization is `vitehub/setup`, an Agent tool call is `agent/execution`, and posting the result is `agent/delivery`. Trace logs also expose these values as `vitehub.activity.owner` and `vitehub.activity.phase` attributes for ordinary telemetry consumers.
+
+Use the tagged `payload` field when an event needs structured detail. Payload visibility is an explicit producer decision:
+
+| Visibility | Trace behavior |
+| --- | --- |
+| `public` | Retains `value` in metadata and content traces. Use only for data that is safe in every configured trace sink. |
+| `summary` | Retains only the supplied `summary`; no raw value is accepted. |
+| `redacted` | Records that a payload was intentionally redacted. |
+| `private` | Records only the private visibility marker. This is also the fallback for malformed payload descriptors. |
+
+The payload contract is independent of `attributes`. Existing attribute content remains metadata-only by default and still requires the existing content policy to opt a trusted sink into inputs or outputs.
 
 ## Runtime lifecycle hooks
 
@@ -73,6 +95,7 @@ The current event stream includes text deltas, data parts, tool input and result
 
 Agent Usage Records normalize usage across model-backed, provider-backed, and custom-run-backed Agent Drivers when usage exists.
 Token fields appear only when the provider reports them or ViteHub can derive them safely.
+The record keeps canonical model identity, execution provider, and transport separate. It preserves provider-reported cost or carries a best-effort estimate when the Usage Capability can match catalog pricing.
 
 Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.
 At finish time, read the normalized Agent Usage Record from `event.invocation.usage` in an Agent Finish Hook or `context.invocation.usage` in a Channel Delivery finish effect.

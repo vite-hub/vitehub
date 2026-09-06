@@ -22,13 +22,6 @@ function parseAccept(acceptHeader: string): AcceptEntry[] {
   });
 }
 
-export function acceptsMarkdown(acceptHeader: string | undefined): boolean {
-  if (!acceptHeader) return false;
-
-  return parseAccept(acceptHeader)
-    .some(entry => entry.mediaType === markdownMediaType && entry.quality > 0);
-}
-
 export function acceptsAgentFriendlyError(acceptHeader: string | undefined): boolean {
   if (!acceptHeader) return true;
   const entries = parseAccept(acceptHeader);
@@ -39,18 +32,6 @@ export function acceptsAgentFriendlyError(acceptHeader: string | undefined): boo
 
   const accepts = (mediaType: string) => entries.some(entry => entry.mediaType === mediaType && entry.quality > 0);
   return accepts("*/*") && !accepts("text/html") && !accepts("application/json");
-}
-
-export function markdownRouteForPath(pathname: string): string | undefined {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-
-  if (path === "/") return "/llms.txt";
-  if (path === "/docs") return "/raw/docs.md";
-  if (path.startsWith("/docs/")) return `/raw${path}.md`;
-  if (path.startsWith("/blog/")) return `/raw${path}.md`;
-  if (path === "/about" || path === "/contact" || path === "/privacy") {
-    return `/raw${path}.md`;
-  }
 }
 
 export function withVary(current: string | undefined, value: string): string {

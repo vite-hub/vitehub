@@ -3,6 +3,7 @@ title: Concepts
 description: Learn the ViteHub terms that help you choose an API and understand what runs where.
 navigation.title: Overview
 navigation.order: 1
+navigation.group: Start here
 navigation: false
 icon: i-lucide-map
 ---

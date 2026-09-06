@@ -33,6 +33,11 @@
     "#vitehub/browser/runtime": {
       "types": "./dist/internal/runtime/unconfigured.d.ts",
       "default": "./dist/internal/runtime/unconfigured.js"
+    },
+    "#vitehub/browser/chromium": {
+      "types": "./dist/internal/chromium.d.ts",
+      "workerd": "./dist/internal/chromium.workerd.js",
+      "default": "./dist/internal/chromium.js"
     }
   },
   "exports": {
@@ -40,6 +45,8 @@
     "./actions": "./dist/actions.js",
     "./controllers/cdp": "./dist/controllers/cdp.js",
     "./controllers/playwright": "./dist/controllers/playwright.js",
+    "./internal/chromium": "./dist/internal/chromium.js",
+    "./internal/chromium.workerd": "./dist/internal/chromium.workerd.js",
     "./internal/runtime/empty-registry": "./dist/internal/runtime/empty-registry.js",
     "./internal/runtime/unconfigured": "./dist/internal/runtime/unconfigured.js",
     "./providers/cloudflare": "./dist/providers/cloudflare.js",
@@ -54,10 +61,11 @@
     "test": "vp run -t @vite-hub/browser#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "esbuild": "catalog:esbuild-v27",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
-    "@cloudflare/playwright": "catalog:browser",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "playwright-core": "catalog:browser",

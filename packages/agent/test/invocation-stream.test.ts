@@ -1,12 +1,172 @@
+import { IncomingMessage, ServerResponse } from "node:http"
+import { Socket } from "node:net"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 
-import type { ServerResponse } from "node:http"
-
 describe("Agent Invocation Stream", () => {
+  it("cancels the invocation when its reader stops early", async () => {
+    let signal: AbortSignal | undefined
+    const response = createAgentInvocationStreamResponse(async (emit, runSignal) => {
+      signal = runSignal
+      emit({ text: "first", type: "text-delta" })
+      await new Promise<void>(resolve => runSignal.addEventListener("abort", () => resolve(), { once: true }))
+    })
+
+    for await (const event of readAgentInvocationStream(response.body!)) {
+      expect(event).toEqual({ text: "first", type: "text-delta" })
+      break
+    }
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it("cancels an idle invocation when its iterator closes during a pending read", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const events = readAgentInvocationStream(body)
+
+    const next = events.next()
+    const returned = events.return(undefined)
+
+    await expect(returned).resolves.toEqual({ done: true, value: undefined })
+    await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
+  it("discards a partial line when its iterator closes during a pending read", async () => {
+    const cancel = vi.fn()
+    let markReading!: () => void
+    const reading = new Promise<void>((resolve) => {
+      markReading = resolve
+    })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      pull() {
+        markReading()
+      },
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"type":"done"'))
+      },
+    })
+    const events = readAgentInvocationStream(body)
+
+    const next = events.next()
+    await reading
+    const returned = events.return(undefined)
+
+    await expect(returned).resolves.toEqual({ done: true, value: undefined })
+    await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
+  it("releases the reader when its iterator closes before the first read", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const events = readAgentInvocationStream(body)
+
+    await expect(events.return(undefined)).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
+  it.each([
+    ["before the first read", false],
+    ["during a pending read", true],
+  ])("cancels the invocation when its iterator throws %s", async (_label, startRead) => {
+    const failure = new Error("consumer failed")
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const events = readAgentInvocationStream(body)
+    const next = startRead ? events.next() : undefined
+
+    await expect(events.throw(failure)).rejects.toBe(failure)
+    if (next) await expect(next).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith(failure)
+    expect(body.locked).toBe(false)
+  })
+
+  it("forwards reader failures to the paired invocation signal", async () => {
+    let signal: AbortSignal | undefined
+    const response = createAgentInvocationStreamResponse(async (emit, runSignal) => {
+      signal = runSignal
+      // SAFETY: The invalid payload deliberately exercises the reader's runtime validation boundary.
+      emit({} as never)
+      await new Promise<void>(resolve => runSignal.addEventListener("abort", () => resolve(), { once: true }))
+    })
+
+    let failure: unknown
+    try {
+      for await (const _event of readAgentInvocationStream(response.body!)) {}
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(failure).toMatchObject({
+      code: "AGENT_R0607",
+      message: "Invalid Agent Invocation Stream event.",
+    })
+    expect(signal?.reason).toBe(failure)
+  })
+
+  it("preserves parser errors when stream cancellation also fails", async () => {
+    const cleanupFailure = new Error("cleanup failed")
+    const cancel = vi.fn(async () => { throw cleanupFailure })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("not json\n"))
+      },
+    })
+
+    let failure: unknown
+    try {
+      for await (const _event of readAgentInvocationStream(body)) {}
+    }
+    catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(SyntaxError)
+    expect(failure).not.toBe(cleanupFailure)
+    expect(cancel).toHaveBeenCalledWith(failure)
+  })
+
+  it("surfaces cancellation failures when its reader stops early", async () => {
+    const cleanupFailure = new Error("cleanup failed")
+    const cancel = vi.fn(async () => { throw cleanupFailure })
+    const body = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"type":"done"}\n'))
+      },
+    })
+
+    await expect(async () => {
+      for await (const _event of readAgentInvocationStream(body)) break
+    }).rejects.toBe(cleanupFailure)
+    expect(cancel).toHaveBeenCalledWith(undefined)
+    expect(body.locked).toBe(false)
+  })
+
+  it("rejects stream lines without an event discriminator", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("null\n"))
+      },
+    })
+
+    await expect(async () => {
+      for await (const _event of readAgentInvocationStream(body)) {}
+    }).rejects.toThrow("Invalid Agent Invocation Stream event.")
+  })
+
   it("closes timed-out streams even when the run does not settle", async () => {
     let aborted = false
     const response = createAgentInvocationStreamResponse(async (_emit, signal) => {
@@ -86,16 +246,10 @@ describe("Agent Invocation Stream", () => {
   })
 
   it("only treats closed-response AbortError body failures as cleanup", async () => {
-    const destroy = vi.fn()
-    const res = {
-      destroy,
-      end: vi.fn(),
-      off: vi.fn(),
-      once: vi.fn(),
-      setHeader: vi.fn(),
-      statusCode: 200,
-      write: vi.fn(() => true),
-    } as unknown as ServerResponse
+    const res = new ServerResponse(new IncomingMessage(new Socket()))
+    const destroy = vi.spyOn(res, "destroy").mockImplementation(() => res)
+    vi.spyOn(res, "end").mockImplementation(() => res)
+    vi.spyOn(res, "write").mockImplementation(() => true)
 
     await writeResponse(res, new Response(new ReadableStream<Uint8Array>({
       pull() {
@@ -106,31 +260,24 @@ describe("Agent Invocation Stream", () => {
     expect(destroy).toHaveBeenCalledWith(expect.any(DOMException))
     destroy.mockClear()
 
-    let close: (() => void) | undefined
-    const closedRes = {
-      destroy,
-      end: vi.fn(),
-      off: vi.fn(),
-      once: vi.fn((_event: string, callback: () => void) => {
-        close = callback
-      }),
-      setHeader: vi.fn(),
-      statusCode: 200,
-      write: vi.fn(() => true),
-    } as unknown as ServerResponse
+    const closedRes = new ServerResponse(new IncomingMessage(new Socket()))
+    const closedDestroy = vi.spyOn(closedRes, "destroy").mockImplementation(() => closedRes)
+    vi.spyOn(closedRes, "end").mockImplementation(() => closedRes)
+    vi.spyOn(closedRes, "write").mockImplementation(() => true)
 
     await writeResponse(closedRes, new Response(new ReadableStream<Uint8Array>({
       pull() {
-        close?.()
+        closedRes.emit("close")
         throw new DOMException("aborted", "AbortError")
       },
     })))
 
-    expect(destroy).not.toHaveBeenCalled()
+    expect(closedDestroy).not.toHaveBeenCalled()
   })
 
   it("closes with an error when event serialization fails", async () => {
     const response = createAgentInvocationStreamResponse(async (emit) => {
+      // SAFETY: This intentionally violates the serializable data contract to exercise response error handling.
       emit({ data: 1n, type: "data" } as never)
     })
 

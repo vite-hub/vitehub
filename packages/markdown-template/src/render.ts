@@ -16,9 +16,11 @@ import type {
   RenderMarkdownTemplateOptions,
   ResolveMarkdownTemplateImportsOptions,
 } from "./types.ts"
+import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface RenderState {
   data: Record<string, unknown>
+  directiveTokens: TemplateTokenState
   fragmentToken: string
   fragments: Array<{ path: string }>
   linkToken: string
@@ -41,6 +43,7 @@ const closesLinkDestinationPattern = /(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[
 const closesEnclosedLinkDestinationPattern = /\s*>(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 
 interface TemplatePreparation {
+  directiveTokens: TemplateTokenState
   prepare: (value: string) => Promise<string>
   protectedTokens: TemplateTokenState
   runtime: MarkdownTemplateRuntime
@@ -86,6 +89,7 @@ export async function renderMarkdownTemplateInternal(
   const tree = await parseTemplateMarkdown(normalized.template, true)
   const nodes = await composeNodes(tree.nodes, {
     data,
+    directiveTokens: preparation.directiveTokens,
     fragmentToken,
     fragments: normalized.fragments,
     linkToken: normalizedLinks.token,
@@ -93,7 +97,10 @@ export async function renderMarkdownTemplateInternal(
     validateConditionPath: options.validateConditionPath,
   })
   const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
-  return restoreTemplateTokens(restoreTemplateTags(rendered, preparation.tagTokens, data), preparation.protectedTokens)
+  return restoreTemplateTokens(
+    restoreTemplateTags(restoreLiteralDirectives(rendered, preparation.directiveTokens), preparation.tagTokens, data),
+    preparation.protectedTokens,
+  )
 }
 
 async function normalizeLinkBindings(template: string): Promise<{
@@ -170,7 +177,7 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
     const codePoint = character.codePointAt(0)!
     return codePoint < 32 || codePoint === 127
   })) {
-    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0011({ message: `[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.` })
   }
   let encoded: string
   try {
@@ -180,21 +187,21 @@ async function safeLinkDestination(path: string, data: Record<string, unknown>):
       .replace(/[()]/g, character => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`)
   }
   catch {
-    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0012({ message: `[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.` })
   }
 
   const tree = await parseTemplateMarkdown(`[link](<${encoded}>)`)
   const paragraph = tree.nodes[0]
   const link = isElement(paragraph) && paragraph[0] === "p" ? paragraph[2] : undefined
   if (!link || !isElement(link) || link[0] !== "a" || link[1].href !== encoded) {
-    throw new Error(`[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0013({ message: `[vitehub] Markdown template link binding "{{ ${path} }}" must resolve to a safe destination.` })
   }
   return encoded
 }
 
 function assertTemplate(template: string): void {
   if (typeof template !== "string") {
-    throw new TypeError("[vitehub] Markdown template must be a string.")
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0014({ message: "[vitehub] Markdown template must be a string." })
   }
 }
 
@@ -208,7 +215,12 @@ function createTemplatePreparation(): TemplatePreparation {
     prefix: `VITEHUBMARKDOWNTEMPLATETAG${nonce}`,
     values: [],
   }
+  const directiveTokens: TemplateTokenState = {
+    prefix: `VITEHUBMARKDOWNTEMPLATEDIRECTIVE${nonce}`,
+    values: [],
+  }
   return {
+    directiveTokens,
     prepare: async (value) => {
       const prepared = maskTemplateTags(
         await protectCodeTemplateSyntax(value, protectedTokens, nonce),
@@ -221,6 +233,23 @@ function createTemplatePreparation(): TemplatePreparation {
     runtime: createMarkdownTemplateRuntime(nonce),
     tagTokens,
   }
+}
+
+function protectLiteralDirectives(template: string, state: TemplateTokenState): string {
+  return template.replace(/^([\t ]*:{2,}[A-Za-z][\w-]*)\{[^{}\r\n]+\}(?=[\t ]*$)/gm, (directive, prefix: string) => {
+    const index = state.values.push(directive) - 1
+    return `${prefix}{#${state.prefix}${index}END}`
+  })
+}
+
+function restoreLiteralDirectives(template: string, state: TemplateTokenState): string {
+  return template.replace(
+    new RegExp(`^[\\t ]*:{2,}[A-Za-z][\\w-]*\\{#${state.prefix}(\\d+)END\\}(?=[\\t ]*$)`, "gm"),
+    (directive, index: string, offset: number, source: string) => {
+      const restored = state.values[Number(index)] ?? directive
+      return offset > 0 && source[offset - 1] === "\n" && source[offset - 2] !== "\n" ? `\n${restored}` : restored
+    },
+  )
 }
 
 async function expandPreparedImports(
@@ -415,7 +444,7 @@ async function composeNode(
 
   if (tag === "if") return await composeIfNode(node, state)
   if (tag === "else" || tag === "else-if") {
-    throw new Error(`[vitehub] Markdown template ${tag} block must follow an if block.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0015({ message: `[vitehub] Markdown template ${tag} block must follow an if block.` })
   }
   if (tag === "binding") return [renderBinding(attrs, state.data)]
   if (tag === "code") return [node]
@@ -542,7 +571,7 @@ function fragmentPlacementText(nodes: ComarkNode[]): string {
 function renderBinding(attrs: Record<string, unknown>, data: Record<string, unknown>): ComarkNode {
   const path = attrs[":value"]
   if (typeof path !== "string" || !templatePathPattern.test(path)) {
-    throw new Error("[vitehub] Markdown template bindings must contain a data path.")
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0016({ message: "[vitehub] Markdown template bindings must contain a data path." })
   }
 
   return scalarValue(path, data)
@@ -551,12 +580,12 @@ function renderBinding(attrs: Record<string, unknown>, data: Record<string, unkn
 function scalarValue(path: string, data: Record<string, unknown>): string {
   const value = templatePathValue(data, path)
   if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Markdown template binding "{{ ${path} }}" is not defined.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "{{ ${path} }}" is not defined.` })
   }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value)
   }
-  throw new TypeError(`[vitehub] Markdown template binding "{{ ${path} }}" must resolve to a scalar value.`)
+  throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0018({ message: `[vitehub] Markdown template binding "{{ ${path} }}" must resolve to a scalar value.` })
 }
 
 async function fragmentNodes(
@@ -567,17 +596,17 @@ async function fragmentNodes(
   const { path } = state.fragments[index]!
   const value = templatePathValue(state.data, path)
   if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Markdown template fragment "{{{ ${path} }}}" is not defined.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0019({ message: `[vitehub] Markdown template fragment "{{{ ${path} }}}" is not defined.` })
   }
   if (typeof value !== "string") {
-    throw new TypeError(`[vitehub] Markdown template fragment "{{{ ${path} }}}" must resolve to a string.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template fragment "{{{ ${path} }}}" must resolve to a string.` })
   }
 
-  const tree = await parseTemplateMarkdown(value)
+  const tree = await parseTemplateMarkdown(protectLiteralDirectives(value, state.directiveTokens))
   if (inline) {
     if (!tree.nodes.length) return []
     if (tree.nodes.length !== 1 || !isElement(tree.nodes[0]) || tree.nodes[0][0] !== "p") {
-      throw new Error(`[vitehub] Markdown template fragment "{{{ ${path} }}}" cannot contain block Markdown when used inline.`)
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0021({ message: `[vitehub] Markdown template fragment "{{{ ${path} }}}" cannot contain block Markdown when used inline.` })
     }
     return tree.nodes[0].slice(2) as ComarkNode[]
   }
@@ -613,12 +642,12 @@ function conditionalBranches(node: ComarkElement): {
   while (current) {
     const [tag, attrs, ...children] = current
     if (tag === "else" && Object.keys(attrs).length) {
-      throw new Error("[vitehub] Markdown template else block does not accept a condition.")
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0022({ message: "[vitehub] Markdown template else block does not accept a condition." })
     }
     const expression = tag === "else" ? undefined : conditionExpressionFromAttrs(attrs, tag)
     const nextIndex = children.findIndex(child => isElement(child) && (child[0] === "else-if" || child[0] === "else"))
     if (tag === "else" && nextIndex !== -1) {
-      throw new Error("[vitehub] Markdown template else block cannot be followed by another branch.")
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0023({ message: "[vitehub] Markdown template else block cannot be followed by another branch." })
     }
     branches.push({
       expression,
@@ -634,7 +663,7 @@ function conditionalBranches(node: ComarkElement): {
 function conditionExpressionFromAttrs(attrs: Record<string, unknown>, kind: string): string {
   const expression = attrs.condition ?? attrs.if
   if (typeof expression !== "string" || !expression.trim()) {
-    throw new Error(`[vitehub] Markdown template ${kind} block requires a condition.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Markdown template ${kind} block requires a condition.` })
   }
   return expression.trim()
 }
@@ -667,23 +696,23 @@ function validateConditionalDirectives(template: string): void {
 
     const current = stack.at(-1)
     if (!current || current.kind !== "if") {
-      throw new Error(`[vitehub] Markdown template ${directive.kind} block must follow an if block.`)
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0025({ message: `[vitehub] Markdown template ${directive.kind} block must follow an if block.` })
     }
     if (directive.kind === "else-if") {
-      if (current.sawElse) throw new Error("[vitehub] Markdown template else-if block cannot follow else.")
+      if (current.sawElse) throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0026({ message: "[vitehub] Markdown template else-if block cannot follow else." })
       continue
     }
     if (directive.raw?.trim()) {
-      throw new Error("[vitehub] Markdown template else block does not accept a condition.")
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0027({ message: "[vitehub] Markdown template else block does not accept a condition." })
     }
     if (current.sawElse) {
-      throw new Error("[vitehub] Markdown template if chain cannot contain more than one else block.")
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0028({ message: "[vitehub] Markdown template if chain cannot contain more than one else block." })
     }
     current.sawElse = true
   }
 
   if (stack.some(entry => entry.kind === "if")) {
-    throw new Error("[vitehub] Markdown template if block is missing a closing :: line.")
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0029({ message: "[vitehub] Markdown template if block is missing a closing :: line." })
   }
 }
 
@@ -697,13 +726,13 @@ function directiveLine(line: string): {
   const kind = match[1] as "else" | "else-if" | "if"
   if (kind === "else") {
     if (match[2]?.trim()) {
-      throw new Error("[vitehub] Markdown template else block does not accept a condition.")
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0030({ message: "[vitehub] Markdown template else block does not accept a condition." })
     }
     return { kind, raw: match[2] }
   }
   const expression = conditionExpression(match[2])
   if (!expression) {
-    throw new Error(`[vitehub] Markdown template ${kind} block requires a condition.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0031({ message: `[vitehub] Markdown template ${kind} block requires a condition.` })
   }
   return { expression, kind, raw: match[2] }
 }

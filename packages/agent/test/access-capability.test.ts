@@ -1,16 +1,22 @@
+import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { describe, expect, it, vi } from "vitest"
 
-import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
+import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
 import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
 
-function runtime(): AgentRuntimeContext {
+function runtime(): ResolvedAgentRuntimeContext {
   return {
+    capabilities: {},
     memo: (_key, create) => create(),
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: () => {},
   }
+}
+
+function isTestRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 function containsPath(prefix: string, path: string): boolean {
@@ -55,11 +61,13 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
     async readFile(path, options) {
       const content = files.get(path)
       if (content === undefined) throw new Error(`missing ${path}`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
     },
     async stat(path) {
       const entry = entries.find(entry => entry.path === path)
       if (!entry) throw new Error(`missing ${path}`)
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return entry as WorkspaceStat
     },
     async exists(path) {
@@ -88,10 +96,11 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
 
   return {
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
-    tools: {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    tools: asUnknownBoundary({
       inspect: () => ({}),
       none: () => ({}),
-    } as unknown as ReadonlyWorkspaceFacade["tools"],
+    }) as ReadonlyWorkspaceFacade["tools"],
   }
 }
 
@@ -102,10 +111,13 @@ function createWorkspaceWithRootFile(path: string, content: string): ReadonlyWor
     fs: {
       ...base.fs,
       async readFile(requested, options) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (requested === path) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(requested, options as never)
       },
       async stat(requested) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (requested === path) return { path, size: content.length, type: "file" } as WorkspaceStat
         return await base.fs.stat(requested)
       },
@@ -132,11 +144,14 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
     fs: {
       async readFile(path, options) {
         const content = staleFiles.get(path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(path, options as never)
       },
       async stat(path) {
         const entry = staleEntries.find(entry => entry.path === path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (entry) return entry as WorkspaceStat
         return await base.fs.stat(path)
       },
@@ -150,6 +165,7 @@ function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
         ]
       },
       async glob(pattern, options) {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return [...await base.fs.glob(pattern as never, options), ...staleEntries]
       },
       async search(query) {
@@ -190,11 +206,14 @@ function createWorkspaceWithCustomerIngestion(): ReadonlyWorkspaceFacade {
     fs: {
       async readFile(path, options) {
         const content = files.get(path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return await base.fs.readFile(path, options as never)
       },
       async stat(path) {
         const entry = entries.find(entry => entry.path === path)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         if (entry) return entry as WorkspaceStat
         return await base.fs.stat(path)
       },
@@ -243,6 +262,7 @@ describe("access capability", () => {
   it("fails fast when no access surface is configured", async () => {
     const { access } = await import("../src/capabilities.ts")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(() => access({} as never)).toThrow("access() requires at least one access surface")
   })
 
@@ -255,6 +275,7 @@ describe("access capability", () => {
       tools: ({ workspace }) => ({
         inScope: {
           name: "inScope",
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           execute: async input => await workspace.fs.exists((input as { path: string }).path),
         },
       }) satisfies AgentToolSet,
@@ -280,6 +301,67 @@ describe("access capability", () => {
     await expect(resolved.tools!.inScope.execute!({ path: "customers/globex/brief.md" })).resolves.toBe(false)
   })
 
+  it("bounds model-facing glob patterns before preserving Workspace Scope filtering", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    const entries = await resolved.workspace!.fs.glob("customers/{acme,globex}/**")
+    expect(entries.map(entry => entry.path)).toEqual([
+      "customers",
+      "customers/acme",
+      "customers/acme/brief.md",
+    ])
+    await expect(resolved.workspace!.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.glob("x\\{a,b\\}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.glob("x".repeat(2_049))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern input exceeds the model-facing limit of 2048 bytes.",
+    )
+    await expect(resolved.workspace!.fs.search({
+      pattern: "orders",
+      paths: ["{a,b}".repeat(11)],
+    })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.list("", {
+      exclude: Array.from({ length: 17 }, (_, index) => `literal-{${index}}`),
+      recursive: true,
+    })).resolves.toHaveLength(3)
+
+    const resolvedWithExpansiveScope = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "expansive",
+            scopes: {
+              expansive: { paths: ["{a,b}".repeat(11)] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolvedWithExpansiveScope.workspace!.fs.search({ pattern: "orders" })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
   it("can select Workspace Scope from an explicit trusted resolver", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -288,7 +370,7 @@ describe("access capability", () => {
       capabilities: [
         access({
           workspace: {
-            resolve: ({ context }) => context.get<string>("trustedScope"),
+            resolve: ({ context }) => context.get("trustedScope"),
             scopes: {
               acme: { paths: ["customers/acme"] },
               globex: { paths: ["customers/globex"] },
@@ -312,7 +394,7 @@ describe("access capability", () => {
           workspace: {
             resolve({ invoker }) {
               if (invoker.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
-              const customer = typeof invoker.meta?.customer === "string" ? invoker.meta.customer : "public"
+              const customer = hasRuntimeType(invoker.meta?.customer, "string") ? invoker.meta.customer : "public"
               return { role: "viewer", scope: customer }
             },
             scopes: {
@@ -349,8 +431,9 @@ describe("access capability", () => {
         access({
           workspace: {
             resolve: ({ input }) => {
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               const context = input.get().context as { customer?: unknown } | undefined
-              const customer = typeof context?.customer === "string"
+              const customer = hasRuntimeType(context?.customer, "string")
                 ? context.customer
                 : "public"
               return {
@@ -413,6 +496,220 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.glob("reports/{1..100000}.json")).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.search({
+      cwd: "{a,b}".repeat(11),
+      pattern: "orders",
+    })).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect(resolved.workspace!.fs.list("", { exclude: ["reports/{1..100000}.json"], recursive: true })).resolves.toHaveLength(7)
+  })
+
+  it("bounds model-facing glob patterns on Workspace Sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+    const createSession = () => asUnknownBoundary({
+      glob: vi.fn(async () => []),
+    }) as WorkspaceSession
+    const fsSession = createSession()
+    const facadeSession = createSession()
+    const workspace = {
+      ...base,
+      fs: {
+        ...base.fs,
+        startSession: vi.fn(async () => fsSession),
+      },
+      startSession: vi.fn(async () => facadeSession),
+    } as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { all: true, role: "admin", scope: "support" },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const resolvedWithSessions = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    await expect((await resolvedWithSessions.fs.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect((await resolvedWithSessions.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    expect(fsSession.glob).not.toHaveBeenCalled()
+    expect(facadeSession.glob).not.toHaveBeenCalled()
+  })
+
+  it("preserves prototype methods on model-safe Workspace facades and sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+
+    class Files {
+      readonly #files = base.fs
+
+      readFile = this.#files.readFile
+      stat = this.#files.stat
+      exists = this.#files.exists
+      list = this.#files.list
+      glob = this.#files.glob
+      search = this.#files.search
+      materializeSources = this.#files.materializeSources
+
+      async startSession() {
+        return new Session()
+      }
+
+      prototypeValue() {
+        return this.#files.exists("public/readme.md")
+      }
+    }
+
+    class Session {
+      readonly #value = "session"
+
+      async glob() {
+        return []
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    class Workspace {
+      readonly fs = new Files()
+      readonly tools = base.tools
+      readonly #value = "workspace"
+
+      async startSession() {
+        // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+        return asUnknownBoundary(new Session()) as WorkspaceSession
+      }
+
+      prototypeValue() {
+        return this.#value
+      }
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, new Workspace() as ReadonlyWorkspaceFacade)
+    const workspace = resolved.workspace as ReadonlyWorkspaceFacade & Workspace & {
+      fs: ReadonlyWorkspaceFacade["fs"] & Files
+      startSession(): Promise<WorkspaceSession & Session>
+    }
+
+    expect(workspace.prototypeValue()).toBe("workspace")
+    await expect(workspace.fs.prototypeValue()).resolves.toBe(true)
+    const session = await workspace.startSession() as WorkspaceSession & Session
+    expect(session.prototypeValue()).toBe("session")
+    await expect((await workspace.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("wraps frozen Workspace facades and sessions without violating proxy invariants", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    // SAFETY: This fixture implements the only WorkspaceSession method exercised by this test.
+    const session = asUnknownBoundary(Object.freeze({
+      async glob() {
+        return []
+      },
+    })) as WorkspaceSession
+    const fs = Object.freeze({
+      ...base.fs,
+      async startSession() {
+        return session
+      },
+    })
+    const workspace = Object.freeze({
+      fs,
+      tools: base.tools,
+      async startSession() {
+        return session
+      },
+    }) as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const wrapped = resolved.workspace as ReadonlyWorkspaceFacade & {
+      fs: ReadonlyWorkspaceFacade["fs"] & { startSession(): Promise<WorkspaceSession> }
+      startSession(): Promise<WorkspaceSession>
+    }
+
+    expect("fs" in wrapped).toBe(true)
+    expect("startSession" in wrapped).toBe(true)
+    expect("exists" in wrapped.fs).toBe(true)
+    expect("glob" in wrapped.fs).toBe(true)
+    await expect(wrapped.fs.exists("public/readme.md")).resolves.toBe(true)
+    await expect(wrapped.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+    await expect((await wrapped.startSession()).glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("preserves own Workspace properties when model-safe facades are spread", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const history = { rebase: vi.fn() }
+    const capabilities = vi.fn(() => ({ sync: true }))
+    const workspace = { ...base, capabilities, history } as ReadonlyWorkspaceFacade & {
+      capabilities: typeof capabilities
+      history: typeof history
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const spread = { ...resolved.workspace } as typeof workspace
+
+    expect(spread.history).toBe(history)
+    expect(spread.capabilities()).toEqual({ sync: true })
+    expect(capabilities).toHaveBeenCalledOnce()
+    expect(spread.fs).not.toBe(base.fs)
+    await expect(spread.fs.glob("{a,b}".repeat(11))).rejects.toThrow(
+      "[vitehub] Workspace glob pattern complexity exceeds the model-facing limit of 1024 expansions.",
+    )
+  })
+
+  it("binds own Workspace methods to the original receiver", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const base = createWorkspace()
+    const receiverState = new WeakMap<object, string>([[base.fs, "receiver"]])
+    const fs = {
+      ...base.fs,
+      receiverValue() {
+        return receiverState.get(this)
+      },
+    }
+    receiverState.set(fs, "receiver")
+    const workspace = { ...base, fs } as ReadonlyWorkspaceFacade
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: { resolve: { all: true, role: "admin", scope: "support" } } })],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const wrappedFs = resolved.workspace!.fs as ReadonlyWorkspaceFacade["fs"] & { receiverValue(): string | undefined }
+
+    expect(wrappedFs.receiverValue()).toBe("receiver")
   })
 
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
@@ -471,6 +768,7 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = await resolved.tools!.shell.execute!({ command: "ls customers" }) as { stdout: string }
 
     expect(resolved.tools!.materialize_sources).toBeUndefined()
@@ -494,6 +792,7 @@ describe("access capability", () => {
     const base = createWorkspace()
     const workspace: ReadonlyWorkspaceFacade = {
       ...base,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       fs: {
         ...base.fs,
         async exists(path: string) {
@@ -516,6 +815,7 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = await resolved.tools!.shell.execute!({ command: `rg -i "months.*stock" portal/app --max-depth 3` }) as { stdout: string }
 
     expect(result.stdout).toBe("native rg\n")
@@ -559,12 +859,14 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
-    const executeShell = resolved.tools!.shell.execute as unknown as (
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
       input: { command: string },
       options: { messages: unknown[], toolCallId: string },
     ) => Promise<{ exitCode: number, stdout: string }>
     const result = await executeShell(
       { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       { toolCallId: "test", messages: [] } as never,
     )
 
@@ -620,7 +922,8 @@ describe("access capability", () => {
         workspaceShell(),
       ],
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
-    const executeShell = resolved.tools!.shell.execute as unknown as (
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const executeShell = asUnknownBoundary(resolved.tools!.shell.execute) as (
       input: { command: string },
       options: { messages: unknown[], toolCallId: string },
     ) => Promise<{ exitCode: number, stderr: string }>
@@ -649,9 +952,11 @@ describe("access capability", () => {
       sources: {
         ingestion: custom({
           async resolve({ invocation }) {
-            const scope = invocation.context.get<{ customers: string[] }>("support.customerScope")
+            const scope = invocation.context.get("support.customerScope")
             resolverScopes.push(scope)
-            const customer = scope?.customers[0]
+            const customer = isTestRecord(scope) && Array.isArray(scope.customers) && hasRuntimeType(scope.customers[0], "string")
+              ? scope.customers[0]
+              : undefined
             if (!customer) return false
             return custom({
               materialize: "lazy",
@@ -679,7 +984,7 @@ describe("access capability", () => {
         access({
           workspace: {
             resolve({ context }) {
-              const scope = context.get<{ customers: string[] }>("support.customerScope")
+              const scope = context.get("support.customerScope")
               const customer = scope?.customers[0]
               if (!customer) throw new Error("missing customer")
               return {
@@ -699,7 +1004,7 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     expect(resolverScopes).toEqual([{ customers: ["acme", "globex"] }])
-    expect(invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")?.sources).toHaveProperty("ingestion")
+    expect(invocationContext.get("workspace.sourceResolution.definition")?.sources).toHaveProperty("ingestion")
     expect(resolved.tools!.materialize_sources).toBeUndefined()
   })
 
@@ -767,7 +1072,7 @@ describe("access capability", () => {
       sources: {
         ingestion: github(({ channel, selectedWorkspaceScope }) => {
           const customer = channel?.meta?.customer
-          if (typeof customer !== "string" || !customer) return false
+          if (!hasRuntimeType(customer, "string") || !customer) return false
           resolutions.push({ customer, scope: selectedWorkspaceScope?.name, sources: selectedWorkspaceScope?.sources })
           return {
             auth: false,
@@ -782,7 +1087,7 @@ describe("access capability", () => {
     const accessCapability = access({
       workspace: {
         resolve({ context }) {
-          const scope = context.get<{ meta?: { access?: string } }>("channel")?.meta?.access
+          const scope = context.get("channel")?.meta?.access
           return scope === "support" || scope === "technical" ? scope : undefined
         },
         scopes: {
@@ -792,6 +1097,7 @@ describe("access capability", () => {
       },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for (const [scope, customer] of [["support", "acme"], ["technical", "globex"]] as const) {
       const invocationContext = createAgentInvocationContextStore({ channel: { meta: { access: scope, customer } } })
       const resolved = await resolveAgentCapabilities({
@@ -1140,6 +1446,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
         },
       },
@@ -1181,6 +1488,7 @@ describe("access capability", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     const resolveSource = vi.fn(({ selectedWorkspaceScope }) => ({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       materialize: "lazy" as const,
       mount: `customers/${selectedWorkspaceScope?.name}`,
       async getKeys() {
@@ -1212,6 +1520,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: {
             source: custom({
               async resolve(context) {
@@ -1258,6 +1567,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1284,7 +1594,9 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1310,7 +1622,9 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           publicDocs: { mount: "public" } as never,
         },
       },
@@ -1339,6 +1653,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           rootDocs: { mount: "" } as never,
         },
       },
@@ -1367,6 +1682,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           customerDocs: { mount: "customers/acme" } as never,
         },
       },
@@ -1392,6 +1708,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           rootDocs: { mount: "" } as never,
         },
       },

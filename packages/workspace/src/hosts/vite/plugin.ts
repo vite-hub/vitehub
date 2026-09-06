@@ -1,14 +1,13 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
-import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -21,11 +20,13 @@ import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
+import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
@@ -40,13 +41,6 @@ const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
-
-function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefinition[]): boolean {
-  return definitions.some((definition) => {
-    if (!definition.source) return false
-    return /\bprovider\s*:\s*["']vercel-blob["']/.test(definition.source)
-  })
-}
 
 const sourceModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
 
@@ -67,11 +61,28 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
   }
 }
 
-type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
-
 interface BabelNode {
+  arguments?: BabelNode[]
+  callee?: BabelNode
+  computed?: boolean
+  declaration?: BabelNode
+  declarations?: BabelNode[]
+  elements?: Array<BabelNode | null>
   expression?: BabelNode
+  init?: BabelNode
+  imported?: BabelNode
+  id?: BabelNode
   key?: { name?: unknown, type?: string, value?: unknown }
+  name?: string
+  object?: BabelNode
+  property?: BabelNode
+  properties?: BabelNode[]
+  right?: BabelNode
+  source?: BabelNode
+  specifiers?: BabelNode[]
+  local?: BabelNode
+  exported?: BabelNode
+  left?: BabelNode
   type?: string
   value?: BabelNode | unknown
 }
@@ -79,39 +90,368 @@ interface BabelNode {
 interface BabelObjectPropertyPath {
   node: BabelNode
   parentPath?: BabelObjectPropertyPath
+  scope: BabelScope
+}
+
+type BabelNodePath = BabelObjectPropertyPath
+
+interface BabelBindingPath {
+  node: BabelNode
+  parentPath?: BabelNodePath
+  scope: BabelScope
+}
+
+interface BabelScope {
+  getBinding: (name: string) => { path: BabelBindingPath, referencePaths?: BabelNodePath[] } | undefined
+}
+
+type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
+
+function createSourceModuleResolver(
+  rootDir: string,
+  aliases?: Record<string, string>,
+  resolveModule?: SourceModuleResolver,
+): SourceModuleResolver | undefined {
+  if (!aliases) return resolveModule
+  return async (id, importer) => {
+    const resolved = await resolveModule?.(id, importer)
+    if (resolved) return resolved
+    for (const [find, replacement] of Object.entries(aliases)) {
+      if (id !== find && !id.startsWith(`${find}/`)) continue
+      const aliased = `${replacement}${id.slice(find.length)}`
+      return isAbsolute(aliased) ? aliased : resolve(rootDir, aliased)
+    }
+  }
 }
 
 function babelPropertyName(path: BabelObjectPropertyPath): unknown {
   return path.node.key?.name ?? path.node.key?.value
 }
 
-function babelStringValue(node: BabelNode | undefined): unknown {
-  if (node?.type === "StringLiteral") return node.value
-  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
-    return babelStringValue(node.expression)
+function babelPathOrBindingIsExported(path: BabelNodePath, name?: string): boolean {
+  if (!name) return babelPathIsExported(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (current.node.type !== "ExportNamedDeclaration") continue
+    const declaration = current.node.declaration
+    if (declaration?.type === "VariableDeclaration") {
+      if (declaration.declarations?.some(item => item.id?.type === "Identifier" && item.id.name === name)) return true
+    }
+    else if (
+      (declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration")
+      && declaration.id?.name === name
+    ) return true
   }
+  const binding = path.scope.getBinding(name)
+  return binding?.referencePaths?.some(reference => babelBindingIsExportedAs(reference, name, name)) ?? false
 }
 
-function isExportedWorkspaceStoreProperty(path: BabelObjectPropertyPath): boolean {
-  let exported = false
-  let store = false
-  for (let current = path.parentPath; current; current = current.parentPath) {
-    if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") store = true
-    if (current.node.type === "ExportDefaultDeclaration") exported = true
+function babelBindingIsExportedAs(path: BabelNodePath, localName: string, exportedName: string): boolean {
+  return path.scope.getBinding(localName)?.referencePaths?.some((reference) => {
+    const parent = reference.parentPath?.node
+    if (parent?.type !== "ExportSpecifier" || parent.local !== reference.node) return false
+    return (parent.exported?.name ?? parent.exported?.value) === exportedName
+  }) ?? false
+}
+
+function babelPathReachesDefaultExport(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (current.node.type === "ExportDefaultDeclaration") return true
+    if (
+      current.node.type === "AssignmentExpression"
+      && babelMemberIsCommonJsDefaultExport(current.node.left)
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference, seen))) return true
+    }
   }
-  return exported && store
+  return false
+}
+
+function babelMemberIsCommonJsDefaultExport(member: BabelNode | undefined): boolean {
+  if (member?.type !== "MemberExpression") return false
+  if (
+    member.object?.type === "Identifier"
+    && member.object.name === "module"
+    && member.property?.type === "Identifier"
+    && member.property.name === "exports"
+  ) return true
+  if ((member.property?.name ?? member.property?.value) !== "default") return false
+  return (
+    member.object?.type === "Identifier"
+    && member.object.name === "exports"
+  ) || (
+    member.object?.type === "MemberExpression"
+    && member.object.object?.type === "Identifier"
+    && member.object.object.name === "module"
+    && member.object.property?.type === "Identifier"
+    && member.object.property.name === "exports"
+  )
+}
+
+function babelPathIsDirectDefaultExport(path: BabelNodePath): boolean {
+  const parent = path.parentPath?.node
+  if (parent?.type === "ExportDefaultDeclaration") return true
+  return parent?.type === "AssignmentExpression"
+    && parent.right === path.node
+    && babelMemberIsCommonJsDefaultExport(parent.left)
+}
+
+function babelPropertyIsTopLevelDefaultExport(path: BabelNodePath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ObjectProperty") return false
+    if (current.node.type === "ExportDefaultDeclaration") return true
+    if (
+      current.node.type === "AssignmentExpression"
+      && babelMemberIsCommonJsDefaultExport(current.node.left)
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      return binding?.referencePaths?.some(reference => babelPathReachesDefaultExport(reference)) ?? false
+    }
+  }
+  return false
+}
+
+function babelPathReachesExportedStore(path: BabelNodePath, seen = new Set<BabelNodePath>()): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (
+      current.node.type === "ObjectProperty"
+      && !["binding", "namespace", "provider", "store"].includes(String(babelPropertyName(current)))
+    ) return false
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current) === "store"
+      && babelPropertyIsTopLevelDefaultExport(current)
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
+    }
+    if (current.node.type === "FunctionDeclaration" && current.node.id?.name) {
+      let returned = false
+      for (let descendant: BabelNodePath | undefined = path; descendant && descendant !== current; descendant = descendant.parentPath) {
+        if (descendant.node.type === "ReturnStatement") returned = true
+        if (descendant !== path && (descendant.node.type === "FunctionDeclaration" || descendant.node.type === "FunctionExpression" || descendant.node.type === "ArrowFunctionExpression")) break
+      }
+      if (!returned) return false
+      const binding = current.scope.getBinding(current.node.id.name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesExportedStore(reference, seen))) return true
+    }
+  }
+  return false
+}
+
+function babelNamespaceMemberNames(
+  path: BabelNodePath,
+  reachesRequestedExport: (path: BabelNodePath) => boolean,
+  seen = new Set<BabelNodePath>(),
+): string[] {
+  if (seen.has(path)) return []
+  seen.add(path)
+  const parent = path.parentPath
+  if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
+    if (!reachesRequestedExport(parent)) return []
+    const name = parent.node.property?.name ?? parent.node.property?.value
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
+    return typeof name === "string" ? [name] : []
+  }
+  if (
+    parent?.node.type === "VariableDeclarator"
+    && parent.node.init === path.node
+    && parent.node.id?.type === "ObjectPattern"
+  ) {
+    // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+    const properties = (parent.node.id as BabelNode & { properties?: BabelNode[] }).properties
+    return properties?.flatMap((property) => {
+      // SAFETY: Babel's ObjectProperty discriminator below guards the key and value fields consumed here.
+      const objectProperty = property as BabelNode & {
+        key?: { name?: unknown, value?: unknown }
+        value?: { name?: string, type?: string }
+      }
+      if (objectProperty.type !== "ObjectProperty" || objectProperty.value?.type !== "Identifier" || !objectProperty.value.name) return []
+      const references = parent.scope.getBinding(objectProperty.value.name)?.referencePaths ?? []
+      if (!references.some(reachesRequestedExport)) return []
+      const name = objectProperty.key?.name ?? objectProperty.key?.value
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel destructuring keys cross the parser boundary as identifiers or literals.
+      return typeof name === "string" ? [name] : []
+    }) ?? []
+  }
+  if (
+    parent?.node.type === "VariableDeclarator"
+    && parent.node.init === path.node
+    && parent.node.id?.type === "Identifier"
+    && parent.node.id.name
+  ) {
+    return parent.scope.getBinding(parent.node.id.name)?.referencePaths
+      ?.filter(reachesRequestedExport)
+      .flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport, seen)) ?? []
+  }
+  return []
+}
+
+function babelPathBelongsToExportedStore(path: BabelNodePath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && current.node.left.object?.type === "Identifier"
+      && current.node.left.object.name === "module"
+      && current.node.left.property?.type === "Identifier"
+      && current.node.left.property.name === "exports"
+    ) {
+      if (path.parentPath?.parentPath === current) return true
+      for (let nested = path.parentPath; nested && nested !== current; nested = nested.parentPath) {
+        if (
+          nested.node.type === "ObjectProperty"
+          && babelPropertyName(nested) === "default"
+          && nested.parentPath?.node.type === "ObjectExpression"
+          && nested.parentPath.parentPath === current
+        ) {
+          for (let wrapped = path.parentPath; wrapped && wrapped !== nested; wrapped = wrapped.parentPath) {
+            if (
+              wrapped.node.type === "ObjectProperty"
+              && babelPropertyName(wrapped) === "store"
+              && wrapped.parentPath?.node === nested.node.value
+            ) return true
+          }
+          return false
+        }
+      }
+      return false
+    }
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current) === "store"
+      && babelPropertyIsTopLevelDefaultExport(current)
+    ) return true
+    if (
+      current.node.type === "VariableDeclarator"
+      && current.node.id?.type === "Identifier"
+      && (
+        (current.node.id.name === "store" && babelPathOrBindingIsExported(current, current.node.id.name))
+        || current.scope.getBinding(current.node.id.name ?? "")?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
+      )
+    ) return true
+    if (current.node.type === "ExportDefaultDeclaration") return path.parentPath?.parentPath === current
+    if (current.node.type === "FunctionDeclaration") {
+      const name = current.node.id?.name
+      if (current.parentPath?.node.type === "ExportDefaultDeclaration") return true
+      return name ? current.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference)) ?? false : false
+    }
+    if (current.node.type === "FunctionExpression" || current.node.type === "ArrowFunctionExpression") {
+      const declarator = current.parentPath
+      if (declarator?.node.type === "ExportDefaultDeclaration") return true
+      if (declarator?.node.type !== "VariableDeclarator" || declarator.node.init !== current.node || declarator.node.id?.type !== "Identifier") return false
+      const name = declarator.node.id.name
+      if (!name) return false
+      return babelPathOrBindingIsExported(declarator, name)
+        || declarator.scope.getBinding(name)?.referencePaths?.some(reference => babelPathReachesExportedStore(reference))
+        || false
+    }
+  }
+  return false
+}
+
+function babelPathIsExported(path: BabelNodePath): boolean {
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ExportNamedDeclaration" || current.node.type === "ExportDefaultDeclaration") return true
+  }
+  return false
+}
+
+function babelPathReachesNamedExport(
+  path: BabelNodePath,
+  exportedName: string,
+  seen = new Set<BabelNodePath>(),
+  mayCrossValueProperty = true,
+): boolean {
+  if (seen.has(path)) return false
+  seen.add(path)
+  for (let current: BabelNodePath | undefined = path; current; current = current.parentPath) {
+    if (
+      current.node.type === "ObjectProperty"
+      && babelPropertyName(current) === exportedName
+      && current.parentPath
+      && babelPathIsDirectDefaultExport(current.parentPath)
+    ) return true
+    if (current.node.type === "ObjectProperty") {
+      if (!mayCrossValueProperty) return false
+      mayCrossValueProperty = false
+    }
+    if (
+      current.node.type === "AssignmentExpression"
+      && current.node.left?.type === "MemberExpression"
+      && (
+        (current.node.left.object?.type === "Identifier" && current.node.left.object.name === "exports")
+        || (
+          current.node.left.object?.type === "MemberExpression"
+          && current.node.left.object.object?.type === "Identifier"
+          && current.node.left.object.object.name === "module"
+          && current.node.left.object.property?.type === "Identifier"
+          && current.node.left.object.property.name === "exports"
+        )
+      )
+      && (current.node.left.property?.name ?? current.node.left.property?.value) === exportedName
+    ) return true
+    if (current.node.type === "VariableDeclarator" && current.node.id?.type === "Identifier" && current.node.id.name) {
+      const name = current.node.id.name
+      if (
+        (name === exportedName && babelPathOrBindingIsExported(current, exportedName))
+        || babelBindingIsExportedAs(current, name, exportedName)
+      ) return true
+      const binding = current.scope.getBinding(name)
+      if (binding?.referencePaths?.some(reference => babelPathReachesNamedExport(reference, exportedName, seen, false))) return true
+    }
+    if (
+      current.node.type === "FunctionDeclaration"
+      && current.node.id?.name === exportedName
+      && babelPathOrBindingIsExported(current, exportedName)
+    ) return true
+  }
+  return false
+}
+
+function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, seen = new Set<BabelBindingPath>()): unknown {
+  if (node?.type === "StringLiteral") return node.value
+  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
+    return babelStringValue(node.expression, path, seen)
+  }
+  if (node?.type === "Identifier" && node.name) {
+    const bindingPath = path.scope.getBinding(node.name)?.path
+    if (!bindingPath || seen.has(bindingPath)) return
+    return babelStringValue(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
+  }
+  if (
+    node?.type === "CallExpression"
+    && node.arguments?.length === 1
+    && babelStringValue(node.arguments[0], path, seen) === "-"
+    && node.callee?.type === "MemberExpression"
+    && node.callee.object?.type === "ArrayExpression"
+    && node.callee.property?.type === "Identifier"
+    && node.callee.property.name === "join"
+  ) {
+    const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel literal evaluation must validate every computed array element before joining it.
+    if (values?.every(value => typeof value === "string")) return values.join("-")
+  }
 }
 
 async function sourceModuleDeclaresCloudflareArtifacts(
   file: string,
   loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName = "default",
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
   if (!loaded) return false
   let declaresCloudflareArtifacts = false
   loader.transform({
     filename: loaded.file,
-    jsx: /x$/.test(extname(loaded.file)),
+    jsx: extname(loaded.file).endsWith("x"),
     source: loaded.source,
     ts: /\.[cm]?tsx?$/.test(loaded.file),
     babel: {
@@ -119,12 +459,33 @@ async function sourceModuleDeclaresCloudflareArtifacts(
         visitor: {
           ObjectProperty(path: BabelObjectPropertyPath) {
             const value = path.node.value as BabelNode | undefined
+            const belongsToRequestedExport = exportedName === "default"
+              ? babelPathBelongsToExportedStore(path)
+              : babelPathReachesNamedExport(path, exportedName)
             if (
               babelPropertyName(path) === "provider"
-              && babelStringValue(value) === "cloudflare-artifacts"
-              && isExportedWorkspaceStoreProperty(path)
+              && belongsToRequestedExport
+            ) {
+              const provider = babelStringValue(value, path)
+              if (provider === "cloudflare-artifacts" || provider === undefined) declaresCloudflareArtifacts = true
+            }
+          },
+          VariableDeclarator(path: BabelNodePath) {
+            if (
+              exportedName === "provider"
+              && path.node.id?.type === "Identifier"
+              && path.node.id.name === "provider"
+              && babelPathIsExported(path)
+              && babelStringValue(path.node.init, path) === "cloudflare-artifacts"
             ) {
               declaresCloudflareArtifacts = true
+            }
+          },
+          ExportNamedDeclaration(path: BabelNodePath) {
+            if (exportedName !== "provider") return
+            for (const specifier of path.node.specifiers ?? []) {
+              if (specifier.exported?.name !== "provider" || specifier.local?.type !== "Identifier" || !specifier.local.name) continue
+              if (babelStringValue(specifier.local, path) === "cloudflare-artifacts") declaresCloudflareArtifacts = true
             }
           },
         },
@@ -134,35 +495,498 @@ async function sourceModuleDeclaresCloudflareArtifacts(
   return declaresCloudflareArtifacts
 }
 
-async function sourceModuleUsesCloudflareArtifacts(
+async function sourceModuleMayUseCloudflareArtifacts(
   file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
   resolveModule?: SourceModuleResolver,
   visited = new Set<string>(),
+  exportedName = "default",
 ): Promise<boolean> {
   const loaded = await readSourceModule(file)
-  if (!loaded || visited.has(loaded.file)) return false
-  visited.add(loaded.file)
-  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
+  if (!loaded) return false
+  const visitKey = `${loaded.file}\0${exportedName}`
+  if (visited.has(visitKey)) return false
+  visited.add(visitKey)
+  if (await sourceModuleDeclaresCloudflareArtifacts(loaded.file, loader, exportedName)) return true
 
-  const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
-  for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
-    const imports = match[1]?.trim()
-    if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").map(entry => entry.trim()).filter(Boolean).every(entry => /^type\b/.test(entry))) continue
-    const specifier = match[2]!
+  for (const { importedName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, exportedName)) {
+    if (!importedName) return true
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)
       : await resolveModule?.(specifier, loaded.file)
     const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
-    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleUsesCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
+    if (resolvedFile && extname(resolvedFile) && !sourceModuleExtensions.includes(extname(resolvedFile))) continue
+    const requestedName = selectedName ?? importedName
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleMayUseCloudflareArtifacts(resolvedFile, loader, resolveModule, visited, requestedName)) return true
   }
   return false
 }
 
-function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
-  const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
+function sourceImportsFeedingWorkspaceStore(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  exportedName: string,
+): Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> {
+  const imports: Array<{ importedName?: string, localName?: string, selectedName?: string, specifier: string }> = []
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ExportNamedDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export sources may be absent or non-string parser nodes.
+            if (typeof specifier !== "string") return
+            for (const exported of path.node.specifiers ?? []) {
+              const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
+              if (exportedAs !== exportedName) continue
+              imports.push({
+                importedName: String(exported.local?.name ?? exported.local?.value),
+                specifier,
+              })
+            }
+          },
+          ExportAllDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export-all sources may be absent or non-string parser nodes.
+            if (typeof specifier === "string" && exportedName !== "default") imports.push({ importedName: exportedName, specifier })
+          },
+          ImportDeclaration(path: BabelNodePath) {
+            const specifier = path.node.source?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel import sources may be absent or non-string parser nodes.
+            if (typeof specifier !== "string") return
+            for (const imported of path.node.specifiers ?? []) {
+              if (imported.local?.type !== "Identifier" || !imported.local.name) continue
+              const binding = path.scope.getBinding(imported.local.name)
+              const referenceReachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+                ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
+                : (() => {
+                    for (let current: BabelNodePath | undefined = reference; current; current = current.parentPath) {
+                      if (
+                        current.node.type === "ExportSpecifier"
+                        && current.node.local === reference.node
+                        && (current.node.exported?.name ?? current.node.exported?.value) === exportedName
+                      ) return true
+                      if (current.node.type === "VariableDeclarator" && current.node.id?.name === exportedName && babelPathOrBindingIsExported(current, exportedName)) return true
+                    }
+                    return false
+                  })()
+              if (imported.type === "ImportNamespaceSpecifier" || imported.type === "ImportDefaultSpecifier") {
+                for (const reference of binding?.referencePaths ?? []) {
+                  const memberNames = babelNamespaceMemberNames(reference, referenceReachesRequestedExport)
+                  for (const importedName of memberNames) {
+                    imports.push(imported.type === "ImportDefaultSpecifier"
+                      ? { importedName: "default", localName: imported.local.name, selectedName: importedName, specifier }
+                      : { importedName, localName: imported.local.name, specifier })
+                  }
+                  if (imported.type === "ImportDefaultSpecifier" && !memberNames.length && referenceReachesRequestedExport(reference)) {
+                    imports.push({ importedName: "default", localName: imported.local.name, specifier })
+                  }
+                }
+                continue
+              }
+              const references = binding?.referencePaths?.filter(referenceReachesRequestedExport) ?? []
+              if (!references.length) continue
+              imports.push({
+                importedName: imported.type === "ImportDefaultSpecifier" ? "default" : String(imported.imported?.name ?? imported.imported?.value),
+                localName: imported.local.name,
+                specifier,
+              })
+            }
+          },
+          AssignmentExpression(path: BabelNodePath) {
+            const right = path.node.right
+            const required = right?.type === "MemberExpression" ? right.object : right
+            if (
+              required?.type !== "CallExpression"
+              || required.callee?.type !== "Identifier"
+              || required.callee.name !== "require"
+              || required.arguments?.length !== 1
+            ) return
+            const left = path.node.left
+            const commonJsExportsObject = left?.type === "MemberExpression"
+              && (
+                (left.object?.type === "Identifier" && left.object.name === "exports")
+                || (
+                  left.object?.type === "MemberExpression"
+                  && left.object.object?.type === "Identifier"
+                  && left.object.object.name === "module"
+                  && left.object.property?.type === "Identifier"
+                  && left.object.property.name === "exports"
+                )
+              )
+            const assignedName = babelMemberIsCommonJsDefaultExport(left)
+              ? "default"
+              : commonJsExportsObject
+                ? left.property?.name ?? left.property?.value
+                : undefined
+            if (assignedName !== exportedName) return
+            const specifier = required.arguments[0]?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
+            if (typeof specifier !== "string") return
+            const importedName = right?.type === "MemberExpression"
+              ? right.property?.name ?? right.property?.value
+              : "default"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
+            imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
+          },
+          VariableDeclarator(path: BabelNodePath) {
+            const selectedDynamicImportName = path.node.init?.type === "MemberExpression"
+              ? path.node.init.property?.name ?? path.node.init.property?.value
+              : undefined
+            const dynamicImportValue = path.node.init?.type === "MemberExpression"
+              ? path.node.init.object
+              : path.node.init
+            // SAFETY: Babel's AwaitExpression discriminator guarantees the argument field.
+            const awaitExpression = dynamicImportValue as BabelNode & { argument?: BabelNode }
+            const awaited = dynamicImportValue?.type === "AwaitExpression"
+              ? awaitExpression.argument
+              : dynamicImportValue
+            if (
+              awaited?.type === "CallExpression"
+              && awaited.callee?.type === "Import"
+              && awaited.arguments?.length === 1
+            ) {
+              const specifier = awaited.arguments[0]?.value
+              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import arguments must be statically resolvable strings.
+              if (typeof specifier !== "string") return
+              if (path.node.id?.type === "ObjectPattern") {
+                // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+                const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
+                for (const property of properties ?? []) {
+                  if (property.type !== "ObjectProperty") continue
+                  // SAFETY: The ObjectProperty discriminator guarantees a Babel-compatible value node.
+                  const propertyValue = property.value as BabelNode | undefined
+                  const local = propertyValue?.type === "AssignmentPattern" ? propertyValue.left : propertyValue
+                  const localName = local?.name
+                  if (!localName) continue
+                  const reaches = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
+                    ? babelPathReachesExportedStore(reference)
+                    : babelPathOrBindingIsExported(reference, exportedName))
+                  if (!reaches) continue
+                  const importedName = property.key?.name ?? property.key?.value
+                  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import destructuring keys cross the parser boundary.
+                  imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
+                }
+              }
+              else if (path.node.id?.type === "Identifier") {
+                const localName = path.node.id.name
+                if (!localName) return
+                const binding = path.scope.getBinding(localName)
+                const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+                  ? babelPathReachesExportedStore(reference)
+                  : babelPathOrBindingIsExported(reference, exportedName)
+                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
+                if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
+                  imports.push({ importedName: selectedDynamicImportName, localName, specifier })
+                }
+                for (const reference of binding?.referencePaths ?? []) {
+                  const memberNames = babelNamespaceMemberNames(reference, reachesRequestedExport)
+                  for (const importedName of memberNames) imports.push({ importedName, localName, specifier })
+                }
+              }
+              return
+            }
+            const required = path.node.init?.type === "MemberExpression" ? path.node.init.object : path.node.init
+            if (
+              path.node.id?.type === "ObjectPattern"
+              && required?.type === "CallExpression"
+              && required.callee?.type === "Identifier"
+              && required.callee.name === "require"
+              && required.arguments?.length === 1
+            ) {
+              const specifier = required.arguments[0]?.value
+              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
+              if (typeof specifier !== "string") return
+              // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
+              const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
+              for (const property of properties ?? []) {
+                const value = property.value as BabelNode | undefined
+                const local = value?.type === "AssignmentPattern" ? value.left : value
+                const localName = local?.name
+                if (property.type !== "ObjectProperty" || !localName) continue
+                const reachesRequestedExport = path.scope.getBinding(localName)?.referencePaths?.some(reference => exportedName === "default"
+                  ? babelPathReachesExportedStore(reference)
+                  : babelPathOrBindingIsExported(reference, exportedName))
+                if (!reachesRequestedExport) continue
+                // SAFETY: Babel's ObjectProperty discriminator above guarantees a Babel-compatible key node.
+                const key = property.key as BabelNode | undefined
+                const importedName = property.computed
+                  ? babelStringValue(key, path)
+                  : property.key?.name ?? property.key?.value
+                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
+                imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
+              }
+              return
+            }
+            if (
+              path.node.id?.type !== "Identifier"
+              || !path.node.id.name
+            ) return
+            if (
+              required?.type !== "CallExpression"
+              || required.callee?.type !== "Identifier"
+              || required.callee.name !== "require"
+              || required.arguments?.length !== 1
+            ) return
+            const specifier = required.arguments[0]?.value
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
+            if (typeof specifier !== "string") return
+            const binding = path.scope.getBinding(path.node.id.name)
+            const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
+              ? babelPathReachesExportedStore(reference) || babelPathIsDirectDefaultExport(reference)
+              : babelPathOrBindingIsExported(reference, exportedName)
+            const selectedNames = binding?.referencePaths?.flatMap(reference => babelNamespaceMemberNames(reference, reachesRequestedExport)) ?? []
+            const direct = binding?.referencePaths?.some(reachesRequestedExport)
+            if (!direct && !selectedNames.length) return
+            const selectedName = path.node.init?.type === "MemberExpression"
+              ? path.node.init.property?.name ?? path.node.init.property?.value
+              : "default"
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
+            if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
+            for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, specifier })
+          },
+        },
+      })],
+    },
+  })
+  return imports
+}
+
+type InlineWorkspaceStoreOperation =
+  | { kind: "spread", localName: string, position: number, selectedName?: string }
+  | { environmentValue: boolean, kind: "property", localName?: string, name: string, position: number, value?: string }
+
+function importedWorkspaceValueKey(localName: string, selectedName?: string): string {
+  return selectedName === undefined ? localName : `${localName}\0${selectedName}`
+}
+
+function babelResolveIdentifierAlias(path: BabelNodePath, name: string, seen = new Set<BabelBindingPath>()): string {
+  const bindingPath = path.scope.getBinding(name)?.path
+  if (!bindingPath || seen.has(bindingPath)) return name
+  seen.add(bindingPath)
+  if (
+    bindingPath.node.type !== "VariableDeclarator"
+    || bindingPath.node.init?.type !== "Identifier"
+    || !bindingPath.node.init.name
+  ) return name
+  return babelResolveIdentifierAlias(bindingPath, bindingPath.node.init.name, seen)
+}
+
+function babelEnvironmentKey(
+  node: BabelNode | undefined,
+  path: BabelBindingPath,
+  seen = new Set<BabelBindingPath>(),
+): string | undefined {
+  if (node?.type === "Identifier" && node.name) {
+    const bindingPath = path.scope.getBinding(node.name)?.path
+    if (!bindingPath || seen.has(bindingPath)) return
+    return babelEnvironmentKey(bindingPath.node.init, bindingPath, new Set(seen).add(bindingPath))
+  }
+  if (
+    node?.type !== "MemberExpression"
+    || node.object?.type !== "MemberExpression"
+    || node.object.object?.type !== "Identifier"
+    || node.object.object.name !== "process"
+    || node.object.property?.type !== "Identifier"
+    || node.object.property.name !== "env"
+  ) return
+  const key = node.property?.name ?? node.property?.value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
+  return typeof key === "string" ? key : undefined
+}
+
+function babelEnvironmentValue(
+  node: BabelNode | undefined,
+  path: BabelBindingPath,
+  env: Record<string, string | undefined>,
+): string | undefined {
+  const key = babelEnvironmentKey(node, path)
+  return key === undefined ? undefined : env[key]
+}
+
+function sourceHasUnresolvedWorkspaceRoot(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+): boolean {
+  let unresolved = false
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
+            const valueNode = path.node.value as BabelNode | undefined
+            if (
+              babelPropertyName(path) === "root"
+              && babelPropertyIsTopLevelDefaultExport(path)
+              && babelStringValue(valueNode, path) === undefined
+            ) unresolved = true
+          },
+        },
+      })],
+    },
+  })
+  return unresolved
+}
+
+function sourceInlineWorkspaceStoreOperations(
+  loaded: { file: string, source: string },
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  env: Record<string, string | undefined>,
+): InlineWorkspaceStoreOperation[] {
+  const operations: InlineWorkspaceStoreOperation[] = []
+  loader.transform({
+    filename: loaded.file,
+    jsx: extname(loaded.file).endsWith("x"),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          SpreadElement(path: BabelNodePath) {
+            // SAFETY: Babel's SpreadElement visitor guarantees the argument field.
+            const argument = (path.node as BabelNode & { argument?: BabelNode }).argument
+            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
+            const position = (path.node as BabelNode & { start?: number }).start
+            if (position === undefined || !babelPathReachesExportedStore(path)) return
+            const localName = argument?.type === "Identifier"
+              ? argument.name
+              : argument?.type === "MemberExpression" && argument.object?.type === "Identifier"
+                ? argument.object.name
+                : undefined
+            const selectedName = argument?.type === "MemberExpression"
+              ? argument.property?.name ?? argument.property?.value
+              : undefined
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
+            if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
+            const operation: InlineWorkspaceStoreOperation = {
+              kind: "spread",
+              localName: babelResolveIdentifierAlias(path, localName),
+              position,
+            }
+            if (selectedName !== undefined) operation.selectedName = selectedName
+            operations.push(operation)
+          },
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            // SAFETY: Babel nodes expose their authored source offset through `start`; generated nodes are intentionally ignored below.
+            const position = (path.node as BabelNode & { start?: number }).start
+            if (position === undefined) return
+            if (!babelPathReachesExportedStore(path)) return
+            const name = babelPropertyName(path)
+            if (name === "store" && babelPropertyIsTopLevelDefaultExport(path)) return
+            // SAFETY: Babel's ObjectProperty visitor guarantees the value node shape consumed by the guarded evaluator below.
+            const valueNode = path.node.value as BabelNode | undefined
+            let value = babelStringValue(valueNode, path)
+            const environmentValue = value === undefined && babelEnvironmentKey(valueNode, path) !== undefined
+            if (environmentValue) value = babelEnvironmentValue(valueNode, path, env)
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property values cross the Babel boundary as unknown values.
+            const stringValue = typeof value === "string" ? value : undefined
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names cross the Babel boundary as unknown values.
+            if (typeof name === "string") {
+              operations.push({
+                kind: "property",
+                localName: valueNode?.type === "Identifier" && valueNode.name
+                  ? babelResolveIdentifierAlias(path, valueNode.name)
+                  : undefined,
+                name,
+                position,
+                environmentValue,
+                value: stringValue,
+              })
+            }
+          },
+        },
+      })],
+    },
+  })
+  return operations
+    .sort((left, right) => left.position - right.position
+      || (left.kind === "property" && right.kind === "property"
+        ? Number(right.localName !== undefined) - Number(left.localName !== undefined)
+        : 0))
+    .filter((operation, index, sorted) => {
+      const previous = sorted[index - 1]
+      if (!previous || operation.position !== previous.position || operation.kind !== previous.kind) return true
+      if (operation.kind === "spread" || previous.kind === "spread") return false
+      return operation.name !== previous.name
+    })
+}
+
+function reconstructCloudflareArtifactStore(
+  operations: InlineWorkspaceStoreOperation[],
+  importedValues = new Map<string, unknown>(),
+): WorkspaceDefinitionInput["store"] | undefined {
+  let reconstructed: Record<string, unknown> = {}
+  for (const operation of operations) {
+    if (operation.kind === "spread") {
+      const imported = importedValues.get(importedWorkspaceValueKey(operation.localName, operation.selectedName))
+      reconstructed = isRecord(imported) ? { ...reconstructed, ...imported } : {}
+      continue
+    }
+    const imported = operation.localName === undefined ? undefined : importedValues.get(operation.localName)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Imported Workspace store properties cross the module-loader boundary as unknown values.
+    if (typeof imported === "string") {
+      reconstructed[operation.name] = imported
+      continue
+    }
+    if (operation.value === undefined && !operation.environmentValue) return
+    reconstructed[operation.name] = operation.value
+  }
+  if (reconstructed.provider !== "cloudflare-artifacts") return
+  // SAFETY: Reconstruction accepts only string properties and requires the Cloudflare Artifacts provider discriminator.
+  return reconstructed as WorkspaceDefinitionInput["store"]
+}
+
+async function loadFactoredCloudflareArtifactStore(
+  definition: DiscoveredWorkspaceDefinition,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+  resolveModule?: SourceModuleResolver,
+  env: Record<string, string | undefined> = process.env,
+): Promise<WorkspaceDefinitionInput["store"] | undefined> {
+  const loaded = await readSourceModule(definition.path)
+  if (!loaded) return
+  const operations = sourceInlineWorkspaceStoreOperations(loaded, loader, env)
+  const importedValues = new Map<string, unknown>()
+  let importedArtifactStore: WorkspaceDefinitionInput["store"] | undefined
+  for (const { importedName, localName, selectedName, specifier } of sourceImportsFeedingWorkspaceStore(loaded, loader, "default")) {
+    if (!importedName) continue
+    const resolvedModule = specifier.startsWith(".")
+      ? resolve(dirname(loaded.file), specifier)
+      : await resolveModule?.(specifier, loaded.file)
+    if (!resolvedModule) continue
+    try {
+      // SAFETY: Jiti has no generic import contract; the record guard below validates the module namespace before access.
+      const imported = await loader.import(resolvedModule.split(/[?#]/, 1)[0]) as Record<string, unknown>
+      const sourceExport = importedName === "default" ? imported.default : imported[importedName]
+      const store = selectedName && isRecord(sourceExport) ? sourceExport[selectedName] : sourceExport
+      if (localName) {
+        importedValues.set(localName, store)
+        if (selectedName) importedValues.set(importedWorkspaceValueKey(localName, selectedName), store)
+      }
+      // SAFETY: The provider check establishes the Workspace store variant consumed by normalization.
+      if (isRecord(store) && store.provider === "cloudflare-artifacts") {
+        // SAFETY: The record and provider guards above establish the Cloudflare Artifacts store variant.
+        importedArtifactStore = store as WorkspaceDefinitionInput["store"]
+      }
+    }
+    catch {}
+  }
+  return operations.length
+    ? reconstructCloudflareArtifactStore(operations, importedValues)
+    : importedArtifactStore
+}
+
+function vercelFunctionRuntimePackages() {
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
-    ...(hasVercelBlobStore ? [{ name: "@vercel/blob" }] : []),
   ]
 }
 
@@ -172,49 +996,13 @@ type CloudflareArtifactsWranglerConfig = {
 
 type ConfiguredCloudflareArtifact = Record<string, unknown> & { binding: string }
 
-function cloudflareArtifactsBindingsFile(rootDir: string): string {
-  return resolve(createDefaultCloudflareOutputRoot(rootDir), cloudflareArtifactsBindingsFileName)
-}
-
-function cloudflareWranglerFile(rootDir: string): string {
-  return resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
-}
-
 function hasCloudflareArtifactBinding(value: unknown): value is ConfiguredCloudflareArtifact {
   return isRecord(value) && typeof value.binding === "string"
 }
 
-async function readConfiguredCloudflareArtifacts(rootDir: string): Promise<ConfiguredCloudflareArtifact[]> {
-  try {
-    const parsed = JSON.parse(await readFile(cloudflareWranglerFile(rootDir), "utf8"))
-    if (!isRecord(parsed) || !Array.isArray(parsed.artifacts)) return []
-    return parsed.artifacts.filter(hasCloudflareArtifactBinding)
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw error
-  }
-}
-
-async function readOwnedCloudflareArtifactsBindings(rootDir: string): Promise<string[]> {
-  try {
-    const parsed = JSON.parse(await readFile(cloudflareArtifactsBindingsFile(rootDir), "utf8"))
-    return Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : []
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw error
-  }
-}
-
-async function writeOwnedCloudflareArtifactsBindings(rootDir: string, bindings: string[]): Promise<void> {
-  const file = cloudflareArtifactsBindingsFile(rootDir)
-  if (!bindings.length) {
-    await rm(file, { force: true })
-    return
-  }
-  await mkdir(createDefaultCloudflareOutputRoot(rootDir), { recursive: true })
-  await writeFile(file, `${JSON.stringify([...new Set(bindings)], null, 2)}\n`, "utf8")
+function configuredCloudflareArtifacts(wranglerConfig: unknown): ConfiguredCloudflareArtifact[] {
+  if (!isRecord(wranglerConfig) || !Array.isArray(wranglerConfig.artifacts)) return []
+  return wranglerConfig.artifacts.filter(hasCloudflareArtifactBinding)
 }
 
 function createCloudflareArtifactsWranglerConfig(configs: ResolvedWorkspaceModuleOptions[]): CloudflareArtifactsWranglerConfig | undefined {
@@ -235,7 +1023,7 @@ function resolveOwnedCloudflareArtifacts(
     const existing = configured.filter(entry => entry.binding === artifact.binding)
     const collision = existing.find(entry => entry.namespace !== artifact.namespace)
     if (collision) {
-      throw new TypeError(`[vitehub] Cloudflare Artifacts binding "${artifact.binding}" already exists in Wrangler config with namespace ${JSON.stringify(collision.namespace)}, but Workspace requested namespace "${artifact.namespace}". Configure a unique binding or use the existing namespace.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0027({ message: `[vitehub] Cloudflare Artifacts binding "${artifact.binding}" already exists in Wrangler config with namespace ${JSON.stringify(collision.namespace)}, but Workspace requested namespace "${artifact.namespace}". Configure a unique binding or use the existing namespace.` })
     }
     return existing.length === 0
   })
@@ -252,20 +1040,26 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
+  const sourceModuleResolver = createSourceModuleResolver(rootDir, aliases, resolveModule)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+      const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
+      loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly) {
-        if (await sourceModuleDeclaresCloudflareArtifacts(definition.path, loader)) throw error
-        continue
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
+      const source = await readSourceModule(definition.path)
+      if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
+      const store = await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
+      if (!store) {
+        if (inspection?.artifactsOnly) continue
+        throw error
       }
-      if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error
-      continue
+      loaded = { store }
     }
     const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
     if (!workspace.store || "readFile" in workspace.store) continue
@@ -313,8 +1107,11 @@ async function resolveCloudflareArtifactsConfigs(
 
 async function writeCloudflareArtifactsProviderOutput(
   rootDir: string,
+  clientOutDir: string,
   config: false | ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
+  readCloudflareState: CloudflareProviderDeploymentOutputStateReader,
+  write: ProviderDeploymentOutputWriter,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
 ): Promise<void> {
@@ -322,28 +1119,57 @@ async function writeCloudflareArtifactsProviderOutput(
     ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
-  const [configuredArtifacts, previousBindings] = await Promise.all([
-    readConfiguredCloudflareArtifacts(rootDir),
-    readOwnedCloudflareArtifactsBindings(rootDir),
-  ])
+  const wranglerConfigOwnership = {
+    arrays: {
+      artifacts: {
+        key: "binding",
+        values: [] as string[],
+      },
+    },
+  }
+  const wranglerConfigOwnershipFiles = {
+    artifacts: cloudflareArtifactsBindingsFileName,
+  }
+  const state = await readCloudflareState({
+    wranglerConfigOwnership,
+    wranglerConfigOwnershipFiles,
+  })
+  const configuredArtifacts = configuredCloudflareArtifacts(state.wranglerConfig)
+  const previousBindings = state.wranglerConfigOwnership?.arrays?.artifacts?.values
+    ?.filter((value): value is string => typeof value === "string") ?? []
   const ownedArtifacts = resolveOwnedCloudflareArtifacts(requestedConfig?.artifacts ?? [], configuredArtifacts, previousBindings)
   const wranglerConfig = ownedArtifacts.length ? { artifacts: ownedArtifacts } : undefined
   const nextBindings = ownedArtifacts.map(binding => binding.binding)
   if (!wranglerConfig && !previousBindings.length) return
 
-  await writeCloudflareWranglerConfig({
-    rootDir,
-    wranglerConfigOwnership: {
-      arrays: {
-        artifacts: {
-          key: "binding",
-          values: [...previousBindings, ...nextBindings],
-        },
+  const nextOwnership = {
+    arrays: {
+      artifacts: {
+        key: "binding",
+        values: nextBindings,
       },
     },
-    ...(wranglerConfig ? { wranglerConfig } : {}),
+  }
+  await write({
+    clientOutDir,
+    rootDir,
+    ...(wranglerConfig
+      ? {
+          cloudflare: {
+            wranglerConfig,
+            wranglerConfigOwnership: nextOwnership,
+            wranglerConfigOwnershipFiles,
+          },
+        }
+      : {
+          cleanup: {
+            cloudflare: {
+              wranglerConfigOwnership: nextOwnership,
+              wranglerConfigOwnershipFiles,
+            },
+          },
+        }),
   })
-  await writeOwnedCloudflareArtifactsBindings(rootDir, nextBindings)
 }
 
 export interface WorkspaceNitroConfigOptions {
@@ -469,7 +1295,7 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
 
 function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
   const controller = new AbortController()
-  const abort = () => controller.abort(new Error(message))
+  const abort = () => controller.abort(workspaceErrorDiagnostics.WORKSPACE_R0028({ message: message }))
   target.once("close", abort)
   return {
     dispose: () => target.off("close", abort),
@@ -544,14 +1370,14 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
 
-  let body: { workspaceCommand?: { args?: unknown, command?: unknown, paths?: unknown, timeout?: unknown, workspace?: unknown } }
+  let body: unknown
   try {
-    body = JSON.parse(await readRequestBody(req)) as typeof body
+    body = JSON.parse(await readRequestBody(req))
   }
   catch {
     return new Response("Malformed Workspace Dev payload.", { status: 400 })
   }
-  const command = body.workspaceCommand
+  const command = isRecord(body) && isRecord(body.workspaceCommand) ? body.workspaceCommand : undefined
   if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
     return new Response("Missing Workspace Dev command.", { status: 400 })
   }
@@ -865,6 +1691,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
+  let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let projectRoot: string | undefined
   let viteRoot: string | undefined
@@ -955,6 +1783,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       const workspaceOptions = stripWorkspaceInternalOptions(
         (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
@@ -989,6 +1818,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       }
     },
     async buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
       if (!resolved) return
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
@@ -1000,32 +1830,49 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = discoverDefinitions(roots, serverDirs)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      const roots = {
+        projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+        viteRoot: viteRoot || resolve(resolved.root),
+      }
+      providerOutputGenerations.defer(this, providerOutput, {
+        owner: "workspace",
+        rootDir: roots.projectRoot,
+        write: async ({ readCloudflareState, signal, write }) => {
+          const definitions = discoverDefinitions(roots, serverDirs)
+          await copyVercelFunctionRuntimePackages({
+            packages: vercelFunctionRuntimePackages(),
+            rootDir: roots.projectRoot,
+            signal,
+          })
+          await writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolved!.build?.outDir ?? "dist/client",
+            resolvedOptions,
+            definitions,
+            readCloudflareState,
+            write,
+            resolved!.createResolver?.(),
+            resolved!.resolve ? workspaceDefinitionLoaderAliases(resolved!.resolve.alias) : undefined,
+          )
+        },
+      })
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
     closeBundle: {
       order: "post",
       sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-        const roots = {
-          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
-          viteRoot: viteRoot || resolve(resolved.root),
-        }
-        const definitions = discoverDefinitions(roots, serverDirs)
-        await Promise.all(definitions.map(async (definition) => {
-          definition.source = await readFile(definition.path, "utf8")
-        }))
-        await Promise.all([
-          copyVercelFunctionRuntimePackages({
-            packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
-            rootDir: roots.projectRoot,
-          }),
-          writeCloudflareArtifactsProviderOutput(
-            roots.projectRoot,
-            resolvedOptions,
-            definitions,
-            resolved.createResolver?.(),
-            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
-          ),
-        ])
+        providerOutputGenerations.ready(this)
+        await finalizeProviderDeploymentOutputs(providerOutput)
       },
     },
     async configureServer(devServer) {

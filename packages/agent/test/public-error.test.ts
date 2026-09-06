@@ -43,6 +43,17 @@ describe("Agent public error seams", () => {
     })
   })
 
+  it("maps launch failures to a correlated provider-unavailable error", () => {
+    expect(toAgentPublicError(new ViteHubError("PROVIDER_LAUNCH_FAILED", "private launch failure", {
+      details: { stderr: "private stderr" },
+      requestId: "provider-a1b2c3d4e5f6",
+    }), "http")).toEqual({
+      code: "PROVIDER_UNAVAILABLE",
+      error: "I couldn't start the agent runtime. Please try again.",
+      requestId: "provider-a1b2c3d4e5f6",
+    })
+  })
+
   it("redacts unowned HTTP failures and hostile metadata", async () => {
     const hostile = new Proxy({}, {
       get() {

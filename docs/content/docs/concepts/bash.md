@@ -2,6 +2,7 @@
 title: Bash
 description: Understand how Capability commands become one constrained Agent tool.
 navigation.order: 16
+navigation.group: Application model
 navigation.lanes: [agents]
 icon: i-lucide-terminal
 ---

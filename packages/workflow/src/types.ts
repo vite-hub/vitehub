@@ -171,12 +171,17 @@ export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> {
   options?: WorkflowDefinitionOptions<TPayload, TResult>
 }
 
+/** Omission is valid only when the handler accepts undefined. */
+export type WorkflowStartArguments<TPayload> = undefined extends TPayload
+  ? [payload?: TPayload, options?: WorkflowStartOptions]
+  : [payload: TPayload, options?: WorkflowStartOptions]
+
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
-  cancel: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
-  defer: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload>>
-  getRun: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
+  cancel: (id: string) => Promise<WorkflowRun<unknown, unknown>>
+  defer: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload>>
+  getRun: (id: string) => Promise<WorkflowRun<unknown, unknown>>
   name: string
-  run: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload, TResult>>
+  run: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
 export interface WorkflowStartOptions {
@@ -193,7 +198,10 @@ export interface WorkflowSignalResult {
 }
 
 export interface WorkflowDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>
+  [name: string]: (() => Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>) & {
+    /** @internal Identifies provider-generated Agent invocation recovery definitions without evaluating their modules. */
+    internalAgentInvocationRecovery?: true
+  }
 }
 
 export interface DiscoveredWorkflowDefinition {

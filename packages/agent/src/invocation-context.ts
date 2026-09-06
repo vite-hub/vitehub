@@ -1,6 +1,9 @@
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInvocationContextStore } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
+export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
 
 function isCallbackContextValue(id: string): boolean {
   return id !== "actor"
@@ -33,15 +36,15 @@ export function agentInvocationSourceContext(context: AgentInvocationContextStor
 }
 
 function assertContextId(id: unknown): asserts id is string {
-  if (typeof id !== "string" || !id.trim()) {
-    throw new TypeError("[vitehub] Invocation context values require a non-empty string id.")
+  if (!hasRuntimeType(id, "string") || !id.trim()) {
+    throw agentDiagnostics.AGENT_R0604({ message: "[vitehub] Invocation context values require a non-empty string id." })
   }
   if (!/^[a-z][a-z0-9-_.:]*$/i.test(id)) {
-    throw new TypeError(`[vitehub] Invocation context id "${id}" must be a stable identifier.`)
+    throw agentDiagnostics.AGENT_R0605({ message: `[vitehub] Invocation context id "${id}" must be a stable identifier.` })
   }
 }
 
-export function createAgentInvocationContextStore(initial?: object): AgentInvocationContextStore {
+export function createAgentInvocationContextStore(initial?: Record<string, unknown>): AgentInvocationContextStore {
   const values = new Map<string, unknown>()
 
   for (const [id, value] of Object.entries(initial || {})) {
@@ -52,8 +55,8 @@ export function createAgentInvocationContextStore(initial?: object): AgentInvoca
     entries() {
       return values.entries()
     },
-    get<T = unknown>(id: string): T | undefined {
-      return values.get(id) as T | undefined
+    get(id: string): unknown {
+      return values.get(id)
     },
     has(id: string): boolean {
       return values.has(id)
@@ -61,7 +64,7 @@ export function createAgentInvocationContextStore(initial?: object): AgentInvoca
     set(id: string, value: unknown, options?: { overwrite?: boolean }): void {
       assertContextId(id)
       if (values.has(id) && !options?.overwrite) {
-        throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
+        throw agentDiagnostics.AGENT_R0606({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       values.set(id, value)
     },

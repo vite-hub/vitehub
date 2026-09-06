@@ -1,6 +1,8 @@
 import { builtinModules } from 'node:module'
+import { findDynamicImports } from 'mlly'
 import { dirname, relative, resolve as resolvePath } from 'pathe'
 import { build, type Loader, type Plugin } from 'esbuild'
+import { sandboxErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface DiscoveredDefinitionBundleOptions {
   alias?: Record<string, string>
@@ -14,6 +16,8 @@ export interface DiscoveredDefinitionBundleOptions {
 
 export interface DiscoveredDefinitionModuleGraph {
   entry: string
+  externalImports: string[]
+  hasRuntimeModuleResolution: boolean
   modules: Record<string, string>
 }
 
@@ -37,6 +41,12 @@ function resolveDefinitionLoader(options: DiscoveredDefinitionBundleOptions) {
 function isJsxDefinitionLoader(options: DiscoveredDefinitionBundleOptions) {
   const loader = resolveDefinitionLoader(options)
   return loader === 'tsx' || loader === 'jsx'
+}
+
+function usesRuntimeModuleResolution(contents: string) {
+  return findDynamicImports(contents).some(imported => !imported.expression.startsWith('"'))
+    || /\bimport\.meta\.resolve\s*\(/.test(contents)
+    || /\bcreateRequire\b/.test(contents)
 }
 
 export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefinitionBundleOptions) {
@@ -63,7 +73,7 @@ export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefini
 
   const output = result.outputFiles?.[0]?.text
   if (!output)
-    throw new Error(`[vitehub] Failed to bundle discovered definition "${options.filename}".`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0047({ message: `[vitehub] Failed to bundle discovered definition "${options.filename}".` })
 
   return output
 }
@@ -89,6 +99,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
     format: 'esm',
     platform: 'node',
     target: 'es2022',
+    metafile: true,
     logLevel: 'silent',
     jsx: isJsxDefinitionLoader(options) ? 'automatic' : undefined,
     jsxImportSource: isJsxDefinitionLoader(options) ? 'react' : undefined,
@@ -102,11 +113,19 @@ export async function bundleDiscoveredDefinitionModuleGraph(
   }))
 
   if (!modules['definition.js']) {
-    throw new Error(`[vitehub] Failed to bundle discovered definition graph "${options.filename}".`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0048({ message: `[vitehub] Failed to bundle discovered definition graph "${options.filename}".` })
   }
+
+  const externalImports = [...new Set(Object.values(result.metafile.outputs)
+    .flatMap(output => output.imports)
+    .filter(imported => imported.external)
+    .map(imported => imported.path))].sort()
+  const hasRuntimeModuleResolution = Object.values(modules).some(usesRuntimeModuleResolution)
 
   return {
     entry: 'definition.js',
+    externalImports,
+    hasRuntimeModuleResolution,
     modules,
   }
 }

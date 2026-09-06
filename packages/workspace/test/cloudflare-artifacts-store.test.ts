@@ -165,6 +165,9 @@ describe("Cloudflare Artifacts workspace store", () => {
 
     await store.writeFile("README.md", { path: "README.md", content: "hello" })
     expect(await store.readFile("README.md")).toMatchObject({ path: "README.md" })
+    await expect(store.glob("*.{md,mdx}")).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
     const snapshot = await store.snapshot({ name: "baseline" })
     await store.writeFile("README.md", { path: "README.md", content: "changed" })
 

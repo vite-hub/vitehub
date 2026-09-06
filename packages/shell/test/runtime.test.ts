@@ -183,6 +183,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
     await session.startProcess("one")
     await session.startProcess("two")
+    // SAFETY: dispose rejects with AggregateError when multiple process stops fail.
     const failure = await session.dispose().catch(error => error) as AggregateError
 
     expect(failure).toBeInstanceOf(AggregateError)
@@ -352,6 +353,29 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(runtime.exec("if test -f tmp/out\nthen\ncat tmp/out\nfi")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
   })
 
+  it("keeps yq XML conversion unavailable in the portable provider", async () => {
+    const workspace = new MemoryWorkspace({
+      "input.xml": `<?xml version="1.0"?>
+<!DOCTYPE root [<!ENTITY a "x">]>
+<!DOCTYPE root [<!ENTITY b "&a;&a;">]>
+<root>&b;</root>
+`,
+    })
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands: ["yq"],
+        cwd: workspaceMountPoint,
+        fs: createReadonlyWorkspaceFs(workspace),
+      }),
+    })
+
+    await expect(runtime.exec("yq -p xml -o json '.' input.xml")).resolves.toMatchObject({
+      exitCode: 127,
+      stderr: expect.stringContaining("yq: command not available in browser environments"),
+      stdout: "",
+    })
+  })
+
   it("exposes writable filesystem adapters", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -403,9 +427,12 @@ describe("@vite-hub/shell just-bash runtime", () => {
 describe("@vite-hub/shell cloudflare runtime", () => {
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
-      exec: vi.fn(async (_command: string, _args?: string[], options?: Record<string, unknown>) => {
-        if (options?.onStdout) (options.onStdout as (data: string) => void)("out")
-        if (options?.onStderr) (options.onStderr as (data: string) => void)("err")
+      exec: vi.fn(async (_command: string, _args?: string[], options?: {
+        onStderr?: (data: string) => void
+        onStdout?: (data: string) => void
+      }) => {
+        options?.onStdout?.("out")
+        options?.onStderr?.("err")
         return {
           exitCode: 0,
           ok: true,
@@ -426,7 +453,7 @@ describe("@vite-hub/shell cloudflare runtime", () => {
         readFileStream: true,
         startProcess: true,
       },
-    } as any
+    }
 
     const runtime = createShellRuntime({
       provider: createCloudflareShellProvider({

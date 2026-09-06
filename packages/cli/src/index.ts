@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
 import { runProvision } from "./provision.ts"
 
-import type { InlineConfig, ResolvedConfig } from "vite"
+import type { InlineConfig } from "vite"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
   exitCode: number | null
@@ -31,19 +33,39 @@ type ViteHubCliSpawn = (
 ) => Promise<ViteHubCliSpawnResult>
 
 interface ViteHubCliStreams {
-  stderr: { write: (chunk: string | Uint8Array) => unknown }
-  stdout: { write: (chunk: string | Uint8Array) => unknown }
+  stderr: ViteHubCliStream
+  stdout: ViteHubCliStream
+}
+
+interface ViteHubCliStream {
+  flush?: () => unknown
+  write: (chunk: string | Uint8Array) => unknown
+}
+
+type ViteHubCliEntrypointStream =
+  | { flush: () => unknown, write: (chunk: string | Uint8Array) => unknown }
+  | { flush?: never, write: (chunk: string | Uint8Array) => void | PromiseLike<unknown> }
+
+interface ViteHubCliLoadedConfig {
+  plugins: readonly unknown[]
+  root: string
+  vitehubConfigResolved?: true
 }
 
 export interface RunViteHubCliOptions {
   args?: string[]
   cwd?: string
   env?: NodeJS.ProcessEnv
-  loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }>
+  loadConfig?: (rootDir: string) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
+}
+
+export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOptions, "stderr" | "stdout"> {
+  stderr?: ViteHubCliEntrypointStream
+  stdout?: ViteHubCliEntrypointStream
 }
 
 async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
@@ -56,18 +78,27 @@ async function loadNuxtViteConfig(rootDir: string): Promise<{ plugins: readonly 
     ({ loadNuxt } = await import("nuxt/kit"))
   }
   catch {
-    throw new TypeError("[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery.")
+    throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery." })
   }
-  const nuxt = await loadNuxt({ cwd: rootDir, dev: false })
+  // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
+  const nuxt = await loadNuxt({
+    cwd: rootDir,
+    dev: true,
+    overrides: { vitehubCliDiscovery: true },
+    ready: true,
+  } as Parameters<typeof loadNuxt>[0])
   try {
     const { resolveConfig } = await import("vite")
-    const config = await resolveConfig({
+    const viteRoot = nuxt.options.vite.root
+    const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
       ...nuxt.options.vite,
       configFile: false,
-      root: typeof nuxt.options.vite.root === "string"
-        ? resolve(nuxt.options.rootDir || rootDir, nuxt.options.vite.root)
+      root: viteRoot
+        ? resolve(nuxt.options.rootDir || rootDir, viteRoot)
         : nuxt.options.rootDir || rootDir,
-    }, "serve", "development")
+      vitehubCliDiscovery: true,
+    }
+    const config = await resolveConfig(inlineConfig, "serve", "development")
     return {
       plugins: config.plugins,
       root: config.root,
@@ -95,15 +126,13 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
+async function loadViteConfig(rootDir: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
-  const inlineConfig: InlineConfig = { root: rootDir }
+  const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
+    root: rootDir,
+    vitehubCliDiscovery: true,
+  }
   return await resolveConfig(inlineConfig, "serve", "development")
-}
-
-function hasViteConfig(rootDir: string) {
-  return ["vite.config.ts", "vite.config.mts", "vite.config.cts", "vite.config.js", "vite.config.mjs", "vite.config.cjs"]
-    .some(file => existsSync(resolve(rootDir, file)))
 }
 
 // Built-in namespace that orchestrates package-contributed Provision Steps.
@@ -139,7 +168,10 @@ function writeNamespaceHelp(namespace: ViteHubCliCommandNamespace, stdout: ViteH
     namespace.description || "",
     "",
     "Available features:",
-    ...namespace.features.map(feature => `  ${feature.name.padEnd(12)} ${feature.description || ""}`.trimEnd()),
+    ...namespace.features.flatMap(feature => [
+      `  ${feature.name.padEnd(12)} ${feature.description || ""}`.trimEnd(),
+      ...(feature.usage ? [`    Usage: ${feature.usage}`] : []),
+    ]),
     "",
   ].filter(Boolean).join("\n"))
 }
@@ -148,18 +180,31 @@ function isRootHelp(args: string[]): boolean {
   return args[0] === "-h" || args[0] === "--help"
 }
 
+function readPackageVersion(): string {
+  const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  const version = /"version"\s*:\s*"([^"\\]+)"/u.exec(manifest)?.[1]
+  if (!version) {
+    throw cliErrorDiagnostics.CLI_R0002({ message: "[vitehub] The installed @vite-hub/cli package manifest has no valid version." })
+  }
+  return version
+}
+
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
+  const stdout = options.stdout || process.stdout
+  if (args[0] === "-v" || args[0] === "--version") {
+    stdout.write(`${readPackageVersion()}\n`)
+    return 0
+  }
+
   const cwd = options.cwd || process.cwd()
   const env = options.env || process.env
-  const stdout = options.stdout || process.stdout
   const stderr = options.stderr || process.stderr
-  const config: Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved?: true }
-    = await (options.loadConfig || loadViteConfig)(cwd)
-  const nuxtConfig = config.vitehubConfigResolved || (!options.loadConfig && hasViteConfig(cwd))
+  const config = await (options.loadConfig || loadViteConfig)(cwd)
+  const nuxtConfig = config.vitehubConfigResolved
     ? undefined
     : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd)
-  const plugins = [...config.plugins, ...(nuxtConfig?.plugins ?? [])] as typeof config.plugins
+  const plugins = nuxtConfig?.plugins ?? config.plugins
   const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
   const namespaces = [
     ...await collectViteHubCliNamespaces(plugins),
@@ -202,7 +247,79 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const result = await feature.run(args.slice(2), context)
-  return typeof result === "number" ? result : 0
+  return result ?? 0
+}
+
+function trackStream(stream: ViteHubCliStream) {
+  const writes: Array<Promise<PromiseSettledResult<unknown>>> = []
+  return {
+    stream: {
+      write(chunk: string | Uint8Array) {
+        const result = stream.write(chunk)
+        writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
+          value => ({ status: "fulfilled", value }),
+          reason => ({ reason, status: "rejected" }),
+        ))
+        return result
+      },
+    },
+    async flush() {
+      const results = await Promise.all(writes)
+      let flushFailure: { reason: unknown } | undefined
+      try {
+        if (stream.flush) {
+          await stream.flush()
+        }
+      }
+      catch (error: unknown) {
+        flushFailure = { reason: error }
+      }
+      const rejected = results.find(result => result.status === "rejected")
+      if (rejected) {
+        throw rejected.reason
+      }
+      if (flushFailure) {
+        throw flushFailure.reason
+      }
+    },
+  }
+}
+
+function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypointStream {
+  return {
+    flush: () => new Promise<void>((resolveFlush, rejectFlush) => stream.write("", (error) => {
+      if (error) {
+        rejectFlush(error)
+      }
+      else {
+        resolveFlush()
+      }
+    })),
+    write: chunk => stream.write(chunk),
+  }
+}
+
+export function runViteHubCliEntrypoint(options: RunViteHubCliEntrypointOptions = {}): void {
+  const stderr = trackStream(options.stderr || processEntrypointStream(process.stderr))
+  const stdout = trackStream(options.stdout || processEntrypointStream(process.stdout))
+  void (async () => {
+    let exitCode: number
+    try {
+      exitCode = await runViteHubCli({ ...options, stderr: stderr.stream, stdout: stdout.stream })
+    }
+    catch (error: unknown) {
+      try {
+        stderr.stream.write(`${formatRuntimeDiagnosticError(error)}\n`)
+      }
+      catch {}
+      exitCode = 1
+    }
+    const flushes = await Promise.allSettled([stdout.flush(), stderr.flush()])
+    if (flushes.some(result => result.status === "rejected")) {
+      exitCode = 1
+    }
+    process.exit(exitCode)
+  })()
 }
 
 function isCliEntrypoint() {
@@ -216,10 +333,5 @@ function isCliEntrypoint() {
 }
 
 if (isCliEntrypoint()) {
-  runViteHubCli().then((exitCode) => {
-    process.exit(exitCode)
-  }).catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
-  })
+  runViteHubCliEntrypoint()
 }

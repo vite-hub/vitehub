@@ -20,6 +20,7 @@ import type {
   VercelBlobStoreConfig,
   BlobServeOptions,
 } from "./types.ts"
+import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BlobResolutionInput {
   env?: Record<string, string | undefined>
@@ -136,22 +137,24 @@ function resolveExplicitStore(
     case "uploadthing":
       return store
     default:
-      throw new TypeError(`Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.`)
+      // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+      throw blobErrorDiagnostics.BLOB_C0001({ message: `Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.` })
   }
 }
 
 function normalizeServeHeaders(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return
-  if (!isPlainObject(value)) throw new TypeError("`blob.serve.headers` must be a plain object.")
+  if (!isPlainObject(value)) throw blobErrorDiagnostics.BLOB_C0002({ message: "`blob.serve.headers` must be a plain object." })
 
   const entries = Object.entries(value)
   for (const [name, headerValue] of entries) {
-    if (typeof headerValue !== "string") throw new TypeError("`blob.serve.headers` values must be strings.")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Header values must be strings before validation by the Headers constructor.
+    if (typeof headerValue !== "string") throw blobErrorDiagnostics.BLOB_C0003({ message: "`blob.serve.headers` values must be strings." })
     try {
       new Headers({ [name]: headerValue })
     }
     catch {
-      throw new TypeError(`\`blob.serve.headers\` contains an invalid HTTP header: ${JSON.stringify(name)}.`)
+      throw blobErrorDiagnostics.BLOB_C0004({ message: `\`blob.serve.headers\` contains an invalid HTTP header: ${JSON.stringify(name)}.` })
     }
   }
   return Object.fromEntries(entries) as Record<string, string>
@@ -160,7 +163,7 @@ function normalizeServeHeaders(value: unknown): Record<string, string> | undefin
 function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
   if (value === undefined || value === false) return
   if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
-  if (!isPlainObject(value)) throw new TypeError("`blob.serve` must be true or a plain object.")
+  if (!isPlainObject(value)) throw blobErrorDiagnostics.BLOB_C0005({ message: "`blob.serve` must be true or a plain object." })
   const headers = normalizeServeHeaders(value.headers)
   return {
     ...(headers ? { headers } : {}),
@@ -175,7 +178,7 @@ function assertServeStore(
   stores: Record<string, ResolvedBlobModuleOptions["store"]>,
 ): void {
   if (!serve || serve.store in stores) return
-  throw new TypeError(`\`blob.serve.store\` must reference a configured Blob store: ${JSON.stringify(serve.store)}.`)
+  throw blobErrorDiagnostics.BLOB_C0006({ message: `\`blob.serve.store\` must reference a configured Blob store: ${JSON.stringify(serve.store)}.` })
 }
 
 function createResolvedConfig(
@@ -206,7 +209,7 @@ export function normalizeBlobOptions(
   }
 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw new TypeError("`blob` must be a plain object.")
+    throw blobErrorDiagnostics.BLOB_C0007({ message: "`blob` must be a plain object." })
   }
 
   const env = input.env || process.env
@@ -222,7 +225,7 @@ export function normalizeBlobOptions(
       Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
     )
     const defaultStore = resolvedStores.default
-    if (!defaultStore) throw new TypeError("`blob.stores.default` is required when using named Blob stores.")
+    if (!defaultStore) throw blobErrorDiagnostics.BLOB_C0008({ message: "`blob.stores.default` is required when using named Blob stores." })
     return createResolvedConfig(defaultStore, resolvedStores, serve)
   }
 
@@ -273,7 +276,7 @@ export function resolveRuntimeVercelBlobStore(
     : config.token
 
   if (isMaskedBlobRuntimeValue(token)) {
-    throw new Error("Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel Blob.")
+    throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel Blob." })
   }
 
   return {
@@ -294,11 +297,11 @@ export function resolveRuntimeMinioBlobStore(
     : config.secretAccessKey
 
   if (isMaskedBlobRuntimeValue(accessKeyId)) {
-    throw new Error("Missing runtime environment variable `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID` for MinIO Blob.")
+    throw blobErrorDiagnostics.BLOB_C0010({ message: "Missing runtime environment variable `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID` for MinIO Blob." })
   }
 
   if (isMaskedBlobRuntimeValue(secretAccessKey)) {
-    throw new Error("Missing runtime environment variable `MINIO_SECRET_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ROOT_PASSWORD`, or `AWS_SECRET_ACCESS_KEY` for MinIO Blob.")
+    throw blobErrorDiagnostics.BLOB_C0011({ message: "Missing runtime environment variable `MINIO_SECRET_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ROOT_PASSWORD`, or `AWS_SECRET_ACCESS_KEY` for MinIO Blob." })
   }
 
   return {

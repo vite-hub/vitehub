@@ -1,10 +1,19 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 describe("Static Schedule runtime", () => {
+  it("identifies a missing generated Schedule Definition", () => {
+    expect(missingScheduleDefinitionError("cleanup")).toMatchObject({
+      code: "SCHEDULE_R0034",
+      message: "Missing schedule definition: cleanup",
+    })
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {
@@ -52,9 +61,11 @@ describe("Static Schedule runtime", () => {
         default: {
           cron: "0 4 * * *",
           handler: async ({ waitUntil }) => {
+            // SAFETY: This test installs __env__ through the Cloudflare runtime boundary immediately before the handler runs.
             seen.push((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined)
             waitUntil(new Promise<string>((resolve) => {
               releaseDeferred = () => {
+                // SAFETY: Deferred work runs while the same Cloudflare runtime environment remains installed.
                 deferredEnv = (globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined
                 resolve("recorded")
               }
@@ -77,10 +88,12 @@ describe("Static Schedule runtime", () => {
 
     expect(seen).toEqual(["airtable-secret"])
     expect(releaseDeferred).toBeTypeOf("function")
+    // SAFETY: The Cloudflare runtime installs __env__ for the full deferred-work lifetime asserted here.
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN).toBe("airtable-secret")
     releaseDeferred!()
     await expect(Promise.all(deferred)).resolves.toEqual(["recorded", undefined])
     expect(deferredEnv).toBe("airtable-secret")
+    // SAFETY: The runtime owns the optional __env__ bridge and removes it after deferred work settles.
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
   })
 
@@ -96,6 +109,26 @@ describe("Static Schedule runtime", () => {
         }),
       },
       waitUntil: promise => deferred.push(Promise.resolve(promise)),
+    })
+
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
+  })
+
+  it("forwards deferred work to a Cloudflare waitUntil from another realm", async () => {
+    const deferred: Promise<unknown>[] = []
+    // SAFETY: The VM expression returns the documented single-argument waitUntil callback used by this test.
+    const waitUntil = runInNewContext("promise => deferred.push(promise)", { deferred }) as (promise: Promise<unknown>) => void
+
+    await executeCloudflareStaticSchedules({
+      controller: { cron: "0 4 * * *", scheduledTime: "2026-06-12T04:00:00.000Z" },
+      context: { waitUntil },
+    }, {
+      registry: {
+        report: async () => ({
+          cron: "0 4 * * *",
+          handler: async ({ waitUntil }) => waitUntil(Promise.resolve("recorded")),
+        }),
+      },
     })
 
     await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])

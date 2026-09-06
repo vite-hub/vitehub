@@ -1,7 +1,8 @@
 ---
 title: Channels
 description: Define named server delivery channels and send through a selected connector.
-navigation.order: 31
+navigation.order: 54.5
+navigation.group: Application APIs
 icon: i-lucide-radio-tower
 ---
 

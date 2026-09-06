@@ -107,14 +107,42 @@ describe("remote Box providers", () => {
 
   it("bounds Cloudflare operations with a deadline", async () => {
     vi.useFakeTimers();
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    let calls = 0;
+    const stub = cloudflareStub(async () => {
+      calls++;
+      return await new Promise<never>(() => {});
+    });
     const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await box.open();
 
     const result = session.exec("probe");
     const rejection = expect(result).rejects.toThrow("exec timed out after 180000ms");
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.runAllTimersAsync();
     await rejection;
+    expect(calls).toBe(1);
+    await session.close();
+  });
+
+  it("honors caller Cloudflare execution timeouts beyond the transport default", async () => {
+    vi.useFakeTimers();
+    let receivedTimeout: number | undefined;
+    const stub = cloudflareStub(async (_command, options) => {
+      receivedTimeout = options?.timeout;
+      await new Promise(resolve => setTimeout(resolve, 200_000));
+      return { exitCode: 0, stderr: "", stdout: "complete", success: true };
+    });
+    const box = await resolveBox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await box.open();
+    const settled = vi.fn();
+
+    const result = session.exec("long-analysis", [], { timeout: 600_000 });
+    void result.then(value => settled({ value }), error => settled({ error }));
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(result).resolves.toMatchObject({ code: 0, stdout: "complete" });
+    expect(receivedTimeout).toBe(600_000);
     await session.close();
   });
 
@@ -179,6 +207,8 @@ describe("remote Box providers", () => {
       expect.objectContaining({ message: "initialization failed" }),
       expect.objectContaining({ message: "provider cleanup failed" }),
     ]);
+    expect((failure as AggregateError).message).toContain("initialization failed");
+    expect((failure as AggregateError).message).toContain("provider cleanup failed");
   });
 
   it.each([
@@ -229,6 +259,40 @@ describe("remote Box providers", () => {
     const session = await box.open();
 
     expect(session.ports).toBeUndefined();
+    await session.close();
+  });
+
+  it("distinguishes missing Vercel files from filesystem failures", async () => {
+    const missing = Object.assign(new Error("missing"), { code: "ENOENT" });
+    let accessFailure = missing;
+    let readFailure = missing;
+    const access = vi.fn(async () => { throw accessFailure; });
+    const instance = vercelInstance();
+    instance.fs = {
+      access,
+      async mkdir() {},
+      async readFile() { throw readFailure; },
+      async readdir() { return []; },
+      async rename() {},
+      async rm() {},
+      async stat() { throw missing; },
+      async writeFile() {},
+    };
+    const box = await resolveBox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await box.open();
+
+    await expect(session.files.exists("/workspace/missing.txt")).resolves.toBe(false);
+    await expect(session.files.read("/workspace/missing.txt")).resolves.toBeNull();
+
+    const deniedAccess = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    accessFailure = deniedAccess;
+    await expect(session.files.exists("/workspace/private.txt")).rejects.toBe(deniedAccess);
+
+    const deniedRead = Object.assign(new Error("read denied"), { code: "EACCES" });
+    readFailure = deniedRead;
+    const accessCalls = access.mock.calls.length;
+    await expect(session.files.read("/workspace/private.txt")).rejects.toBe(deniedRead);
+    expect(access).toHaveBeenCalledTimes(accessCalls);
     await session.close();
   });
 });

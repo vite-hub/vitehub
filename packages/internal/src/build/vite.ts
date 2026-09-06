@@ -1,5 +1,6 @@
 import { statSync } from "node:fs"
-import { basename, dirname, resolve } from "node:path"
+import { tmpdir } from "node:os"
+import { basename, dirname, parse, resolve } from "node:path"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
@@ -28,7 +29,6 @@ const projectRootDirectoryMarkers = [
   ["server", "browsers"],
   ["server", "emails"],
   ["server", "schedules"],
-  ["server", "templates"],
   ["server", "workspaces"],
 ]
 const projectRootFileMarkers = [
@@ -63,6 +63,7 @@ interface NitroVercelConfig {
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
+export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
 
 function includesNitroVitePlugin(value: unknown): boolean {
@@ -110,15 +111,18 @@ export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): W
 
 export function resolveViteHubProjectRoot(root: string, options: { projectRoot?: string } = {}): string {
   const resolvedRoot = resolve(root)
+  const temporaryRoot = resolve(tmpdir())
+  const sharedTemporaryRoot = dirname(temporaryRoot) === parse(temporaryRoot).root ? temporaryRoot : undefined
   if (options.projectRoot) return resolve(resolvedRoot, options.projectRoot)
 
   if (basename(resolvedRoot) === "app") {
     const parent = dirname(resolvedRoot)
-    if (hasProjectRootDirectoryMarker(parent)) return parent
+    if (parent !== sharedTemporaryRoot && hasProjectRootDirectoryMarker(parent)) return parent
   }
 
   let current = resolvedRoot
   while (true) {
+    if (current === sharedTemporaryRoot && resolvedRoot !== current) return resolvedRoot
     if (hasProjectRootMarker(current)) return current
 
     const parent = dirname(current)

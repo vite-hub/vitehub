@@ -1,0 +1,10 @@
+{
+  "name": "@vite-hub/markdown-template",
+  "dependencies": {
+    "@fixture/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "node ../../task.mjs build @vite-hub/markdown-template",
+    "test": "node ../../task.mjs test @vite-hub/markdown-template"
+  }
+}

@@ -8,6 +8,8 @@ icon: i-lucide-messages-square
 
 Chat History is the ordered set of prior messages eligible for one chat invocation. A Chat Session selects the host-visible conversation boundary. Neither is durable Agent Memory.
 
+ViteHub sends only the current message unless `triggerHistory` explicitly enables a bounded window. Adapter `threadHistory` controls backfill and caching but does not select model input.
+
 | Need | Use |
 | --- | --- |
 | Continue the visible thread | Thread-backed Chat History |
@@ -32,6 +34,7 @@ export default defineAgent({
       concurrency: 'queue',
       lockScope: 'thread',
       triggerHistory: {
+        maxAgeMs: 30 * 60 * 1000,
         maxMessages: 20,
         source: 'thread',
       },
@@ -40,7 +43,7 @@ export default defineAgent({
 })
 ```
 
-The window limits messages supplied to the next invocation; it does not delete preserved history. For application-owned routes that call `runAgentTrigger()` or `streamAgentTrigger()`, supply the ordered messages for the current thread, including the new message. `triggerHistory` bounds that caller-supplied array; it does not load history from `threadId` or a session id. Adapter-backed Channels can perform their own history backfill. Thread scope is the normal choice for Discord threads, Slack threads, Teams conversations, GitHub comment threads, and application-owned support chats.
+The window limits messages supplied to the next invocation; it does not delete preserved history. `maxMessages` includes the current message. `maxAgeMs` optionally removes the stale prefix relative to that current message, and history with missing timestamps starts a new boundary. For application-owned routes that call `runAgentTrigger()` or `streamAgentTrigger()`, supply the ordered messages for the current thread, including the new message. `triggerHistory` bounds that caller-supplied array; it does not load history from `threadId` or a session id. Adapter-backed Channels can perform their own history backfill. Thread scope is the normal choice for Discord threads, Slack threads, Teams conversations, GitHub comment threads, and application-owned support chats.
 
 ## Add a session
 

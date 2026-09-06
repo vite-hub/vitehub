@@ -2,6 +2,7 @@
 title: Realtime collaboration
 description: Sync collaborative Markdown through Workspace, choose a room authority, and create durable checkpoints.
 navigation.order: 54
+navigation.group: Application APIs
 icon: i-lucide-radio
 ---
 

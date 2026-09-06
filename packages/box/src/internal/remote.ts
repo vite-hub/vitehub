@@ -16,6 +16,7 @@ import {
   boxRequirementSignal,
 } from "./requirements.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface RemoteRuntimeOptions {
   readonly executionAuthority: ExecutionAuthority;
@@ -112,11 +113,15 @@ export async function openRemoteBox(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        `[vitehub] ${options.runtime} Box initialization and cleanup failed.`,
+        `[vitehub] ${options.runtime} Box initialization failed: ${remoteFailureMessage(error)} Cleanup failed: ${remoteFailureMessage(cleanupError)}`,
       );
     }
     throw error;
   }
+}
+
+function remoteFailureMessage(error: unknown) {
+  return error instanceof Error ? error.message || error.name : String(error);
 }
 
 export async function resolveRemoteEnvironment(
@@ -179,7 +184,7 @@ async function materializeRemotePlan(
           command: ["git", ...args.map(shellQuote)].join(" "),
           workingDirectory: workspace,
         });
-        if (result.exitCode !== 0) throw new Error(result.stderr);
+        if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0121({ message: result.stderr });
         return { stdout: result.stdout };
       },
     });
@@ -231,9 +236,9 @@ async function validateRequirements(
 
 function assertRemoteInput(input: BoxRuntimeInput, runtime: string) {
   if (input.cwd)
-    throw new Error(`[vitehub] ${runtime} cannot mount a host Box cwd; use Workspace instead.`);
+    throw boxErrorDiagnostics.BOX_R0122({ message: `[vitehub] ${runtime} cannot mount a host Box cwd; use Workspace instead.` });
   if (input.plan.state.length)
-    throw new Error(`[vitehub] ${runtime} does not provide durable Box Home state.`);
+    throw boxErrorDiagnostics.BOX_R0123({ message: `[vitehub] ${runtime} does not provide durable Box Home state.` });
 }
 
 export function shellQuote(value: string) {

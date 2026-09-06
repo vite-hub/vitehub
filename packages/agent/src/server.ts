@@ -3,13 +3,26 @@ export {
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"
 
+export {
+  failInterruptedAgentInvocations,
+  readAgentInvocationWorkload,
+  summarizeAgentInvocationWorkload,
+} from "./server/invocation-health.ts"
+
 export { defineAgentRunEvents } from "./run-events.ts"
-export { createMemoryAgentInvocationStore, defineAgentInvocations } from "./invocations.ts"
+export {
+  AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE,
+  agentInvocationId,
+  applyAgentInvocationStoreUpdate,
+  createMemoryAgentInvocationStore,
+  defineAgentInvocations,
+} from "./invocations.ts"
 
 export type {
   AgentInvocationAnnotationValue,
   AgentInvocationListOptions,
   AgentInvocationListResult,
+  AgentInvocationObservationOptions,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
@@ -43,6 +56,9 @@ export type {
   AgentChannelChatRouteInputOptions,
   AgentChannelChatRouteMapInputContext,
   AgentChannelChatRouteRequestOptions,
+  AgentChannelChatRouteResumableContext,
+  AgentChannelChatRouteResumableOptions,
+  AgentChannelChatRouteResumableRequestBody,
   AgentChannelChatRouteStandardSchemaResultFailure,
   AgentChannelChatRouteStandardSchemaResultSuccess,
   AgentChannelChatRouteStandardSchemaV1,
@@ -51,3 +67,10 @@ export type {
   AgentDiscordGatewayRouteOptions,
   AgentTelegramPollingRouteOptions,
 } from "./server/routes.ts"
+
+export { createAgentConsoleDelivery } from './server/console-delivery.ts'
+export type { AgentConsoleDelivery } from './server/console-delivery.ts'
+
+export { createAgentStatusReader } from './server/provider-status.ts'
+export { createAgentHealth } from './server/health.ts'
+export type { AgentHealthDiagnostic, AgentHealthOptions, AgentHealthReport } from './server/health.ts'

@@ -5,12 +5,14 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "playwright-core", "vite"],
+      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "esbuild", "playwright-core", "vite"],
       onlyBundle: false,
     },
     entry: [
       "src/actions.ts",
       "src/index.ts",
+      "src/internal/chromium.ts",
+      "src/internal/chromium.workerd.ts",
       "src/internal/runtime/empty-registry.ts",
       "src/internal/runtime/unconfigured.ts",
       "src/controllers/cdp.ts",

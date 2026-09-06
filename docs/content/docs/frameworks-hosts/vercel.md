@@ -2,6 +2,7 @@
 title: Vercel
 description: Generate Vercel Provider Output while preserving ViteHub package boundaries.
 navigation.order: 44
+navigation.group: Deployment hosts
 icon: i-simple-icons-vercel
 ---
 
@@ -22,25 +23,23 @@ ViteHub keeps Definitions portable and moves Vercel-specific behavior into packa
 
 ## Provider-owned configuration
 
-The package that owns a primitive also owns its Vercel selection. Provider fields remain in Integration Options when they affect generated output rather than one runtime invocation.
+Select the Vercel preset in the framework integration. Each primitive still owns its Definitions and Runtime Helpers.
 
 ```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { hubQueue } from '@vite-hub/queue/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubBlob(),
-    hubQueue(),
+    vitehub({
+      preset: 'vercel',
+      blob: true,
+      queue: true,
+    }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
   ],
-  blob: {
-    driver: 'vercel-blob',
-  },
-  queue: {
-    provider: 'vercel',
-    region: 'iad1',
-  },
 })
 ```
 
@@ -70,19 +69,24 @@ export default defineDatabase({
 For sustained application traffic, Cloudflare recommends a proxy Worker because its built-in D1 REST API is intended primarily for administrative use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated raw-compatible HTTP(S) proxy. Omitting `cloudflare.http` preserves the hosted libSQL selection even when the Definition includes a D1 database id.
 
 ```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [
-    hubEnv(),
-    hubDb({
-      connection: {
-        url: env({ source: env.source('TURSO_DATABASE_URL') }),
-        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+    vitehub({
+      preset: 'vercel',
+      database: {
+        connection: {
+          url: env({ source: env.source('TURSO_DATABASE_URL') }),
+          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+        },
       },
     }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
   ],
 })
 ```

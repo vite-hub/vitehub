@@ -1,9 +1,10 @@
-import { parse } from "comark"
+import { parseMarkdown } from "comark"
 import binding from "comark/plugins/binding"
 import {
   renderMarkdownTemplateInternal,
   resolveMarkdownTemplateImports,
 } from "@vite-hub/markdown-template/internal/composition"
+import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
 
 export interface InstructionImportResolution {
   content: string
@@ -78,7 +79,6 @@ export async function composeInstructionDocument(content: string, options: Compo
     rethrowInstructionCompositionError(error, true)
   }
   await validateInstructionMarkdownBindings(imported)
-  await validateLegacyInstructionBindings(imported)
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(imported, coverageMarker)
 
@@ -119,7 +119,7 @@ function validateInstructionMarkdownBindingValue(value: string): void {
   for (const match of value.matchAll(instructionTripleBindingPattern)) {
     const path = match[1]!
     if (!path.startsWith("context.")) {
-      throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
+      throw agentDiagnostics.AGENT_R0445({ message: `[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.` })
     }
   }
 }
@@ -144,29 +144,6 @@ function createInstructionCoverageMarker(): InstructionCoverageMarker {
   return {
     entries: [],
     prefix: `vitehub-instruction-coverage-${crypto.randomUUID()}`,
-  }
-}
-
-async function validateLegacyInstructionBindings(content: string): Promise<void> {
-  const { tree } = await parseInstructionTemplate(content, true)
-  validateLegacyInstructionBindingNodes(tree.nodes)
-}
-
-function validateLegacyInstructionBindingNodes(nodes: ComarkNode[]): void {
-  for (const node of nodes) {
-    if (!isElement(node)) continue
-    const [tag, attrs, ...children] = node
-    if (tag === "code") continue
-    if (tag === "binding") {
-      const path = attrs[":value"]
-      if (typeof path === "string" && (path === "capabilities" || path.startsWith("capabilities."))) {
-        throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
-      }
-      if (path === "workspace.sources") {
-        throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
-      }
-    }
-    validateLegacyInstructionBindingNodes(children)
   }
 }
 
@@ -293,14 +270,15 @@ function rethrowInstructionCompositionError(error: unknown, workspaceImport = fa
       .replace(/Circular instruction import: (workspace(?:\.[\w$-]+)+)\./, "Circular instruction workspace import: @$1.")
       .replace("Instruction import depth exceeded", "Instruction workspace import depth exceeded")
   }
-  throw error instanceof TypeError ? new TypeError(message) : new Error(message)
+  throw isAgentTypeDiagnostic(error)
+    ? agentDiagnostics.AGENT_R0446({ message, cause: error })
+    : agentDiagnostics.AGENT_R0447({ message, cause: error })
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
-  return await parse(content, {
+  return await parseMarkdown(content, {
     autoClose: false,
     autoUnwrap: false,
-    html: true,
     linkify: false,
     plugins: bindings ? [binding()] : [],
   })
@@ -332,10 +310,10 @@ function resolveWorkspaceInstructionImport(
   if (!specifier.startsWith("workspace.")) return
   const value = namespacePathValue(workspace, specifier)
   if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Instruction workspace import "@${specifier}" is not defined.`)
+    throw agentDiagnostics.AGENT_R0448({ message: `[vitehub] Instruction workspace import "@${specifier}" is not defined.` })
   }
   if (typeof value !== "string") {
-    throw new TypeError(`[vitehub] Instruction workspace import "@${specifier}" must resolve to a string.`)
+    throw agentDiagnostics.AGENT_R0449({ message: `[vitehub] Instruction workspace import "@${specifier}" must resolve to a string.` })
   }
   return { id: specifier, template: value }
 }
@@ -348,7 +326,7 @@ function coverageAttribute(attrs: Record<string, unknown>, tag: "capability" | "
   const value = tag === "skill" ? attrs.path : attrs.key
   const name = tag === "skill" ? "path" : "key"
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`[vitehub] Instruction ${tag} block requires a non-empty ${name}.`)
+    throw agentDiagnostics.AGENT_R0450({ message: `[vitehub] Instruction ${tag} block requires a non-empty ${name}.` })
   }
   return value.trim()
 }

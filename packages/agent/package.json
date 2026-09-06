@@ -69,6 +69,18 @@
       "types": "./dist/eve.d.ts",
       "import": "./dist/eve.js"
     },
+    "./evlog": {
+      "types": "./dist/evlog.d.ts",
+      "import": "./dist/evlog.js"
+    },
+    "./evlog/posthog": {
+      "types": "./dist/evlog/posthog.d.ts",
+      "import": "./dist/evlog/posthog.js"
+    },
+    "./invocations/d1": {
+      "types": "./dist/invocations/d1.d.ts",
+      "import": "./dist/invocations/d1.js"
+    },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
       "import": "./dist/invocations/sqlite.js"
@@ -93,6 +105,10 @@
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
     },
+    "./runtime/process": {
+      "types": "./dist/runtime/process.d.ts",
+      "import": "./dist/runtime/process.js"
+    },
     "./runtime/workflow": {
       "types": "./dist/runtime/workflow.d.ts",
       "import": "./dist/runtime/workflow.js"
@@ -100,6 +116,10 @@
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
+    },
+    "./server/github": {
+      "types": "./dist/server/github.d.ts",
+      "import": "./dist/server/github.js"
     },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
@@ -135,14 +155,13 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "catalog:ai",
-    "@chat-adapter/telegram": "catalog:chat",
     "@cfworker/json-schema": "4.1.1",
+    "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@types/json-schema": "catalog:ai",
-    "@vercel/connect": "0.6.1",
+    "@vercel/connect": "2.0.1",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -151,14 +170,18 @@
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
-    "comark": "catalog:ui",
+    "comark": "catalog:markdown",
     "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27"
+    "esbuild": "catalog:esbuild-v27",
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.3.0",
+    "@github-tools/eve-extension": "0.7.0",
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
@@ -166,12 +189,16 @@
     "@vite-hub/workflow": "workspace:*",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
+    "eve": "0.46.1",
+    "miniflare": "4.20260714.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "evlog": "^2.28.1",
+    "posthog-node": "^5.51.6"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -185,10 +212,15 @@
     "@vite-hub/email": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@types/json-schema": "catalog:ai",
+    "@types/mdast": "catalog:markdown",
     "askweb": "catalog:ai",
+    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "evlog": "^2.28.1",
+    "posthog-node": "^5.51.6"
   },
   "peerDependenciesMeta": {
     "@chat-adapter/discord": {
@@ -215,6 +247,9 @@
     "askweb": {
       "optional": true
     },
+    "evalite": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     },
@@ -222,6 +257,12 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "evlog": {
+      "optional": true
+    },
+    "posthog-node": {
       "optional": true
     }
   },

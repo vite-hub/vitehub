@@ -2,13 +2,14 @@ import { createEffectBoundary } from "@vite-hub/internal/effect"
 import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
-import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath } from "../core/path.ts"
 import { matchesAny } from "./path.ts"
 
-import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
+import type { FileSource, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
 import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
+import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface McpResourcesRequestOptions {
   maxTotalTimeout?: number
@@ -113,7 +114,7 @@ export type McpResourcesServer =
 
 export interface McpResourcesSourceOptions<TKey extends string = string> {
   cache?: false | SourceCacheOptions
-  exclude?: string | string[]
+  ignore?: string | readonly string[]
   include?: string | string[]
   path?: (resource: McpResourceDescriptor) => TKey | string | undefined
   request?: McpResourcesRequestOptions
@@ -153,7 +154,8 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
-  if (isMcpTransport(config)) return config as unknown as Transport
+  // SAFETY: isMcpTransport verifies the SDK transport methods before this private boundary.
+  if (isMcpTransport(config)) return config as Transport
   const { type = "http", url, ...options } = config
   if (type === "sse") {
     const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")
@@ -177,7 +179,7 @@ async function createMcpClient(config: McpResourcesClientConfig) {
 async function resolveMcpServer(server: McpResourcesServer, ctx: SourceContext) {
   const resolved = typeof server === "function" ? await server(ctx) : server
   if (isMcpResourcesClient(resolved) || isMcpResourcesClientConfig(resolved)) return resolved
-  throw new TypeError("[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config.")
+  throw sourceErrorDiagnostics.SOURCE_R0021({ message: "[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config." })
 }
 
 function withRequestSignal(request: McpResourcesRequestOptions | undefined, signal: AbortSignal) {
@@ -209,7 +211,7 @@ async function withMcpClient<T>(
           signal => client.connect(transport, { signal }),
         ).pipe(
           Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client as unknown as McpResourcesClient, withRequestSignal(request, signal)),
+            signal => callback(client, withRequestSignal(request, signal)),
           )),
         ),
         ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),
@@ -279,9 +281,9 @@ function resourceKey<TKey extends string>(resource: McpResourceDescriptor, optio
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
-function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "include" | "exclude">) {
+function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "ignore" | "include">) {
   if (options.include && !matchesAny(path, options.include)) return false
-  if (options.exclude && matchesAny(path, options.exclude)) return false
+  if (options.ignore && matchesAny(path, options.ignore)) return false
   return true
 }
 
@@ -372,9 +374,9 @@ function createResourceItem<TKey extends string>(
   }
 }
 
-export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): Source<TKey> {
+export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): FileSource<TKey> {
   if (!options || typeof options !== "object" || !options.server) {
-    throw new TypeError("[vitehub] mcpResources({ server }) requires an MCP server.")
+    throw sourceErrorDiagnostics.SOURCE_R0022({ message: "[vitehub] mcpResources({ server }) requires an MCP server." })
   }
 
   async function getEntries(ctx: SourceContext) {
@@ -397,7 +399,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
   return {
     cache: options.cache,
     fingerprint: {
-      exclude: options.exclude,
+      ignore: options.ignore,
       include: options.include,
       server: typeof options.server === "function"
         ? "[function]"
@@ -433,30 +435,6 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
         const result = entry.contents ?? await readResourceContents(client, entry.resource, request)
         return createResourceItem(key, entry.resource, result)
       })
-    },
-    async search(query, ctx) {
-      const pattern = query.regex ? new RegExp(query.pattern, query.caseSensitive ? "g" : "gi") : undefined
-      const search = query.caseSensitive ? query.pattern : query.pattern.toLowerCase()
-      const results = []
-      for (const item of await getItems(ctx)) {
-        if (typeof item.content !== "string") continue
-        if (query.paths?.length && !query.paths.some(path => item.path && normalizeSourcePath(item.path).startsWith(normalizeSourcePath(path)))) continue
-        const lines = item.content.split(/\r?\n/)
-        for (const [index, line] of lines.entries()) {
-          const matchIndex = pattern
-            ? line.search(pattern)
-            : (query.caseSensitive ? line : line.toLowerCase()).indexOf(search)
-          if (matchIndex === -1) continue
-          results.push({
-            column: matchIndex + 1,
-            line: index + 1,
-            path: item.path || item.key,
-            text: line,
-          })
-          if (query.limit && results.length >= query.limit) return results
-        }
-      }
-      return results
     },
   }
 }

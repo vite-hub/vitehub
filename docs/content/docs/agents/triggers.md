@@ -15,15 +15,21 @@ An application route can call `runAgent()` when no Capability needs to prepare t
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
-import { getRuntimeContext } from '../runtime-context'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readBody<{ prompt: string }>(event)
-  return runAgent(support, getRuntimeContext(event), { prompt })
+  const runtime = getRuntimeContext(event)
+  try {
+    return await runAgent(support, runtime, { prompt })
+  }
+  finally {
+    await runtime.flushWaitUntil().catch(console.error)
+  }
 })
 ```
 
-This is a direct consumer, not a registered Trigger. Prefer it for ordinary authenticated server routes and scheduled application code.
+Use this direct call for ordinary authenticated server routes and scheduled application code. Without a host lifetime API, drain tracked work before returning. The example reports background failures without replacing the Agent result or error.
 
 ## Use a Capability Trigger
 
@@ -52,7 +58,7 @@ Call the trigger from a server-owned route:
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
-import { getRuntimeContext } from '../runtime-context'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
   const { text, threadId } = await readBody<{
@@ -89,6 +95,8 @@ export default defineEventHandler(async (event) => {
   )
 })
 ```
+
+This streaming route requires a host lifetime API that stays active until the stream is consumed or cancelled. Calling `flushWaitUntil()` before returning the stream does not cover work scheduled later. See [Runtime Context](/docs/concepts/runtime-context#background-work-and-cleanup) for host lifetime ownership.
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Actor identity, session selection, or trusted metadata into the Trigger input.
 
@@ -137,6 +145,6 @@ The Trigger translates the event and attaches trusted context. Keep model select
 | A server route already owns validation and input | `runAgent()` or `streamAgent()` |
 | A Capability owns history, policy, or event preparation | `runAgentTrigger()` or `streamAgentTrigger()` |
 | A messaging provider delivers an event | A [Channel](/docs/agents/channels) and its Trigger |
-| A model delegates to another Agent | [Subagents Capability](/docs/capabilities/subagents) |
+| A model delegates through a trusted application tool | A Capability tool backed by [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) for control or [`runAgent()`](/docs/agents/invocations), handling its runtime-specific return value |
 
 Webhook adapters may retain ownership until delivery finishes. Configure Channel timeout, concurrency, and durable delivery there rather than adding webhook policy to the Driver.

@@ -1,36 +1,46 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { LanguageModel, TranscriptionModel } from "ai"
+import type { LanguageModel } from "ai"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, repositoryHost, repositoryHostContext, sandbox, schedule, skills, streamTranscription, subagents, transcribe, cost, vercelAiGatewayPricing, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput, type CostOptions, type VercelAiGatewayPricingOptions } from "../src/capabilities.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
+import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
+import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
-import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations, defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
+import type { AgentInvocationSummary, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentPublicError, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { AgentCapabilitiesInput } from "../src/types.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import githubExtension from "@github-tools/eve-extension"
 import { file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessChatOptions, AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 declare global {
   interface ViteHubAgentInvocationContextValues {
     "chat.secret": string
-  }
-  interface ViteHubAgentChannelMeta {
-    customer?: string
-  }
-  interface ViteHubAgentChannelUser {
-    email?: string
+    portal: { baseUrl?: string, cubeToken?: string, previewCookie?: string }
+    "review.context": { number?: number, repository?: string }
+    "support.customerScope": { customers: string[] }
+    trustedScope: string
   }
 }
 
 describe("agent public types", () => {
+  it("returns invocation summaries through a required method", () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    expectTypeOf(invocations.getSummary("invocation")).toEqualTypeOf<Promise<AgentInvocationSummary | undefined>>()
+  })
+
+  it("requires capabilities in resolved Runtime contexts", () => {
+    expectTypeOf<ResolvedAgentRuntimeContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
+    expectTypeOf<AgentCallbackContext["capabilities"]>().toEqualTypeOf<NonNullable<AgentRuntimeContext["capabilities"]>>()
+  })
+
   it("preserves native Capability context inference beside Eve mounts", () => {
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const native = defineCapability({ id: "native" }) as AgentCapabilityDefinition<
       AgentRuntimeConfig,
       any,
@@ -43,6 +53,52 @@ describe("agent public types", () => {
         return "ok"
       } },
     })
+  })
+
+  it("accepts optional MCP servers without conditional capability arrays", () => {
+    const enabled: boolean = false
+    const optionalClient: MCPClient | undefined = undefined
+
+    mcp({
+      servers: {
+        disabled: enabled ? remoteMcpServer({ url: "https://example.com/mcp" }) : false,
+        initializeFirst: {
+          protocolVersionDiscovery: false,
+          transport: { type: "http", url: "https://legacy.example.com/mcp" },
+        },
+        nullable: () => null,
+        optional: optionalClient,
+        runtime: async () => undefined,
+      },
+    })
+  })
+
+  it("types static and invocation-resolved Executor connections", () => {
+    const credential = { unseal: () => "executor-secret" }
+    const connection: ExecutorCapabilityOptions = {
+      apiKey: credential,
+      url: new URL("https://executor.sh/quiver/mcp"),
+    }
+
+    executor(connection)
+    const enabled: boolean = false
+    executor(enabled ? connection : false)
+    executor(null)
+    executor(undefined)
+    executor(async () => enabled
+      ? { apiKey: credential, url: "https://executor.sh/quiver/mcp" }
+      : false)
+    executor(async () => null)
+    executor(async () => undefined)
+
+    executor({ timeout: 5_000, url: "https://executor.sh/quiver/mcp" })
+
+    // @ts-expect-error Executor requires a URL or connection resolver.
+    executor({ apiKey: credential })
+    // @ts-expect-error Executor credentials must be strings or sealed values.
+    executor({ apiKey: 42, url: "https://executor.sh/quiver/mcp" })
+    // @ts-expect-error Executor connection timeouts must be numbers.
+    executor({ timeout: "soon", url: "https://executor.sh/quiver/mcp" })
   })
 
   it("types Eve extensions in static capabilities", () => {
@@ -133,7 +189,17 @@ describe("agent public types", () => {
 
   it("types bounded driver capacity", () => {
     const queue = { maxPending: 20, timeout: 300_000 } satisfies AgentDriverCapacityQueueOptions
-    const capacity = { concurrency: 2, queue } satisfies AgentDriverCapacityOptions
+    const adaptive = {
+      sample: async (context) => {
+        expectTypeOf(context.active).toEqualTypeOf<number>()
+        expectTypeOf(context.concurrency).toEqualTypeOf<number>()
+        expectTypeOf(context.pending).toEqualTypeOf<number>()
+        expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>()
+        return { concurrency: 1, reason: "host pressure" }
+      },
+      sampleTimeoutMs: 750,
+    } satisfies AgentDriverAdaptiveCapacityOptions
+    const capacity = { adaptive, concurrency: 2, queue } satisfies AgentDriverCapacityOptions
 
     defineAgent({
       driver: {
@@ -141,10 +207,20 @@ describe("agent public types", () => {
         run: () => "ok",
       },
     })
+
+    const processOptions = {
+      concurrency: 6,
+      cpu: { pausePressure: 0.7, resumePressure: 0.1 },
+      memory: { perInvocationBytes: 1_073_741_824, reserveBytes: 536_870_912 },
+      queue,
+      sampleTimeoutMs: 750,
+    } satisfies ProcessAgentCapacityOptions
+    expectTypeOf(createProcessAgentCapacity(processOptions)).toEqualTypeOf<AgentDriverCapacityOptions>()
   })
 
   it("types declarative and concrete Agent models", () => {
     const descriptor = { apiKey: "token", id: "zai/glm-5v-turbo" } satisfies AgentGatewayModel
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const concrete = {} as LanguageModel
 
     defineAgent({ driver: { model: "zai/glm-5v-turbo" } })
@@ -159,7 +235,7 @@ describe("agent public types", () => {
     })
   })
 
-  it("types usage cost pricing and finish extensions", () => {
+  it("types usage pricing and finish extensions", () => {
     const pricing = ((context) => {
       expectTypeOf(context.usage).toMatchTypeOf<NonNullable<AgentUsageRecord["usage"]>>()
       return {
@@ -168,13 +244,14 @@ describe("agent public types", () => {
         source: "custom",
       }
     }) satisfies AgentUsagePricing
-    const options = { pricing } satisfies CostOptions
-    const gatewayPricingOptions = { timeout: 5_000 } satisfies VercelAiGatewayPricingOptions
+    const options = { pricing } satisfies UsageOptions
+    const modelsDevPricingOptions = { timeout: 5_000 } satisfies ModelsDevPricingOptions
 
-    expectTypeOf(cost(options)).toMatchTypeOf<AgentCapabilityDefinition>()
-    expectTypeOf(vercelAiGatewayPricing(gatewayPricingOptions)).toMatchTypeOf<AgentUsagePricing>()
+    expectTypeOf(usage(options)).toMatchTypeOf<AgentCapabilityDefinition>()
+    expectTypeOf(usage({ pricing: false })).toMatchTypeOf<AgentCapabilityDefinition>()
+    expectTypeOf(modelsDevPricing(modelsDevPricingOptions)).toMatchTypeOf<AgentUsagePricing>()
     defineAgent({
-      capabilities: [cost(options)],
+      capabilities: [usage(options)],
       driver: { run: () => "ok" },
       hooks: {
         "agent:error"(event) {
@@ -194,7 +271,8 @@ describe("agent public types", () => {
           void event.error
           // @ts-expect-error Agent Finish Hooks do not receive normalized error messages.
           void event.errorMessage
-          expectTypeOf(event.extensions.get("cost")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("usage")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("unregistered")).toEqualTypeOf<unknown>()
         },
       },
     })
@@ -202,6 +280,7 @@ describe("agent public types", () => {
 
   it("types static and per-invocation UI message stream projection", () => {
     const projection = {
+      commentary: "visible",
       reasoning: "visible",
       tools: "full",
     } satisfies AgentUIMessageStreamProjection
@@ -216,7 +295,7 @@ describe("agent public types", () => {
         expectTypeOf(context.input).toEqualTypeOf<AgentRunInput>()
         expectTypeOf(context.context.get("chat.secret")).toEqualTypeOf<string | undefined>()
         return context.input.prompt === "private"
-          ? { reasoning: "hidden", tools: "hidden" }
+          ? { commentary: "hidden", reasoning: "hidden", tools: "hidden" }
           : projection
       },
     })
@@ -229,6 +308,7 @@ describe("agent public types", () => {
 
   it("types the Email capability as one explicit send grant", () => {
     const policy: EmailCapabilityToolPolicy = "require-approval"
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const options = { from: "agent@example.com", policy, recipients: ["owner@example.com"] as const } satisfies EmailCapabilityOptions
 
     expectTypeOf(email(options)).toMatchTypeOf<AgentCapabilityDefinition>()
@@ -286,8 +366,10 @@ describe("agent public types", () => {
   it("infers structured Agent output from its Standard Schema", () => {
     const schema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { summary: string, title: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
     } satisfies StandardSchemaV1<unknown, { summary: string, title: string }>
@@ -300,9 +382,13 @@ describe("agent public types", () => {
       },
       runtime: false,
     })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const controlled = startAgentInvocation(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
@@ -310,6 +396,60 @@ describe("agent public types", () => {
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
+  })
+
+  it("scopes output correction attempts to Model Drivers", () => {
+    const schema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    } satisfies StandardSchemaV1
+
+    // SAFETY: This compile-time fixture never executes the model and tests only Model Driver output configuration.
+    const typeOnlyModel = {} as LanguageModel
+    defineAgent({
+      driver: { model: typeOnlyModel, output: { maxAttempts: 2, schema } },
+    })
+    defineAgent({
+      driver: {
+        kind: "codex",
+        output: {
+          // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
+          maxAttempts: 2,
+          schema,
+        },
+      },
+    })
+    defineAgent({
+      driver: {
+        kind: "claude-code",
+        output: {
+          // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
+          maxAttempts: 2,
+          schema,
+        },
+      },
+    })
+    defineAgent({
+      driver: {
+        output: {
+          // @ts-expect-error Custom-run Drivers validate the value returned by application code once.
+          maxAttempts: 2,
+          schema,
+        },
+        run: () => "{}",
+      },
+    })
+    const reusableOutput = { maxAttempts: 2, schema }
+    defineAgent({
+      driver: {
+        // @ts-expect-error Reusable custom-run output definitions cannot enable Model Driver correction calls.
+        output: reusableOutput,
+        run: () => "{}",
+      },
+    })
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {
@@ -385,6 +525,7 @@ describe("agent public types", () => {
           messages: { delivery: "manual", triggerHistory: "none" },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { maxRetries: 0, model: () => ({}) as never },
     })
 
@@ -421,8 +562,10 @@ describe("agent public types", () => {
           input: () => ({ properties: { message: { type: "string" } }, type: "object" }),
           output: () => ({ properties: { message: { type: "string" } }, type: "object" }),
         },
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { message: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
     } satisfies AgentToolSchema<{ message: string }>
@@ -448,10 +591,13 @@ describe("agent public types", () => {
 
     const validationOnlySchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { message: string } }),
         vendor: "test",
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         version: 1 as const,
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       type: "object" as const,
     } satisfies StandardSchemaV1<unknown, { message: string }> & { type: "object" }
 
@@ -466,34 +612,16 @@ describe("agent public types", () => {
     expectTypeOf(validationOnlyTool).toEqualTypeOf<AgentToolDefinition<{ message: string }>>()
   })
 
-  it("types Papercut report events from the capabilities entry", () => {
-    const capability = papercuts({
-      async report(event) {
-        expectTypeOf(event).toEqualTypeOf<PapercutReportEvent>()
-        expectTypeOf(event.context.actor.id).toEqualTypeOf<string>()
-        expectTypeOf(event.papercut.createdAt).toEqualTypeOf<string>()
-        expectTypeOf(event.papercut.message).toEqualTypeOf<string>()
-        expectTypeOf(event.papercut.source).toEqualTypeOf<"cli" | "tool">()
-        expectTypeOf(event.context).toEqualTypeOf<PapercutReportContext>()
-        expectTypeOf(event.context.workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
-        expectTypeOf(event.context.fs).toEqualTypeOf<ReadonlyWorkspaceFacade["fs"] | undefined>()
-      },
-    })
-
-    expectTypeOf(capability.id).toEqualTypeOf<string>()
-    type RootAgentExports = typeof import("../src/index.ts")
-    // @ts-expect-error official Capability factories are exported from the capabilities entry.
-    type _RootPapercuts = RootAgentExports["papercuts"]
-  })
-
   it("accepts flat Capability CLI contributions", () => {
     const inputSchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { limit?: number } }),
       },
     }
     const outputSchema = {
       "~standard": {
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         validate: (input: unknown) => ({ value: input as { items: string[] } }),
       },
     }
@@ -541,12 +669,12 @@ describe("agent public types", () => {
     defineCapability({
       // @ts-expect-error Attachments are normalized by default rather than enabled by a Capability.
       chatAttachments: { audio: true },
-      id: "legacy-audio-runtime",
+      id: "invalid-audio-runtime",
     })
 
     defineCapability({
-      id: "legacy-instructions",
-      // @ts-expect-error Capability instructions were removed from Capability definitions.
+      id: "invalid-instructions",
+      // @ts-expect-error Capability Definitions do not own Agent Driver Instructions.
       instructions: "Use inventory only for runtime data.",
     })
     const dynamicInventoryRuntime = defineCapability({
@@ -579,6 +707,11 @@ describe("agent public types", () => {
       sessions: true,
       triggerHistory: { maxMessages: 20, source: "thread" },
     }
+    const invalidMessages: AgentMessageChannelSettings = {
+      // @ts-expect-error Thread-backed trigger history requires an explicit message bound.
+      triggerHistory: { source: "thread" },
+    }
+    expectTypeOf(invalidMessages).toEqualTypeOf<AgentMessageChannelSettings>()
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
     const reviewFinishEffect: AgentChannelDeliveryFinishEffect = context => ({
@@ -594,7 +727,8 @@ describe("agent public types", () => {
       expectTypeOf(context.text).toEqualTypeOf<string | undefined>()
       expectTypeOf(context.invocation.usage).toEqualTypeOf<AgentUsageRecord | undefined>()
       expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
-      expectTypeOf(context.context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
+      expectTypeOf(context.context.get("review.context")).toEqualTypeOf<{ number?: number, repository?: string } | undefined>()
+      expectTypeOf(context.context.get("unregistered.context")).toEqualTypeOf<unknown>()
       expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
       expectTypeOf(context.workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
       if (context.error) return context.reply(`failed: ${context.errorMessage}`)
@@ -696,16 +830,23 @@ describe("agent public types", () => {
             maxComments: 30,
             maxFiles: 200,
             origin: "github-review",
+            reconcile: {
+              events: ["opened", "synchronize"],
+              mentions: ["@agent"],
+              prompt: "Keep this pull request healthy.",
+            },
             reply: reviewFinishEffect,
           },
         }),
         portal: http({
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           adapter: () => ({}) as never,
           route: {
             admission: {
               body: {
                 "~standard": {
                   validate: (input: unknown) => ({
+                    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
                     value: input as { messages: unknown[], tenant: string },
                   }),
                 },
@@ -722,6 +863,7 @@ describe("agent public types", () => {
           webhooks: { path: "/api/support/chat" },
         }),
         teams: teams({
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           adapter: () => ({}) as never,
         }),
         telegram: telegram({
@@ -736,7 +878,19 @@ describe("agent public types", () => {
               expectTypeOf(body.messages).toEqualTypeOf<unknown>()
               expectTypeOf(event).toEqualTypeOf<unknown>()
               expectTypeOf(request).toEqualTypeOf<Request>()
+              // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
               return { meta: body.meta as Record<string, unknown> }
+            },
+          },
+        }),
+        resumableWeb: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ subject: "customer:acme" }),
+            },
+            resumable: {
+              owner: ({ auth }) => auth.subject,
+              scope: "process",
             },
           },
         }),
@@ -746,6 +900,7 @@ describe("agent public types", () => {
               body: {
                 "~standard": {
                   validate: (input: unknown) => ({
+                    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
                     value: input as { messages: unknown[], meta: { customer: string }, user: { email: string } },
                   }),
                 },
@@ -794,6 +949,13 @@ describe("agent public types", () => {
       driver: { run: () => "ok" },
     })
 
+    webChat({
+      route: {
+        // @ts-expect-error Resumable web chat must acknowledge its process-local boundary.
+        resumable: { owner: () => "customer:acme" },
+      },
+    })
+
     defineAgent({
       // @ts-expect-error custom-run-backed Agent Drivers do not receive model-facing instructions
       driver: { instructions: "ignored", run: () => "ok" },
@@ -817,8 +979,17 @@ describe("agent public types", () => {
     type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]
 
+    // @ts-expect-error Message metadata schemas belong to Agent or Channel definitions, not the legacy chat() Capability.
+    // SAFETY: the type fixture needs only the Standard Schema type to verify this rejected legacy option.
+    chat({ meta: {} as StandardSchemaV1<unknown, Record<string, unknown>> })
+    // @ts-expect-error Message metadata revisions belong to Agent or Channel definitions, not the legacy chat() Capability.
+    chat({ metaRevision: "v1" })
+
     type ServerExports = typeof import("../src/server.ts")
     type _PublicDiscordGatewayRouteHandler = ServerExports["createDiscordGatewayRouteHandler"]
+    type _PublicResumableChatRouteContext = import("../src/server.ts").AgentChannelChatRouteResumableContext
+    type _PublicResumableChatRouteOptions = import("../src/server.ts").AgentChannelChatRouteResumableOptions
+    type _PublicResumableChatRouteRequestBody = import("../src/server.ts").AgentChannelChatRouteResumableRequestBody
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
     type _PublicChannelChatRouteHandler = ServerExports["createChannelChatRouteHandler"]
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
@@ -875,8 +1046,8 @@ describe("agent public types", () => {
       },
     }
     access({ workspace: workspaceAccess })
-    // @ts-expect-error Workspace Scope instructions were removed.
     access({
+      // @ts-expect-error Workspace Scopes do not own Agent Driver Instructions.
       workspace: {
         scopes: {
           acme: {
@@ -935,6 +1106,7 @@ describe("agent public types", () => {
     interface SupportChatUser {
       email?: string
     }
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const teamsAdapter = () => ({}) as never
     const supportChat = chat({
       identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
@@ -952,7 +1124,7 @@ describe("agent public types", () => {
       webhooks: { teams: { path: "/api/teams/webhook" } },
     })
     chat({
-      // @ts-expect-error adapters was removed; use defineAgent({ channels })
+      // @ts-expect-error Chat adapters belong to Agent Channels.
       adapters: () => ({ teams: teamsAdapter }),
     })
     defineAgent({
@@ -982,6 +1154,7 @@ describe("agent public types", () => {
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
     type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser> & {
+      accountId: string
       invoker?: SupportInvoker
     }
     const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
@@ -989,35 +1162,22 @@ describe("agent public types", () => {
       { id: "support-technical", kind: "technical", meta: { audience: "technical" } },
     ]
     expectTypeOf(supportProfiles[0]?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     expectTypeOf({} as AgentRunInput<unknown, SupportInputContext>["context"]).toEqualTypeOf<SupportInputContext | undefined>()
-    type BrowserSubagentContext = { previewUrl: string }
-    const browserAgentInput: AgentRunInput<{ mode: "fast" }, BrowserSubagentContext> = {
+    type ChildInvocationContext = { previewUrl: string }
+    const childAgentInput: AgentRunInput<{ mode: "fast" }, ChildInvocationContext> = {
       context: { previewUrl: "https://preview.local" },
       message: "Check the product card.",
       options: { mode: "fast" },
     }
-    expectTypeOf(browserAgentInput.context?.previewUrl).toEqualTypeOf<string | undefined>()
-    expectTypeOf(browserAgentInput.options?.mode).toEqualTypeOf<"fast" | undefined>()
-    const browserToolInput: SubagentToolInput<{ mode: "fast" }, BrowserSubagentContext> = {
-      context: { previewUrl: "https://preview.local" },
-      message: "Check the product card.",
-      options: { mode: "fast" },
-    }
-    // @ts-expect-error Child invocation identity is assigned below the model tool input.
-    const legacyBrowserToolInput: SubagentToolInput = { message: "Check the product card.", runId: "review-run:browser" }
-    expectTypeOf(legacyBrowserToolInput).toMatchTypeOf<SubagentToolInput>()
-    subagents({
-      agents: {
-        browser: {
-          agent: defineAgent({           driver: {
-            run: () => "ok"
-          },
-}),
-          description: "Collect browser evidence.",
-        },
-      },
-    })
-    const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
+    expectTypeOf(childAgentInput.context?.previewUrl).toEqualTypeOf<string | undefined>()
+    expectTypeOf(childAgentInput.options?.mode).toEqualTypeOf<"fast" | undefined>()
+    const supportAccess: AccessWorkspaceOptionsFor<
+      typeof workspace,
+      SupportInputContext,
+      AgentRuntimeConfig,
+      "support"
+    > = {
       resolve({ actor, input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
@@ -1041,6 +1201,57 @@ describe("agent public types", () => {
         },
       },
     }
+    const supportAccessCapability = access({ workspace: supportAccess })
+    type SupportAccessContract = NonNullable<typeof supportAccessCapability["__vitehubTypeContract"]>
+    type SupportAccessInputContext = SupportAccessContract["inputContext"]
+    expectTypeOf(supportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    expectTypeOf({} as SupportInputContext).toMatchTypeOf<SupportAccessInputContext>()
+    expectTypeOf(supportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
+
+    const structuralSupportAccess = {
+      resolve({ input }) {
+        expectTypeOf(input.get().context).toEqualTypeOf<SupportInputContext | undefined>()
+        return "customer"
+      },
+    } satisfies AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext, AgentRuntimeConfig, "support">
+    const structuralSupportAccessCapability = access({ workspace: structuralSupportAccess })
+    expectTypeOf(structuralSupportAccessCapability.__vitehubTypeContract?.inputContext)
+      .toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf(structuralSupportAccessCapability)
+      .toMatchTypeOf<AgentCapabilityDefinition<AgentRuntimeConfig, "support">>()
+
+    interface SupportRuntimeConfig extends AgentRuntimeConfig {
+      supportToken: string
+    }
+    const customSupportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext, SupportRuntimeConfig, "support"> = {
+      resolve({ input }) {
+        expectTypeOf(input.get().context).toEqualTypeOf<SupportInputContext | undefined>()
+        return "customer"
+      },
+    }
+    const customSupportAccessCapability = access({ workspace: customSupportAccess })
+    expectTypeOf(customSupportAccessCapability.__vitehubTypeContract?.inputContext).toMatchTypeOf<SupportInputContext | undefined>()
+    expectTypeOf(customSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig, "support">>()
+
+    const customSupportChat: AccessChatOptions<SupportRuntimeConfig> = {
+      resolve() {
+        return true
+      },
+    }
+    const combinedSupportAccessCapability = access({
+      chat: customSupportChat,
+      workspace: {
+        defaultScope: "customer",
+        scopes: { customer: { all: true } },
+      },
+    })
+    expectTypeOf(combinedSupportAccessCapability).toMatchTypeOf<AgentCapabilityDefinition<SupportRuntimeConfig>>()
+    type CombinedSupportContext = Parameters<NonNullable<typeof combinedSupportAccessCapability.prepare>>[0]
+    type CombinedSupportModel = Exclude<Parameters<CombinedSupportContext["model"]["resolve"]>[0], AgentModelInput | undefined>
+    type CombinedSupportModelContext = Parameters<CombinedSupportModel>[0]
+    expectTypeOf<CombinedSupportModelContext["runtimeConfig"]>().toEqualTypeOf<SupportRuntimeConfig>()
 
     defineAgent({
       workspace,
@@ -1048,6 +1259,7 @@ describe("agent public types", () => {
         run() {
           return "ok"
         },
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         model: {} as never
       },
       invoker: defineAgentInvoker({
@@ -1063,9 +1275,7 @@ describe("agent public types", () => {
         },
       }),
       capabilities: [
-        access({
-          workspace: supportAccess,
-        }),
+        supportAccessCapability,
         supportChat,
       ],
     })
@@ -1111,6 +1321,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
@@ -1121,6 +1332,7 @@ describe("agent public types", () => {
     })
 
     defineAgent({
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       capabilities: () => [
         access({
           workspace: {
@@ -1130,6 +1342,7 @@ describe("agent public types", () => {
           },
         }),
       ] as const,
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       // @ts-expect-error callback access source grants are checked against defineAgent({ workspace.sources })
       workspace: {
@@ -1155,6 +1368,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1169,6 +1383,7 @@ describe("agent public types", () => {
         access({
           workspace: {
             resolve() {
+              // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
               return "technical" as const
             },
             scopes: {
@@ -1177,6 +1392,7 @@ describe("agent public types", () => {
           },
         }),
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1203,6 +1419,7 @@ describe("agent public types", () => {
         }),
         reviewWorkspaceBundle,
       ],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1221,6 +1438,7 @@ describe("agent public types", () => {
           },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1241,6 +1459,7 @@ describe("agent public types", () => {
           },
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1264,12 +1483,14 @@ describe("agent public types", () => {
       // @ts-expect-error Capability-contributed Workspace Sources do not own access scopes.
       workspace: { sources: {} },
       capabilities: [capabilityWithScopedSource],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
     // @ts-expect-error Workspace Sources do not own access scopes.
     githubSource({
       repo: "acme/docs",
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       scopes: ["customer"] as const,
     })
 
@@ -1285,6 +1506,8 @@ describe("agent public types", () => {
     github({ pullRequest: { workspace: true } })
     github({ pullRequest: { workspace: false } })
     github({ pullRequest: { workspace: { mount: "portal" } } })
+    github({ pullRequest: { reconcile: true } })
+    github({ pullRequest: { reconcile: { mentions: ["@agent"] } } })
 
     const inferredWorkspace = defineCapability({
       id: "inferred-workspace",
@@ -1317,6 +1540,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: broadCapabilities,
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1336,6 +1560,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [widenedAccessCapability],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
 
@@ -1360,6 +1585,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [bundledAccessCapability],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
     })
   })
@@ -1390,9 +1616,9 @@ describe("agent public types", () => {
         {
           id: "support-audience",
           prepare({ actor, channel, invoker }) {
-            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<unknown>()
             expectTypeOf(channel?.run?.origin).toEqualTypeOf<string | undefined>()
-            expectTypeOf(channel?.user?.email).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.user?.email).toEqualTypeOf<unknown>()
             expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
           },
@@ -1411,6 +1637,7 @@ describe("agent public types", () => {
           expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
         },
       },
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { model: {} as never },
       workspace: {
         sources: {
@@ -1425,6 +1652,7 @@ describe("agent public types", () => {
     const capabilityScorer: AgentScorer = hasCapabilityExtension("chat")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
       }),
       scenarios: [{
@@ -1434,6 +1662,7 @@ describe("agent public types", () => {
         scorers: [scorer],
       }],
       scorers: [scorer],
+      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       variants: [{ name: "strict", instructions: "Be strict.", model: {} as AgentModelInput }],
     }
 
@@ -1441,12 +1670,13 @@ describe("agent public types", () => {
 
     defineEval({
       agent: defineAgent({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
       }),
       async test(t) {
         const observation = await t.send("hello")
         observation.text.toUpperCase()
-        expectTypeOf(observation.extensions?.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
+        expectTypeOf(observation.extensions?.get("chat")).toEqualTypeOf<unknown>()
         expectTypeOf(t.capabilityExtension<{ status: string }>("chat")).toEqualTypeOf<{ status: string } | undefined>()
         expectTypeOf(t.capabilityExtension<string>("chat", "status")).toEqualTypeOf<string | undefined>()
         t.completed()
@@ -1480,6 +1710,7 @@ describe("agent public types", () => {
     const agent = defineAgent<TestRuntimeConfig>({
       driver: { model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
           runtimeConfig.service.token.toUpperCase()
+          // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           return {} as never
         } },
       workspace: { mode: "read" },
@@ -1501,6 +1732,7 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
+        // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
         driver: { model: {} as never },
         workspace: { mode: "read" },
       }),

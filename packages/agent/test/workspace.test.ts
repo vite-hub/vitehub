@@ -26,7 +26,19 @@ const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const tempRoots: string[] = []
-const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
+function writableWorkspaceFixture(value: object): WritableWorkspaceFacade {
+  // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
+  return value as WritableWorkspaceFacade
+}
+
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
+function readonlyWorkspaceTestFixture(value: object): ReadonlyWorkspaceFacade {
+  // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
+  return value as ReadonlyWorkspaceFacade
+}
+
+const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => writableWorkspaceFixture({
   diff,
   fs: { exists, list, readFile, stat, writeFile },
   history: { rebase },
@@ -36,7 +48,7 @@ const useWorkspace = vi.fn<(name: string, options?: Record<string, unknown>) => 
     none: vi.fn(() => ({})),
     readonly: inspectTools,
   }),
-} as unknown as WritableWorkspaceFacade))
+}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const jsonSchema = vi.hoisted(() => vi.fn(schema => ({ schema, type: "json-schema" })))
@@ -97,10 +109,10 @@ function withExplicitWorkspaceName<
   TAgent extends { name?: string, __vitehubWorkspaceAgentOptions: Record<string, unknown> },
 >(agent: TAgent, options: { workspace?: string }): TAgent {
   if (!options.workspace || agent.name) return agent
-  return defineNamedWorkspaceTestAgent({
+  return Object.assign(agent, defineNamedWorkspaceTestAgent({
     ...agent.__vitehubWorkspaceAgentOptions,
     name: options.workspace,
-  } as never) as unknown as TAgent
+  } as never))
 }
 
 function context(runtimeConfig: Record<string, unknown> = {}) {
@@ -114,14 +126,14 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
 }
 
 function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
-  return {
+  return readonlyWorkspaceTestFixture({
     fs: { exists, list, readFile, stat },
     tools: Object.assign(vi.fn(() => ({})), {
       inspect: inspectTools,
       none: vi.fn(() => ({})),
       readonly: inspectTools,
     }),
-  } as unknown as ReadonlyWorkspaceFacade
+  })
 }
 
 describe("defineAgent workspace option", () => {
@@ -303,7 +315,7 @@ describe("defineAgent workspace option", () => {
   it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
-    useWorkspace.mockReturnValueOnce({
+    useWorkspace.mockReturnValueOnce(writableWorkspaceFixture({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
@@ -313,7 +325,7 @@ describe("defineAgent workspace option", () => {
         none: vi.fn(() => ({})),
         readonly: inspectTools,
       }),
-    } as unknown as WritableWorkspaceFacade)
+    }))
     exists.mockResolvedValue(true)
 
     const agent = defineAgent({
@@ -442,72 +454,6 @@ describe("defineAgent workspace option", () => {
         root: "skills/agent-browser",
       },
     })
-  })
-
-  it("bubbles subagent skill sources into the parent workspace definition", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { skills, subagents } = await import("../src/capabilities.ts")
-    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
-
-    const browserAgent = defineAgent({
-      capabilities: [
-        skills({
-          path: "skills/agent-browser",
-          source: {
-            materialize: "build",
-            repo: "vercel/vercel-plugin",
-            root: "skills/agent-browser",
-          } as never,
-        }),
-      ],
-      driver: { model: {} as never },
-      workspace: { name: "review", mode: "write" },
-    })
-    const reviewerAgent = defineAgent({
-      capabilities: [
-        subagents({
-          agents: {
-            browser: {
-              agent: browserAgent,
-              description: "Collect browser evidence.",
-            },
-          },
-        }),
-      ],
-      driver: { model: {} as never },
-      workspace: { mode: "write" },
-    })
-    const options = (reviewerAgent as unknown as { __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceDefinitionFromOptions>[0] }).__vitehubWorkspaceAgentOptions
-
-    expect(workspaceDefinitionFromOptions(options).sources?.["skill.agent-browser"]).toEqual({
-      mount: "skills/agent-browser",
-      source: {
-        materialize: "build",
-        repo: "vercel/vercel-plugin",
-        root: "skills/agent-browser",
-      },
-    })
-  })
-
-  it("leaves invocation-resolved subagent Capabilities out of static source discovery", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { subagents } = await import("../src/capabilities.ts")
-
-    const child = defineAgent({
-      capabilities: () => [],
-      driver: { run: () => "ok" },
-      workspace: {},
-    })
-    const capability = subagents({
-      agents: {
-        child: {
-          agent: child,
-          description: "Handle one delegated task.",
-        },
-      },
-    })
-
-    expect(capability.workspaceSources).toBeUndefined()
   })
 
   it("adds capability sources to shared named workspace references for one invocation", async () => {
@@ -671,7 +617,7 @@ describe("defineAgent workspace option", () => {
     writeTools.mockReturnValueOnce({
       workspace_write: { name: "workspace_write" },
     })
-    useWorkspace.mockReturnValueOnce({
+    useWorkspace.mockReturnValueOnce(writableWorkspaceFixture({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
@@ -681,7 +627,7 @@ describe("defineAgent workspace option", () => {
         readonly: inspectTools,
         write: writeTools,
       }),
-    } as unknown as WritableWorkspaceFacade)
+    }))
     agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, unknown> } }) {
       return { finishReason: "stop", text: Object.keys(this.settings.tools).sort().join(",") }
     })
@@ -838,7 +784,14 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: {
+        mode: "write",
+        name: "docs",
+        rules: { "inbox/**": { commit: "chore: archive audio", write: true } },
+      },
+      mode: "write",
+    })
     expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "docs",
@@ -1446,7 +1399,10 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context())
 
-    expect(useWorkspace).toHaveBeenCalledWith("docs")
+    expect(useWorkspace).toHaveBeenCalledWith("docs", {
+      definition: { mode: "read", name: "docs" },
+      mode: "read",
+    })
   })
 
   it("marks synthetic workspace runs with the shared runtime symbol", async () => {
@@ -1557,27 +1513,6 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith(workspaceName, { mode: "write" })
   })
 
-  it("rejects source or capability config prose", async () => {
-    const { defineAgent, defineCapability } = await import("../src/index.ts")
-
-    expect(() => defineCapability({
-      id: "support",
-      instructions: "Use support capability guidance." as never,
-    } as never)).toThrow("Capability instructions were removed")
-
-    expect(() => withExplicitWorkspaceName(defineAgent({
-      workspace: {
-        sources: {
-          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
-        },
-      },
-      driver: {
-        instructions: "Answer from the workspace.",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })).toThrow('Workspace source "docs" instructions were removed')
-  })
-
   it("applies model Agent Driver instructions and execution settings", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const model = { id: "driver-model" }
@@ -1608,30 +1543,6 @@ describe("defineAgent workspace option", () => {
       stopWhen: { count: 4 },
       temperature: 0.3,
     })
-  })
-
-  it("rejects legacy source and capability instruction slots", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { workspaceShell } = await import("../src/capabilities.ts")
-
-    const sourceSlotAgent = withExplicitWorkspaceName(defineAgent({
-      workspace: { sources: { docs: { name: "docs" } as never } },
-      driver: {
-        instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })
-    await expect(sourceSlotAgent.run!(context())).rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
-
-    const capabilitySlotAgent = withExplicitWorkspaceName(defineAgent({
-      workspace: {},
-      capabilities: [workspaceShell()],
-      driver: {
-        instructions: "Answer from the workspace.\n\n{{ capabilities.workspaceShell }}",
-        model: {} as never,
-      },
-    }), { workspace: "docs" })
-    await expect(capabilitySlotAgent.run!(context())).rejects.toThrow("{{ capabilities.workspaceShell }}\" is no longer supported")
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
@@ -1891,7 +1802,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       driver: { model: {} as never },
       capabilities: [{
-        id: "subagents",
+        id: "browser-tools",
         tools: {
           run_browser: { execute: runBrowser },
         } as never,
@@ -2046,9 +1957,10 @@ describe("defineAgent workspace option", () => {
       })()
 
       toUIMessageStream() {
-        const lockedBranch = (this.fullStream as unknown as ReadableStream<unknown>).getReader()
+        if (!(this.fullStream instanceof ReadableStream)) throw new Error("Expected streamAgent to preserve a readable stream")
+        const lockedBranch = this.fullStream.getReader()
         void lockedBranch
-        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream({
+        return this.fullStream.pipeThrough(new TransformStream({
           transform(part: unknown, controller) {
             if (typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text-delta" && typeof (part as { id?: unknown }).id !== "string") {
               throw new Error("AI SDK text deltas require an id")
@@ -2326,7 +2238,7 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!({
       ...(context() as Record<string, unknown>),
-      input: { messages: [] },
+      input: { context: {}, messages: [] },
       run: {
         origin: "teams",
         runId: "run_123",
@@ -2334,14 +2246,14 @@ describe("defineAgent workspace option", () => {
       },
     } as never)
 
-    expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
-      input: { messages: [] },
-      model: expect.objectContaining({ modelId: "base" }),
-      run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
-      callSettings: expect.objectContaining({ temperature: 0.2 }),
-      tools: expect.objectContaining({ shell: expect.any(Object) }),
-    }))
-    expect(instrumentCallSettings.mock.calls[0]?.[0].callSettings).not.toHaveProperty("stepLimit")
+    expect(instrumentCallSettings).toHaveBeenCalledOnce()
+    const instrumentContext = instrumentCallSettings.mock.calls[0]![0]
+    expect(instrumentContext.input).toMatchObject({ messages: [] })
+    expect(instrumentContext.model).toMatchObject({ modelId: "base" })
+    expect(instrumentContext.run).toMatchObject({ origin: "teams", runId: "run_123" })
+    expect(instrumentContext.callSettings).toMatchObject({ temperature: 0.2 })
+    expect(instrumentContext.tools).toHaveProperty("shell")
+    expect(instrumentContext.callSettings).not.toHaveProperty("stepLimit")
     expect(agentSettings.at(-1)).toMatchObject({
       stopWhen: { count: 7 },
       temperature: 0.2,
@@ -2749,6 +2661,23 @@ describe("defineAgent workspace option", () => {
     expect(createAgentInspectionMetadata(dynamicAgent).config).not.toHaveProperty("uiMessageStream")
     expect((await resolveAgentInspectionMetadata(dynamicAgent, {
       input: { prompt: "private" },
+    })).config?.uiMessageStream).toEqual({
+      reasoning: "hidden",
+      tools: "hidden",
+    })
+  })
+
+  it.each([false, 0, ""])("preserves falsey runtimeConfig %j while resolving Agent inspection metadata", async runtimeConfig => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      uiMessageStream: context => Reflect.get(context, "runtimeConfig") === runtimeConfig
+        ? { reasoning: "hidden", tools: "hidden" }
+        : { reasoning: "visible", tools: "full" },
+    })
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtimeConfig } as never,
     })).config?.uiMessageStream).toEqual({
       reasoning: "hidden",
       tools: "hidden",
@@ -3409,6 +3338,37 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ id: "instruction-coverage:capability:workspace-shell", primitive: "capability" }),
       expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" }),
     ]))
+  })
+
+  it("does not warn when a Capability opts out of model-facing instruction coverage", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never,
+      },
+      capabilities: [{ id: "runtime-only", instructionCoverage: false }],
+    }), { workspace: "support" })
+
+    expect((await resolveAgentInspectionMetadata(agent)).warnings ?? []).toEqual([])
+  })
+
+  it("requires and recognizes instruction coverage for papercut reporting", async () => {
+    const { resolveAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const { papercuts } = await import("../src/capabilities.ts")
+    const createAgent = (instructions: string) => withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: { instructions, model: {} as never },
+      capabilities: [papercuts({ report: () => undefined })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentInspectionMetadata(createAgent("Report useful failures."))).toMatchObject({
+      warnings: [expect.objectContaining({ id: "instruction-coverage:capability:papercuts", primitive: "capability" })],
+    })
+    expect((await resolveAgentInspectionMetadata(createAgent(`::capability{key="papercuts"}
+Report unexpected failures and wasted work, then continue the task.
+::`))).warnings ?? []).toEqual([])
   })
 
   it("warns run drivers when configured skills lack explicit instruction coverage", async () => {

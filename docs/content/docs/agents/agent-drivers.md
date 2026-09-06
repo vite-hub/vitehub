@@ -68,38 +68,102 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
+Install only the provider packages selected by your Agent Definitions:
+
+```sh
+pnpm add @openai/codex@0.149.1
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
+```
+
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
+import { loadServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({
   driver: {
+    credentialProfile: 'review',
+    credentials: async ({ abortSignal }) => (await loadServerEnv(undefined, { signal: abortSignal })).codexAuthJson,
     kind: 'codex',
     instructions: 'Review the exact pull request head before changing code.',
     model: 'gpt-5.5',
     permissions: 'ask',
+    reasoningEffort: 'high',
+    reasoningSummary: 'detailed',
   },
   workspace: { mode: 'write' },
 })
 ```
 
-Provider Drivers require a local Node.js host with the matching CLI and credentials available to the process. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
+`credentials` accepts the contents of Codex `auth.json`, a sealed Server Env value, or an invocation-time resolver. This lets a Kubernetes secret or an [Env provider](/docs/server-primitives/env#read-external-env-storage) supply auth without startup file plumbing. ViteHub resolves it for each invocation, validates the JSON object, and projects it as a `0600` file inside a `0700` Codex Home. Provisioned credentials require a POSIX host; ViteHub rejects them on Windows because these file modes cannot guarantee owner-only access there. The value never enters the provider environment or inspection output.
 
-Provider runtime cursors resume a thread while the Agent Definition process remains active. Chat-backed cursors are also partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. Cursors are process-local and do not survive restarts or resume on another worker; use the Agent Invocation message history as the durable conversation boundary.
+A named `credentialProfile` shares one writable Home between Drivers in the process and stores it at `.vitehub/data/codex/<credentialProfile>`. ViteHub serializes Codex runtime access to the profile, so one Codex process owns that Home at a time. Codex can refresh `auth.json` there. ViteHub fingerprints the last external seed, preserves Codex's refreshed file while that seed is unchanged, and replaces the file on the next invocation when the resolver returns a rotated value.
+
+The directory is a complete Codex Home, not a credentials-only store; treat its auth, configuration, session state, and logs as sensitive. A profile supports one ViteHub process writing its volume. In Kubernetes, give each replica its own persistent volume and profile state rather than mounting one profile through a shared multi-writer volume. ViteHub does not write refreshed credentials back to the external Env provider. Without `credentialProfile`, each invocation receives an isolated temporary Home that ViteHub removes after the Codex runtime stops.
+
+Provider Drivers require a local Node.js host with credentials available to the process. Codex credentials without an explicit resolver must be available to that process. ViteHub resolves an installed `@openai/codex` or `@anthropic-ai/claude-agent-sdk` package without requiring deployment-specific copy scripts. Production self-hosted Node builds on macOS and Linux copy only the build host's native optional package into `.output/server/node_modules`, including the Linux libc variant, so build on the same host type used for deployment. If Codex is absent, ViteHub falls back to `codex` on the host `PATH`. Claude requires the Agent SDK, while a missing native SDK package at runtime retains T3's host `claude` command fallback. ViteHub does not download provider packages during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, `AGENTS.md` or `CLAUDE.md`, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
+
+Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one.
+
+Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    env: async ({ abortSignal }) => ({
+      SANDBOX_TOKEN: await issueSandboxToken({ signal: abortSignal }),
+    }),
+    kind: 'codex',
+    launch: ({ command }) => ({
+      args: ['exec', '--', command],
+      command: 'sandboxctl',
+    }),
+    permissions: 'allow-all',
+  },
+})
+```
+
+ViteHub resolves `env` once, then gives `launch` the selected environment, provider executable, temporary working directory, and abort signal. The wrapper receives its configured arguments followed by the provider runtime arguments. ViteHub writes an owner-only temporary launcher outside the Workspace and removes it after the provider runtime stops. Launch wrappers require a POSIX host. They change process startup only; authorization, remote isolation, and wrapper credentials remain application-owned.
+
+Agent inspection reports whether `env` and `launch` are static or dynamic without resolving either value.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
 | Option | Purpose |
 | --- | --- |
 | `kind` | Required tagged provider name: `"codex"` or `"claude-code"`. |
+| `credentialProfile` | Codex-only stable credential Home name. Requires `credentials`; persists under `.vitehub/data/codex/<credentialProfile>`. |
+| `credentials` | Codex-only `auth.json` string, sealed Server Env value, or invocation-time resolver. Inspection reports that a source is configured without resolving or checking the value. |
+| `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. Requires an explicit `model`. |
+| `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"` override. Requires an explicit `model`. |
 | `model` | Optional provider model id. |
-| `env` | Explicit environment values passed to the local provider process. ViteHub otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
+| `env` | Explicit environment values or an invocation-time resolver. ViteHub resolves it once and otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
-| `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"allow-all"`. |
+| `launch` | Provider command wrapper or invocation-time resolver. Receives the provider executable, working directory, selected environment, and abort signal. |
+| `permissions` | `"ask"`, `"allow-edits"`, or `"allow-all"`; defaults to `"ask"`. Set `"allow-all"` explicitly to run provider actions without approval. |
+| `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
+| `sessionStorePath` | Optional SQLite file for provider session cursors. Enables thread continuation after a process restart on the same persistent host volume. |
 | `output` | Optional structured Agent output contract. |
-| `capacity` | Optional process-local concurrency and queue limits. |
+| `capacity` | Optional process-local static or adaptive concurrency and queue limits. |
 
 Provider Drivers do not accept Agent Boxes, model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
+
+## Adaptive process capacity
+
+Self-hosted Node applications can admit new work according to current machine pressure instead of relying on a fixed schedule. Keep one shared capacity object in an application module and reuse it across the Agent Definitions that compete for the same host resources:
+
+```ts [server/agent-capacity.ts]
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+
+export const agentCapacity = createProcessAgentCapacity({
+  concurrency: 6,
+  queue: { maxPending: 100, timeout: 30 * 60_000 },
+})
+```
+
+`concurrency` is always the hard maximum. The adapter lowers only new admissions when CPU or memory is under pressure; active invocations continue, queued invocations remain FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts fall back to Node's available-memory and parallelism signals. Failed samples or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. `vitehub agent info` reports the current admitted limit, hard maximum, queue depth, and sampling reason.
 
 ## Use a custom run Driver
 

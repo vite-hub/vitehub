@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
-import { markdownTemplateRegistryId, markdownTemplateRegistryPath, parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
+import { parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
 import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
 
@@ -18,6 +18,7 @@ import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 import type { TransformOptions } from "jiti"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -50,8 +51,6 @@ function generatedViteHubImportAliases(rootDir: string) {
   for (const [id, path] of Object.entries(createViteHubEnvImportAliases(rootDir))) {
     if (existsSync(path)) aliases[id] = path
   }
-  const templates = resolve(rootDir, markdownTemplateRegistryPath)
-  if (existsSync(templates)) aliases[markdownTemplateRegistryId] = templates
   return aliases
 }
 
@@ -167,7 +166,7 @@ export async function loadDiscoveredWorkspaceDefinition(
   definition: DiscoveredWorkspaceDefinition,
 ): Promise<WorkspaceDefinitionInput> {
   const mod = await loader.import(definition.path) as { default?: WorkspaceDefinitionInput }
-  if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+  if (!mod.default) throw workspaceErrorDiagnostics.WORKSPACE_B0001({ message: `[vitehub] Workspace definition "${definition.name}" has no default export.` })
   return mod.default
 }
 

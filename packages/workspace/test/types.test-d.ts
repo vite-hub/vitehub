@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
+  sourceIgnores,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
@@ -11,7 +12,8 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
-import { hubWorkspace } from "../src/vite.ts"
+import { discoverViteWorkspaceDefinitions, hubWorkspace } from "../src/vite.ts"
+import type { DiscoveredWorkspaceDefinition } from "../src/vite.ts"
 import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
@@ -71,6 +73,7 @@ describe("workspace types", () => {
   })
 
   it("does not expose a placeholder mount contract", () => {
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise the Workspace surface.
     const workspace = {} as Workspace
     // @ts-expect-error Workspace mounts require a real host projection contract.
     workspace.mount()
@@ -131,7 +134,13 @@ describe("workspace types", () => {
       repo: "acme/app",
       root: "docs",
       include: "**/*.md",
-      exclude: "docs/drafts/**",
+      ignore: "docs/drafts/**",
+    })
+    github({ ignore: sourceIgnores.defaults, repo: "acme/app" })
+    defineWorkspace({
+      sources: {
+        docs: { ignore: false, repo: "acme/docs" },
+      },
     })
     // @ts-expect-error Source Instructions no longer belong on Source config.
     github({ repo: "acme/app", instructions: "Use for hosted docs." })
@@ -169,6 +178,7 @@ describe("workspace types", () => {
           jsonSchema: {
             input: () => ({ type: "object" }),
           },
+          // SAFETY: The type-only schema fixture models a validator accepting this record contract.
           validate: (input: unknown) => ({ value: input as Record<string, unknown> }),
         },
       },
@@ -251,7 +261,8 @@ describe("workspace types", () => {
 
     const readonly = useWorkspace("typed")
     const writable = useWorkspace("typed", { mode: "write" })
-    const runtimeWorkspace = null as unknown as Workspace
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise runtime-only methods.
+    const runtimeWorkspace: Workspace = undefined!
 
     expectTypeOf(definition).toMatchTypeOf<object>()
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
@@ -284,13 +295,14 @@ describe("workspace types", () => {
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }
-    // @ts-expect-error syncOnBuild was removed in favor of assets
+    // @ts-expect-error Workspace Sources configure generated assets through assets.
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
+    // SAFETY: This type-only fixture is never evaluated and exists to exercise the session surface.
+    const session: Awaited<ReturnType<typeof writable.startSession>> = undefined!
     // @ts-expect-error runtime selection belongs to Box, not Workspace session options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
@@ -310,5 +322,6 @@ describe("workspace types", () => {
     readonly.fs.writeFile("README.md", "nope")
     expectTypeOf(writable.fs.writeFile).toBeFunction()
     expectTypeOf(hubWorkspace()).toMatchTypeOf<Plugin>()
+    expectTypeOf(discoverViteWorkspaceDefinitions(".")).toEqualTypeOf<DiscoveredWorkspaceDefinition[]>()
   })
 })

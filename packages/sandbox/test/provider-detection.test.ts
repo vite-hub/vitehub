@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { unsupportedHostedSandboxProviderError } from "../src/runtime/provider-loader.ts"
+
 describe("provider detection", () => {
+  it("identifies an unsupported generated hosted provider", () => {
+    expect(unsupportedHostedSandboxProviderError("local")).toMatchObject({
+      code: "SANDBOX_R0076",
+      message: "[vitehub] Unsupported sandbox provider for this hosted build: local",
+    })
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()

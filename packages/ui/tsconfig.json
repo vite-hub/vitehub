@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowArbitraryExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ESNext", "DOM"],
+    "rootDir": "..",
+    "baseUrl": "../..",
+    "paths": {
+      "#app": ["packages/ui/node_modules/nuxt/dist/app/index.d.ts"],
+      "@vite-hub/runtime": ["packages/runtime/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
+  "exclude": ["dist", "node_modules"]
+}

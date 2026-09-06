@@ -29,7 +29,10 @@ describe("Env errors", () => {
       details: { path: "env.unknown" },
       message: "[vitehub] Env declaration is invalid.",
     })
-    expect(declarationError.cause).toBeInstanceOf(TypeError)
+    expect(declarationError.cause).toMatchObject({
+      code: "ENV_R0008",
+      message: "Invalid declaration at env.unknown. Vite env config only supports env.public, env.define, and env.server.",
+    })
 
     const missingError = capture(() => resolveServerEnv({
       token: {
@@ -67,9 +70,12 @@ describe("Env errors", () => {
     }, { env: { TOKEN: undefined, TOKEN_FALLBACK: "fallback" } })).toEqual({ token: "fallback" })
   })
 
-  it("keeps declaration misuse and schema helpers outside the Env error family", () => {
+  it("reports declaration misuse with Nostics and preserves schema errors", () => {
     expect.assertions(3)
-    expect(() => env({ optional: true, required: true })).toThrow(TypeError)
+    expect(capture(() => env({ optional: true, required: true }))).toMatchObject({
+      code: "ENV_R0006",
+      message: "env() cannot use both optional and required.",
+    })
 
     try {
       parseSchema({ safeParse: () => ({ error: "invalid", success: false }) }, "value", "env.value")

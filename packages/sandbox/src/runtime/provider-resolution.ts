@@ -8,6 +8,7 @@ import type {
   SandboxDefinitionProviderOptions,
 } from '../module-types'
 import type { SandboxProvider } from '../module-types'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 type SandboxEvent = {
   context?: {
@@ -17,6 +18,7 @@ type SandboxEvent = {
 }
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const maxTimeout = 2_147_483_647
 const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
   { provider: 'cloudflare', when: isCloudflare },
   { provider: 'vercel', when: isVercel },
@@ -75,8 +77,8 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
     return sandboxId
 
   const prefix = 'vitehub-'
-  const suffix = `-${hashCloudflareSandboxName(name)}-definition`
-  const slug = encodeURIComponent(name).slice(0, 256 - prefix.length - suffix.length)
+  const suffix = `-${hashCloudflareSandboxName(name)}-${crypto.randomUUID()}`
+  const slug = encodeURIComponent(name).slice(0, 63 - prefix.length - suffix.length)
   return `${prefix}${slug}${suffix}`
 }
 
@@ -103,7 +105,11 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
 export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw new TypeError(`[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0069({ message: `[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+  if (local.timeout !== undefined
+    && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
+    throw sandboxErrorDiagnostics.SANDBOX_R0070({ message: `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.` })
+  }
 }
 
 export async function resolveSandboxBox(

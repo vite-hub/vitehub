@@ -25,10 +25,11 @@ describe("Box requirement failures", () => {
       10_000,
     );
 
-    expect(error.message).toBe(
-      '[vitehub] Box requirement "setup [redacted]" failed: timed out after 10000ms: token [redacted] failed',
-    );
-    expect(error).not.toHaveProperty("cause");
+    expect(error).toMatchObject({
+      code: "BOX_R0124",
+      message: '[vitehub] Box requirement "setup [redacted]" failed: timed out after 10000ms: token [redacted] failed',
+    });
+    expect(error.cause).toBeUndefined();
     expect(inspect(error, { depth: null })).not.toContain("setup-secret");
   });
 
@@ -65,6 +66,46 @@ describe("Box requirement failures", () => {
     expect(error.message).toBe(
       '[vitehub] Box requirement "setup" failed: exit code 1: provider rejected the credential',
     );
+  });
+
+  it("serializes structured diagnostic output", () => {
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, stderr: { message: "provider rejected the credential" } },
+    );
+
+    expect(error.message).toContain('{"message":"provider rejected the credential"}');
+    expect(error.message).not.toContain("[object Object]");
+  });
+
+  it.each(["stderr", "stdout"] as const)("redacts JSON-significant secrets from structured %s", (stream) => {
+    const secret = "line\n\"quote\"\\path";
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, [stream]: { detail: `credential ${secret} rejected` } },
+      [secret],
+    );
+
+    expect(error.message).toBe(
+      '[vitehub] Box requirement "setup" failed: exit code 1: {"detail":"credential [redacted] rejected"}',
+    );
+    expect(error.message).not.toContain(secret);
+    expect(error.message).not.toContain(JSON.stringify(secret).slice(1, -1));
+  });
+
+  it.each(["stderr", "stdout"] as const)("redacts JSON-significant secret keys from structured %s", (stream) => {
+    const secret = "line\n\"quote\"\\path";
+    const error = boxRequirementError(
+      { args: [], command: "setup", name: "setup" },
+      { exitCode: 1, [stream]: { [secret]: "credential rejected" } },
+      [secret],
+    );
+
+    expect(error.message).toBe(
+      '[vitehub] Box requirement "setup" failed: exit code 1: {"[redacted]":"credential rejected"}',
+    );
+    expect(error.message).not.toContain(secret);
+    expect(error.message).not.toContain(JSON.stringify(secret).slice(1, -1));
   });
 
   it("caps diagnostics at 4,000 characters including the ellipsis", () => {

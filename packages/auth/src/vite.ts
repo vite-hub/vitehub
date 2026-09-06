@@ -16,6 +16,8 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 
+export { resolveAuthViteConfig }
+
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
@@ -56,7 +58,7 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
   return (viteConfigResult && typeof viteConfigResult === "object" && "nitro" in viteConfigResult ? viteConfigResult.nitro : options.nitro) as Record<string, unknown>
 }
 
-type InternalAuthModuleOptions = AuthModuleOptions & {
+interface InternalAuthModuleOptions {
   importBase?: string
 }
 
@@ -103,10 +105,12 @@ function renderAuthRouteHandler(): string {
 
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
+  const requiredAuthorizeRouteIndexes = JSON.stringify(config?.access.routes.flatMap((route, index) => route.authorize ? [index] : []) ?? [])
   return [
-    `import { requireAuth } from ${JSON.stringify(AUTH_SERVER_ID)}`,
+    `import { requireAuthAccessRoutes } from ${JSON.stringify(AUTH_SERVER_ID)}`,
     "",
     `const routes = ${routes}`,
+    `const requiredAuthorizeRouteIndexes = ${requiredAuthorizeRouteIndexes}`,
     "",
     "function routeMatches(pattern, pathname) {",
     "  if (pattern.endsWith('/**')) {",
@@ -116,15 +120,16 @@ function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | unde
     "  return pathname === pattern",
     "}",
     "",
-    "function matchesAccessRoute(event) {",
+    "function matchAccessRoutes(event) {",
     "  const method = event.req.method",
     "  const pathname = event.url.pathname",
-    "  return routes.some(route => (!route.method || route.method.toUpperCase() === method) && routeMatches(route.route, pathname))",
+    "  return routes.flatMap((route, index) => (!route.method || route.method.toUpperCase() === method) && routeMatches(route.route, pathname) ? [index] : [])",
     "}",
     "",
     "export default function viteHubAuthAccessMiddleware(event) {",
-    "  if (!matchesAccessRoute(event)) return",
-    "  return requireAuth(event)",
+    "  const routeIndexes = matchAccessRoutes(event)",
+    "  if (routeIndexes.length === 0) return",
+    "  return requireAuthAccessRoutes(event, routeIndexes, undefined, requiredAuthorizeRouteIndexes)",
     "}",
     "",
   ].join("\n")
@@ -274,8 +279,8 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
   return value.default ?? value.definition
 }
 
-export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
-  const importBase = (options as InternalAuthModuleOptions | undefined)?.importBase ?? authPackageName
+export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+  const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
   let serverDirs: string[] | undefined

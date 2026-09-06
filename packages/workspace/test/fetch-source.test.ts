@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, fetch, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { createWorkspaceSourceRequestExecution } from "../src/sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -26,6 +28,16 @@ afterEach(() => {
 })
 
 describe("fetch sources", () => {
+  it("identifies explicit and resolved fetch Sources by provider", async () => {
+    expect(fetch({ url: "https://status.example.com/health" })).toMatchObject({ name: "fetch" })
+    expect(normalizeWorkspaceSources({ status: { url: "https://status.example.com/health" } })[0]?.source).toMatchObject({ name: "fetch" })
+
+    const source = fetch(() => ({ url: "https://status.example.com/health" }))
+    expect(source).toMatchObject({ name: "fetch" })
+    // SAFETY: This provider's resolver does not inspect the Source context.
+    await expect(source.resolve?.({} as never)).resolves.toMatchObject({ name: "fetch" })
+  })
+
   it("exports one live JSON source without writing to the store on read", async () => {
     const request = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ ignored: true, status: "ok" }))
@@ -108,6 +120,46 @@ describe("fetch sources", () => {
     expect((init.headers as Headers).get("authorization")).toBe("Bearer secret")
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=session-token")
     expect((init.headers as Headers).get("x-request-method")).toBe("POST")
+  })
+
+  it("lets request preparation lower the fetch Source response limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
+    registerWorkspace("fetch-bounded", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        status: fetch({
+          maxResponseBytes: 100,
+          request: { maxResponseBytes: 4 },
+          responseType: "text",
+          url: "https://status.example.com/large",
+          workspacePath: "status.txt",
+        }),
+      },
+    }))
+
+    await expect(useWorkspace("fetch-bounded").fs.readFile("status.txt"))
+      .rejects.toThrow("configured 4-byte limit")
+  })
+
+  it("enforces response limits for request-only fetch Sources", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
+    registerWorkspace("fetch-request-bounded", defineWorkspace({
+      sources: {
+        status: fetch({
+          maxResponseBytes: 4,
+          responseType: "text",
+          url: "https://status.example.com/large",
+        }),
+      },
+      store: { provider: "memory" },
+    }))
+    const definition = await resolveRegisteredWorkspaceDefinition("fetch-request-bounded")
+    const execution = createWorkspaceSourceRequestExecution(definition)
+
+    await expect(execution?.executeSourceRequest({
+      method: "GET",
+      url: "https://status.example.com/large",
+    })).rejects.toThrow("configured 4-byte limit")
   })
 
   it("serializes top-level JSON strings as valid JSON", async () => {
@@ -210,6 +262,7 @@ describe("fetch sources", () => {
     await expect(view.list("status")).resolves.toEqual([
       { path: "status/new.json", type: "file" },
     ])
+    await expect(view.list("status", { exclude: ["status"], recursive: true })).resolves.toEqual([])
     await expect(view.glob("status/*.json")).resolves.toEqual([
       { path: "status/new.json", type: "file" },
     ])
@@ -323,6 +376,7 @@ describe("fetch sources", () => {
     await expect(view.list(".vitehub/sources")).resolves.toEqual([
       { path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" },
     ])
+    await expect(view.list("", { exclude: [".vitehub"], recursive: true })).resolves.toEqual([])
     const descriptor = JSON.parse(await view.readFile(".vitehub/sources/inventoryHealthSummary.json"))
     expect(descriptor).toEqual({
       credentials: { cookies: ["auth_token"] },

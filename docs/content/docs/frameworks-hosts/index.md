@@ -3,6 +3,7 @@ title: Frameworks and hosts
 description: See what ViteHub configures for each framework and deployment host.
 navigation.title: Overview
 navigation.order: 40
+navigation.group: Choose a target
 icon: i-lucide-network
 ---
 

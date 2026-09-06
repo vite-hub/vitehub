@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { removeProviderOutputArtifactDir, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -13,7 +15,7 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -96,8 +98,8 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
-  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
@@ -149,7 +151,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async configResolved(config) {
       resolved = config
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       await refreshRuntimeConfig()
     },
     configEnvironment(name, config) {
@@ -162,7 +164,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
-      resetComposedProviderOutput(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
+      resetProviderOutputRuntime(providerOutput)
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
@@ -178,18 +181,72 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
 
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
-      providerArtifacts = await prepareProviderOutputs({
-        appRootDir: resolved.root,
-        providerOutput,
-        rootDir: databaseRoot(),
-        runtimeConfig,
-      })
+      let artifactDir: string | undefined
+      try {
+        const contributionResolved = resolved
+        const contributionRuntimeConfig = runtimeConfig
+        const contributionProviderOutput = providerOutput
+        const generation = providerOutputGenerations.get(this)
+        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
+        const contributionArtifactDir = artifactDir
+        const retainedSources = await retainProviderOutputSources({
+          artifactDir: resolve(contributionArtifactDir, "sources"),
+          paths: [
+            ...contributionRuntimeConfig.definitions.map(definition => definition.handler),
+            ...Object.values(contributionRuntimeConfig.generatedSchemaFilesByDatabase),
+          ],
+          roots: [contributionResolved.root],
+        })
+        const retainedRuntimeConfig = {
+          ...contributionRuntimeConfig,
+          definitions: contributionRuntimeConfig.definitions.map(definition => ({
+            ...definition,
+            handler: retainedSources.resolve(definition.handler),
+          })),
+          generatedSchemaFilesByDatabase: Object.fromEntries(Object.entries(contributionRuntimeConfig.generatedSchemaFilesByDatabase)
+            .map(([name, file]) => [name, retainedSources.resolve(file)])),
+        }
+        const contributionArtifacts = await prepareProviderOutputs({
+          appRootDir: retainedSources.resolve(contributionResolved.root),
+          artifactDir: resolve(contributionArtifactDir, "output"),
+          generation,
+          providerOutput: contributionProviderOutput,
+          rootDir: databaseRoot(),
+          runtimeConfig: retainedRuntimeConfig,
+        })
+        contributeProviderDeploymentOutput(contributionProviderOutput, {
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
+          owner: "database",
+          rootDir: contributionResolved.root,
+          write: async ({ write }) => {
+            await generateProviderOutputs({
+              appRootDir: retainedSources.resolve(contributionResolved.root),
+              artifacts: contributionArtifacts,
+              clientOutDir: contributionResolved.build.outDir,
+              generation,
+              providerOutput: contributionProviderOutput,
+              rootDir: contributionResolved.root,
+              runtimeConfig: retainedRuntimeConfig,
+              serverFunctionName: resolveNitroVercelFunctionName(contributionResolved, "database"),
+            }, write)
+          },
+        }, generation)
+      }
+      catch (error) {
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
     },
     resolveId(id) {
       return resolveDatabaseVirtualId(id)
@@ -208,20 +265,16 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         })}\n`
       }
     },
-    async closeBundle() {
-      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
-        return
-      }
-
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
-      await generateProviderOutputs({
-        artifacts: providerArtifacts,
-        clientOutDir: resolved.build.outDir,
-        providerOutput,
-        rootDir: resolved.root,
-        runtimeConfig,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved, "database"),
-      })
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
   }
 }

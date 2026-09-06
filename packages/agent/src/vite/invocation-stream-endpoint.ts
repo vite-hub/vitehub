@@ -13,7 +13,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { markDiscoveredWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
@@ -40,6 +40,7 @@ import type {
 } from "../index.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
@@ -119,7 +120,7 @@ function withPayloadDefaults(payload: Record<string, unknown>, defaults: Record<
 
 function createAbortSignalFromClose(target: Pick<IncomingMessage | ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
   const controller = new AbortController()
-  const abort = () => controller.abort(new Error(message))
+  const abort = () => controller.abort(agentDiagnostics.AGENT_R0872({ message: message }))
   target.once("close", abort)
   return {
     dispose: () => target.off("close", abort),
@@ -137,7 +138,7 @@ function linkAbortSignal(controller: AbortController, parent?: AbortSignal): () 
 
 function createWorkspaceCommandAbortSignal(req: IncomingMessage, parent?: AbortSignal): { dispose: () => void, signal: AbortSignal } {
   const controller = new AbortController()
-  const close = () => controller.abort(new Error("[vitehub] Agent Dev Loop command request closed."))
+  const close = () => controller.abort(agentDiagnostics.AGENT_R0873({ message: "[vitehub] Agent Dev Loop command request closed." }))
   req.once("close", close)
   const unlink = linkAbortSignal(controller, parent)
   return {
@@ -283,9 +284,15 @@ async function installServerAgentWorkspaceRegistry(
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
     if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw new Error(`[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.`)
+    throw agentDiagnostics.AGENT_R0874({ message: `[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.` })
   })
   setWorkspaceRuntimeRegistry(registry)
+  for (const { agent, definition } of entries) {
+    markDiscoveredWorkspaceAgentDefinitionRegistered(agent, {
+      name: definition.name,
+      workspace: definition.workspace,
+    })
+  }
   return registry
 }
 
@@ -507,7 +514,7 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
   clone.run = async (context) => {
     const tool = context.tools?.[cli]
     if (!tool || tool.metadata?.vitehubCapabilityCli !== true || typeof tool.execute !== "function") {
-      throw new Error(`[vitehub] Agent Capability CLI "${cli}" is not defined by this agent.`)
+      throw agentDiagnostics.AGENT_R0875({ message: `[vitehub] Agent Capability CLI "${cli}" is not defined by this agent.` })
     }
     return await tool.execute(execution) as AgentCapabilityCliExecutionResult
   }
@@ -518,7 +525,7 @@ function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: Abo
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   clone.run = async (context) => {
-    if (!context.workspace) throw new Error("[vitehub] Agent Dev Loop command requires an Agent with a Workspace.")
+    if (!context.workspace) throw agentDiagnostics.AGENT_R0876({ message: "[vitehub] Agent Dev Loop command requires an Agent with a Workspace." })
     const { resolveBox } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
     const host = await (await resolveBox({ runtime: "trusted-host" }, {})).open({ signal: command.abortSignal })
     try {
@@ -560,7 +567,7 @@ async function runCapabilityCliWithTimeout(
     if (timeout <= 0) return await run
     const timedOut = new Promise<Response>((resolve) => {
       timeoutId = setTimeout(() => {
-        const error = new Error(`Agent Invocation Stream timed out after ${timeout}ms.`)
+        const error = agentDiagnostics.AGENT_R0877({ message: `Agent Invocation Stream timed out after ${timeout}ms.` })
         controller.abort(error)
         resolve(new Response(error.message, { status: 504 }))
       }, timeout)
