@@ -28,6 +28,11 @@ export interface AgentEvlogOptions {
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
 }
 
+export type AgentObservabilityOptions = AgentEvlogOptions & {
+  preset: "evlog"
+  level?: "minimal" | "standard" | "full"
+}
+
 export interface AgentEvlog {
   capability: AgentCapabilityDefinition
   capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }): Promise<void>
@@ -37,6 +42,11 @@ export interface AgentEvlog {
   drain(context: DrainContext): void
   status(): { configured: boolean, accepted: number, failed: number, dropped: number, pending: number, closed: boolean }
   flush(): Promise<void>
+}
+
+export function observability(options: AgentObservabilityOptions): AgentEvlog {
+  if (options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
+  return createAgentEvlog(options)
 }
 
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
