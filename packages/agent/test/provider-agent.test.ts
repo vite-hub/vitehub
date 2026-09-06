@@ -109,6 +109,19 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("forwards the CLIProxy credential to provider processes", async () => {
+    const threadId = "thread-cliproxy-environment"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    await adapter.generate(context(threadId) as never)
+
+    expect((createProviderRuntime.mock.lastCall?.[0] as { environment: Record<string, string> }).environment)
+      .toHaveProperty("CLIPROXY_API_KEY", "proxy-test-key")
+    vi.unstubAllEnvs()
+  })
+
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
     const agent = defineAgent({ driver: "codex", runtime: false })
 
