@@ -48,6 +48,7 @@ export {
 } from "./openapi.ts"
 export {
   papercuts,
+  posthogPapercuts,
 } from "./papercuts.ts"
 export {
   progressSummary,
@@ -267,6 +268,9 @@ export type {
   PapercutReportEvent,
   PapercutSource,
   PapercutsOptions,
+  PapercutBackend,
+  PapercutSeverity,
+  PosthogPapercutsOptions,
 } from "./papercuts.ts"
 export type {
   RepositoryHostClient,

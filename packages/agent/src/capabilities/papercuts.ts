@@ -16,11 +16,32 @@ import type { WorkspaceName } from "@vite-hub/workspace"
 
 export type PapercutSource = "cli" | "tool"
 
+export type PapercutSeverity = "low" | "medium" | "high" | "critical"
+
+export interface PapercutBackend {
+  report: (event: PapercutReportEvent) => MaybePromise<void>
+}
+
+export interface PosthogPapercutsOptions {
+  apiKey: string
+  host?: string
+  distinctId?: string
+  projectApiKey?: string
+  fetch?: typeof globalThis.fetch
+}
+
 export interface Papercut {
   agent?: AgentHostIdentity
   createdAt: string
   id: string
   message: string
+  title?: string
+  description?: string
+  severity?: PapercutSeverity
+  category?: string
+  consoleUrl?: string
+  sourceMetadata?: Record<string, unknown>
+  reproduction?: string
   run?: AgentRunMetadata
   source: PapercutSource
   trace?: TraceContext
@@ -47,7 +68,10 @@ export interface PapercutsOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   cli?: boolean
-  report: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
+  report?: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
+  backend?: PapercutBackend
+  retry?: { attempts?: number, delayMs?: number }
+  dedupe?: boolean
 }
 
 interface PapercutInput {
@@ -117,8 +141,55 @@ async function submitPapercut<
   source: PapercutSource,
 ): Promise<Papercut> {
   const papercut = createPapercut(context, normalizePapercutMessage(value), source)
-  await options.report({ context, papercut })
+  const report = options.report || options.backend?.report
+  if (!report) throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
+  if (options.report) {
+    await options.report({ context, papercut })
+  } else {
+    const key = `${papercut.message}|${papercut.run?.runId || ""}`
+    if (options.dedupe !== false && reportedPapercuts.has(key)) return papercut
+    if (options.dedupe !== false) reportedPapercuts.add(key)
+    const attempts = Math.max(1, options.retry?.attempts ?? 3)
+    const delayMs = Math.max(0, options.retry?.delayMs ?? 100)
+    const deliver = async () => {
+      let failure: unknown
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try { await report({ context, papercut }); return }
+        catch (error) { failure = error; if (attempt + 1 < attempts && delayMs) await new Promise(resolve => setTimeout(resolve, delayMs * 2 ** attempt)) }
+      }
+      throw failure
+    }
+    // Backends are best effort: exhaust retries, then keep the invocation successful.
+    // Awaiting the attempt makes delivery deterministic for local runtimes; hosts may
+    // still attach their own durable waitUntil implementation around the capability.
+    const delivered = await deliver().then(() => true, () => false)
+    if (!delivered && options.dedupe !== false) reportedPapercuts.delete(key)
+  }
   return papercut
+}
+
+const reportedPapercuts = new Set<string>()
+
+/** PostHog issue-board backend. Delivery is fire-and-forget and never fails an invocation. */
+export function posthogPapercuts(options: PosthogPapercutsOptions): PapercutBackend {
+  if (!options?.apiKey) throw new TypeError("[vitehub] posthogPapercuts() requires an apiKey.")
+  const send = options.fetch || globalThis.fetch
+  return {
+    async report({ papercut }) {
+      const host = (options.host || "https://us.i.posthog.com").replace(/\/+$/, "")
+      const response = await send(`${host}/capture/`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${options.apiKey}` },
+        body: JSON.stringify({
+          api_key: options.projectApiKey || options.apiKey,
+          event: "papercut",
+          distinct_id: options.distinctId || papercut.agent?.name || "vitehub-agent",
+          properties: { ...papercut, $process_person_profile: false },
+        }),
+      })
+      if (!response.ok) throw new Error(`[vitehub] PostHog papercut delivery failed (${response.status}).`)
+    },
+  }
 }
 
 function papercutCliMessage(input: unknown): unknown {
@@ -158,8 +229,8 @@ export function papercuts<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (!options || typeof options.report !== "function") {
-    throw new TypeError("[vitehub] papercuts() requires a report callback.")
+  if (!options || (typeof options.report !== "function" && typeof options.backend?.report !== "function")) {
+    throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
   }
   if (options.cli !== undefined && typeof options.cli !== "boolean") {
     throw new TypeError("[vitehub] papercuts({ cli }) must be a boolean.")

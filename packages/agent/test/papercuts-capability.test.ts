@@ -129,4 +129,30 @@ describe("papercuts capability", () => {
     })
     await expect(resolved.tools?.papercuts?.execute?.({ argv: ["report"] })).rejects.toThrow("requires a non-empty message")
   })
+
+  it("supports a replaceable backend with retry and deduplication", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { papercuts } = await import("../src/capabilities/papercuts.ts")
+    let attempts = 0
+    const backend = { report: vi.fn(async () => { attempts++; if (attempts < 2) throw new Error("flaky") }) }
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [papercuts({ backend, retry: { attempts: 3, delayMs: 0 } })],
+    }, runtime({ run: { runId: "same" } }), {})
+    await resolved.tools?.report_papercut?.execute?.({ message: "A flaky command." })
+    await resolved.tools?.report_papercut?.execute?.({ message: "A flaky command." })
+    expect(backend.report).toHaveBeenCalledTimes(2)
+    expect(attempts).toBe(2)
+  })
+
+  it("posts papercuts to PostHog without exposing backend configuration", async () => {
+    const { posthogPapercuts } = await import("../src/capabilities/papercuts.ts")
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init.headers).toMatchObject({ "content-type": "application/json", authorization: "Bearer secret" })
+      expect(JSON.parse(String(init.body))).toMatchObject({ event: "papercut" })
+      return new Response("ok", { status: 200 })
+    })
+    const backend = posthogPapercuts({ apiKey: "secret", fetch })
+    await backend.report({ context: runtime() as never, papercut: { id: "p", createdAt: new Date().toISOString(), message: "x", source: "tool" } })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
 })
