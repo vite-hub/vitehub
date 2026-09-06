@@ -977,6 +977,10 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
         },
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
+      while (bytes + size + (retained.length ? 1 : 0) > maxBytes && retained.length > 0) {
+        const removed = retained.pop()!
+        bytes -= encoder.encode(JSON.stringify(removed)).byteLength + (retained.length ? 1 : 0)
+      }
     }
     else if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
       candidate = {
