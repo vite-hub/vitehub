@@ -68,6 +68,7 @@
     "./_internal/workspace/internal/runtime/state": "./dist/_internal/workspace/internal/runtime/state.js",
     "./_internal/workspace/runtime": "./dist/_internal/workspace/runtime.js",
     "./agent": "./dist/agent.js",
+    "./agent/vite": "./dist/agent/vite.js",
     "./agent/capabilities": "./dist/agent/capabilities.js",
     "./agent/channels": "./dist/agent/channels.js",
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
