@@ -77,7 +77,6 @@ export type {
   AgentActivityLink,
   AgentActivityStatus,
   AgentActivityTask,
-  AgentActivityTaskStatus,
   AgentActivityTarget,
   AgentActivityUpdate,
   AgentChannelActivityContext,
